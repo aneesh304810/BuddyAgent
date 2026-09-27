@@ -78,8 +78,8 @@ Tests: `cd backend && pytest`
 The native app plan is in [`mobile/README.md`](mobile/README.md). In short:
 
 1. **Native app (Flutter, iOS + Android):** background listening, a "Hey Buddy" wake
-   word, and earbud long-press to talk (on Android, set Buddy as the default assistant;
-   on iOS, use the Siri Shortcut "Hey Siri, Buddy").
+   word, and earbud press to talk (on Android, set Buddy as the default assistant;
+   on iPhone, squeeze your AirPods while Buddy is the active audio app). No Siri needed.
 2. **Better voice:** cloud streaming speech-to-text with automatic language
    detection and speaker separation, plus a natural neural voice for Buddy.
 3. **Connectors:** Google Calendar, Gmail, WhatsApp/SMS (Android), Spotify and
