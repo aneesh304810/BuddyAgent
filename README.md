@@ -20,7 +20,7 @@ people talk about you, and corrects technical nonsense in the room.
 | **Goals & coaching** | "My goal is to finish the MVP this week". Buddy checks in on it. |
 | **Morning briefing** | Spoken daily at `BUDDY_MORNING_BRIEF` (default 08:00). |
 | **Web search** | News, weather, scores, facts (Claude's built-in web search). |
-| **Listen-in mode** | 🌐 translates Hindi/Malayalam/Marathi/Tamil into English, 👀 tells you when people are talking about or mocking you, 💡 corrects wrong technical claims. Say "Buddy, …" to ask it something without leaving the mode. |
+| **Listen-in mode** | 🌐 gives you the gist when people speak a language you don't know (anything outside `BUDDY_KNOWN_LANGUAGES`: English, Hindi, Malayalam, Marathi, Tamil by default), 👀 tells you when people are talking about or mocking you in that language, 💡 corrects wrong technical claims in any language. Say "Buddy, …" to ask it something without leaving the mode. |
 
 It works on **both iPhone and Android** today as a web app you can add to your
 home screen. Audio goes through whatever the phone uses, so connect your earbuds and go.
@@ -63,7 +63,8 @@ Tests: `cd backend && pytest`
 ## Listen-in mode: good to know
 
 - Browser speech recognition handles one language at a time, so pick the **room
-  language** (English, Hindi, Malayalam, Marathi or Tamil). Automatic multi-language
+  language**: for example Kannada, Telugu, Arabic or Chinese to get the gist, or
+  one of your own languages for technical corrections only. Automatic language
   detection comes with the cloud speech-to-text upgrade in the roadmap.
 - Browser speech-to-text can't tell speakers apart. Buddy knows this and stays
   cautious ("I think they said…").

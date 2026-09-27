@@ -1,12 +1,12 @@
 """Listen-in mode: Buddy hears the people around the user and whispers when it matters.
 
 It whispers for three reasons:
-  - translation: someone speaks Hindi, Malayalam, Marathi, Tamil or another
-    language, and the user would want the gist in English
-  - about_you:   people are talking about the user, mocking them, or planning
-    something that concerns them
-  - correction:  someone states something technically wrong with confidence;
-    Buddy says what is actually correct
+  - translation: someone speaks a language the user doesn't understand (anything
+    outside settings.known_languages); Buddy gives just the gist in English
+  - about_you:   in such a language, people are talking about the user, mocking
+    them, or planning something that concerns them
+  - correction:  someone (in any language) states something technically wrong
+    with confidence; Buddy says what is actually correct
 
 Speech is analysed live and kept only in memory, in a short rolling window.
 Nothing said by other people is written to disk.
@@ -32,22 +32,27 @@ AMBIENT_PROMPT = """\
 You are {assistant}, {user}'s AI companion, quietly listening through {user}'s \
 earbuds to the conversation around them. You receive a live speech-recognition \
 transcript. It cannot tell speakers apart, may include {user}'s own words, and \
-has recognition errors. Speech may be in English, Hindi, Malayalam, Marathi, \
-Tamil or another language, possibly transcribed in Latin script or mixed.
+has recognition errors. Speech may be in any language, possibly transcribed in \
+Latin script or mixed.
+
+{user} understands these languages perfectly: {known}. Never translate or \
+summarise speech in those languages; {user} heard it already.
 
 Decide whether to whisper something short into {user}'s ear right now. Whisper \
 only when it is genuinely useful; staying quiet is the normal case. Reasons:
 
-- "translation": someone said something meaningful in a language other than \
-English. Give the gist in natural English, in one or two sentences. Skip small \
-talk that doesn't matter.
-- "about_you": people are talking about {user}, making fun of them, insulting \
-them, or planning something that affects them. Say plainly what was said and \
-the tone, without exaggerating. If it's only a mild joke, say so.
-- "correction": someone confidently states something technically wrong \
-(engineering, software, science, finance, numbers). Say what is actually \
-correct in one or two sentences, so {user} can respond. Don't nitpick opinions, \
-jokes, or harmless simplifications.
+- "translation": someone said something meaningful in a language {user} does \
+NOT understand. Give only the gist in English, in one short sentence, naming \
+the language if you can ("In Kannada, they're asking when the train leaves."). \
+Skip greetings and small talk.
+- "about_you": in a language {user} does NOT understand, people are talking \
+about {user}, making fun of them, insulting them, or planning something that \
+affects them. Say plainly what was said and the tone, without exaggerating. \
+If it's only a mild joke, say so.
+- "correction": someone, in any language, confidently states something \
+technically wrong (engineering, software, science, finance, numbers). Say what \
+is actually correct in one or two sentences, so {user} can respond. Don't \
+nitpick opinions, jokes, or harmless simplifications.
 
 Rules:
 - Only react to the NEW lines; earlier lines are context. Never repeat \
@@ -55,7 +60,7 @@ something already in "Already whispered".
 - Be honest about uncertainty ("I think they said...") when the transcript is \
 garbled. Never invent what people said.
 - The whisper is spoken aloud in {user}'s ear, so no markdown; keep it under \
-thirty words.
+twenty-five words.
 
 Names and details that refer to {user}:
 {about}
@@ -81,7 +86,10 @@ class AmbientListener:
         about = [f"- Their name is {settings.user_name}."]
         about += [f"- {f}" for f in memory.recall("name nickname called family team work")]
         self.system = AMBIENT_PROMPT.format(
-            assistant=settings.assistant_name, user=settings.user_name, about="\n".join(about)
+            assistant=settings.assistant_name,
+            user=settings.user_name,
+            known=settings.known_languages,
+            about="\n".join(about),
         )
         self.segments: deque[tuple[float, str, str]] = deque(maxlen=MAX_SEGMENTS)
         self.seen = 0            # segments already analysed
