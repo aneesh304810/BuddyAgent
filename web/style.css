@@ -1,0 +1,52 @@
+:root {
+  --bg: #0b0f14;
+  --panel: #131a22;
+  --text: #e6edf3;
+  --muted: #8b98a5;
+  --accent: #36c5f0;
+  --warm: #f5a623;
+  --user: #1f6feb;
+}
+* { box-sizing: border-box; }
+[hidden] { display: none !important; }
+html, body { height: 100%; margin: 0; }
+body {
+  background: var(--bg);
+  color: var(--text);
+  font: 16px/1.45 system-ui, -apple-system, "Segoe UI", Roboto, sans-serif;
+}
+main {
+  display: flex; flex-direction: column;
+  height: 100dvh; max-width: 640px; margin: 0 auto;
+  padding: env(safe-area-inset-top) 16px env(safe-area-inset-bottom);
+}
+header { display: flex; align-items: center; justify-content: space-between; padding: 12px 0; }
+h1 { font-size: 20px; margin: 0; letter-spacing: .5px; }
+.pill { font-size: 12px; padding: 3px 10px; border-radius: 999px; background: var(--panel); color: var(--muted); }
+.pill.on { color: var(--accent); }
+
+#log { flex: 1; overflow-y: auto; display: flex; flex-direction: column; gap: 8px; padding: 8px 0; }
+.msg { max-width: 85%; padding: 8px 12px; border-radius: 14px; background: var(--panel); }
+.msg.user { align-self: flex-end; background: var(--user); }
+.msg.nudge { border-left: 3px solid var(--warm); }
+.msg.error { color: #ff7b72; }
+
+footer { display: flex; flex-direction: column; align-items: center; gap: 12px; padding: 12px 0 20px; }
+#status { margin: 0; color: var(--muted); font-size: 14px; min-height: 1.4em; text-align: center; }
+#orb {
+  width: 96px; height: 96px; border-radius: 50%; border: 0; cursor: pointer;
+  background: radial-gradient(circle at 35% 35%, #5fd8ff, #0b6e99 70%);
+  box-shadow: 0 0 24px rgba(54, 197, 240, .35);
+  transition: transform .15s;
+}
+#orb:active { transform: scale(.95); }
+#orb.listening { animation: pulse 1.4s ease-in-out infinite; }
+#orb.speaking { background: radial-gradient(circle at 35% 35%, #ffd27a, #b8740a 70%); box-shadow: 0 0 28px rgba(245, 166, 35, .45); }
+@keyframes pulse {
+  0%, 100% { box-shadow: 0 0 18px rgba(54, 197, 240, .35); }
+  50% { box-shadow: 0 0 44px rgba(54, 197, 240, .8); }
+}
+.msg.whisper { border-left: 3px solid var(--accent); font-style: italic; }
+.modes { display: flex; gap: 16px; font-size: 14px; }
+select { background: var(--panel); color: var(--text); border: 1px solid #2a3440; border-radius: 6px; padding: 2px 6px; }
+.toggle { font-size: 13px; color: var(--muted); display: flex; gap: 6px; align-items: center; }

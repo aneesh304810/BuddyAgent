@@ -1,0 +1,46 @@
+<!doctype html>
+<html lang="en">
+<head>
+  <meta charset="utf-8">
+  <meta name="viewport" content="width=device-width, initial-scale=1, viewport-fit=cover">
+  <meta name="theme-color" content="#0b0f14">
+  <meta name="apple-mobile-web-app-capable" content="yes">
+  <link rel="manifest" href="manifest.json">
+  <title>Buddy</title>
+  <link rel="stylesheet" href="style.css">
+</head>
+<body>
+  <main>
+    <header>
+      <h1>Buddy</h1>
+      <span id="conn" class="pill">offline</span>
+    </header>
+
+    <section id="log" aria-live="polite"></section>
+
+    <footer>
+      <p id="status">Tap the orb and start talking</p>
+      <button id="orb" aria-label="Start or stop listening"><span></span></button>
+      <div class="modes">
+        <label><input type="radio" name="mode" value="talk" checked> Talk to Buddy</label>
+        <label><input type="radio" name="mode" value="listen"> Listen-in</label>
+      </div>
+      <label class="toggle" id="handsfreeRow">
+        <input type="checkbox" id="handsfree" checked>
+        Stay in conversation (hands-free)
+      </label>
+      <label class="toggle" id="langRow" hidden>
+        Room language
+        <select id="lang">
+          <option value="en-IN">English</option>
+          <option value="hi-IN">Hindi</option>
+          <option value="ml-IN">Malayalam</option>
+          <option value="mr-IN">Marathi</option>
+          <option value="ta-IN">Tamil</option>
+        </select>
+      </label>
+    </footer>
+  </main>
+  <script src="app.js"></script>
+</body>
+</html>
