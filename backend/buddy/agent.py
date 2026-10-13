@@ -11,10 +11,13 @@ from collections.abc import Awaitable, Callable
 
 import anthropic
 
+from . import usage
+from .agents import AgentRegistry, ApprovalNeeded
 from .config import settings
 from .memory import Memory
 from .persona import build_system_prompt
-from .tools import TOOLS, ToolError, local_now, run_tool
+from .privacy import mask
+from .tools import CLIENT_TOOLS, ORCHESTRATION_TOOLS, WEB_SEARCH, ToolError, local_now, run_tool
 
 log = logging.getLogger(__name__)
 
@@ -42,9 +45,11 @@ def _request_kwargs(system: str) -> dict:
 class Conversation:
     """One live conversation with the user (one per connected phone)."""
 
-    def __init__(self, memory: Memory):
+    def __init__(self, memory: Memory, registry: AgentRegistry | None = None):
         self.memory = memory
+        self.registry = registry
         self.messages: list[dict] = []
+        self.turn = 0  # counts user messages; approvals need a newer one
         # Frozen for the whole session so the cached prompt prefix stays valid.
         self.system = build_system_prompt(memory.recall(""), memory.open_goals())
 
@@ -54,9 +59,16 @@ class Conversation:
         If the task running this is cancelled (the user interrupted), the history
         keeps what was already spoken so Buddy knows where it was cut off.
         """
+        self.turn += 1
         stamp = local_now().strftime("%A %d %B %Y, %I:%M %p")
-        self.messages.append({"role": "user", "content": f"({stamp}) {user_text}"})
+        # Sensitive numbers never leave the server.
+        self.messages.append({"role": "user", "content": f"({stamp}) {mask(user_text)}"})
         spoken: list[str] = []
+
+        if usage.month_to_date(self.memory) >= settings.monthly_budget_usd:
+            await say("Heads up, we've hit this month's AI budget, so I'm pausing until you raise it.")
+            self.messages.pop()
+            return
 
         async def speak(sentence: str) -> None:
             spoken.append(sentence)
@@ -76,9 +88,8 @@ class Conversation:
                 tool_uses = [b for b in response.content if b.type == "tool_use"]
                 if response.stop_reason != "tool_use" or not tool_uses:
                     return
-                self.messages.append(
-                    {"role": "user", "content": [self._run(b) for b in tool_uses]}
-                )
+                results = [await self._run(b) for b in tool_uses]
+                self.messages.append({"role": "user", "content": results})
             await speak("Sorry, I got a bit tangled up there. Can you say that again?")
         except BaseException:
             # Interrupted or failed mid-step: record what the user actually heard.
@@ -91,7 +102,7 @@ class Conversation:
     async def _stream_step(self, speak: Say):
         buffer = ""
         async with client.beta.messages.stream(
-            **_request_kwargs(self.system), tools=TOOLS, messages=self.messages
+            **_request_kwargs(self.system), tools=self.tools(), messages=self.messages
         ) as stream:
             async for event in stream:
                 if event.type != "text":
@@ -102,17 +113,25 @@ class Conversation:
                     if sentence.strip():
                         await speak(sentence.strip())
             response = await stream.get_final_message()
+        usage.record(self.memory, response.model, response.usage)
         if buffer.strip() and response.stop_reason != "refusal":
             await speak(buffer.strip())
         return response
 
-    def _run(self, block) -> dict:
+    def tools(self) -> list[dict]:
+        agent_tools = self.registry.tool_definitions() if self.registry else []
+        orchestration = ORCHESTRATION_TOOLS if self.registry else []
+        return CLIENT_TOOLS + orchestration + agent_tools + [WEB_SEARCH]
+
+    async def _run(self, block) -> dict:
         args = block.input if isinstance(block.input, dict) else json.loads(block.input)
         try:
-            result, is_error = run_tool(self.memory, block.name, args), False
+            result, is_error = await self._dispatch(block.name, args), False
+        except ApprovalNeeded as e:
+            result, is_error = str(e), False
         except (ToolError, KeyError, TypeError, ValueError) as e:
             result, is_error = str(e) or type(e).__name__, True
-        log.info("tool %s(%s) -> %s", block.name, args, result)
+        log.info("tool %s -> %s", block.name, "error" if is_error else "ok")
         return {
             "type": "tool_result",
             "tool_use_id": block.id,
@@ -120,18 +139,36 @@ class Conversation:
             "is_error": is_error,
         }
 
+    async def _dispatch(self, name: str, args: dict) -> str:
+        if self.registry:
+            if name == "confirm_action":
+                return await self.registry.confirm(args["id"], self.turn)
+            if name == "list_agents":
+                return json.dumps(
+                    [{k: a[k] for k in ("name", "description", "enabled", "tools")}
+                     for a in self.registry.status()]
+                )
+            if name == "pause_agent":
+                self.registry.set_enabled(args["name"], False)
+                return f"The {args['name']} agent is now off."
+            if name in self.registry.tools:
+                return await self.registry.call(name, args, self.turn)
+        return run_tool(self.memory, name, args)
+
     def note_proactive(self, text: str) -> None:
         """Record something Buddy said unprompted, so the user can reply to it."""
         if self.messages and self.messages[-1]["role"] == "assistant":
             self.messages.append({"role": "assistant", "content": text})
 
 
-async def compose(system: str, instruction: str) -> str:
+async def compose(system: str, instruction: str, memory: Memory | None = None) -> str:
     """One-shot generation with no tools, for briefings and nudges."""
     response = await client.beta.messages.create(
         **_request_kwargs(system),
         messages=[{"role": "user", "content": instruction}],
     )
+    if memory is not None:
+        usage.record(memory, response.model, response.usage)
     if response.stop_reason == "refusal":
         return ""
     return " ".join(b.text for b in response.content if b.type == "text").strip()

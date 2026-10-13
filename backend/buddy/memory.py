@@ -1,8 +1,9 @@
 """Long-term memory: facts about the user, reminders, and goals, stored in SQLite."""
 
-import sqlite3
 from datetime import datetime, timezone
 from pathlib import Path
+
+from .db import connect
 
 SCHEMA = """
 CREATE TABLE IF NOT EXISTS facts (
@@ -22,6 +23,25 @@ CREATE TABLE IF NOT EXISTS goals (
     done INTEGER NOT NULL DEFAULT 0,
     created_at TEXT NOT NULL
 );
+CREATE TABLE IF NOT EXISTS audit (
+    id INTEGER PRIMARY KEY,
+    ts TEXT NOT NULL,
+    agent TEXT NOT NULL,
+    tool TEXT NOT NULL,
+    args TEXT NOT NULL,             -- masked
+    status TEXT NOT NULL,           -- ok | error | blocked | approval_requested | approved
+    detail TEXT
+);
+CREATE TABLE IF NOT EXISTS usage (
+    day TEXT NOT NULL,              -- YYYY-MM-DD, UTC
+    model TEXT NOT NULL,
+    input_tokens INTEGER NOT NULL DEFAULT 0,
+    output_tokens INTEGER NOT NULL DEFAULT 0,
+    cache_read_tokens INTEGER NOT NULL DEFAULT 0,
+    cache_write_tokens INTEGER NOT NULL DEFAULT 0,
+    cost_usd REAL NOT NULL DEFAULT 0,
+    PRIMARY KEY (day, model)
+);
 CREATE TABLE IF NOT EXISTS kv (
     key TEXT PRIMARY KEY,
     value TEXT NOT NULL
@@ -35,8 +55,7 @@ def _now() -> str:
 
 class Memory:
     def __init__(self, path: Path | str):
-        self.db = sqlite3.connect(str(path), check_same_thread=False)
-        self.db.row_factory = sqlite3.Row
+        self.db = connect(path)
         self.db.executescript(SCHEMA)
 
     # --- facts -----------------------------------------------------------

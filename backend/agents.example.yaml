@@ -1,0 +1,23 @@
+# Buddy's specialist agents. Copy to agents.yaml (path set by BUDDY_AGENTS).
+# Every agent is an MCP server, started by Buddy (command) or already running (url).
+#
+#   name               letters, digits, - and single _ (Claude sees tools as <name>__<tool>)
+#   command | url      stdio subprocess, or a Streamable HTTP endpoint on your private server
+#   enabled            false keeps it off; you can also switch agents via /admin/agents
+#   approval_required  tool names (or "*") that do nothing until you say "yes"
+#   daily_call_limit   calls per 24 hours before Buddy stops calling it
+
+agents:
+  - name: worldclock
+    description: Time around the world and countdowns to dates.
+    command: [".venv/bin/python", "-m", "agents.worldclock.server"]
+    enabled: true
+    approval_required: []
+    daily_call_limit: 200
+
+  # Phase 1 adds the money agent here, for example:
+  # - name: money
+  #   description: Card bills, expenses and spending limits.
+  #   command: [".venv/bin/python", "-m", "agents.money.server"]
+  #   approval_required: ["mark_bill_paid"]
+  #   daily_call_limit: 500

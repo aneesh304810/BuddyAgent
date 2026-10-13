@@ -20,11 +20,12 @@ import logging
 import secrets
 
 import anthropic
-from fastapi import FastAPI, WebSocket, WebSocketDisconnect
+from fastapi import Depends, FastAPI, Header, HTTPException, WebSocket, WebSocketDisconnect
 from fastapi.staticfiles import StaticFiles
 
-from . import proactive
+from . import proactive, usage
 from .agent import Conversation
+from .agents import AgentRegistry, load_specs
 from .ambient import AmbientListener
 from .config import settings
 from .memory import Memory
@@ -33,6 +34,7 @@ logging.basicConfig(level=logging.INFO, format="%(asctime)s %(name)s %(message)s
 log = logging.getLogger("buddy")
 
 memory = Memory(settings.db_path)
+registry = AgentRegistry(memory, load_specs(settings.agents_file))
 # Live connections, each with its own conversation.
 connections: dict[WebSocket, Conversation] = {}
 
@@ -49,9 +51,13 @@ async def deliver(kind: str, text: str) -> bool:
 
 @contextlib.asynccontextmanager
 async def lifespan(app: FastAPI):
+    await registry.start()
     task = asyncio.create_task(proactive.run(memory, deliver))
-    yield
-    task.cancel()
+    try:
+        yield
+    finally:
+        task.cancel()
+        await registry.close()
 
 
 app = FastAPI(title="Buddy", lifespan=lifespan)
@@ -75,6 +81,43 @@ def addressed_to_buddy(text: str) -> str | None:
     return None
 
 
+def require_admin(authorization: str | None = Header(default=None)) -> None:
+    token = (authorization or "").removeprefix("Bearer ").strip()
+    if not authorized(token or None):
+        raise HTTPException(status_code=401, detail="bad token")
+
+
+# --- admin: only you, with the token, over your private network ------------
+@app.get("/admin/agents", dependencies=[Depends(require_admin)])
+def admin_agents() -> list[dict]:
+    return registry.status()
+
+
+@app.post("/admin/agents/{name}/{action}", dependencies=[Depends(require_admin)])
+def admin_agent_switch(name: str, action: str) -> dict:
+    if action not in ("enable", "disable"):
+        raise HTTPException(status_code=404)
+    if name not in registry.specs:
+        raise HTTPException(status_code=404, detail="no such agent")
+    registry.set_enabled(name, action == "enable")
+    note = " Restart Buddy to connect it." if action == "enable" and name not in registry.clients else ""
+    return {"name": name, "enabled": action == "enable", "note": note.strip()}
+
+
+@app.get("/admin/audit", dependencies=[Depends(require_admin)])
+def admin_audit(limit: int = 100) -> list[dict]:
+    return registry.audit_log(min(limit, 1000))
+
+
+@app.get("/admin/usage", dependencies=[Depends(require_admin)])
+def admin_usage() -> dict:
+    return {
+        "month_to_date_usd": round(usage.month_to_date(memory), 4),
+        "monthly_budget_usd": settings.monthly_budget_usd,
+        "by_month_and_model": usage.summary(memory),
+    }
+
+
 def authorized(token: str | None) -> bool:
     if not settings.access_token:
         return True  # local development only; set BUDDY_TOKEN before exposing
@@ -87,7 +130,7 @@ async def talk(ws: WebSocket) -> None:
         await ws.close(code=4401)
         return
     await ws.accept()
-    convo = Conversation(memory)
+    convo = Conversation(memory, registry)
     connections[ws] = convo
     current: asyncio.Task | None = None
 

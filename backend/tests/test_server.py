@@ -28,6 +28,8 @@ class FakeStream:
     async def get_final_message(self):
         return SimpleNamespace(
             stop_reason="end_turn",
+            model="claude-opus-5",
+            usage=SimpleNamespace(input_tokens=10, output_tokens=5),
             content=[SimpleNamespace(type="text", text=self.text)],
         )
 
@@ -48,6 +50,8 @@ def test_listen_in_whispers(monkeypatch):
     async def fake_create(**kw):
         return SimpleNamespace(
             stop_reason="end_turn",
+            model="claude-opus-5",
+            usage=SimpleNamespace(input_tokens=10, output_tokens=5),
             content=[SimpleNamespace(
                 type="text",
                 text='{"whisper": true, "kind": "about_you", '

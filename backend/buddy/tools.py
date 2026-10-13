@@ -100,7 +100,36 @@ CLIENT_TOOLS = [
     },
 ]
 
-TOOLS = CLIENT_TOOLS + [WEB_SEARCH]
+# Orchestration tools: handled by the conversation loop, not run_tool().
+ORCHESTRATION_TOOLS = [
+    {
+        "name": "confirm_action",
+        "description": "Carry out an agent action that needed approval. Call ONLY after the "
+        "user clearly said yes in a message that came after you asked them.",
+        "input_schema": {
+            "type": "object",
+            "properties": {"id": {"type": "string", "description": "The action id"}},
+            "required": ["id"],
+            "additionalProperties": False,
+        },
+    },
+    {
+        "name": "list_agents",
+        "description": "List Buddy's specialist agents, whether each is on, and its tools.",
+        "input_schema": {"type": "object", "properties": {}, "additionalProperties": False},
+    },
+    {
+        "name": "pause_agent",
+        "description": "Switch an agent off immediately (kill switch). Only the user can switch "
+        "it back on, from the admin page.",
+        "input_schema": {
+            "type": "object",
+            "properties": {"name": {"type": "string"}},
+            "required": ["name"],
+            "additionalProperties": False,
+        },
+    },
+]
 
 
 def local_now() -> datetime:

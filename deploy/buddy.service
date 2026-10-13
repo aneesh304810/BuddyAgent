@@ -1,0 +1,27 @@
+[Unit]
+Description=Buddy personal assistant
+After=network-online.target tailscaled.service
+Wants=network-online.target
+
+[Service]
+User=buddy
+Group=buddy
+WorkingDirectory=/opt/buddy/backend
+EnvironmentFile=/etc/buddy/buddy.env
+# Only reachable through `tailscale serve` on this machine, never directly.
+ExecStart=/opt/buddy/backend/.venv/bin/uvicorn buddy.server:app --host 127.0.0.1 --port 8000
+Restart=on-failure
+RestartSec=5
+
+# Hardening: Buddy can write only its own data and backup folders.
+NoNewPrivileges=true
+ProtectSystem=strict
+ProtectHome=true
+PrivateTmp=true
+ReadWritePaths=/var/lib/buddy /var/backups/buddy
+ProtectKernelTunables=true
+ProtectControlGroups=true
+RestrictSUIDSGID=true
+
+[Install]
+WantedBy=multi-user.target

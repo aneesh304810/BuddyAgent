@@ -1,0 +1,10 @@
+[Unit]
+Description=Encrypted backup of Buddy's database
+
+[Service]
+Type=oneshot
+User=buddy
+Group=buddy
+WorkingDirectory=/opt/buddy/backend
+EnvironmentFile=/etc/buddy/buddy.env
+ExecStart=/opt/buddy/backend/.venv/bin/python /opt/buddy/deploy/backup.py

@@ -7,7 +7,7 @@ people talk about you, and corrects technical nonsense in the room.
 
 ![Buddy on a phone](docs/screenshot.png)
 
-## What works today (v0.1)
+## What works today (v0.2, phase 0)
 
 | Feature | How |
 |---|---|
@@ -22,41 +22,48 @@ people talk about you, and corrects technical nonsense in the room.
 | **Web search** | News, weather, scores, facts (Claude's built-in web search). |
 | **Listen-in mode** | 🌐 gives you the gist when people speak a language you don't know (anything outside `BUDDY_KNOWN_LANGUAGES`: English, Hindi, Malayalam, Marathi, Tamil by default), 👀 tells you when people are talking about or mocking you in that language, 💡 corrects wrong technical claims in any language. Say "Buddy, …" to ask it something without leaving the mode. |
 
+| **Specialist agents** | Buddy orchestrates agents that are MCP servers (`agents.yaml`). Example agent: `worldclock`. Each agent is the template for new ones (`backend/agents/worldclock`). |
+| **Approvals** | Agent tools marked `approval_required` do nothing until you say yes in a later message; Claude cannot approve its own actions. |
+| **Kill switch, limits, audit** | Pause any agent by voice or admin API; daily call limits per agent; every agent call logged with arguments masked. |
+| **Privacy** | Card, account, Aadhaar and PAN numbers, OTPs, CVVs and passwords are masked before anything reaches Claude. Database encrypted with SQLCipher. |
+| **Budget** | Claude usage and cost tracked; Buddy pauses at `BUDDY_MONTHLY_BUDGET_USD`. |
+
 It works on **both iPhone and Android** today as a web app you can add to your
 home screen. Audio goes through whatever the phone uses, so connect your earbuds and go.
 
 ## Architecture
 
 ```
- Earbuds ─BT─ Phone (web app now, native app later)
-                │  speech→text (on phone)   text→speech (on phone)
-                │  WebSocket: sentences both ways
+ Earbuds ─BT─ Android phone (web app now, native app later)
+                │  Tailscale private network + HTTPS (no public ports)
                 ▼
-          Buddy backend (Python, FastAPI) ── Claude (brain + tools + web search)
-            ├─ agent.py      conversation loop, streaming, interruption
-            ├─ ambient.py    Listen-in analysis (translate / about you / correction)
-            ├─ proactive.py  reminders + morning briefing pushed to the phone
-            ├─ memory.py     SQLite: facts, reminders, goals
-            └─ tools.py      what Buddy can do
+          Your private server (VPS, India)
+            Buddy orchestrator (Python, FastAPI) ──masked text──▶ Claude
+            ├─ agent.py      conversation loop, streaming, interruption, approvals
+            ├─ agents.py     agent registry: MCP clients, approvals, limits, audit, kill switch
+            ├─ privacy.py    masking of sensitive numbers
+            ├─ usage.py      Claude cost tracking and monthly budget
+            ├─ ambient.py    Listen-in analysis
+            ├─ proactive.py  reminders and morning briefing
+            └─ memory.py     encrypted SQLite (SQLCipher): facts, reminders, goals, audit, usage
+          Specialist agents (MCP servers): worldclock now; money, mail, tutor… next
 ```
 
-## Run it
+## Put it on your private server
+
+Follow [`docs/SETUP.md`](docs/SETUP.md): about an hour, with the monthly cost
+breakdown (about $22–45 a month in total).
+
+## Run it locally (development)
 
 ```bash
 cd backend
 python3 -m venv .venv && source .venv/bin/activate
 pip install -r requirements-dev.txt
-cp .env.example .env        # add ANTHROPIC_API_KEY, BUDDY_TOKEN, your name & timezone
-uvicorn buddy.server:app --host 0.0.0.0 --port 8000
+cp .env.example .env               # add ANTHROPIC_API_KEY and your name
+cp agents.example.yaml agents.yaml
+uvicorn buddy.server:app --port 8000
 ```
-
-The phone browser needs **HTTPS** to use the microphone. The easiest options:
-- For a quick test, `cloudflared tunnel --url http://localhost:8000` (or ngrok) gives you an https URL.
-- To keep it always on, deploy the backend to Fly.io, Railway, Render or a small VPS.
-
-On your phone, open `https://<your-url>/?token=<BUDDY_TOKEN>` once; the page
-remembers the token. Connect your earbuds and tap the orb. Chrome on Android and
-Safari on iOS both work. Use "Add to Home Screen" for an app-like icon.
 
 Tests: `cd backend && pytest`
 
@@ -75,15 +82,16 @@ Tests: `cd backend && pytest`
 
 ## Roadmap
 
-The native app plan is in [`mobile/README.md`](mobile/README.md). In short:
+| Phase | What |
+|---|---|
+| 0 ✅ | Private server, encryption, masking, orchestrator and agent registry |
+| 1 | Money agent: card bill reminders, expense tracking, spending limits |
+| 2 | Organiser: tasks, morning briefing, evening wrap-up |
+| 3 | Gmail and Calendar |
+| 4 | Native Android app: wake word, earbud button, always-on Listen-in |
+| 5 | English tutor: grammar, American pronunciation, WhatsApp lessons |
+| 6 | Research and flights |
+| 7 | Learns your style |
+| 8 | Agent builder |
 
-1. **Native app (Flutter, iOS + Android):** background listening, a "Hey Buddy" wake
-   word, and earbud press to talk (on Android, set Buddy as the default assistant;
-   on iPhone, squeeze your AirPods while Buddy is the active audio app). No Siri needed.
-2. **Better voice:** cloud streaming speech-to-text with automatic language
-   detection and speaker separation, plus a natural neural voice for Buddy.
-3. **Connectors:** Google Calendar, Gmail, WhatsApp/SMS (Android), Spotify and
-   smart home. Buddy asks you to confirm before anything that sends messages or spends money.
-4. **Smarter proactivity:** calendar-aware nudges ("leave in 10, traffic's
-   building"), an evening wrap-up and goal check-ins.
-5. **Voice ID:** Buddy only obeys your voice.
+The native app notes are in [`mobile/README.md`](mobile/README.md).

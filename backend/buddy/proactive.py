@@ -24,6 +24,7 @@ async def reminder_nudge(memory: Memory, reminder: dict) -> str:
         system,
         "A reminder the user set has just come due. Tell them in one short, natural "
         f"spoken sentence, as their friend would. Reminder: {reminder['text']}",
+        memory,
     )
     return text or f"Hey, reminder: {reminder['text']}."
 
@@ -39,6 +40,7 @@ async def morning_briefing(memory: Memory) -> str:
         "morning briefing, about four spoken sentences: greet them, mention what's "
         "coming up today, and nudge them on one of their goals. "
         f"Upcoming reminders: {'; '.join(reminders) or 'none'}.",
+        memory,
     )
 
 

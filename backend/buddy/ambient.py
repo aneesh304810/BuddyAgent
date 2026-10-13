@@ -19,9 +19,11 @@ import time
 from collections import deque
 from collections.abc import Awaitable, Callable
 
+from . import usage
 from .agent import FALLBACK_BETA, client
 from .config import settings
 from .memory import Memory
+from .privacy import mask
 
 log = logging.getLogger(__name__)
 
@@ -82,6 +84,7 @@ Whisper = Callable[[str, str], Awaitable[None]]
 
 class AmbientListener:
     def __init__(self, memory: Memory, whisper: Whisper):
+        self.memory = memory
         self.whisper = whisper
         about = [f"- Their name is {settings.user_name}."]
         about += [f"- {f}" for f in memory.recall("name nickname called family team work")]
@@ -101,7 +104,7 @@ class AmbientListener:
         """Add a transcribed segment and analyse it (coalescing bursts of speech)."""
         if len(self.segments) == self.segments.maxlen:
             self.seen = max(0, self.seen - 1)  # the oldest segment is about to drop
-        self.segments.append((time.monotonic(), lang, text))
+        self.segments.append((time.monotonic(), lang, mask(text)))
         if self._running and not self._running.done():
             self._again = True
         else:
@@ -152,6 +155,8 @@ class AmbientListener:
                 f"Already whispered:\n{chr(10).join(self.whispered) or '(nothing)'}",
             }],
         )
+        if hasattr(response, "usage"):
+            usage.record(self.memory, response.model, response.usage)
         if response.stop_reason in ("refusal", "max_tokens"):
             return
         text = next((b.text for b in response.content if b.type == "text"), "")
