@@ -33,3 +33,37 @@ def test_otp_phrasings():
 
 def test_postal_pin_code_kept():
     assert mask("Kochi, PIN code 682001") == "Kochi, PIN code 682001"
+
+
+def test_us_ids():
+    out = mask("My SSN is 123-45-6789 and routing 021000021")
+    assert "123-45-6789" not in out and "021000021" not in out
+    assert "6789" not in mask("social security number 123456789")
+
+
+def test_south_american_ids():
+    cases = {
+        "CPF 123.456.789-09": "123.456.789-09",
+        "CNPJ 12.345.678/0001-95": "12.345.678/0001-95",
+        "mi RUT es 12.345.678-K": "12.345.678-K",
+        "CUIT 20-12345678-3": "20-12345678-3",
+        "DNI 12.345.678": "12.345.678",
+        "cédula 1020304050": "1020304050",
+        "passport X1234567": "X1234567",
+    }
+    for text, secret in cases.items():
+        assert secret not in mask(text), text
+
+
+def test_spanish_portuguese_codes_and_passwords():
+    for text, secret in [("su código de verificación es 482913", "482913"),
+                         ("o código é 482913", "482913"),
+                         ("mi contraseña: Sol2026!", "Sol2026!"),
+                         ("minha senha é Praia99", "Praia99")]:
+        assert secret not in mask(text), text
+
+
+def test_money_amounts_untouched():
+    for text in ("Paid R$ 1.234,56 at the market", "Cost was $1,250.00", "ARS 45.000 for the taxi",
+                 "Flight LA 2470 departs 14:35", "Call me at +1 415 555 0134"):
+        assert mask(text) == text, text

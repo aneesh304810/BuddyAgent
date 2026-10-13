@@ -1,6 +1,6 @@
 # Setting up Buddy's private server (phase 0)
 
-About an hour, once. At the end Buddy runs on your own server in India,
+About an hour, once. At the end Buddy runs on your own server in the US (East),
 reachable only from your devices, with an encrypted database and nightly
 encrypted backups.
 
@@ -11,7 +11,7 @@ when you sign up.
 
 | Item | Choice | Cost per month |
 |---|---|---|
-| Server | DigitalOcean Basic droplet, 2 GB RAM, 1 vCPU, 50 GB SSD, Bangalore region | about $12 |
+| Server | DigitalOcean Basic droplet, 2 GB RAM, 1 vCPU, 50 GB SSD, New York region (close to both the US and South America) | about $12 |
 | Private network | Tailscale Personal plan | free |
 | Claude API | Pay per use; Buddy stops itself at your monthly budget (default $40) | roughly $10–30 for daily personal use |
 | Off-server backup copy (optional) | Backblaze B2 or similar, a few MB | a few cents |
@@ -59,7 +59,7 @@ your backups. The server can write backups but never read them.
 ## Step 4 — The server
 
 1. Sign up at digitalocean.com.
-2. Create a droplet: **Ubuntu 24.04**, region **Bangalore**, plan **Basic, 2 GB / 1 vCPU**,
+2. Create a droplet: **Ubuntu 24.04**, region **New York** (closest to both the US and South America), plan **Basic, 2 GB / 1 vCPU**,
    authentication **SSH key** (not password).
 3. Don't enable DigitalOcean's own backups; Buddy makes its own encrypted ones.
 
@@ -101,6 +101,7 @@ sudo nano /etc/buddy/buddy.env
 ```
 
 Set `ANTHROPIC_API_KEY`, `BUDDY_USER_NAME` and, if needed, `BUDDY_MONTHLY_BUDGET_USD`.
+`BUDDY_TIMEZONE` is only a fallback: Buddy follows your phone's time zone as you travel.
 Leave `BUDDY_DB_KEY` and `BUDDY_TOKEN` as generated. Then:
 
 ```
@@ -162,7 +163,7 @@ For off-server copies, install `rclone`, configure a remote, and set
 | Transport | Phone ↔ server is encrypted twice: Tailscale (WireGuard) and HTTPS. |
 | Database | Encrypted with SQLCipher; the file on disk is unreadable without `BUDDY_DB_KEY`. |
 | Backups | Encrypted again with your `age` key, which never touches the server. |
-| Claude | Card, account, Aadhaar and PAN numbers, OTPs, CVVs and passwords are masked before any text leaves the server. |
+| Claude | Card, account and routing numbers; US SSN/ITIN; South American IDs (CPF, CNPJ, RUT, CUIT, DNI, cédula); Aadhaar and PAN; passports; one-time codes, CVVs and passwords (English, Spanish, Portuguese) are masked before any text leaves the server. |
 | Secrets | Kept in `/etc/buddy/buddy.env`, readable only by root and the Buddy service. |
 | Service | Runs as an unprivileged user that can write only its own data and backup folders. |
 | Agents | Least access, approvals, daily call limits, audit log, kill switch. |

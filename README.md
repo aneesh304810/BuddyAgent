@@ -25,7 +25,8 @@ people talk about you, and corrects technical nonsense in the room.
 | **Specialist agents** | Buddy orchestrates agents that are MCP servers (`agents.yaml`). Example agent: `worldclock`. Each agent is the template for new ones (`backend/agents/worldclock`). |
 | **Approvals** | Agent tools marked `approval_required` do nothing until you say yes in a later message; Claude cannot approve its own actions. |
 | **Kill switch, limits, audit** | Pause any agent by voice or admin API; daily call limits per agent; every agent call logged with arguments masked. |
-| **Privacy** | Card, account, Aadhaar and PAN numbers, OTPs, CVVs and passwords are masked before anything reaches Claude. Database encrypted with SQLCipher. |
+| **Privacy** | Cards, accounts, US SSN, South American IDs (CPF, RUT, CUIT, DNI, cédula), Aadhaar/PAN, passports, one-time codes and passwords are masked before anything reaches Claude. Database encrypted with SQLCipher. |
+| **Travels with you** | Buddy follows your phone's time zone across the US, South America and India. |
 | **Budget** | Claude usage and cost tracked; Buddy pauses at `BUDDY_MONTHLY_BUDGET_USD`. |
 
 It works on **both iPhone and Android** today as a web app you can add to your
@@ -37,7 +38,7 @@ home screen. Audio goes through whatever the phone uses, so connect your earbuds
  Earbuds ─BT─ Android phone (web app now, native app later)
                 │  Tailscale private network + HTTPS (no public ports)
                 ▼
-          Your private server (VPS, India)
+          Your private server (VPS, US East)
             Buddy orchestrator (Python, FastAPI) ──masked text──▶ Claude
             ├─ agent.py      conversation loop, streaming, interruption, approvals
             ├─ agents.py     agent registry: MCP clients, approvals, limits, audit, kill switch

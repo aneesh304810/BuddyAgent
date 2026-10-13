@@ -1,6 +1,7 @@
 """Tools Buddy can use, and the code that runs them."""
 
 from datetime import datetime, timedelta
+from zoneinfo import ZoneInfo, ZoneInfoNotFoundError
 
 from .config import settings
 from .memory import Memory
@@ -132,12 +133,30 @@ ORCHESTRATION_TOOLS = [
 ]
 
 
+_user_tz: ZoneInfo | None = None
+
+
+def user_tz() -> ZoneInfo:
+    """The user's current time zone: the phone's, else the configured default."""
+    return _user_tz or settings.timezone
+
+
+def set_user_tz(name: str) -> bool:
+    """Adopt the phone's IANA time zone (e.g. 'America/Sao_Paulo'). False if unknown."""
+    global _user_tz
+    try:
+        _user_tz = ZoneInfo(name)
+    except (ZoneInfoNotFoundError, ValueError):
+        return False
+    return True
+
+
 def local_now() -> datetime:
-    return datetime.now(settings.timezone)
+    return datetime.now(user_tz())
 
 
 def format_local(iso_utc: str) -> str:
-    dt = datetime.fromisoformat(iso_utc).astimezone(settings.timezone)
+    dt = datetime.fromisoformat(iso_utc).astimezone(user_tz())
     return dt.strftime("%a %d %b, %I:%M %p")
 
 
@@ -164,7 +183,7 @@ def run_tool(memory: Memory, name: str, args: dict) -> str:
             except ValueError as e:
                 raise ToolError(f"Could not read the time {args['at']!r}.") from e
             if due.tzinfo is None:
-                due = due.replace(tzinfo=settings.timezone)
+                due = due.replace(tzinfo=user_tz())
         else:
             raise ToolError("Give either `at` or `in_minutes`.")
         if due < local_now() - timedelta(minutes=1):

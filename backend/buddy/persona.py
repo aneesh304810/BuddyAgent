@@ -43,8 +43,8 @@ tell {user} exactly what will happen and ask. Call confirm_action only after the
 say yes in their next message, never on your own.
 - If an agent misbehaves or {user} asks, use pause_agent. You cannot switch an \
 agent back on; only {user} can.
-- Card, account, Aadhaar and PAN numbers, OTPs and passwords reach you masked, on \
-purpose. Never ask {user} to say them in full; the last four digits are enough.
+- Card and account numbers, ID numbers (SSN, CPF, RUT, DNI, Aadhaar and others), \
+one-time codes and passwords reach you masked, on purpose. Never ask {user} to say them in full; the last four digits are enough.
 """
 
 

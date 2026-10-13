@@ -1,7 +1,8 @@
 """HTTP + WebSocket server. The phone connects to /ws and streams text both ways.
 
 Protocol (JSON messages):
-  phone -> server  {"type": "user", "text": "..."}   something the user said
+  phone -> server  {"type": "hello", "timezone": "America/Sao_Paulo"}  on connect
+                   {"type": "user", "text": "..."}   something the user said
                    {"type": "interrupt"}              user started talking over Buddy
                    {"type": "ambient", "text": "...", "lang": "hi-IN"}
                                                       listen-in mode: speech around the user
@@ -29,12 +30,15 @@ from .agents import AgentRegistry, load_specs
 from .ambient import AmbientListener
 from .config import settings
 from .memory import Memory
+from .tools import set_user_tz
 
 logging.basicConfig(level=logging.INFO, format="%(asctime)s %(name)s %(message)s")
 log = logging.getLogger("buddy")
 
 memory = Memory(settings.db_path)
 registry = AgentRegistry(memory, load_specs(settings.agents_file))
+if memory.get("timezone"):
+    set_user_tz(memory.get("timezone"))  # last zone the phone reported
 # Live connections, each with its own conversation.
 connections: dict[WebSocket, Conversation] = {}
 
@@ -162,7 +166,11 @@ async def talk(ws: WebSocket) -> None:
     try:
         while True:
             msg = await ws.receive_json()
-            if msg.get("type") == "interrupt":
+            if msg.get("type") == "hello":
+                tz = str(msg.get("timezone", ""))
+                if tz and set_user_tz(tz):
+                    memory.set("timezone", tz)
+            elif msg.get("type") == "interrupt":
                 await stop_current()
             elif msg.get("type") == "user" and msg.get("text", "").strip():
                 await stop_current()  # new speech always wins over an old reply

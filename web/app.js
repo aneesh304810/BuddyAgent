@@ -124,7 +124,11 @@ let ws = null, retry = 1000;
 function connect() {
   const proto = location.protocol === "https:" ? "wss" : "ws";
   ws = new WebSocket(`${proto}://${location.host}/ws?token=${encodeURIComponent(token)}`);
-  ws.onopen = () => { retry = 1000; connEl.textContent = "online"; connEl.classList.add("on"); };
+  ws.onopen = () => {
+    retry = 1000; connEl.textContent = "online"; connEl.classList.add("on");
+    // Buddy follows you across time zones (US, South America, India…).
+    ws.send(JSON.stringify({ type: "hello", timezone: Intl.DateTimeFormat().resolvedOptions().timeZone }));
+  };
   ws.onclose = (e) => {
     connEl.textContent = e.code === 4401 ? "bad token" : "offline";
     connEl.classList.remove("on");
