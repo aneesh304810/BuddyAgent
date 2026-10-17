@@ -111,7 +111,11 @@ sudo journalctl -u buddy -f      # watch it start; Ctrl+C to stop watching
 
 ## Step 8 — Open Buddy on your phone
 
-With Tailscale on, open the address the script printed in Chrome:
+**Android app (recommended on your Galaxy):** install it from the repo's GitHub
+Releases and paste the address below into its Settings. See
+[`android/README.md`](../android/README.md).
+
+**Or the web app:** with Tailscale on, open the address the script printed in Chrome:
 
 ```
 https://<server-name>.<tailnet>.ts.net/?token=<BUDDY_TOKEN>

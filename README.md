@@ -29,13 +29,15 @@ people talk about you, and corrects technical nonsense in the room.
 | **Travels with you** | Buddy follows your phone's time zone across the US, South America and India. |
 | **Budget** | Claude usage and cost tracked; Buddy pauses at `BUDDY_MONTHLY_BUDGET_USD`. |
 
-It works on **both iPhone and Android** today as a web app you can add to your
-home screen. Audio goes through whatever the phone uses, so connect your earbuds and go.
+On your Galaxy, use the **Android app** ([`android/`](android/README.md)): it keeps
+listening with the screen off, answers your earbud tap and pauses during calls.
+The web app still works in any phone browser. Audio goes through whatever the
+phone uses, so connect your earbuds and go.
 
 ## Architecture
 
 ```
- Earbuds ─BT─ Android phone (web app now, native app later)
+ Earbuds ─BT─ Android phone (Buddy app: ears and mouth)
                 │  Tailscale private network + HTTPS (no public ports)
                 ▼
           Your private server (VPS, US East)
@@ -89,10 +91,10 @@ Tests: `cd backend && pytest`
 | 1 | Money agent: card bill reminders, expense tracking, spending limits |
 | 2 | Organiser: tasks, morning briefing, evening wrap-up |
 | 3 | Gmail and Calendar |
-| 4 | Native Android app: wake word, earbud button, always-on Listen-in |
+| 4 | Native Android app ✅ first version: screen-off listening, earbud button, call pause. Next: wake word, approval buttons |
 | 5 | English tutor: grammar, American pronunciation, WhatsApp lessons |
 | 6 | Research and flights |
 | 7 | Learns your style |
 | 8 | Agent builder |
 
-The native app notes are in [`mobile/README.md`](mobile/README.md).
+The Android app's install guide is in [`android/README.md`](android/README.md).

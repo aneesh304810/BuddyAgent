@@ -1,0 +1,75 @@
+name: Android app
+
+on:
+  push:
+    paths:
+      - "android/**"
+      - ".github/workflows/android.yml"
+  workflow_dispatch:
+
+permissions:
+  contents: write  # to publish the APK as a release
+
+jobs:
+  build:
+    runs-on: ubuntu-latest
+    defaults:
+      run:
+        working-directory: android
+    steps:
+      - uses: actions/checkout@v4
+
+      - uses: actions/setup-java@v4
+        with:
+          distribution: temurin
+          java-version: "17"
+
+      - uses: gradle/actions/setup-gradle@v4
+
+      # Keep the same debug key between builds so updates install over the old app.
+      # (Evicted after a week without builds; then one uninstall is needed.)
+      - uses: actions/cache@v4
+        with:
+          path: ~/.android/debug.keystore
+          key: buddy-debug-keystore
+
+      - name: Unit tests
+        run: ./gradlew --no-daemon testDebugUnitTest
+
+      # Optional and best: sign with your own key, stored as repository secrets.
+      - name: Signing key
+        env:
+          KEYSTORE_B64: ${{ secrets.BUDDY_KEYSTORE_B64 }}
+        run: |
+          if [ -n "$KEYSTORE_B64" ]; then
+            echo "$KEYSTORE_B64" | base64 -d > "$RUNNER_TEMP/buddy.jks"
+            echo "BUDDY_KEYSTORE_PATH=$RUNNER_TEMP/buddy.jks" >> "$GITHUB_ENV"
+          else
+            echo "::notice::No BUDDY_KEYSTORE_B64 secret: signing with the cached debug key."
+          fi
+
+      - name: Build APK
+        env:
+          BUDDY_KEYSTORE_PASSWORD: ${{ secrets.BUDDY_KEYSTORE_PASSWORD }}
+          BUDDY_KEY_ALIAS: ${{ secrets.BUDDY_KEY_ALIAS }}
+          BUDDY_KEY_PASSWORD: ${{ secrets.BUDDY_KEY_PASSWORD }}
+        run: |
+          ./gradlew --no-daemon assembleRelease
+          cp app/build/outputs/apk/release/app-release.apk "$RUNNER_TEMP/buddy-0.3.${{ github.run_number }}.apk"
+
+      - uses: actions/upload-artifact@v4
+        with:
+          name: buddy-apk
+          path: ${{ runner.temp }}/buddy-*.apk
+
+      # A release gives a direct download link you can open on the phone.
+      - name: Publish release
+        env:
+          GH_TOKEN: ${{ github.token }}
+        run: |
+          gh release create "android-${{ github.run_number }}" "$RUNNER_TEMP"/buddy-*.apk \
+            --repo "${{ github.repository }}" \
+            --target "${{ github.sha }}" \
+            --prerelease \
+            --title "Buddy for Android 0.3.${{ github.run_number }}" \
+            --notes "Built from ${{ github.ref_name }} at ${{ github.sha }}. Open on your phone and tap the .apk to install."
