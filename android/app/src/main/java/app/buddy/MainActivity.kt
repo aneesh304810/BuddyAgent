@@ -91,8 +91,21 @@ private val Listening = Color(0xFF3DDC97)
 private val Talking = Color(0xFFFFB547)
 private val Muted = Color(0xFF8A93B2)
 
+/** What fills the screen below the header. */
+sealed interface Screen {
+    data object Talk : Screen
+    data object Settings : Screen
+    data object Reports : Screen
+    data class Report(val id: Int) : Screen
+}
+
 class MainActivity : ComponentActivity() {
+    companion object {
+        const val EXTRA_JOB_ID = "app.buddy.JOB_ID"
+    }
+
     private lateinit var prefs: BuddyPrefs
+    private val screen = mutableStateOf<Screen>(Screen.Talk)
 
     private val askPermissions =
         registerForActivityResult(ActivityResultContracts.RequestMultiplePermissions()) { granted ->
@@ -108,10 +121,14 @@ class MainActivity : ComponentActivity() {
     override fun onCreate(savedInstanceState: Bundle?) {
         super.onCreate(savedInstanceState)
         prefs = BuddyPrefs(this)
+        if (prefs.link == null) screen.value = Screen.Settings
+        openJobFrom(intent)
         setContent {
             MaterialTheme(colorScheme = darkColorScheme(primary = Accent, background = Ink, surface = Panel)) {
                 BuddyScreen(
                     prefs = prefs,
+                    screen = screen.value,
+                    onNavigate = { screen.value = it },
                     onSaveLink = { link ->
                         prefs.link = link
                         BuddyService.instance?.reconnect() ?: startBuddy()
@@ -123,6 +140,16 @@ class MainActivity : ComponentActivity() {
             }
         }
         if (prefs.link != null) startBuddy()
+    }
+
+    override fun onNewIntent(intent: Intent) {
+        super.onNewIntent(intent)
+        openJobFrom(intent)
+    }
+
+    private fun openJobFrom(intent: Intent?) {
+        val id = intent?.getIntExtra(EXTRA_JOB_ID, -1) ?: -1
+        if (id > 0) screen.value = Screen.Report(id)
     }
 
     private fun startBuddy() {
@@ -151,13 +178,14 @@ class MainActivity : ComponentActivity() {
 @Composable
 private fun BuddyScreen(
     prefs: BuddyPrefs,
+    screen: Screen,
+    onNavigate: (Screen) -> Unit,
     onSaveLink: (ServerLink) -> Unit,
     onStart: () -> Unit,
     onBattery: () -> Unit,
     batteryOk: () -> Boolean,
 ) {
     val ui by BuddyState.ui.collectAsState()
-    var showSettings by remember { mutableStateOf(prefs.link == null) }
 
     Column(
         Modifier
@@ -174,27 +202,43 @@ private fun BuddyScreen(
             )
             Spacer(Modifier.size(6.dp))
             Text(ui.connection, color = Muted, fontSize = 13.sp, modifier = Modifier.weight(1f))
-            TextButton(onClick = { showSettings = !showSettings }) {
-                Text(if (showSettings) "Done" else "Settings")
+            if (screen == Screen.Talk) {
+                TextButton(onClick = { onNavigate(Screen.Reports) }) { Text("Reports") }
+                TextButton(onClick = { onNavigate(Screen.Settings) }) { Text("Settings") }
+            } else {
+                TextButton(onClick = {
+                    onNavigate(if (screen is Screen.Report) Screen.Reports else Screen.Talk)
+                }) { Text("Back") }
             }
         }
 
-        if (showSettings) {
-            SettingsPanel(prefs, onSaveLink, onBattery, batteryOk, onDone = { showSettings = false })
-            return@Column
+        when (screen) {
+            Screen.Settings -> {
+                SettingsPanel(prefs, onSaveLink, onBattery, batteryOk, onDone = { onNavigate(Screen.Talk) })
+                return@Column
+            }
+            Screen.Reports -> {
+                ReportsScreen(prefs.link) { onNavigate(Screen.Report(it)) }
+                return@Column
+            }
+            is Screen.Report -> {
+                ReportScreen(prefs.link, screen.id)
+                return@Column
+            }
+            Screen.Talk -> Unit
         }
 
         if (!ui.running) {
             Button(onClick = onStart, modifier = Modifier.fillMaxWidth()) { Text("Start Buddy") }
         }
 
-        Transcript(ui.lines, Modifier.weight(1f))
+        Transcript(ui.lines, Modifier.weight(1f)) { onNavigate(Screen.Report(it)) }
         Controls(ui, prefs)
     }
 }
 
 @Composable
-private fun Transcript(lines: List<Line>, modifier: Modifier) {
+private fun Transcript(lines: List<Line>, modifier: Modifier, onOpenReport: (Int) -> Unit) {
     val state = rememberLazyListState()
     LaunchedEffect(lines.size, lines.lastOrNull()?.text) {
         if (lines.isNotEmpty()) state.animateScrollToItem(lines.lastIndex)
@@ -204,7 +248,7 @@ private fun Transcript(lines: List<Line>, modifier: Modifier) {
             val mine = line.from == Speaker.YOU
             Row(Modifier.fillMaxWidth(), horizontalArrangement = if (mine) Arrangement.End else Arrangement.Start) {
                 Text(
-                    line.text,
+                    if (line.jobId != null) line.text + "\n\nTap to open the report." else line.text,
                     color = when (line.from) {
                         Speaker.ERROR -> Color(0xFFFF8A80)
                         Speaker.WHISPER -> Color(0xFFB9C6FF)
@@ -213,6 +257,7 @@ private fun Transcript(lines: List<Line>, modifier: Modifier) {
                     fontSize = if (line.from == Speaker.WHISPER) 14.sp else 16.sp,
                     modifier = Modifier
                         .widthIn(max = 300.dp)
+                        .then(if (line.jobId != null) Modifier.clickable { onOpenReport(line.jobId) } else Modifier)
                         .background(
                             when (line.from) {
                                 Speaker.YOU -> Accent.copy(alpha = 0.35f)

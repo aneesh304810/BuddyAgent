@@ -22,7 +22,7 @@ class Settings:
         "BUDDY_KNOWN_LANGUAGES", "English, Hindi, Malayalam, Marathi, Tamil"
     )
     db_path: Path = Path(os.getenv("BUDDY_DB", "buddy.db"))
-    model: str = os.getenv("BUDDY_MODEL", "claude-opus-5")
+    model: str = os.getenv("BUDDY_MODEL", "claude-opus-5-5")
     # Voice replies must be quick; "low" effort keeps thinking short.
     effort: str = os.getenv("BUDDY_EFFORT", "low")
     # Local time for the daily morning briefing, "HH:MM". Empty disables it.
@@ -30,6 +30,11 @@ class Settings:
     # Stop calling Claude once this month's estimated spend reaches this (USD).
     monthly_budget_usd: float = float(os.getenv("BUDDY_MONTHLY_BUDGET_USD", "40"))
     agents_file: Path = Path(os.getenv("BUDDY_AGENTS", "agents.yaml"))
+    # Background jobs (research and others) running at the same time.
+    max_parallel_jobs: int = int(os.getenv("BUDDY_MAX_PARALLEL_JOBS", "2"))
+    # Research jobs allowed per day, and the most one job may spend (USD).
+    research_daily_limit: int = int(os.getenv("BUDDY_RESEARCH_DAILY_LIMIT", "10"))
+    research_max_usd: float = float(os.getenv("BUDDY_RESEARCH_MAX_USD", "5"))
     web_dir: Path = Path(__file__).resolve().parents[2] / "web"
 
 

@@ -166,7 +166,7 @@ object Notes {
             .build()
     }
 
-    fun nudge(context: Context, text: String) {
+    fun nudge(context: Context, text: String, jobId: Int? = null) {
         if (context.checkSelfPermission(Manifest.permission.POST_NOTIFICATIONS) !=
             PackageManager.PERMISSION_GRANTED
         ) return
@@ -178,10 +178,17 @@ object Notes {
                 .setContentText(text)
                 .setStyle(Notification.BigTextStyle().bigText(text))
                 .setAutoCancel(true)
-                .setContentIntent(openApp(context))
+                .setContentIntent(jobId?.let { openReport(context, it) } ?: openApp(context))
                 .build(),
         )
     }
+
+    /** Tapping a "research is ready" notification opens that report. */
+    private fun openReport(context: Context, jobId: Int): PendingIntent = PendingIntent.getActivity(
+        context, 1000 + jobId,
+        Intent(context, MainActivity::class.java).putExtra(MainActivity.EXTRA_JOB_ID, jobId),
+        PendingIntent.FLAG_IMMUTABLE or PendingIntent.FLAG_UPDATE_CURRENT,
+    )
 
     private fun openApp(context: Context): PendingIntent = PendingIntent.getActivity(
         context, 0,

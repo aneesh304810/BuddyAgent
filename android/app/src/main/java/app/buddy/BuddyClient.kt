@@ -15,7 +15,7 @@ import java.util.concurrent.TimeUnit
 sealed interface ServerEvent {
     data class Say(val text: String) : ServerEvent
     data object Done : ServerEvent
-    data class Nudge(val kind: String, val text: String) : ServerEvent
+    data class Nudge(val kind: String, val text: String, val jobId: Int? = null) : ServerEvent
     data class Whisper(val kind: String, val text: String) : ServerEvent
     data class Error(val text: String) : ServerEvent
 
@@ -25,7 +25,11 @@ sealed interface ServerEvent {
             when (msg.optString("type")) {
                 "say" -> Say(msg.getString("text"))
                 "done" -> Done
-                "nudge" -> Nudge(msg.optString("kind"), msg.getString("text"))
+                "nudge" -> Nudge(
+                    msg.optString("kind"),
+                    msg.getString("text"),
+                    if (msg.has("job_id")) msg.getInt("job_id") else null,
+                )
                 "whisper" -> Whisper(msg.optString("kind"), msg.getString("text"))
                 "error" -> Error(msg.getString("text"))
                 else -> null

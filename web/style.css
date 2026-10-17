@@ -50,3 +50,20 @@ footer { display: flex; flex-direction: column; align-items: center; gap: 12px; 
 .modes { display: flex; gap: 16px; font-size: 14px; }
 select { background: var(--panel); color: var(--text); border: 1px solid #2a3440; border-radius: 6px; padding: 2px 6px; }
 .toggle { font-size: 13px; color: var(--muted); display: flex; gap: 6px; align-items: center; }
+
+/* Background job reports */
+button.link { background: none; border: 0; color: var(--accent); font: inherit; cursor: pointer; padding: 4px 8px; }
+header h1 { flex: 1; }
+.msg button.link { display: block; padding: 6px 0 0; }
+dialog#report { width: min(680px, calc(100vw - 32px)); max-height: 85vh; overflow-y: auto;
+  background: var(--panel); color: inherit; border: 0; border-radius: 16px; padding: 16px 20px; }
+dialog#report::backdrop { background: rgba(0, 0, 0, .6); }
+dialog#report .close { float: right; }
+dialog#report h2 { font-size: 1.2rem; margin: 4px 0 8px; }
+dialog#report h3 { font-size: 1.05rem; margin: 16px 0 6px; }
+dialog#report .summary { font-weight: 600; }
+dialog#report p, dialog#report li { line-height: 1.5; overflow-wrap: anywhere; }
+dialog#report pre { white-space: pre-wrap; overflow-x: auto; font-size: .85rem; }
+dialog#report a { color: var(--accent); }
+.job { padding: 10px 0; border-bottom: 1px solid rgba(255, 255, 255, .08); cursor: pointer; }
+.job small { opacity: .7; }

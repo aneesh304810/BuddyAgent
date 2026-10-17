@@ -143,7 +143,8 @@ function connect() {
     } else if (msg.type === "done") {
       buddyLine = null;
     } else if (msg.type === "nudge") {
-      addLine(msg.text, "buddy nudge");
+      const line = addLine(msg.text, "buddy nudge");
+      if (msg.job_id) addReportButton(line, msg.job_id);
       chime();
       setTimeout(() => speak(msg.text), 450);
     } else if (msg.type === "whisper") {
@@ -177,6 +178,92 @@ function interrupt() {
   buddyLine = null;
   send({ type: "interrupt" });
 }
+
+// --- background job reports ------------------------------------------------
+const reportDlg = $("report");
+
+async function api(path) {
+  const res = await fetch(path, { headers: { Authorization: `Bearer ${token}` } });
+  if (!res.ok) throw new Error(res.status === 401 ? "bad token" : `error ${res.status}`);
+  return res.json();
+}
+
+function addReportButton(line, id) {
+  const btn = document.createElement("button");
+  btn.className = "link";
+  btn.textContent = "Open report";
+  btn.onclick = () => openReport(id);
+  line.appendChild(btn);
+}
+
+// Minimal, safe Markdown: headings, bullets, tables as text, links. Never innerHTML.
+function renderMarkdown(md, into) {
+  into.replaceChildren();
+  let list = null;
+  for (const raw of md.split("\n")) {
+    const line = raw.trimEnd();
+    if (!line.trim()) { list = null; continue; }
+    const heading = line.match(/^#{1,6}\s+(.*)/);
+    const bullet = line.match(/^\s*(?:[-*]|\d+\.)\s+(.*)/);
+    let el;
+    if (heading) { el = document.createElement("h3"); list = null; inline(heading[1], el); }
+    else if (bullet) {
+      if (!list) { list = document.createElement("ul"); into.appendChild(list); }
+      el = document.createElement("li"); inline(bullet[1], el); list.appendChild(el); continue;
+    } else if (line.startsWith("|")) {
+      if (/^\|[\s:|-]+\|$/.test(line)) continue; // table divider row
+      el = document.createElement("pre"); el.textContent = line.split("|").slice(1, -1).map((c) => c.trim()).join("  ·  ");
+      list = null;
+    } else { el = document.createElement("p"); list = null; inline(line, el); }
+    into.appendChild(el);
+  }
+}
+
+function inline(text, el) {
+  const link = /\[([^\]]+)\]\((https?:\/\/[^)\s]+)\)/g;
+  let last = 0, m;
+  const clean = (t) => t.replace(/\*\*|__|`/g, "");
+  while ((m = link.exec(text))) {
+    el.append(clean(text.slice(last, m.index)));
+    const a = document.createElement("a");
+    a.href = m[2]; a.textContent = m[1]; a.target = "_blank"; a.rel = "noopener noreferrer";
+    el.append(a);
+    last = m.index + m[0].length;
+  }
+  el.append(clean(text.slice(last)));
+}
+
+async function openReport(id) {
+  try {
+    const job = await api(`/api/jobs/${encodeURIComponent(id)}`);
+    $("reportTitle").textContent = job.title;
+    $("reportSummary").textContent = job.status === "done" ? (job.summary || "") : `${job.status}: ${job.error || ""}`;
+    renderMarkdown(job.report || "", $("reportBody"));
+    if (!reportDlg.open) reportDlg.showModal();
+  } catch (e) { addLine(`Couldn't open the report (${e.message}).`, "error"); }
+}
+
+$("reportsBtn").onclick = async () => {
+  try {
+    const list = await api("/api/jobs");
+    $("reportTitle").textContent = "Reports";
+    $("reportSummary").textContent = list.length ? "" : "No research yet. Ask Buddy to research something.";
+    const body = $("reportBody");
+    body.replaceChildren();
+    for (const job of list) {
+      const row = document.createElement("div");
+      row.className = "job";
+      const title = document.createElement("div");
+      title.textContent = job.title;
+      const meta = document.createElement("small");
+      meta.textContent = `${job.status} · ${new Date(job.created_at).toLocaleString()}`;
+      row.append(title, meta);
+      row.onclick = () => openReport(job.id);
+      body.appendChild(row);
+    }
+    if (!reportDlg.open) reportDlg.showModal();
+  } catch (e) { addLine(`Couldn't load reports (${e.message}).`, "error"); }
+};
 
 // --- UI --------------------------------------------------------------------
 function refresh() {

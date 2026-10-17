@@ -5,12 +5,17 @@ from datetime import datetime, timezone
 from .memory import Memory
 
 # USD per million tokens: (input, output). Cache reads cost 0.1x input, cache writes 1.25x.
+# Longer names first: prices are matched by prefix.
 PRICES = {
+    "claude-opus-5-5": (4.00, 20.00),
     "claude-opus-5": (5.00, 25.00),
+    "claude-opus-4-8": (5.00, 25.00),
+    "claude-sonnet-5-5": (2.00, 10.00),
     "claude-sonnet-5": (2.00, 10.00),
     "claude-haiku-4-5": (1.00, 5.00),
 }
 FALLBACK_PRICE = PRICES["claude-opus-5"]  # unknown model: assume the dearest current one
+WEB_SEARCH_USD = 0.01  # per search ($10 per 1,000); web fetch is not metered
 
 
 def cost_usd(model: str, usage) -> float:
@@ -19,12 +24,14 @@ def cost_usd(model: str, usage) -> float:
     )
     cache_read = getattr(usage, "cache_read_input_tokens", 0) or 0
     cache_write = getattr(usage, "cache_creation_input_tokens", 0) or 0
+    server_tools = getattr(usage, "server_tool_use", None)
+    searches = (getattr(server_tools, "web_search_requests", 0) or 0) if server_tools else 0
     return (
         usage.input_tokens * price_in
         + cache_read * price_in * 0.1
         + cache_write * price_in * 1.25
         + usage.output_tokens * price_out
-    ) / 1_000_000
+    ) / 1_000_000 + searches * WEB_SEARCH_USD
 
 
 def record(memory: Memory, model: str, usage) -> float:

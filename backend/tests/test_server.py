@@ -81,3 +81,21 @@ def test_rejects_bad_token(monkeypatch):
                 ws.receive_json()
         except Exception as e:  # WebSocketDisconnect with 4401
             assert getattr(e, "code", None) == 4401
+
+
+def test_job_reports_need_the_token(monkeypatch):
+    monkeypatch.setattr(server, "authorized", lambda t: t == "s3cret")
+    job_id = server.jobs.submit("research", "rent in Lima", {"question": "rent in Lima"})
+    server.jobs._finish(job_id, "done", summary="Miraflores.", report="# Report", findings="[]", sources="[]")
+    with TestClient(server.app) as client:
+        assert client.get(f"/api/jobs/{job_id}").status_code == 401
+        headers = {"Authorization": "Bearer s3cret"}
+        job = client.get(f"/api/jobs/{job_id}", headers=headers).json()
+        assert job["summary"] == "Miraflores." and job["report"] == "# Report"
+        assert any(j["id"] == job_id for j in client.get("/api/jobs", headers=headers).json())
+        assert client.get("/api/jobs/99999", headers=headers).status_code == 404
+
+
+def test_conversation_offers_job_tools():
+    names = {t["name"] for t in agent.Conversation(server.memory, server.registry, server.jobs).tools()}
+    assert {"start_research", "list_jobs", "job_report", "cancel_job"} <= names

@@ -14,6 +14,7 @@ import anthropic
 from . import usage
 from .agents import AgentRegistry, ApprovalNeeded
 from .config import settings
+from .jobs import JOB_TOOL_NAMES, JOB_TOOLS, JobRunner, run_job_tool
 from .memory import Memory
 from .persona import build_system_prompt
 from .privacy import mask
@@ -45,9 +46,12 @@ def _request_kwargs(system: str) -> dict:
 class Conversation:
     """One live conversation with the user (one per connected phone)."""
 
-    def __init__(self, memory: Memory, registry: AgentRegistry | None = None):
+    def __init__(
+        self, memory: Memory, registry: AgentRegistry | None = None, jobs: JobRunner | None = None
+    ):
         self.memory = memory
         self.registry = registry
+        self.jobs = jobs
         self.messages: list[dict] = []
         self.turn = 0  # counts user messages; approvals need a newer one
         # Frozen for the whole session so the cached prompt prefix stays valid.
@@ -121,7 +125,8 @@ class Conversation:
     def tools(self) -> list[dict]:
         agent_tools = self.registry.tool_definitions() if self.registry else []
         orchestration = ORCHESTRATION_TOOLS if self.registry else []
-        return CLIENT_TOOLS + orchestration + agent_tools + [WEB_SEARCH]
+        job_tools = JOB_TOOLS if self.jobs else []
+        return CLIENT_TOOLS + orchestration + job_tools + agent_tools + [WEB_SEARCH]
 
     async def _run(self, block) -> dict:
         args = block.input if isinstance(block.input, dict) else json.loads(block.input)
@@ -140,6 +145,8 @@ class Conversation:
         }
 
     async def _dispatch(self, name: str, args: dict) -> str:
+        if self.jobs and name in JOB_TOOL_NAMES:
+            return run_job_tool(self.jobs, name, args)
         if self.registry:
             if name == "confirm_action":
                 return await self.registry.confirm(args["id"], self.turn)

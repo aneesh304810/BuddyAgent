@@ -8,7 +8,8 @@ enum class Mode { TALK, LISTEN_IN }
 
 enum class Speaker { YOU, BUDDY, NUDGE, WHISPER, ERROR }
 
-data class Line(val text: String, val from: Speaker)
+/** One bubble. `jobId` links a "your research is ready" nudge to its report. */
+data class Line(val text: String, val from: Speaker, val jobId: Int? = null)
 
 data class UiState(
     val connection: String = "offline",

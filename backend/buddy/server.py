@@ -9,7 +9,9 @@ Protocol (JSON messages):
                    {"type": "ambient_stop"}           listen-in mode switched off
   server -> phone  {"type": "say", "text": "..."}    one sentence to speak
                    {"type": "done"}                   reply finished
-                   {"type": "nudge", "kind": "...", "text": "..."}  Buddy speaking up
+                   {"type": "nudge", "kind": "...", "text": "...", "job_id": 3}
+                                                      Buddy speaking up (job_id: a finished
+                                                      background job; see GET /api/jobs/{id})
                    {"type": "whisper", "kind": "...", "text": "..."}
                                                       listen-in: translation / about_you / correction
                    {"type": "error", "text": "..."}
@@ -24,11 +26,12 @@ import anthropic
 from fastapi import Depends, FastAPI, Header, HTTPException, WebSocket, WebSocketDisconnect
 from fastapi.staticfiles import StaticFiles
 
-from . import proactive, usage
+from . import proactive, research, usage
 from .agent import Conversation
 from .agents import AgentRegistry, load_specs
 from .ambient import AmbientListener
 from .config import settings
+from .jobs import JobRunner
 from .memory import Memory
 from .tools import set_user_tz
 
@@ -43,24 +46,40 @@ if memory.get("timezone"):
 connections: dict[WebSocket, Conversation] = {}
 
 
-async def deliver(kind: str, text: str) -> bool:
+async def deliver(kind: str, text: str, **extra) -> bool:
     if not connections:
         return False
     for ws, convo in list(connections.items()):
         with contextlib.suppress(Exception):
-            await ws.send_json({"type": "nudge", "kind": kind, "text": text})
+            await ws.send_json({"type": "nudge", "kind": kind, "text": text, **extra})
             convo.note_proactive(text)
     return True
+
+
+async def job_finished(job: dict) -> bool:
+    """Tell the user a background job is done (or why it failed)."""
+    if job["status"] == "done":
+        text = f"Your research on {job['title']} is ready. {job.get('summary') or ''}".strip()
+    else:
+        text = f"The research on {job['title']} didn't finish: {job.get('error') or 'unknown error'}"
+    return await deliver("job_done", text, job_id=job["id"])
+
+
+jobs = JobRunner(memory, job_finished)
+jobs.register("research", research.run_research)
 
 
 @contextlib.asynccontextmanager
 async def lifespan(app: FastAPI):
     await registry.start()
     task = asyncio.create_task(proactive.run(memory, deliver))
+    job_loop = asyncio.create_task(jobs.run())
     try:
         yield
     finally:
         task.cancel()
+        await jobs.close()
+        job_loop.cancel()
         await registry.close()
 
 
@@ -122,6 +141,20 @@ def admin_usage() -> dict:
     }
 
 
+# --- background job reports: the phone apps show them -----------------------
+@app.get("/api/jobs", dependencies=[Depends(require_admin)])
+def api_jobs(limit: int = 50) -> list[dict]:
+    return jobs.list(limit=min(limit, 200))
+
+
+@app.get("/api/jobs/{job_id}", dependencies=[Depends(require_admin)])
+def api_job(job_id: int) -> dict:
+    job = jobs.get(job_id)
+    if not job:
+        raise HTTPException(status_code=404, detail="no such job")
+    return job
+
+
 def authorized(token: str | None) -> bool:
     if not settings.access_token:
         return True  # local development only; set BUDDY_TOKEN before exposing
@@ -134,8 +167,9 @@ async def talk(ws: WebSocket) -> None:
         await ws.close(code=4401)
         return
     await ws.accept()
-    convo = Conversation(memory, registry)
+    convo = Conversation(memory, registry, jobs)
     connections[ws] = convo
+    jobs.wake.set()  # results that finished while the phone was away go out now
     current: asyncio.Task | None = None
 
     async def say(text: str) -> None:

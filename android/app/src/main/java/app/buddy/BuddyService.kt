@@ -143,8 +143,8 @@ class BuddyService : Service() {
             }
             ServerEvent.Done -> replyOpen = false
             is ServerEvent.Nudge -> {
-                BuddyState.add(Line(event.text, Speaker.NUDGE))
-                Notes.nudge(this, event.text)
+                BuddyState.add(Line(event.text, Speaker.NUDGE, event.jobId))
+                Notes.nudge(this, event.text, event.jobId)
                 if (!BuddyState.ui.value.onCall) mouth.speak(event.text)
             }
             is ServerEvent.Whisper -> {

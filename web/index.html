@@ -13,6 +13,7 @@
   <main>
     <header>
       <h1>Buddy</h1>
+      <button id="reportsBtn" class="link">Reports</button>
       <span id="conn" class="pill">offline</span>
     </header>
 
@@ -62,6 +63,13 @@
       </label>
     </footer>
   </main>
+
+  <dialog id="report">
+    <form method="dialog"><button class="link close" aria-label="Close">Close</button></form>
+    <h2 id="reportTitle"></h2>
+    <p id="reportSummary" class="summary"></p>
+    <div id="reportBody"></div>
+  </dialog>
   <script src="app.js"></script>
 </body>
 </html>
