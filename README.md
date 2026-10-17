@@ -22,6 +22,8 @@ people talk about you, and corrects technical nonsense in the room.
 | **Web search** | News, weather, scores, facts (Claude's built-in web search). |
 | **Listen-in mode** | 🌐 gives you the gist when people speak a language you don't know (anything outside `BUDDY_KNOWN_LANGUAGES`: English, Hindi, Malayalam, Marathi, Tamil by default), 👀 tells you when people are talking about or mocking you in that language, 💡 corrects wrong technical claims in any language. Say "Buddy, …" to ask it something without leaving the mode. |
 
+| **Research & analytics agent** | "Research the best eSIM for Brazil" or "Analyze these numbers": runs in the background, reads real pages or crunches data with code, and reports back with a spoken summary and a full report with sources (Reports in the apps). Per-job cost cap and daily limit. |
+| **Background jobs** | Work continues while you do other things; jobs survive server restarts and results wait for you if your phone is offline. |
 | **Specialist agents** | Buddy orchestrates agents that are MCP servers (`agents.yaml`). Example agent: `worldclock`. Each agent is the template for new ones (`backend/agents/worldclock`). |
 | **Approvals** | Agent tools marked `approval_required` do nothing until you say yes in a later message; Claude cannot approve its own actions. |
 | **Kill switch, limits, audit** | Pause any agent by voice or admin API; daily call limits per agent; every agent call logged with arguments masked. |
@@ -54,8 +56,8 @@ phone uses, so connect your earbuds and go.
 
 ## Put it on your private server
 
-Follow [`docs/SETUP.md`](docs/SETUP.md): about an hour, with the monthly cost
-breakdown (about $22–45 a month in total).
+Follow [`docs/SETUP.md`](docs/SETUP.md): the complete step-by-step guide (about 90 minutes), with the monthly cost
+breakdown (about $25–50 a month in total).
 
 ## Run it locally (development)
 
@@ -91,6 +93,7 @@ Tests: `cd backend && pytest`
 | 1 | Money agent: card bill reminders, expense tracking, spending limits |
 | 2 | Organiser: tasks, morning briefing, evening wrap-up |
 | 3 | Gmail and Calendar |
+| 1a | Background jobs ✅ and research agent ✅. Next: life log, connectors |
 | 4 | Native Android app ✅ first version: screen-off listening, earbud button, call pause. Next: wake word, approval buttons |
 | 5 | English tutor: grammar, American pronunciation, WhatsApp lessons |
 | 6 | Research and flights |

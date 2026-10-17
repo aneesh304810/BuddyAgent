@@ -2,7 +2,7 @@
 # One-time setup of a fresh Ubuntu 24.04 server for Buddy.
 #
 #   curl -fsSL <raw URL of this file> -o bootstrap.sh   (or scp it)
-#   sudo bash bootstrap.sh <git-repo-url> <your-age-public-key>
+#   sudo bash bootstrap.sh <git-repo-url> <your-age-public-key> [branch]
 #
 # What it does, in order:
 #   1. security updates on, automatic from now on
@@ -14,8 +14,9 @@
 #   7. nightly encrypted backups
 set -euo pipefail
 
-REPO_URL="${1:?usage: bootstrap.sh <git-repo-url> <age-public-key>}"
-AGE_RECIPIENT="${2:?usage: bootstrap.sh <git-repo-url> <age-public-key>}"
+REPO_URL="${1:?usage: bootstrap.sh <git-repo-url> <age-public-key> [branch]}"
+AGE_RECIPIENT="${2:?usage: bootstrap.sh <git-repo-url> <age-public-key> [branch]}"
+BRANCH="${3:-}"   # optional; default: the repo's default branch
 APP=/opt/buddy
 ENV_FILE=/etc/buddy/buddy.env
 
@@ -56,7 +57,7 @@ echo "==> 5/7 Buddy"
 if [[ -d $APP/.git ]]; then
   git -C "$APP" pull --ff-only
 else
-  git clone "$REPO_URL" "$APP"
+  git clone ${BRANCH:+--branch "$BRANCH"} "$REPO_URL" "$APP"
 fi
 chown -R buddy:buddy "$APP"
 sudo -u buddy python3 -m venv "$APP/backend/.venv"
