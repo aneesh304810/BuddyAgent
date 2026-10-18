@@ -112,3 +112,10 @@ def test_chat_runs_on_the_chat_model():
     assert kwargs["model"] == agent.settings.chat_model == "claude-sonnet-5-5"
     assert kwargs["fallbacks"] == "default"
     assert agent.fallback_kwargs("claude-haiku-5-5") == {}
+
+
+def test_persona_loves_small_talk_but_keeps_it_cheap():
+    from buddy.persona import build_system_prompt
+    prompt = build_system_prompt([], [])
+    assert "Enjoy small talk" in prompt and "how did I do?" in prompt
+    assert "never use ask_expert or research for it" in prompt
