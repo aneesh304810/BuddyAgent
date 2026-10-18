@@ -14,7 +14,7 @@ from dataclasses import dataclass
 
 import anthropic
 
-from .agent import FALLBACK_BETA
+from .agent import fallback_kwargs
 from .config import settings
 from .jobs import JobContext, JobFailed, JobResult
 from .privacy import mask
@@ -155,8 +155,7 @@ async def run_research(job: dict, ctx: JobContext) -> JobResult:
             tools=_tools(mode, depth),
             messages=messages,
             output_config={"effort": depth.effort},
-            betas=[FALLBACK_BETA],
-            fallbacks="default",
+            **fallback_kwargs(settings.model),
         ) as stream:
             response = await stream.get_final_message()
         ctx.record(response)
@@ -218,8 +217,7 @@ async def _summarize(ctx: JobContext, question: str, report: str) -> JobResult:
                 "effort": "low",
                 "format": {"type": "json_schema", "schema": SUMMARY_SCHEMA},
             },
-            betas=[FALLBACK_BETA],
-            fallbacks="default",
+            **fallback_kwargs(settings.model),
             messages=[{
                 "role": "user",
                 "content": (

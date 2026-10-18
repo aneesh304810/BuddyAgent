@@ -22,7 +22,17 @@ class Settings:
         "BUDDY_KNOWN_LANGUAGES", "English, Hindi, Malayalam, Marathi, Tamil"
     )
     db_path: Path = Path(os.getenv("BUDDY_DB", "buddy.db"))
+    # Economy by default: everyday chat, reminders and briefings run on Sonnet
+    # (about half the price); research and Listen-in decisions on Opus.
+    # Set BUDDY_CHAT_MODEL=claude-opus-5-5 to use Opus for everything.
     model: str = os.getenv("BUDDY_MODEL", "claude-opus-5-5")
+    chat_model: str = os.getenv("BUDDY_CHAT_MODEL", "claude-sonnet-5-5")
+    # Listen-in: a cheap first pass decides whether anything needs attention;
+    # only then does the listen model read it. Empty triage = no first pass.
+    listen_model: str = os.getenv("BUDDY_LISTEN_MODEL", os.getenv("BUDDY_MODEL", "claude-opus-5-5"))
+    listen_triage_model: str = os.getenv("BUDDY_LISTEN_TRIAGE_MODEL", "claude-haiku-5-5")
+    # Gather this many seconds of room speech per check (0 = check every phrase).
+    listen_batch_seconds: float = float(os.getenv("BUDDY_LISTEN_BATCH_SECONDS", "20"))
     # Voice replies must be quick; "low" effort keeps thinking short.
     effort: str = os.getenv("BUDDY_EFFORT", "low")
     # Local time for the daily morning briefing, "HH:MM". Empty disables it.

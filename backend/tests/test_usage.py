@@ -14,3 +14,11 @@ def test_cost_and_month_to_date():
     usage.record(mem, "claude-opus-5", u)
     assert abs(usage.month_to_date(mem) - 17.0) < 1e-9
     assert usage.summary(mem)[0]["input_tokens"] == 2_000_000
+
+
+def test_haiku_and_web_search_prices():
+    from types import SimpleNamespace
+    u = SimpleNamespace(input_tokens=1_000_000, output_tokens=1_000_000,
+                        server_tool_use=SimpleNamespace(web_search_requests=10))
+    assert abs(usage.cost_usd("claude-haiku-5-5", u) - (0.10 + 0.50 + 0.10)) < 1e-9
+    assert abs(usage.cost_usd("claude-sonnet-5-5", u) - (2 + 10 + 0.10)) < 1e-9

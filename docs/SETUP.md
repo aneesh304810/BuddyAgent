@@ -28,14 +28,22 @@ At the end you'll have:
 
 Prices are approximate list prices; confirm them when you sign up.
 
+Buddy runs in **economy mode** by default: everyday chat on Claude Sonnet 5.5,
+research and close Listen-in checks on Claude Opus 5.5, and a Claude Haiku 5.5
+first pass that decides whether room speech needs a close look at all.
+
 | Item | Choice | Per month |
 |---|---|---|
 | Server | DigitalOcean Basic droplet, 2 GB RAM, 1 vCPU, New York | about $12 |
 | Private network | Tailscale Personal | free |
-| Claude API | Pay per use; Buddy stops itself at your budget (default $40) | about $10–30 for daily chat |
-| Research jobs | About $0.20–0.50 quick, $1–3 deep; daily limit 10 | depends on use |
+| Everyday use | About 40 chats a day, reminders, briefing, a few web searches, a quick research job every other day | about $15–25 |
+| Listen-in, rooms in your languages | About $0.20 per hour of talking around you; silence is free | about $6 per daily hour |
+| Listen-in, rooms in other languages (e.g. Spanish) | About $1.50 per hour, or about $0.30 with the travel settings below | $9–45 per daily hour |
 | Off-server backup copy (optional) | Backblaze B2 or similar | a few cents |
-| **Total** | | **about $25–50** |
+| **Typical total** | Daily use plus about 2 hours of Listen-in a day | **about $40–60** |
+
+Buddy stops itself at `BUDDY_MONTHLY_BUDGET_USD` (default $40), so a busy month
+can't surprise you.
 
 ---
 
@@ -167,6 +175,20 @@ Optional, add only if you want to change the defaults:
 BUDDY_RESEARCH_DAILY_LIMIT=10     # research jobs per day
 BUDDY_RESEARCH_MAX_USD=5          # the most one research job may spend
 BUDDY_MAX_PARALLEL_JOBS=2         # background jobs at the same time
+
+BUDDY_CHAT_MODEL=claude-sonnet-5-5          # everyday chat; claude-opus-5-5 = smarter, about 2x the cost
+BUDDY_LISTEN_MODEL=claude-opus-5-5          # close Listen-in checks
+BUDDY_LISTEN_TRIAGE_MODEL=claude-haiku-5-5  # cheap first pass; empty = always check closely
+BUDDY_LISTEN_BATCH_SECONDS=20               # gather this much room speech per check
+```
+
+**Travel settings** for long days among people speaking a language you don't
+know (Listen-in drops from about $1.50 to about $0.30 per hour; whispers arrive
+up to a minute later):
+
+```
+BUDDY_LISTEN_MODEL=claude-sonnet-5-5
+BUDDY_LISTEN_BATCH_SECONDS=45
 ```
 
 **Never change** `BUDDY_DB_KEY` (it unlocks your database) or `BUDDY_TOKEN`.

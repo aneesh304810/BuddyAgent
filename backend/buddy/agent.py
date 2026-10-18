@@ -31,15 +31,23 @@ Say = Callable[[str], Awaitable[None]]
 client = anthropic.AsyncAnthropic()
 
 
+def fallback_kwargs(model: str) -> dict:
+    """On a safety decline, the API retries on Anthropic's recommended model.
+
+    Haiku has no server-side fallback, so it gets none.
+    """
+    if model.startswith("claude-haiku"):
+        return {}
+    return {"betas": [FALLBACK_BETA], "fallbacks": "default"}
+
+
 def _request_kwargs(system: str) -> dict:
     return dict(
-        model=settings.model,
+        model=settings.chat_model,
         max_tokens=4096,
         system=[{"type": "text", "text": system, "cache_control": {"type": "ephemeral"}}],
         output_config={"effort": settings.effort},
-        # On a safety decline, the API retries on Anthropic's recommended model.
-        betas=[FALLBACK_BETA],
-        fallbacks="default",
+        **fallback_kwargs(settings.chat_model),
     )
 
 

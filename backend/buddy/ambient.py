@@ -10,6 +10,12 @@ It whispers for three reasons:
 
 Speech is analysed live and kept only in memory, in a short rolling window.
 Nothing said by other people is written to disk.
+
+To keep always-on listening affordable, speech is gathered into batches
+(settings.listen_batch_seconds) and a cheap model (settings.listen_triage_model)
+first decides whether a batch could need a whisper. Only then does the listen
+model read it closely. In a room speaking your languages, most batches stop at
+the cheap first pass.
 """
 
 import asyncio
@@ -20,7 +26,7 @@ from collections import deque
 from collections.abc import Awaitable, Callable
 
 from . import usage
-from .agent import FALLBACK_BETA, client
+from .agent import client, fallback_kwargs
 from .config import settings
 from .memory import Memory
 from .privacy import mask
@@ -68,6 +74,27 @@ Names and details that refer to {user}:
 {about}
 """
 
+TRIAGE_PROMPT = """\
+You screen a live transcript of the conversation around {user} for their AI \
+companion. Decide whether the NEW lines could possibly need a whisper to {user}. \
+Answer true if any NEW line:
+- is in a language other than these, which {user} understands: {known}
+- mentions {user} or the details below, or seems to talk about someone present
+- confidently states a technical, scientific, financial or numeric claim that \
+might be wrong
+Otherwise answer false. When unsure, answer true.
+
+Details that refer to {user}:
+{about}
+"""
+
+TRIAGE_SCHEMA = {
+    "type": "object",
+    "properties": {"attention": {"type": "boolean"}},
+    "required": ["attention"],
+    "additionalProperties": False,
+}
+
 SCHEMA = {
     "type": "object",
     "properties": {
@@ -94,6 +121,9 @@ class AmbientListener:
             known=settings.known_languages,
             about="\n".join(about),
         )
+        self.triage_system = TRIAGE_PROMPT.format(
+            user=settings.user_name, known=settings.known_languages, about="\n".join(about),
+        )
         self.segments: deque[tuple[float, str, str]] = deque(maxlen=MAX_SEGMENTS)
         self.seen = 0            # segments already analysed
         self.whispered: deque[str] = deque(maxlen=8)
@@ -118,6 +148,7 @@ class AmbientListener:
     async def _analyse_loop(self) -> None:
         while True:
             self._again = False
+            await self._wait_for_batch()
             try:
                 await self._analyse()
             except asyncio.CancelledError:
@@ -126,6 +157,41 @@ class AmbientListener:
                 log.exception("ambient analysis failed")
             if not self._again:
                 return
+
+    async def _wait_for_batch(self) -> None:
+        """Let speech gather until the oldest unchecked phrase is a batch old."""
+        if settings.listen_batch_seconds <= 0 or self.seen >= len(self.segments):
+            return
+        oldest_new = self.segments[self.seen][0]
+        delay = settings.listen_batch_seconds - (time.monotonic() - oldest_new)
+        if delay > 0:
+            await asyncio.sleep(delay)
+
+    async def _needs_attention(self, earlier: str, new: str) -> bool:
+        """Cheap first pass. Any failure errs on the side of a close look."""
+        if not settings.listen_triage_model:
+            return True
+        try:
+            response = await client.beta.messages.create(
+                model=settings.listen_triage_model,
+                max_tokens=1024,  # room for brief thinking plus the answer
+                system=[{"type": "text", "text": self.triage_system, "cache_control": {"type": "ephemeral"}}],
+                output_config={
+                    "effort": "low",
+                    "format": {"type": "json_schema", "schema": TRIAGE_SCHEMA},
+                },
+                **fallback_kwargs(settings.listen_triage_model),
+                messages=[{"role": "user", "content": f"Earlier lines:\n{earlier or '(none)'}\n\nNEW lines:\n{new}"}],
+            )
+            if hasattr(response, "usage"):
+                usage.record(self.memory, response.model, response.usage)
+            if response.stop_reason in ("refusal", "max_tokens"):
+                return True
+            text = next((b.text for b in response.content if b.type == "text"), "")
+            return bool(json.loads(text)["attention"])
+        except Exception:
+            log.exception("listen-in triage failed; checking closely instead")
+            return True
 
     async def _analyse(self) -> None:
         cutoff = time.monotonic() - WINDOW_SECONDS
@@ -139,16 +205,17 @@ class AmbientListener:
         new = "\n".join(f"[{lang}] {text}" for _, lang, text in lines[self.seen :])
         self.seen = len(lines)
 
+        if not await self._needs_attention(earlier, new):
+            return
         response = await client.beta.messages.create(
-            model=settings.model,
+            model=settings.listen_model,
             max_tokens=1024,
             system=[{"type": "text", "text": self.system, "cache_control": {"type": "ephemeral"}}],
             output_config={
                 "effort": "low",
                 "format": {"type": "json_schema", "schema": SCHEMA},
             },
-            betas=[FALLBACK_BETA],
-            fallbacks="default",
+            **fallback_kwargs(settings.listen_model),
             messages=[{
                 "role": "user",
                 "content": f"Earlier lines:\n{earlier or '(none)'}\n\nNEW lines:\n{new}\n\n"

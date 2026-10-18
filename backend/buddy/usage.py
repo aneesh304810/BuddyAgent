@@ -12,6 +12,7 @@ PRICES = {
     "claude-opus-4-8": (5.00, 25.00),
     "claude-sonnet-5-5": (2.00, 10.00),
     "claude-sonnet-5": (2.00, 10.00),
+    "claude-haiku-5-5": (0.10, 0.50),  # prompts up to 100K tokens; Buddy's are far smaller
     "claude-haiku-4-5": (1.00, 5.00),
 }
 FALLBACK_PRICE = PRICES["claude-opus-5"]  # unknown model: assume the dearest current one
