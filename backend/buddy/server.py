@@ -29,7 +29,7 @@ from fastapi.staticfiles import StaticFiles
 from . import proactive, research, usage
 from .agent import Conversation
 from .agents import AgentRegistry, load_specs
-from .ambient import AmbientListener
+from .ambient import AmbientListener, is_think_cue
 from .config import settings
 from .jobs import JobRunner
 from .memory import Memory
@@ -231,6 +231,8 @@ async def talk(ws: WebSocket) -> None:
                     current = asyncio.create_task(answer(command))
                 else:
                     listener.hear(text, str(msg.get("lang", "")))
+                    if is_think_cue(text):  # "let me think": whisper them an answer now
+                        listener.think()
             elif msg.get("type") == "ambient_stop":
                 listener.stop()
     except WebSocketDisconnect:

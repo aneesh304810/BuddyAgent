@@ -148,7 +148,7 @@ function connect() {
       chime();
       setTimeout(() => speak(msg.text), 450);
     } else if (msg.type === "whisper") {
-      const label = { translation: "🌐", about_you: "👀", correction: "💡" }[msg.kind] || "";
+      const label = { translation: "🌐", about_you: "👀", correction: "💡", answer: "💭", budget: "💰" }[msg.kind] || "";
       addLine(`${label} ${msg.text}`, "buddy whisper");
       speak(msg.text, true);
     } else if (msg.type === "error") {

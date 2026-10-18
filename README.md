@@ -20,7 +20,7 @@ people talk about you, and corrects technical nonsense in the room.
 | **Goals & coaching** | "My goal is to finish the MVP this week". Buddy checks in on it. |
 | **Morning briefing** | Spoken daily at `BUDDY_MORNING_BRIEF` (default 08:00). |
 | **Web search** | News, weather, scores, facts (Claude's built-in web search). |
-| **Listen-in mode** | 🌐 gives you the gist when people speak a language you don't know (anything outside `BUDDY_KNOWN_LANGUAGES`: English, Hindi, Malayalam, Marathi, Tamil by default), 👀 tells you when people are talking about or mocking you in that language, 💡 corrects wrong technical claims in any language. Say "Buddy, …" to ask it something without leaving the mode. |
+| **Listen-in mode** | 🌐 gives you the gist when people speak a language you don't know (anything outside `BUDDY_KNOWN_LANGUAGES`: English, Hindi, Malayalam, Marathi, Tamil by default), 👀 tells you when people are talking about or mocking you in that language, 💡 corrects wrong technical claims in any language. Say "Buddy, …" to ask it something without leaving the mode. 💭 When someone asks you something and you say **"let me think"**, Buddy whispers a ready-to-use answer within seconds. |
 
 | **Research & analytics agent** | "Research the best eSIM for Brazil" or "Analyze these numbers": runs in the background, reads real pages or crunches data with code, and reports back with a spoken summary and a full report with sources (Reports in the apps). Per-job cost cap and daily limit. |
 | **Background jobs** | Work continues while you do other things; jobs survive server restarts and results wait for you if your phone is offline. |

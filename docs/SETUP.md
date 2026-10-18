@@ -198,6 +198,7 @@ BUDDY_DAILY_ALLOWANCE_USD=0       # 0 = monthly budget / days in the month
 BUDDY_LISTEN_DAILY_USD=0.50       # Listen-in per day; a yes adds the same again
 BUDDY_APPROVE_OVER_USD=0.50       # single actions above this need your yes
 BUDDY_EXPERT_DAILY_LIMIT=20       # "ask the expert" escalations per day (about 5-25 cents each)
+BUDDY_THINK_PHRASES=let me think, let me see, give me a second   # Listen-in cues for a whispered answer
 ```
 
 **How Buddy decides to spend more.** It starts cheap and asks itself whether the

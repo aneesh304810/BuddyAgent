@@ -107,6 +107,43 @@ SCHEMA = {
     "additionalProperties": False,
 }
 
+THINK_PROMPT = """\
+You are {assistant}, {user}'s AI companion, listening through their earbuds. \
+{user} just said "let me think": they are buying a few seconds to answer \
+something they were asked. You receive the live transcript of the last couple \
+of minutes (no speaker labels, recognition errors possible, any language).
+
+Find the most recent question, problem or request put to {user} and whisper a \
+ready-to-use answer they can say in their own voice:
+- Lead with the answer in one sentence, then at most two short supporting \
+points. Under 45 words, plain speech, no lists or markdown.
+- Phrase it so {user} can say it directly ("I'd say...", "The main reason is...").
+- Maths, numbers or technical problems: give the result and the one key step.
+- Opinion or judgement questions: give a balanced, sensible position.
+- Questions about {user}'s own life or work: use only what you know below; if \
+you don't know, give a structure instead ("Mention a project where you...").
+- Answer in English unless the question was in one of {user}'s languages and \
+an answer in that language clearly fits better.
+- If you can't find a question, set found to false.
+
+What you know about {user}:
+{facts}
+"""
+
+THINK_SCHEMA = {
+    "type": "object",
+    "properties": {"found": {"type": "boolean"}, "answer": {"type": "string"}},
+    "required": ["found", "answer"],
+    "additionalProperties": False,
+}
+
+
+def is_think_cue(text: str) -> bool:
+    """Did the user just say "let me think" (or another configured cue)?"""
+    spoken = " ".join(text.lower().replace(",", " ").replace(".", " ").split())
+    return any(p.strip() and p.strip() in spoken for p in settings.think_phrases.lower().split(","))
+
+
 Whisper = Callable[[str, str], Awaitable[None]]
 
 
@@ -126,6 +163,11 @@ class AmbientListener:
         self.triage_system = TRIAGE_PROMPT.format(
             user=settings.user_name, known=settings.known_languages, about="\n".join(about),
         )
+        facts = [f"- {mask(f)}" for f in memory.recall("")] or ["- (nothing yet)"]
+        self.think_system = THINK_PROMPT.format(
+            assistant=settings.assistant_name, user=settings.user_name, facts="\n".join(facts),
+        )
+        self._thinking: asyncio.Task | None = None
         self.segments: deque[tuple[float, str, str]] = deque(maxlen=MAX_SEGMENTS)
         self.seen = 0            # segments already analysed
         self.whispered: deque[str] = deque(maxlen=8)
@@ -142,7 +184,47 @@ class AmbientListener:
         else:
             self._running = asyncio.create_task(self._analyse_loop())
 
+    def think(self) -> None:
+        """The user said "let me think": whisper an answer now, skipping the batch wait."""
+        if self._thinking and not self._thinking.done():
+            return  # already on it
+        self._thinking = asyncio.create_task(self._answer_for_user())
+
+    async def _answer_for_user(self) -> None:
+        try:
+            if self.thrift and self.thrift.month_spent() >= self.thrift.month_budget():
+                await self.whisper("budget", "Sorry, this month's AI budget is used up.")
+                return
+            cutoff = time.monotonic() - WINDOW_SECONDS
+            transcript = "\n".join(f"[{lang}] {text}" for t, lang, text in self.segments if t >= cutoff)
+            if not transcript:
+                return
+            response = await client.beta.messages.create(
+                model=settings.think_model,
+                max_tokens=2048,
+                system=[{"type": "text", "text": self.think_system, "cache_control": {"type": "ephemeral"}}],
+                output_config={"effort": "low", "format": {"type": "json_schema", "schema": THINK_SCHEMA}},
+                **fallback_kwargs(settings.think_model),
+                messages=[{"role": "user", "content": f"Transcript, oldest first:\n{transcript}"}],
+            )
+            if hasattr(response, "usage"):
+                usage.record(self.memory, response.model, response.usage, purpose="think")
+            if response.stop_reason in ("refusal", "max_tokens"):
+                return
+            verdict = json.loads(next((b.text for b in response.content if b.type == "text"), "{}"))
+            if verdict.get("found") and verdict.get("answer", "").strip():
+                self.whispered.append(verdict["answer"])
+                await self.whisper("answer", verdict["answer"].strip())
+            else:
+                await self.whisper("answer", "I didn't catch a question there.")
+        except asyncio.CancelledError:
+            raise
+        except Exception:
+            log.exception("let-me-think answer failed")
+
     def stop(self) -> None:
+        if self._thinking:
+            self._thinking.cancel()
         if self._running:
             self._running.cancel()
         self.segments.clear()

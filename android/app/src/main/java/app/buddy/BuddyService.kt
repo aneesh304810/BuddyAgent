@@ -152,6 +152,7 @@ class BuddyService : Service() {
                     "translation" -> "Translation: "
                     "about_you" -> "About you: "
                     "correction" -> "Fact check: "
+                    "answer" -> "Say this: "
                     else -> ""
                 }
                 BuddyState.add(Line(label + event.text, Speaker.WHISPER))

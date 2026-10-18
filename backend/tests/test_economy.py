@@ -1,6 +1,7 @@
 """Economy mode: cheap chat model, Listen-in first pass and batching."""
 
 import asyncio
+import time
 import dataclasses
 import json
 from types import SimpleNamespace
@@ -119,3 +120,35 @@ def test_persona_loves_small_talk_but_keeps_it_cheap():
     prompt = build_system_prompt([], [])
     assert "Enjoy small talk" in prompt and "how did I do?" in prompt
     assert "never use ask_expert or research for it" in prompt
+
+
+def test_let_me_think_cue():
+    assert ambient.is_think_cue("Hmm, let me think.")
+    assert ambient.is_think_cue("That's a good one, let me see")
+    assert not ambient.is_think_cue("I think we should go")
+
+
+def test_let_me_think_whispers_an_answer(monkeypatch):
+    calls = []
+
+    async def create(**kw):
+        calls.append(kw)
+        return reply({"found": True, "answer": "I'd say about 40 percent, since revenue grew from 50 to 70."}, kw["model"])
+
+    monkeypatch.setattr(ambient.client.beta.messages, "create", create)
+    heard = []
+
+    async def whisper(kind, text):
+        heard.append((kind, text))
+
+    async def scenario():
+        listener = ambient.AmbientListener(Memory(":memory:"), whisper)
+        listener.segments.append((time.monotonic(), "en-US",
+                                  "Revenue went from 50 to 70 million, what's the growth rate?"))
+        listener.think()
+        await asyncio.sleep(0.2)
+
+    asyncio.run(scenario())
+    assert heard == [("answer", "I'd say about 40 percent, since revenue grew from 50 to 70.")]
+    assert "growth rate" in calls[0]["messages"][0]["content"]
+    assert calls[0]["model"] == "claude-opus-5-5"
