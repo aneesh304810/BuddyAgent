@@ -197,7 +197,15 @@ BUDDY_TOPUP_USD=10                # what one yes adds to the month
 BUDDY_DAILY_ALLOWANCE_USD=0       # 0 = monthly budget / days in the month
 BUDDY_LISTEN_DAILY_USD=0.50       # Listen-in per day; a yes adds the same again
 BUDDY_APPROVE_OVER_USD=0.50       # single actions above this need your yes
+BUDDY_EXPERT_DAILY_LIMIT=20       # "ask the expert" escalations per day (about 5-25 cents each)
 ```
+
+**How Buddy decides to spend more.** It starts cheap and asks itself whether the
+answer is good enough. If not, it steps up one level at a time: memory, web
+search, the expert (a stronger model thinking harder, with web access, for high
+stakes, hard maths, conflicting facts or when you push back), a quick research
+job, and only with your yes a deep report. When a quick research job comes back
+with low confidence, Buddy offers the deep report and waits for your answer.
 
 **Travel settings** for long days among people speaking a language you don't
 know (Listen-in drops from about $1.50 to about $0.30 per hour; whispers arrive

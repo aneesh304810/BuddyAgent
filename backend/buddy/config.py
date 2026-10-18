@@ -31,6 +31,11 @@ class Settings:
     # only then does the listen model read it. Empty triage = no first pass.
     listen_model: str = os.getenv("BUDDY_LISTEN_MODEL", os.getenv("BUDDY_MODEL", "claude-opus-5-5"))
     listen_triage_model: str = os.getenv("BUDDY_LISTEN_TRIAGE_MODEL", "claude-haiku-5-5")
+    # Escalation: when the chat model judges its answer wouldn't be good enough, it
+    # asks this stronger model, thinking harder, with web access.
+    expert_model: str = os.getenv("BUDDY_EXPERT_MODEL", os.getenv("BUDDY_MODEL", "claude-opus-5-5"))
+    expert_effort: str = os.getenv("BUDDY_EXPERT_EFFORT", "high")
+    expert_daily_limit: int = int(os.getenv("BUDDY_EXPERT_DAILY_LIMIT", "20"))
     # Gather this many seconds of room speech per check (0 = check every phrase).
     listen_batch_seconds: float = float(os.getenv("BUDDY_LISTEN_BATCH_SECONDS", "20"))
     # Voice replies must be quick; "low" effort keeps thinking short.

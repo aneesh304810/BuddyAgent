@@ -57,6 +57,7 @@ class JobResult:
     report: str = ""
     findings: list[str] = field(default_factory=list)
     sources: list[dict] = field(default_factory=list)
+    confidence: str = ""  # high | medium | low, when the job can judge it
 
 
 class JobContext:
@@ -94,6 +95,10 @@ class JobRunner:
         self.wake = asyncio.Event()
         self.closing = False
         memory.db.executescript(SCHEMA)
+        try:  # added after the first release
+            memory.db.execute("ALTER TABLE jobs ADD COLUMN confidence TEXT")
+        except Exception:
+            pass
 
     def register(self, kind: str, handler: Handler) -> None:
         self.handlers[kind] = handler
@@ -212,6 +217,7 @@ class JobRunner:
                 job_id, "done",
                 summary=result.summary, report=result.report,
                 findings=json.dumps(result.findings), sources=json.dumps(result.sources),
+                confidence=result.confidence or None,
             )
         except asyncio.CancelledError:
             if not self.closing:

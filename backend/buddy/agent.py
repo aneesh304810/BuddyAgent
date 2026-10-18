@@ -52,6 +52,11 @@ def _request_kwargs(system: str) -> dict:
     )
 
 
+def _expert_tool() -> dict:
+    from .expert import EXPERT_TOOL
+    return EXPERT_TOOL
+
+
 class Conversation:
     """One live conversation with the user (one per connected phone)."""
 
@@ -160,7 +165,10 @@ class Conversation:
         orchestration = ORCHESTRATION_TOOLS if self.registry else []
         job_tools = JOB_TOOLS if self.jobs else []
         spending = [SPENDING_TOOL] if self.thrift else []
-        return CLIENT_TOOLS + orchestration + job_tools + spending + agent_tools + [WEB_SEARCH]
+        return (
+            CLIENT_TOOLS + orchestration + job_tools + spending + [_expert_tool()]
+            + agent_tools + [WEB_SEARCH]
+        )
 
     async def _run(self, block) -> dict:
         args = block.input if isinstance(block.input, dict) else json.loads(block.input)
@@ -183,6 +191,16 @@ class Conversation:
             return run_job_tool(self.jobs, name, args, self.thrift)
         if self.thrift and name == "spending_status":
             return json.dumps(self.thrift.status())
+        if name == "ask_expert":
+            from . import expert  # imported here: expert uses this module's helpers
+            if self.thrift and expert.ESTIMATE_USD > settings.approve_over_usd:
+                async def run() -> str:
+                    return await expert.ask_expert(self.memory, args)
+                return self.thrift.ask_action(
+                    f"This needs a closer look from the expert model, about "
+                    f"{round(expert.ESTIMATE_USD * 100)} cents. Go ahead?", run,
+                )
+            return await expert.ask_expert(self.memory, args)
         if self.registry:
             if name == "confirm_action":
                 return await self.registry.confirm(args["id"], self.turn)

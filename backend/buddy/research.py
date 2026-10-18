@@ -92,6 +92,7 @@ SUMMARY_SCHEMA = {
     "properties": {
         "spoken_summary": {"type": "string"},
         "key_findings": {"type": "array", "items": {"type": "string"}},
+        "confidence": {"type": "string", "enum": ["high", "medium", "low"]},
         "sources": {
             "type": "array",
             "items": {
@@ -102,7 +103,7 @@ SUMMARY_SCHEMA = {
             },
         },
     },
-    "required": ["spoken_summary", "key_findings", "sources"],
+    "required": ["spoken_summary", "key_findings", "confidence", "sources"],
     "additionalProperties": False,
 }
 
@@ -223,7 +224,9 @@ async def _summarize(ctx: JobContext, question: str, report: str) -> JobResult:
                 "content": (
                     "From this research report, give: spoken_summary, two short sentences a "
                     "friend would say aloud (no Markdown, no URLs, numbers said naturally); "
-                    "key_findings, up to five one-line findings; sources, every [title](url) "
+                    "key_findings, up to five one-line findings; confidence, how well the "
+                    "sources settle the question (low if they conflict, are thin, old, or "
+                    "leave the main question open); sources, every [title](url) "
                     f"in its Sources list.\n\nQuestion: {question}\n\nReport:\n{report}"
                 ),
             }],
@@ -236,6 +239,7 @@ async def _summarize(ctx: JobContext, question: str, report: str) -> JobResult:
             summary=data["spoken_summary"].strip(),
             report=report,
             findings=[f.strip() for f in data["key_findings"]][:5],
+            confidence=data.get("confidence", ""),
             sources=data["sources"],
         )
     except Exception as e:  # the report itself is done; fall back to plain extraction

@@ -61,6 +61,17 @@ async def job_finished(job: dict) -> bool:
     """Tell the user a background job is done (or why it failed)."""
     if job["status"] == "done":
         text = f"Your research on {job['title']} is ready. {job.get('summary') or ''}".strip()
+        params = job.get("params") or {}
+        if job.get("confidence") == "low" and params.get("depth") == "quick":
+            # Not good enough: offer the next step up, and wait for a yes.
+            async def go_deeper() -> str:
+                jobs.submit("research", job["title"], {**params, "depth": "deep"})
+                return "Okay, I've started the deep report. I'll tell you when it's done."
+
+            question = ("I'm not fully confident in it, though. Want me to dig deeper with a "
+                        "deep report, for about 1 to 3 dollars?")
+            thrift.ask_action(question, go_deeper)
+            text = f"{text} {question}"
     else:
         text = f"The research on {job['title']} didn't finish: {job.get('error') or 'unknown error'}"
     return await deliver("job_done", text, job_id=job["id"])
