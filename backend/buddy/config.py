@@ -39,6 +39,15 @@ class Settings:
     morning_brief_at: str = os.getenv("BUDDY_MORNING_BRIEF", "08:00")
     # Stop calling Claude once this month's estimated spend reaches this (USD).
     monthly_budget_usd: float = float(os.getenv("BUDDY_MONTHLY_BUDGET_USD", "40"))
+    # Thrift: Buddy asks before going past any of these. A yes adds topup_usd to the
+    # month, but never beyond the hard cap (default: twice the monthly budget).
+    hard_cap_usd: float = float(os.getenv("BUDDY_HARD_CAP_USD", "0"))
+    topup_usd: float = float(os.getenv("BUDDY_TOPUP_USD", "10"))
+    # Daily allowance; 0 = the monthly budget spread evenly over the month.
+    daily_allowance_usd: float = float(os.getenv("BUDDY_DAILY_ALLOWANCE_USD", "0"))
+    listen_daily_usd: float = float(os.getenv("BUDDY_LISTEN_DAILY_USD", "0.50"))
+    # Single actions estimated above this (e.g. a deep research job) need a yes.
+    approve_over_usd: float = float(os.getenv("BUDDY_APPROVE_OVER_USD", "0.50"))
     agents_file: Path = Path(os.getenv("BUDDY_AGENTS", "agents.yaml"))
     # Background jobs (research and others) running at the same time.
     max_parallel_jobs: int = int(os.getenv("BUDDY_MAX_PARALLEL_JOBS", "2"))

@@ -8,6 +8,7 @@ from .agent import compose
 from .config import settings
 from .memory import Memory
 from .persona import build_system_prompt
+from .thrift import Thrift
 from .tools import format_local, local_now
 
 log = logging.getLogger(__name__)
@@ -38,8 +39,10 @@ async def morning_briefing(memory: Memory) -> str:
         system,
         f"It's {local_now().strftime('%A %d %B, %I:%M %p')}. Give the user a short, upbeat "
         "morning briefing, about four spoken sentences: greet them, mention what's "
-        "coming up today, and nudge them on one of their goals. "
-        f"Upcoming reminders: {'; '.join(reminders) or 'none'}.",
+        "coming up today, nudge them on one of their goals, and end with yesterday's AI "
+        "cost in a few words (say if we're running ahead of budget). "
+        f"Upcoming reminders: {'; '.join(reminders) or 'none'}. "
+        f"Spending: {Thrift(memory).summary()}",
         memory,
     )
 

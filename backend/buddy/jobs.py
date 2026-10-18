@@ -16,6 +16,7 @@ from . import usage
 from .config import settings
 from .memory import Memory
 from .privacy import mask
+from .thrift import Thrift
 from .tools import ToolError
 
 log = logging.getLogger(__name__)
@@ -204,7 +205,7 @@ class JobRunner:
             handler = self.handlers.get(job["kind"])
             if handler is None:
                 raise JobFailed(f"No handler for {job['kind']} jobs.")
-            if usage.month_to_date(self.memory) >= settings.monthly_budget_usd:
+            if usage.month_to_date(self.memory) >= Thrift(self.memory).month_budget():
                 raise JobFailed("This month's AI budget is used up.")
             result = await handler(job, JobContext(self.memory, job))
             self._finish(
@@ -300,17 +301,20 @@ JOB_TOOLS = [
     },
 ]
 JOB_TOOL_NAMES = {t["name"] for t in JOB_TOOLS}
+# Rough cost of one research job, for the approval question.
+RESEARCH_COST = {"quick": (0.35, "about 20 to 50 cents"), "deep": (2.00, "about 1 to 3 dollars")}
 REPORT_CHARS_FOR_CLAUDE = 12_000
 
 
-def run_job_tool(runner: JobRunner, name: str, args: dict) -> str:
+def run_job_tool(runner: JobRunner, name: str, args: dict, thrift: Thrift | None = None) -> str:
     if name == "start_research":
         if runner.started_today("research") >= settings.research_daily_limit:
             raise ToolError(
                 f"Today's limit of {settings.research_daily_limit} research jobs is reached "
                 "(BUDDY_RESEARCH_DAILY_LIMIT)."
             )
-        if usage.month_to_date(runner.memory) >= settings.monthly_budget_usd:
+        budget = thrift.month_budget() if thrift else settings.monthly_budget_usd
+        if usage.month_to_date(runner.memory) >= budget:
             raise ToolError("This month's AI budget is used up.")
         question = mask(args["question"].strip())
         if not question:
@@ -322,6 +326,16 @@ def run_job_tool(runner: JobRunner, name: str, args: dict) -> str:
         }
         if params["mode"] == "data":
             params["data"] = mask(args.get("data", ""))[:100_000]
+        estimate, in_words = RESEARCH_COST[params["depth"]]
+        if thrift and estimate > settings.approve_over_usd:
+            async def start() -> str:
+                runner.submit("research", question, params)
+                return "Great, it's started. I'll tell you when it's done."
+
+            topic = question if len(question) <= 80 else question[:77] + "…"
+            return thrift.ask_action(
+                f"A {params['depth']} research job on \"{topic}\" costs {in_words}. Shall I start it?", start
+            )
         job_id = runner.submit("research", question, params)
         return f"Research job {job_id} started ({params['depth']}). The result will arrive by itself."
     if name == "list_jobs":

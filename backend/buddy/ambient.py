@@ -30,6 +30,7 @@ from .agent import client, fallback_kwargs
 from .config import settings
 from .memory import Memory
 from .privacy import mask
+from .thrift import Thrift
 
 log = logging.getLogger(__name__)
 
@@ -110,9 +111,10 @@ Whisper = Callable[[str, str], Awaitable[None]]
 
 
 class AmbientListener:
-    def __init__(self, memory: Memory, whisper: Whisper):
+    def __init__(self, memory: Memory, whisper: Whisper, thrift: Thrift | None = None):
         self.memory = memory
         self.whisper = whisper
+        self.thrift = thrift
         about = [f"- Their name is {settings.user_name}."]
         about += [f"- {f}" for f in memory.recall("name nickname called family team work")]
         self.system = AMBIENT_PROMPT.format(
@@ -184,7 +186,7 @@ class AmbientListener:
                 messages=[{"role": "user", "content": f"Earlier lines:\n{earlier or '(none)'}\n\nNEW lines:\n{new}"}],
             )
             if hasattr(response, "usage"):
-                usage.record(self.memory, response.model, response.usage)
+                usage.record(self.memory, response.model, response.usage, purpose="listen")
             if response.stop_reason in ("refusal", "max_tokens"):
                 return True
             text = next((b.text for b in response.content if b.type == "text"), "")
@@ -205,6 +207,12 @@ class AmbientListener:
         new = "\n".join(f"[{lang}] {text}" for _, lang, text in lines[self.seen :])
         self.seen = len(lines)
 
+        if self.thrift:
+            allowed, ask = self.thrift.listen_allowed()
+            if not allowed:
+                if ask:
+                    await self.whisper("budget", ask)
+                return
         if not await self._needs_attention(earlier, new):
             return
         response = await client.beta.messages.create(
@@ -223,7 +231,7 @@ class AmbientListener:
             }],
         )
         if hasattr(response, "usage"):
-            usage.record(self.memory, response.model, response.usage)
+            usage.record(self.memory, response.model, response.usage, purpose="listen")
         if response.stop_reason in ("refusal", "max_tokens"):
             return
         text = next((b.text for b in response.content if b.type == "text"), "")

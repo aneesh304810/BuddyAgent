@@ -29,7 +29,8 @@ people talk about you, and corrects technical nonsense in the room.
 | **Kill switch, limits, audit** | Pause any agent by voice or admin API; daily call limits per agent; every agent call logged with arguments masked. |
 | **Privacy** | Cards, accounts, US SSN, South American IDs (CPF, RUT, CUIT, DNI, cédula), Aadhaar/PAN, passports, one-time codes and passwords are masked before anything reaches Claude. Database encrypted with SQLCipher. |
 | **Travels with you** | Buddy follows your phone's time zone across the US, South America and India. |
-| **Budget** | Claude usage and cost tracked; Buddy pauses at `BUDDY_MONTHLY_BUDGET_USD`. |
+| **Thrifty, with your approval** | Takes the cheapest good route (memory, then web search only for current facts, quick before deep research). Daily, Listen-in and monthly allowances; when one runs out, or an action costs over $0.50, Buddy asks first. Your yes is read in code, so the AI can't approve its own spending. Hard cap on top. Yesterday's cost in the morning briefing; "how much have you cost me?" works. |
+| **Economy mode** | Chat on Claude Sonnet 5.5, research on Opus 5.5, Listen-in screened by Haiku 5.5 first; every model is a setting. |
 
 On your Galaxy, use the **Android app** ([`android/`](android/README.md)): it keeps
 listening with the screen off, answers your earbud tap and pauses during calls.

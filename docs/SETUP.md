@@ -42,8 +42,14 @@ first pass that decides whether room speech needs a close look at all.
 | Off-server backup copy (optional) | Backblaze B2 or similar | a few cents |
 | **Typical total** | Daily use plus about 2 hours of Listen-in a day | **about $40–60** |
 
-Buddy stops itself at `BUDDY_MONTHLY_BUDGET_USD` (default $40), so a busy month
-can't surprise you.
+**Buddy is thrifty and asks before spending more.** It keeps three allowances:
+a daily one (your monthly budget spread over the month), one for Listen-in
+($0.50 a day), and the monthly budget. When one runs out, or an action would cost
+more than $0.50 (such as a deep research job), Buddy asks you first, for example:
+*"We've spent $1.40 today, over the $1.29 allowance. Keep going today?"* Your
+yes or no is read by Buddy's own code, never by the AI, so it can't approve its own
+spending, and confirming costs nothing. A yes to more money for the month adds
+`BUDDY_TOPUP_USD` ($10), up to a hard cap you set (default: twice the budget).
 
 ---
 
@@ -180,6 +186,17 @@ BUDDY_CHAT_MODEL=claude-sonnet-5-5          # everyday chat; claude-opus-5-5 = s
 BUDDY_LISTEN_MODEL=claude-opus-5-5          # close Listen-in checks
 BUDDY_LISTEN_TRIAGE_MODEL=claude-haiku-5-5  # cheap first pass; empty = always check closely
 BUDDY_LISTEN_BATCH_SECONDS=20               # gather this much room speech per check
+```
+
+Thrift settings (defaults shown):
+
+```
+BUDDY_MONTHLY_BUDGET_USD=40       # the monthly budget
+BUDDY_HARD_CAP_USD=80             # never above this, even with your yes (default 2x budget)
+BUDDY_TOPUP_USD=10                # what one yes adds to the month
+BUDDY_DAILY_ALLOWANCE_USD=0       # 0 = monthly budget / days in the month
+BUDDY_LISTEN_DAILY_USD=0.50       # Listen-in per day; a yes adds the same again
+BUDDY_APPROVE_OVER_USD=0.50       # single actions above this need your yes
 ```
 
 **Travel settings** for long days among people speaking a language you don't

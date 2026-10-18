@@ -33,6 +33,7 @@ from .ambient import AmbientListener
 from .config import settings
 from .jobs import JobRunner
 from .memory import Memory
+from .thrift import Thrift
 from .tools import set_user_tz
 
 logging.basicConfig(level=logging.INFO, format="%(asctime)s %(name)s %(message)s")
@@ -65,6 +66,7 @@ async def job_finished(job: dict) -> bool:
     return await deliver("job_done", text, job_id=job["id"])
 
 
+thrift = Thrift(memory)
 jobs = JobRunner(memory, job_finished)
 jobs.register("research", research.run_research)
 
@@ -137,6 +139,7 @@ def admin_usage() -> dict:
     return {
         "month_to_date_usd": round(usage.month_to_date(memory), 4),
         "monthly_budget_usd": settings.monthly_budget_usd,
+        "allowances": thrift.status(),
         "by_month_and_model": usage.summary(memory),
     }
 
@@ -167,7 +170,7 @@ async def talk(ws: WebSocket) -> None:
         await ws.close(code=4401)
         return
     await ws.accept()
-    convo = Conversation(memory, registry, jobs)
+    convo = Conversation(memory, registry, jobs, thrift)
     connections[ws] = convo
     jobs.wake.set()  # results that finished while the phone was away go out now
     current: asyncio.Task | None = None
@@ -179,7 +182,7 @@ async def talk(ws: WebSocket) -> None:
         await ws.send_json({"type": "whisper", "kind": kind, "text": text})
         convo.note_proactive(text)
 
-    listener = AmbientListener(memory, whisper)
+    listener = AmbientListener(memory, whisper, thrift)
 
     async def answer(text: str) -> None:
         try:

@@ -3,6 +3,7 @@
 from datetime import datetime, timezone
 
 from .memory import Memory
+from .tools import local_now
 
 # USD per million tokens: (input, output). Cache reads cost 0.1x input, cache writes 1.25x.
 # Longer names first: prices are matched by prefix.
@@ -35,9 +36,29 @@ def cost_usd(model: str, usage) -> float:
     ) / 1_000_000 + searches * WEB_SEARCH_USD
 
 
-def record(memory: Memory, model: str, usage) -> float:
+def _add(memory: Memory, key: str, amount: float) -> None:
+    memory.db.execute(
+        "INSERT INTO kv (key, value) VALUES (?, ?) ON CONFLICT(key) DO UPDATE SET "
+        "value = CAST(CAST(value AS REAL) + CAST(excluded.value AS REAL) AS TEXT)",
+        (key, str(amount)),
+    )
+
+
+def spent_on(memory: Memory, day: str, purpose: str = "") -> float:
+    """Spend on a local calendar day (YYYY-MM-DD), optionally for one purpose."""
+    value = memory.get(f"spend:{purpose + ':' if purpose else ''}{day}")
+    return float(value) if value else 0.0
+
+
+def record(memory: Memory, model: str, usage, purpose: str = "") -> float:
+    """Log one response's cost. `purpose` (e.g. "listen") gets its own daily tally."""
     day = datetime.now(timezone.utc).date().isoformat()
     cost = cost_usd(model, usage)
+    # Daily allowances follow the user's own midnight, wherever they are.
+    local_day = local_now().date().isoformat()
+    _add(memory, f"spend:{local_day}", cost)
+    if purpose:
+        _add(memory, f"spend:{purpose}:{local_day}", cost)
     memory.db.execute(
         """INSERT INTO usage (day, model, input_tokens, output_tokens,
                               cache_read_tokens, cache_write_tokens, cost_usd)
