@@ -30,6 +30,7 @@ people talk about you, and corrects technical nonsense in the room.
 | **Privacy** | Cards, accounts, US SSN, South American IDs (CPF, RUT, CUIT, DNI, cédula), Aadhaar/PAN, passports, one-time codes and passwords are masked before anything reaches Claude. Database encrypted with SQLCipher. |
 | **Travels with you** | Buddy follows your phone's time zone across the US, South America and India. |
 | **Thrifty, with your approval** | Takes the cheapest good route (memory, then web search only for current facts, quick before deep research). Daily, Listen-in and monthly allowances; when one runs out, or an action costs over $0.50, Buddy asks first. Your yes is read in code, so the AI can't approve its own spending. Hard cap on top. Yesterday's cost in the morning briefing; "how much have you cost me?" works. |
+| **Connectors** | One systematic way to plug in apps (`docs/CONNECTORS.md`): Calendar (private iCal link) and Email (read-only) today; bank, Airbnb, Takeout, Oura and more planned. Read-only, masked, encrypted, with health and a kill switch; app content is treated as information, never instructions. |
 | **Smart escalation** | Buddy judges whether its answer is good enough and steps up one level at a time: memory, web search, the expert (Opus thinking harder, with web access, about 5–25¢), quick research, then a deep report only with your yes. A low-confidence research result comes with an offer to dig deeper. |
 | **Economy mode** | Chat on Claude Sonnet 5.5, research on Opus 5.5, Listen-in screened by Haiku 5.5 first; every model is a setting. |
 

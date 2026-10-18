@@ -15,6 +15,7 @@ from . import usage
 from .agents import AgentRegistry, ApprovalNeeded
 from .config import settings
 from .jobs import JOB_TOOL_NAMES, JOB_TOOLS, JobRunner, run_job_tool
+from .connectors import CONNECTOR_TOOL_NAMES, CONNECTOR_TOOLS, ConnectorHub, run_connector_tool
 from .thrift import SPENDING_TOOL, Thrift
 from .memory import Memory
 from .persona import build_system_prompt
@@ -66,11 +67,13 @@ class Conversation:
         registry: AgentRegistry | None = None,
         jobs: JobRunner | None = None,
         thrift: Thrift | None = None,
+        hub: ConnectorHub | None = None,
     ):
         self.memory = memory
         self.registry = registry
         self.jobs = jobs
         self.thrift = thrift
+        self.hub = hub
         self.messages: list[dict] = []
         self.turn = 0  # counts user messages; approvals need a newer one
         # Frozen for the whole session so the cached prompt prefix stays valid.
@@ -165,6 +168,7 @@ class Conversation:
         orchestration = ORCHESTRATION_TOOLS if self.registry else []
         job_tools = JOB_TOOLS if self.jobs else []
         spending = [SPENDING_TOOL] if self.thrift else []
+        spending += CONNECTOR_TOOLS if self.hub else []
         return (
             CLIENT_TOOLS + orchestration + job_tools + spending + [_expert_tool()]
             + agent_tools + [WEB_SEARCH]
@@ -189,6 +193,8 @@ class Conversation:
     async def _dispatch(self, name: str, args: dict) -> str:
         if self.jobs and name in JOB_TOOL_NAMES:
             return run_job_tool(self.jobs, name, args, self.thrift)
+        if self.hub and name in CONNECTOR_TOOL_NAMES:
+            return await run_connector_tool(self.hub, name, args)
         if self.thrift and name == "spending_status":
             return json.dumps(self.thrift.status())
         if name == "ask_expert":

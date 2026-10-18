@@ -5,3 +5,5 @@ python-dotenv>=1.0
 mcp>=2.3,<3
 pyyaml>=6
 sqlcipher3-wheels>=0.5
+icalendar>=6
+recurring-ical-events>=3

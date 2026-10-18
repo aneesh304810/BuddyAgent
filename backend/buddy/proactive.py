@@ -8,6 +8,7 @@ from .agent import compose
 from .config import settings
 from .memory import Memory
 from .persona import build_system_prompt
+from .connectors import agenda
 from .thrift import Thrift
 from .tools import format_local, local_now
 
@@ -42,6 +43,7 @@ async def morning_briefing(memory: Memory) -> str:
         "coming up today, nudge them on one of their goals, and end with yesterday's AI "
         "cost in a few words (say if we're running ahead of budget). "
         f"Upcoming reminders: {'; '.join(reminders) or 'none'}. "
+        f"Today's calendar: {'; '.join(e['when'] + ' ' + e['title'] for e in agenda(memory, 1)) or 'nothing or not connected'}. "
         f"Spending: {Thrift(memory).summary()}",
         memory,
     )

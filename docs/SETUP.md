@@ -276,6 +276,15 @@ Then tap your earbud instead of the orb and speak again.
 
 ---
 
+### Step 12 (optional). Connect your calendar and email
+
+Buddy gets much more useful once it can see your day and your inbox. Follow
+[`docs/CONNECTORS.md`](CONNECTORS.md): about 2 minutes for Calendar (a private
+link) and 5 for Gmail (an app password; Buddy only reads). Then ask *"What's on my
+calendar today?"* or *"Did my flight confirmation come?"*
+
+---
+
 ## Part D — Test everything (15 minutes)
 
 Do these in order. Each one checks a different part of Buddy.

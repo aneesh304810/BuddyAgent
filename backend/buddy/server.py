@@ -33,6 +33,7 @@ from .ambient import AmbientListener, is_think_cue
 from .config import settings
 from .jobs import JobRunner
 from .memory import Memory
+from .connectors import ConnectorHub
 from .thrift import Thrift
 from .tools import set_user_tz
 
@@ -78,6 +79,7 @@ async def job_finished(job: dict) -> bool:
 
 
 thrift = Thrift(memory)
+hub = ConnectorHub(memory)
 jobs = JobRunner(memory, job_finished)
 jobs.register("research", research.run_research)
 
@@ -87,12 +89,14 @@ async def lifespan(app: FastAPI):
     await registry.start()
     task = asyncio.create_task(proactive.run(memory, deliver))
     job_loop = asyncio.create_task(jobs.run())
+    sync_loop = asyncio.create_task(hub.run())
     try:
         yield
     finally:
         task.cancel()
         await jobs.close()
         job_loop.cancel()
+        sync_loop.cancel()
         await registry.close()
 
 
@@ -140,6 +144,24 @@ def admin_agent_switch(name: str, action: str) -> dict:
     return {"name": name, "enabled": action == "enable", "note": note.strip()}
 
 
+@app.get("/admin/connectors", dependencies=[Depends(require_admin)])
+def admin_connectors() -> list[dict]:
+    return hub.status()
+
+
+@app.post("/admin/connectors/{name}/{action}", dependencies=[Depends(require_admin)])
+async def admin_connector_action(name: str, action: str) -> dict:
+    if name not in hub.connectors or action not in ("enable", "disable", "sync"):
+        raise HTTPException(status_code=404)
+    if action == "sync":
+        try:
+            return {"name": name, "result": await hub.sync(name)}
+        except Exception as e:
+            raise HTTPException(status_code=400, detail=str(e)) from e
+    hub.set_enabled(name, action == "enable")
+    return {"name": name, "enabled": action == "enable"}
+
+
 @app.get("/admin/audit", dependencies=[Depends(require_admin)])
 def admin_audit(limit: int = 100) -> list[dict]:
     return registry.audit_log(min(limit, 1000))
@@ -181,7 +203,7 @@ async def talk(ws: WebSocket) -> None:
         await ws.close(code=4401)
         return
     await ws.accept()
-    convo = Conversation(memory, registry, jobs, thrift)
+    convo = Conversation(memory, registry, jobs, thrift, hub)
     connections[ws] = convo
     jobs.wake.set()  # results that finished while the phone was away go out now
     current: asyncio.Task | None = None
