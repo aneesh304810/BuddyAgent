@@ -191,3 +191,60 @@ def test_tools_mark_app_content_as_untrusted():
     assert "IGNORE PREVIOUS" in agenda and agenda.startswith("Synced from")
     status = asyncio.run(run_connector_tool(hub, "app_connections", {"sync_now": "fake"}))
     assert "Fake: 1 items" in status
+
+
+# --- phones pushing notifications and calendars ----------------------------------
+
+import dataclasses  # noqa: E402
+
+from fastapi.testclient import TestClient  # noqa: E402
+
+from buddy import server  # noqa: E402
+from buddy.connectors import phone as phone_mod  # noqa: E402
+
+
+def notification(**kw):
+    base = {"type": "notification", "device": "Fold 8", "app": "com.microsoft.teams",
+            "app_name": "Teams", "title": "Priya", "text": "Can you join now? Code 482913 is OTP",
+            "posted_at": datetime.now(timezone.utc).isoformat(), "key": "k1"}
+    return {**base, **kw}
+
+
+def test_teams_notification_is_stored_masked_and_announced(monkeypatch):
+    monkeypatch.setattr(phone_mod, "settings", dataclasses.replace(phone_mod.settings, quiet_hours=""))
+    with TestClient(server.app) as c, c.websocket_connect("/ws") as ws:
+        ws.send_json(notification())
+        msg = ws.receive_json()
+    assert msg["type"] == "nudge" and msg["kind"] == "notification"
+    assert msg["text"].startswith("Teams, Priya: Can you join now?") and "482913" not in msg["text"]
+    found = server.hub.search("join", source="notifications")
+    assert found and found[0]["title"] == "Teams: Priya" and "[Fold 8]" in found[0]["snippet"]
+
+
+def test_other_apps_are_stored_but_not_read_aloud():
+    assert not phone_mod.should_announce({"app": "com.whatsapp", "app_name": "WhatsApp"})
+    assert phone_mod.should_announce.__doc__  # Teams is announced by default (see above)
+
+
+def test_quiet_hours(monkeypatch):
+    monkeypatch.setattr(phone_mod, "settings", dataclasses.replace(phone_mod.settings, quiet_hours="00:00-23:59"))
+    assert phone_mod.in_quiet_hours()
+    assert not phone_mod.should_announce({"app": "com.microsoft.teams", "app_name": "Teams"})
+
+
+def test_two_phones_calendars_and_work_busy_only():
+    start = (datetime.now(timezone.utc) + timedelta(hours=2)).isoformat()
+    end = (datetime.now(timezone.utc) + timedelta(hours=3)).isoformat()
+
+    def push(device, events):
+        return {"type": "phone_calendar", "device": device, "events": events}
+
+    with TestClient(server.app) as c, c.websocket_connect("/ws") as ws:
+        ws.send_json(push("Fold 8", [{"id": "1", "title": "Gym", "start": start, "end": end, "calendar": "Personal"}]))
+        ws.send_json(push("Work phone", [{"id": "9", "title": "Q4 layoffs planning", "start": start, "end": end,
+                                          "calendar": "Work (Outlook)", "busy_only": True}]))
+        ws.send_json(push("Fold 8", [{"id": "2", "title": "Dentist", "start": start, "end": end, "calendar": "Personal"}]))
+        ws.send_json({"type": "user", "text": ""})  # a no-op; lets the server finish the pushes
+    titles = sorted(r["title"] for r in server.hub.search("", source="phone_calendar"))
+    assert titles == ["Busy", "Dentist"]  # Gym replaced; work title never stored
+    assert "layoffs" not in str(server.hub.search("", source="phone_calendar"))

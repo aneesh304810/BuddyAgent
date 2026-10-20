@@ -46,7 +46,15 @@ _CARD = re.compile(r"\b\d(?:[ -]?\d){12,18}\b")
 _CODE = re.compile(
     r"\b(OTP|one[- ]time (?:password|code)|verification code|security code|passcode|CVV|CVC|"
     r"PIN(?!\s*code)|c[oó]digo(?: de (?:verificaci[oó]n|seguridad|verifica[cç][aã]o|seguran[cç]a))?|"
-    r"clave|token)\b([^\d\n]{0,15}?)(\d{3,8})\b",
+    r"clave|token|code)\b([^\d\n]{0,15}?)(\d{3,8})\b",
+    _I,
+)
+# "Code" alone is also a postal/phone word: leave "zip code 10001", "area code 212" alone.
+_NOT_SECRET_CODE = re.compile(r"\b(zip|area|postal|post|pin|country|dial|dialing|promo|discount|coupon)\s*$", _I)
+# The number first: "482913 is your verification code", "Use 1234 as your OTP".
+_CODE_FIRST = re.compile(
+    r"\b(\d{4,8})(\s+(?:is|as)\s+(?:your|the)\s+(?:\w+\s+){0,2}?"
+    r"(?:code|OTP|passcode|password|PIN|c[oó]digo|senha|clave))\b",
     _I,
 )
 # Passwords in plain words: "password is hunter2", "contraseña: x", "senha é x".
@@ -67,6 +75,12 @@ def _luhn_ok(digits: str) -> bool:
     return total % 10 == 0
 
 
+def _code(match: re.Match) -> str:
+    if match.group(1).lower() == "code" and _NOT_SECRET_CODE.search(match.string[: match.start()]):
+        return match.group()
+    return f"{match.group(1)}{match.group(2)}[code hidden]"
+
+
 def _card(match: re.Match) -> str:
     digits = re.sub(r"\D", "", match.group())
     if not _luhn_ok(digits):
@@ -78,7 +92,8 @@ def mask(text: str) -> str:
     """Return `text` with cards, accounts, national IDs, codes and passwords masked."""
     if not text:
         return text
-    text = _CODE.sub(lambda m: f"{m.group(1)}{m.group(2)}[code hidden]", text)
+    text = _CODE_FIRST.sub(lambda m: f"[code hidden]{m.group(2)}", text)
+    text = _CODE.sub(_code, text)
     text = _PASSWORD.sub(lambda m: f"{m.group(1)}{m.group(2)}[password hidden]", text)
     text = _ID_KEYWORD.sub(lambda m: f"{m.group(1)}{m.group(2)}[ID hidden]", text)
     text = _CNPJ.sub("[ID hidden]", text)

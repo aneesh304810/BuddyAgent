@@ -40,6 +40,10 @@ class Settings:
     # an answer to the question they were just asked, straight away.
     think_phrases: str = os.getenv("BUDDY_THINK_PHRASES", "let me think, let me see, give me a second")
     think_model: str = os.getenv("BUDDY_THINK_MODEL", os.getenv("BUDDY_MODEL", "claude-opus-5-5"))
+    # Phone notifications read aloud as they arrive: app names or package names,
+    # comma-separated (e.g. "Teams, WhatsApp"). Everything else is only stored.
+    announce_apps: str = os.getenv("BUDDY_ANNOUNCE_APPS", "Teams")
+    quiet_hours: str = os.getenv("BUDDY_QUIET_HOURS", "22:00-07:00")
     # Gather this many seconds of room speech per check (0 = check every phrase).
     listen_batch_seconds: float = float(os.getenv("BUDDY_LISTEN_BATCH_SECONDS", "20"))
     # Voice replies must be quick; "low" effort keeps thinking short.

@@ -8,6 +8,7 @@
     <uses-permission android:name="android.permission.FOREGROUND_SERVICE_MICROPHONE" />
     <uses-permission android:name="android.permission.POST_NOTIFICATIONS" />
     <uses-permission android:name="android.permission.REQUEST_IGNORE_BATTERY_OPTIMIZATIONS" />
+    <uses-permission android:name="android.permission.READ_CALENDAR" />
 
     <!-- Android 11+ only lets apps see speech and voice engines they declare. -->
     <queries>
@@ -16,6 +17,11 @@
         </intent>
         <intent>
             <action android:name="android.intent.action.TTS_SERVICE" />
+        </intent>
+        <!-- To show app names (Teams, WhatsApp...) for notifications. -->
+        <intent>
+            <action android:name="android.intent.action.MAIN" />
+            <category android:name="android.intent.category.LAUNCHER" />
         </intent>
     </queries>
 
@@ -37,6 +43,16 @@
                 <category android:name="android.intent.category.LAUNCHER" />
             </intent-filter>
         </activity>
+
+        <service
+            android:name=".BuddyNotificationListener"
+            android:exported="true"
+            android:label="Buddy"
+            android:permission="android.permission.BIND_NOTIFICATION_LISTENER_SERVICE">
+            <intent-filter>
+                <action android:name="android.service.notification.NotificationListenerService" />
+            </intent-filter>
+        </service>
 
         <service
             android:name=".BuddyService"

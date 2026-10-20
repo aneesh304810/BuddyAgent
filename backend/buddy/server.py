@@ -7,6 +7,10 @@ Protocol (JSON messages):
                    {"type": "ambient", "text": "...", "lang": "hi-IN"}
                                                       listen-in mode: speech around the user
                    {"type": "ambient_stop"}           listen-in mode switched off
+                   {"type": "notification", "device", "app", "app_name", "title", "text",
+                    "posted_at", "key"}               a notification on that phone
+                   {"type": "phone_calendar", "device", "events": [{id, title, start,
+                    end, calendar, location, all_day, busy_only}]}  the phone's next week
   server -> phone  {"type": "say", "text": "..."}    one sentence to speak
                    {"type": "done"}                   reply finished
                    {"type": "nudge", "kind": "...", "text": "...", "job_id": 3}
@@ -34,6 +38,8 @@ from .config import settings
 from .jobs import JobRunner
 from .memory import Memory
 from .connectors import ConnectorHub
+from .connectors.phone import NotificationsConnector, PhoneCalendarConnector, should_announce
+from .privacy import mask
 from .thrift import Thrift
 from .tools import set_user_tz
 
@@ -255,6 +261,21 @@ async def talk(ws: WebSocket) -> None:
                     listener.hear(text, str(msg.get("lang", "")))
                     if is_think_cue(text):  # "let me think": whisper them an answer now
                         listener.think()
+            elif msg.get("type") == "notification":
+                added = hub.ingest("notifications", [NotificationsConnector.to_record(msg)])
+                if added and should_announce(msg):
+                    who = str(msg.get("title", "")).strip()
+                    said = mask(str(msg.get("text", "")).strip())[:200]
+                    app_name = str(msg.get("app_name") or "a notification")
+                    await deliver("notification", f"{app_name}{', ' + who if who else ''}: {said}")
+            elif msg.get("type") == "phone_calendar":
+                device = str(msg.get("device", "phone"))
+                records = PhoneCalendarConnector.to_records(msg)
+                # Each phone's push replaces only that phone's events.
+                hub.memory.db.execute(
+                    "DELETE FROM records WHERE source = 'phone_calendar' AND body LIKE ?", (f"[{device}]%",)
+                )
+                hub.ingest("phone_calendar", records)
             elif msg.get("type") == "ambient_stop":
                 listener.stop()
     except WebSocketDisconnect:

@@ -58,6 +58,29 @@ become the first source for the money manager.
 
 To remove access at any time: delete the app password in your Google account.
 
+### Phone notifications and calendars (every phone with the Buddy app)
+On each Android phone with Buddy (your Fold, a work phone...): **Settings → This phone**.
+
+1. **Name** the phone ("Fold 8", "Work phone"), so you can tell them apart.
+2. **Turn on notification access.** Buddy then sees *all* this phone's notifications:
+   Teams messages and meeting alerts, WhatsApp, SMS, bank charges, deliveries, gate changes.
+   Skipped: Buddy's own, ongoing ones (music, navigation) and system ones.
+3. **Share calendar** sends the next 7 days of this phone's calendars every 30 minutes,
+   including a **work calendar** that Outlook or Teams syncs to the phone.
+   **Work calendars: busy times only** (on by default) sends "Busy 10:00–11:00" without
+   titles or places, so confidential meeting details never reach your server.
+
+On the server, choose which apps Buddy reads aloud as they arrive (everything else is
+just remembered, so you can ask *"any WhatsApp from Priya?"*), and quiet hours:
+```
+BUDDY_ANNOUNCE_APPS=Teams, WhatsApp
+BUDDY_QUIET_HOURS=22:00-07:00
+```
+Codes, card numbers and passwords are masked; one-time codes are never read out.
+Notifications are kept 7 days. Limits: an app inside an Android **Work profile** (briefcase
+icon) keeps its notifications and calendar private from personal apps by design; an iPhone
+can't share notifications with apps at all.
+
 ### Check and control
 | What | How |
 |---|---|
@@ -71,6 +94,8 @@ To remove access at any time: delete the app password in your Google account.
 | App | How Buddy connects | Reads / acts | When |
 |---|---|---|---|
 | Calendar (Google, Outlook, iCloud) | Private iCal link | Reads | ✅ Now |
+| All phone notifications (Teams, WhatsApp, SMS, bank...) | Buddy app's notification access, on every Android phone | Reads; reads aloud the apps you choose | ✅ Now |
+| Phone calendars, incl. work (Outlook/Teams) | Buddy app reads the phone's calendar; work = busy times only | Reads | ✅ Now |
 | Email (Gmail, Outlook, any IMAP) | App password, read-only mailbox | Reads | ✅ Now |
 | Bank and card alerts, Amazon, Uber, airline and hotel confirmations | Through the email connector | Reads | ✅ Now (via email) |
 | Bank accounts and cards | Actual Budget + SimpleFIN (read-only bank feed; Buddy never has your bank password) | Reads | Phase 1b |

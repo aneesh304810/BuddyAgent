@@ -41,6 +41,21 @@ class BuddyPrefs(context: Context) {
     var earbudMic: Boolean
         get() = prefs.getBoolean("earbudMic", false)
         set(value) = prefs.edit().putBoolean("earbudMic", value).apply()
+
+    /** How this phone is labelled on the server, e.g. "Fold 8" or "Work phone". */
+    var deviceName: String
+        get() = prefs.getString("deviceName", "") ?: ""
+        set(value) = prefs.edit().putString("deviceName", value.trim()).apply()
+
+    /** Send this phone's calendars to Buddy. */
+    var shareCalendar: Boolean
+        get() = prefs.getBoolean("shareCalendar", false)
+        set(value) = prefs.edit().putBoolean("shareCalendar", value).apply()
+
+    /** Work (Exchange/Outlook) calendars: send only busy times, never titles. */
+    var workBusyOnly: Boolean
+        get() = prefs.getBoolean("workBusyOnly", true)
+        set(value) = prefs.edit().putBoolean("workBusyOnly", value).apply()
 }
 
 private object TokenCipher {

@@ -89,6 +89,7 @@ class BuddyService : Service() {
         mouth.shutdown()
         calls.stop()
         button.release()
+        calendarTimer.removeCallbacksAndMessages(null)
         useEarbudMic(false)
         client?.close()
         client = null
@@ -118,7 +119,34 @@ class BuddyService : Service() {
                 )
             }
             refreshNotification()
+            if (status == BuddyClient.Status.ONLINE) {
+                PhoneBridge.flush()  // notifications that arrived while offline
+                syncCalendar()
+            }
         }.also { it.connect() }
+        scheduleCalendarSync()
+    }
+
+    /** For the phone bridge: send without telling the user if offline. */
+    fun sendQuietly(message: JSONObject): Boolean = client?.send(message) ?: false
+
+    private val calendarTimer = android.os.Handler(android.os.Looper.getMainLooper())
+
+    private fun scheduleCalendarSync() {
+        calendarTimer.removeCallbacksAndMessages(null)
+        calendarTimer.postDelayed({
+            syncCalendar()
+            scheduleCalendarSync()
+        }, 30 * 60 * 1000L)
+    }
+
+    /** Send this phone's next week of calendar events, if the user turned it on. */
+    fun syncCalendar() {
+        if (!prefs.shareCalendar) return
+        Thread {
+            val message = runCatching { PhoneBridge.calendar(this) }.getOrNull() ?: return@Thread
+            PhoneBridge.send(message)
+        }.start()
     }
 
     /** After the server link changes. */

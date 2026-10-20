@@ -67,3 +67,13 @@ def test_money_amounts_untouched():
     for text in ("Paid R$ 1.234,56 at the market", "Cost was $1,250.00", "ARS 45.000 for the taxi",
                  "Flight LA 2470 departs 14:35", "Call me at +1 415 555 0134"):
         assert mask(text) == text, text
+
+
+def test_codes_in_notifications():
+    assert "482913" not in mask("Can you join now? Code 482913 is OTP")
+    assert "482913" not in mask("482913 is your verification code")
+    assert "7731" not in mask("Use 7731 as your one time password")
+    assert "8812" not in mask("Seu código: 8812")
+    # Not secrets: addresses and phone prefixes stay.
+    assert mask("Ship to zip code 10001") == "Ship to zip code 10001"
+    assert mask("Call area code 212 first") == "Call area code 212 first"

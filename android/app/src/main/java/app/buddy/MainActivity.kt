@@ -10,6 +10,7 @@ import android.os.Bundle
 import android.os.PowerManager
 import android.provider.Settings
 import androidx.activity.ComponentActivity
+import androidx.activity.compose.rememberLauncherForActivityResult
 import androidx.activity.compose.setContent
 import androidx.activity.result.contract.ActivityResultContracts
 import androidx.compose.animation.animateColorAsState
@@ -30,6 +31,8 @@ import androidx.compose.foundation.layout.widthIn
 import androidx.compose.foundation.lazy.LazyColumn
 import androidx.compose.foundation.lazy.items
 import androidx.compose.foundation.lazy.rememberLazyListState
+import androidx.compose.foundation.rememberScrollState
+import androidx.compose.foundation.verticalScroll
 import androidx.compose.foundation.shape.CircleShape
 import androidx.compose.foundation.shape.RoundedCornerShape
 import androidx.compose.material3.Button
@@ -53,9 +56,11 @@ import androidx.compose.runtime.setValue
 import androidx.compose.ui.Alignment
 import androidx.compose.ui.Modifier
 import androidx.compose.ui.graphics.Color
+import androidx.compose.ui.platform.LocalContext
 import androidx.compose.ui.text.input.PasswordVisualTransformation
 import androidx.compose.ui.unit.dp
 import androidx.compose.ui.unit.sp
+import androidx.core.app.NotificationManagerCompat
 
 /** Languages people around you might speak, for Listen-in. South America first. */
 val ROOM_LANGUAGES = listOf(
@@ -383,8 +388,18 @@ private fun SettingsPanel(
     var tokenText by remember { mutableStateOf("") }
     var problem by remember { mutableStateOf<String?>(null) }
     var earbudMic by remember { mutableStateOf(prefs.earbudMic) }
+    var deviceName by remember { mutableStateOf(prefs.deviceName) }
+    var shareCalendar by remember { mutableStateOf(prefs.shareCalendar) }
+    var workBusyOnly by remember { mutableStateOf(prefs.workBusyOnly) }
+    val context = LocalContext.current
+    val notificationsOn = NotificationManagerCompat.getEnabledListenerPackages(context).contains(context.packageName)
+    val askCalendar = rememberLauncherForActivityResult(ActivityResultContracts.RequestPermission()) { granted ->
+        shareCalendar = granted
+        prefs.shareCalendar = granted
+        if (granted) BuddyService.instance?.syncCalendar()
+    }
 
-    Column(verticalArrangement = Arrangement.spacedBy(12.dp)) {
+    Column(Modifier.verticalScroll(rememberScrollState()), verticalArrangement = Arrangement.spacedBy(12.dp)) {
         Text("Your server", color = Color.White, fontSize = 18.sp)
         Text(
             "Paste the link the server setup printed, like https://buddy.your-tailnet.ts.net/?token=… " +
@@ -430,6 +445,61 @@ private fun SettingsPanel(
                 )
             }
             Switch(checked = earbudMic, onCheckedChange = { earbudMic = it; prefs.earbudMic = it })
+        }
+
+        Spacer(Modifier.height(8.dp))
+        Text("This phone", color = Color.White, fontSize = 18.sp)
+        OutlinedTextField(
+            value = deviceName,
+            onValueChange = { deviceName = it; prefs.deviceName = it },
+            label = { Text("Name, e.g. \"Fold 8\" or \"Work phone\"") },
+            placeholder = { Text(android.os.Build.MODEL ?: "phone") },
+            singleLine = true,
+            modifier = Modifier.fillMaxWidth(),
+        )
+        Column {
+            Text("Share notifications", color = Color.White)
+            Text(
+                if (notificationsOn) "On. Buddy sees this phone's notifications (Teams, WhatsApp, bank alerts...). " +
+                    "Codes and card numbers are masked; kept 7 days."
+                else "Let Buddy see this phone's notifications, so it can tell you about Teams messages, " +
+                    "meeting alerts and bank charges. You can switch it off any time.",
+                color = Muted, fontSize = 13.sp,
+            )
+            OutlinedButton(
+                onClick = { context.startActivity(Intent(Settings.ACTION_NOTIFICATION_LISTENER_SETTINGS)) },
+                modifier = Modifier.padding(top = 4.dp),
+            ) { Text(if (notificationsOn) "Change notification access" else "Turn on notification access") }
+        }
+        Row(verticalAlignment = Alignment.CenterVertically) {
+            Column(Modifier.weight(1f)) {
+                Text("Share calendar", color = Color.White)
+                Text(
+                    "This phone's calendars, including a work calendar that Outlook or Teams syncs here.",
+                    color = Muted, fontSize = 13.sp,
+                )
+            }
+            Switch(checked = shareCalendar, onCheckedChange = { on ->
+                if (on) askCalendar.launch(Manifest.permission.READ_CALENDAR)
+                else { shareCalendar = false; prefs.shareCalendar = false }
+            })
+        }
+        if (shareCalendar) {
+            Row(verticalAlignment = Alignment.CenterVertically) {
+                Column(Modifier.weight(1f)) {
+                    Text("Work calendars: busy times only", color = Color.White)
+                    Text(
+                        "Buddy sees \"Busy 10:00–11:00\" but no meeting titles or places from Exchange/Outlook " +
+                            "calendars, so work details stay off your server.",
+                        color = Muted, fontSize = 13.sp,
+                    )
+                }
+                Switch(checked = workBusyOnly, onCheckedChange = {
+                    workBusyOnly = it
+                    prefs.workBusyOnly = it
+                    BuddyService.instance?.syncCalendar()
+                })
+            }
         }
 
         if (!batteryOk()) {
