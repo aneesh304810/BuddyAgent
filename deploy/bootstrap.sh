@@ -2,7 +2,11 @@
 # One-time setup of a fresh Ubuntu 24.04 server for Buddy.
 #
 #   curl -fsSL <raw URL of this file> -o bootstrap.sh   (or scp it)
-#   sudo bash bootstrap.sh <git-repo-url> <your-age-public-key> [branch]
+#   sudo bash bootstrap.sh <git-repo-url> [age-public-key | generate] [branch]
+#
+# Phone-friendly: with "generate" (or no key) it creates the backup key and shows
+# the secret half once for you to save; it asks for your Claude key and name
+# instead of making you edit files.
 #
 # What it does, in order:
 #   1. security updates on, automatic from now on
@@ -14,20 +18,45 @@
 #   7. nightly encrypted backups
 set -euo pipefail
 
-REPO_URL="${1:?usage: bootstrap.sh <git-repo-url> <age-public-key> [branch]}"
-AGE_RECIPIENT="${2:?usage: bootstrap.sh <git-repo-url> <age-public-key> [branch]}"
+REPO_URL="${1:?usage: bootstrap.sh <git-repo-url> [age-public-key | generate] [branch]}"
+AGE_RECIPIENT="${2:-generate}"
 BRANCH="${3:-}"   # optional; default: the repo's default branch
 APP=/opt/buddy
 ENV_FILE=/etc/buddy/buddy.env
 
 [[ $EUID -eq 0 ]] || { echo "Run as root (sudo)."; exit 1; }
-[[ "$AGE_RECIPIENT" == age1* ]] || { echo "The second argument must be an age public key (age1...)."; exit 1; }
+[[ "$AGE_RECIPIENT" == age1* || "$AGE_RECIPIENT" == generate ]] || {
+  echo "The second argument must be an age public key (age1...) or the word: generate"; exit 1; }
 
 echo "==> 1/7 Updates"
 export DEBIAN_FRONTEND=noninteractive
 apt-get update -y
 apt-get upgrade -y
 apt-get install -y python3 python3-venv git ufw unattended-upgrades age curl
+
+if [[ "$AGE_RECIPIENT" == generate ]]; then
+  if [[ -f $ENV_FILE ]] && grep -q "^BUDDY_AGE_RECIPIENT=age1" "$ENV_FILE"; then
+    AGE_RECIPIENT=$(grep "^BUDDY_AGE_RECIPIENT=" "$ENV_FILE" | cut -d= -f2)   # re-run: keep the key
+  else
+    KEYFILE=$(mktemp)
+    age-keygen -o "$KEYFILE" 2>/dev/null
+    AGE_RECIPIENT=$(age-keygen -y "$KEYFILE")
+    echo
+    echo "================ YOUR BACKUP KEY: SAVE IT NOW ================"
+    echo "Copy the line below into your password manager (Samsung Pass,"
+    echo "Bitwarden, Google Password Manager...). It is the ONLY way to open"
+    echo "your backups, and it is deleted from this server in a moment."
+    echo
+    grep '^AGE-SECRET-KEY-' "$KEYFILE"
+    echo
+    echo "==============================================================="
+    if [[ -t 0 ]]; then
+      read -rp "Type SAVED once it's in your password manager: " answer
+      until [[ "$answer" == SAVED ]]; do read -rp "Type SAVED: " answer; done
+    fi
+    shred -u "$KEYFILE" 2>/dev/null || rm -f "$KEYFILE"
+  fi
+fi
 dpkg-reconfigure -f noninteractive unattended-upgrades
 
 echo "==> 2/7 Service user"
@@ -95,6 +124,21 @@ echo "==> 6/7 Private HTTPS on your tailnet"
 tailscale serve --bg --https=443 http://127.0.0.1:8000
 
 echo "==> 7/7 Done"
+if grep -q "ANTHROPIC_API_KEY=REPLACE_ME" "$ENV_FILE" && [[ -t 0 ]]; then
+  echo
+  read -rsp "Paste your Claude API key (starts with sk-ant-; hidden as you paste): " api_key; echo
+  read -rp "Your first name (what Buddy calls you): " first_name
+  read -rp "Monthly AI budget in dollars [40]: " budget
+  python3 - "$ENV_FILE" "$api_key" "${first_name:-friend}" "${budget:-40}" <<'PY'
+import sys
+path, key, name, budget = sys.argv[1:]
+text = open(path).read()
+text = text.replace("ANTHROPIC_API_KEY=REPLACE_ME", f"ANTHROPIC_API_KEY={key.strip()}")
+text = text.replace("BUDDY_USER_NAME=friend", f"BUDDY_USER_NAME={name.strip()}")
+text = text.replace("BUDDY_MONTHLY_BUDGET_USD=40", f"BUDDY_MONTHLY_BUDGET_USD={budget.strip()}")
+open(path, "w").write(text)
+PY
+fi
 if grep -q "ANTHROPIC_API_KEY=REPLACE_ME" "$ENV_FILE"; then
   echo "    Next: put your Claude API key and your name in $ENV_FILE, then:"
   echo "          systemctl restart buddy"

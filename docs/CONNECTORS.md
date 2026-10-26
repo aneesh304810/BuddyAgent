@@ -28,10 +28,12 @@ same shape, and one hub runs them all:
 ## Connect them now
 
 ### Calendar (Google, Outlook or iCloud): about 2 minutes
-1. Google Calendar on a computer → ⚙ **Settings** → click your calendar on the left →
-   **Integrate calendar** → copy **Secret address in iCal format**.
+1. On your phone, open **calendar.google.com** in Chrome, tap **⋮ → Desktop site**, then
+   ⚙ **Settings** → click your calendar on the left → **Integrate calendar** → copy
+   **Secret address in iCal format**. (The Google Calendar app doesn't show it.)
    (Outlook: Settings → Calendar → Shared calendars → Publish a calendar → ICS link.)
-2. On the server, add to `/etc/buddy/buddy.env` (several calendars: comma-separated):
+2. In Termux, `ssh root@buddy`, then `nano /etc/buddy/buddy.env` and add a line
+   (several calendars: comma-separated):
    ```
    BUDDY_CALENDAR_ICS_URLS=https://calendar.google.com/calendar/ical/.../basic.ics
    ```
@@ -42,9 +44,10 @@ Treat the secret address like a password; if it ever leaks, reset it in the same
 
 ### Email (Gmail or any IMAP mailbox): about 5 minutes
 1. Turn on **2-Step Verification** for your Google account.
-2. Go to **myaccount.google.com → Security → App passwords**, create one named "Buddy",
-   and copy the 16-letter password.
-3. Add to `/etc/buddy/buddy.env`:
+2. In Chrome, go to **myaccount.google.com → Security → App passwords** (or search
+   "App passwords" at the top of that page), create one named "Buddy", and copy the
+   16-letter password.
+3. In Termux, `ssh root@buddy`, `nano /etc/buddy/buddy.env`, and add:
    ```
    BUDDY_EMAIL_ADDRESS=you@gmail.com
    BUDDY_EMAIL_APP_PASSWORD=abcdabcdabcdabcd

@@ -1,28 +1,38 @@
-# Buddy: the complete setup guide
+# Buddy: the complete setup guide (phone only)
 
-From nothing to Buddy talking in your earbuds, in about 90 minutes, once.
-Each step ends with **Check**: what you should see before moving on. If a
-check fails, stop and look at [When something goes wrong](#when-something-goes-wrong).
+From nothing to Buddy talking in your earbuds, in about 90 minutes, once, done
+entirely from your **Samsung Galaxy Z Fold**. No computer needed. Unfold the phone:
+the big screen and keyboard make the terminal steps comfortable.
+
+> Don't use a work (enterprise) computer for this. Company PCs are monitored and
+> managed, and your personal server keys don't belong on them.
+
+Each step ends with **Check**: what you should see before moving on. If a check
+fails, stop and look at [When something goes wrong](#when-something-goes-wrong).
 
 At the end you'll have:
 
 - Buddy's brain on your own private server in New York, reachable only from your devices.
-- The Buddy app on your Galaxy, connected through Tailscale, talking in your earbuds.
+- The Buddy app on your Fold, connected through Tailscale, talking in your earbuds.
 - An encrypted database, nightly encrypted backups, a monthly spending cap.
-- The research agent working in the background and reporting to your phone.
 
 ```
- Earbuds ─Bluetooth─ Galaxy (Buddy app) ─Tailscale, encrypted─ Your server (brain) ─HTTPS─ Claude
+ Earbuds ─Bluetooth─ Fold (Buddy app) ─Tailscale, encrypted─ Your server (brain) ─HTTPS─ Claude
 ```
 
 ## What you need
 
 | Thing | Notes |
 |---|---|
-| A laptop | Windows, Mac or Linux. Used for setup only. |
-| Your Samsung Galaxy and earbuds | Shokz OpenDots ONE or any Bluetooth earbuds. |
+| Your Galaxy Z Fold | Everything is done on it, in Chrome and one terminal app (Termux). |
+| Earbuds | Shokz OpenDots ONE or any Bluetooth earbuds. |
+| A password manager | Samsung Pass, Google Password Manager or Bitwarden: you'll save 3 secrets. |
 | A payment card | For DigitalOcean and Anthropic. |
 | About 90 minutes | Most of it is waiting for installs. |
+
+**Copy and paste on the phone:** in Chrome, long-press text → **Copy**. In Termux,
+long-press the screen → **Paste**; to copy *from* Termux, long-press, drag to select,
+then tap **Copy**.
 
 ## Monthly cost
 
@@ -53,127 +63,145 @@ spending, and confirming costs nothing. A yes to more money for the month adds
 
 ---
 
-## Part A — Accounts (20 minutes)
+## Part A — Accounts and tools (25 minutes)
 
 ### Step 1. Claude API key
 
-1. Go to **console.anthropic.com**, sign up, add a payment method.
+1. In Chrome, go to **console.anthropic.com**, sign up, add a payment method.
 2. **Settings → Limits**: set a monthly spend limit a little above Buddy's own
    budget, for example **$50**. This is your safety net.
-3. **API keys → Create key**, name it `buddy-server`. Copy it into your password
-   manager now: it is shown only once. It starts with `sk-ant-`.
+3. **API keys → Create key**, name it `buddy-server`, tap **Copy**, and save it in your
+   password manager now as "Buddy Claude key": it is shown only once. It starts with `sk-ant-`.
 
 **Check:** the key is saved in your password manager.
 
-> Your Claude Max subscription is separate and can't power Buddy: the API key is
-> what lets a server use Claude on its own.
+> Your Claude subscription is separate and can't power Buddy: the API key is what lets
+> a server use Claude on its own.
 
 ### Step 2. Tailscale, your private network
 
-1. Go to **tailscale.com**, sign up (free Personal plan). Use the same login everywhere below.
-2. On your **Galaxy**: install **Tailscale** from the Play Store, open it, log in, allow the VPN.
-3. On your **laptop**: install Tailscale from tailscale.com/download and log in.
-4. In the Tailscale admin console (login.tailscale.com/admin), open **DNS**:
-   turn on **MagicDNS**, then **HTTPS Certificates**. Buddy needs HTTPS for the microphone.
+1. Install **Tailscale** from the Play Store, open it, sign up (free Personal plan), allow the VPN.
+2. In Chrome, open **login.tailscale.com/admin** → **DNS**: turn on **MagicDNS**, then
+   **HTTPS Certificates**. Buddy needs HTTPS for the microphone.
 
-**Check:** the admin console's **Machines** page lists your phone and laptop.
+**Check:** the admin page's **Machines** list shows your Fold.
 
-### Step 3. Backup key (stays with you, never on the server)
+### Step 3. Termux, a terminal on your phone
 
-On your laptop, install **age** (github.com/FiloSottile/age → Releases; on a Mac
-`brew install age`, on Windows `winget install FiloSottile.age`). Then in a terminal:
+1. Install **F-Droid** from **f-droid.org** (Chrome will ask to allow installing it), then
+   install **Termux** from F-Droid. (Avoid the Play Store version; it's outdated.)
+2. Open Termux and run, one line at a time (answer `y` if asked):
+   ```
+   pkg update
+   pkg install openssh age curl
+   ssh-keygen -t ed25519
+   ```
+   Press Enter at each `ssh-keygen` question.
+3. Show your phone's public key and copy it:
+   ```
+   cat ~/.ssh/id_ed25519.pub
+   ```
+   Long-press, select the whole line starting `ssh-ed25519`, **Copy**.
 
-```
-age-keygen -o buddy-backup.key
-```
-
-It prints a line `Public key: age1…`. Copy that **public key**; you'll paste it in Step 6.
-Save the file `buddy-backup.key` in your password manager: it is the only way to
-open your backups. The server can write backups but never read them.
-
-**Check:** you have an `age1…` public key and the key file is safe.
+**Check:** you've copied a line starting with `ssh-ed25519`.
 
 ### Step 4. The server
 
-1. Go to **digitalocean.com**, sign up.
+1. In Chrome, go to **digitalocean.com**, sign up.
 2. **Create → Droplets**:
    - Region: **New York** (closest to both the US and South America)
    - Image: **Ubuntu 24.04 (LTS) x64**
    - Size: **Basic → Regular → 2 GB / 1 CPU** (about $12)
-   - Authentication: **SSH Key** → add your laptop's public key
-     (no key yet? run `ssh-keygen -t ed25519` on the laptop, then paste the contents of `~/.ssh/id_ed25519.pub`)
+   - Authentication: **SSH Key → New SSH Key** → paste the line from Step 3, name it "Fold"
    - Hostname: `buddy`
    - Leave **Backups** off: Buddy makes its own encrypted ones.
 3. Create it and copy its **IP address**.
+4. In Termux:
+   ```
+   ssh root@<IP>
+   ```
+   Type `yes` the first time.
 
-**Check:** on your laptop, `ssh root@<IP>` logs you in.
+**Check:** the prompt changes to `root@buddy:~#`. You're on your server.
 
 ---
 
 ## Part B — The brain on your server (30 minutes)
 
+All of Part B happens in Termux, logged in to the server (`root@buddy:~#`).
+
 ### Step 5. Let the server read the code
 
-The repo is private, so give the server a read-only key. Logged in to the server:
+The repo is private, so give the server its own read-only key:
 
 ```
 ssh-keygen -t ed25519 -N "" -f ~/.ssh/id_ed25519
 cat ~/.ssh/id_ed25519.pub
 ```
 
-In GitHub, open **aneesh304810/BuddyAgent → Settings → Deploy keys → Add deploy key**.
-Title `buddy-server`, paste the key, leave **Allow write access off**, save.
+Copy the line it prints. In Chrome, open **github.com/aneesh304810/BuddyAgent →
+Settings → Deploy keys → Add deploy key** (on the phone, Settings is under the repo's
+**⋯** menu if you don't see it). Title `buddy-server`, paste the key, leave **Allow write
+access off**, **Add key**.
 
-**Check:** on the server, `ssh -T git@github.com` answers
-"Hi aneesh304810/BuddyAgent! You've successfully authenticated…" (type `yes` if asked about the fingerprint).
+Back in Termux:
+```
+ssh -T git@github.com
+```
+
+**Check:** it answers "Hi aneesh304810/BuddyAgent! You've successfully authenticated…"
+(type `yes` if asked about the fingerprint).
 
 ### Step 6. Run the setup script
 
-Still on the server. Replace `age1…` with your public key from Step 3:
-
 ```
 git clone --branch claude/personal-ai-voice-assistant-0zc5yh git@github.com:aneesh304810/BuddyAgent.git /tmp/buddy-setup
-sudo bash /tmp/buddy-setup/deploy/bootstrap.sh git@github.com:aneesh304810/BuddyAgent.git age1… claude/personal-ai-voice-assistant-0zc5yh
+sudo bash /tmp/buddy-setup/deploy/bootstrap.sh git@github.com:aneesh304810/BuddyAgent.git generate claude/personal-ai-voice-assistant-0zc5yh
 ```
 
-(Once the code is merged into `main`, drop the `--branch …` part and the last argument.)
+(Once the code is merged into `main`, drop the `--branch …` part and the last word.)
 
-The script takes about 5 minutes. Partway through it prints a **Tailscale login link**:
-open it on your laptop and approve the server. It then:
+The script takes about 5–10 minutes and stops three times for you:
 
-- turns on automatic security updates
-- creates a locked-down `buddy` user
-- **closes every public port, including SSH**
-- installs Buddy, generates its secrets, and sets up nightly backups
-- publishes Buddy privately at `https://buddy.<your-tailnet>.ts.net`
+1. **Your backup key.** It prints a line starting `AGE-SECRET-KEY-`. Copy it into your
+   password manager as "Buddy backup key", then type `SAVED`. It's the only way to open
+   your backups, and the server deletes it right after: the server can write backups but
+   never read them.
+2. **A Tailscale login link.** Long-press to copy it, open it in Chrome, and approve the
+   server. Tailscale on your phone must be on.
+3. **Your details:** paste your Claude key from Step 1 (it stays hidden as you paste), type
+   your first name, and your monthly budget (Enter = $40).
 
-**Check:** the script ends with `==> 7/7 Done` and prints a link like
-`https://buddy.tail1234.ts.net/?token=…`. **Save that link in your password manager**:
-it's your key to Buddy.
+Meanwhile it turns on automatic security updates, creates a locked-down `buddy` user,
+**closes every public port, including SSH**, installs Buddy with its own secrets, sets up
+nightly backups, and publishes Buddy privately on your tailnet.
 
-From now on, connect to the server with:
+**Check:** it ends with `==> 7/7 Done` and prints a link like
+`https://buddy.tail1234.ts.net/?token=…`. **Copy it into your password manager** as
+"Buddy server link": it's your key to Buddy.
 
-```
-tailscale ssh root@buddy
-```
-
-Plain `ssh root@<IP>` stops working: that's the firewall doing its job.
-For emergencies, DigitalOcean's web console (Droplet → Access → Launch Console) always works.
-
-### Step 7. Your details and the Claude key
+From now on, with Tailscale on, reach the server from Termux with:
 
 ```
-sudo nano /etc/buddy/buddy.env
+ssh root@buddy
 ```
 
-Change these lines:
+`ssh root@<IP>` stops working: that's the firewall doing its job. For emergencies,
+DigitalOcean's web page always works: Droplet → **Access → Launch Droplet Console**.
 
-| Setting | Set it to |
-|---|---|
-| `ANTHROPIC_API_KEY` | your `sk-ant-…` key from Step 1 |
-| `BUDDY_USER_NAME` | `Aneesh` |
-| `BUDDY_MONTHLY_BUDGET_USD` | your monthly cap, e.g. `40` |
-| `BUDDY_TIMEZONE` | leave it; Buddy follows your phone's time zone as you travel |
+### Step 7. Check it's running
+
+```
+sudo journalctl -u buddy -n 30 --no-pager
+curl -s http://127.0.0.1:8000/health
+```
+
+**Check:** the log ends with `Uvicorn running on http://127.0.0.1:8000`, there's no
+`BUDDY_DB_KEY is not set` warning, and the second line prints `{"ok":true}`.
+
+**Changing settings later** (optional): `sudo nano /etc/buddy/buddy.env`, edit, save with
+**Ctrl+O, Enter** (Termux shows Ctrl in the extra-keys row above the keyboard), exit with
+**Ctrl+X**, then `sudo systemctl restart buddy`.
 
 Optional, add only if you want to change the defaults:
 
@@ -218,21 +246,7 @@ BUDDY_LISTEN_BATCH_SECONDS=45
 ```
 
 **Never change** `BUDDY_DB_KEY` (it unlocks your database) or `BUDDY_TOKEN`.
-Save with **Ctrl+O, Enter**, exit with **Ctrl+X**. Then:
-
-```
-sudo systemctl restart buddy
-sudo journalctl -u buddy -n 30 --no-pager
-```
-
-**Check:** the log ends with `Uvicorn running on http://127.0.0.1:8000` and shows
-no `BUDDY_DB_KEY is not set` warning. Also run:
-
-```
-curl -s http://127.0.0.1:8000/health
-```
-
-It should print `{"ok":true}`.
+After any change: `sudo systemctl restart buddy`.
 
 ---
 
@@ -302,7 +316,7 @@ Do these in order. Each one checks a different part of Buddy.
 | 9 | Tap **Reports** in the header. | Your research history. |
 | 10 | Type "test" in the box at the bottom and tap **Send**. | A reply, without speaking. |
 
-Then check spending on your laptop (with Tailscale on; `TOKEN` is the value after `token=` in your link):
+Then check spending in Termux (with Tailscale on; `TOKEN` is the value after `token=` in your link):
 
 ```
 curl -H "Authorization: Bearer TOKEN" https://buddy.<tailnet>.ts.net/admin/usage
@@ -327,7 +341,7 @@ curl -H "Authorization: Bearer TOKEN" https://buddy.<tailnet>.ts.net/admin/usage
 When new code is pushed:
 
 ```
-tailscale ssh root@buddy
+ssh root@buddy
 cd /opt/buddy && sudo -u buddy git pull && sudo -u buddy backend/.venv/bin/pip install -q -r backend/requirements.txt && sudo systemctl restart buddy
 ```
 
@@ -336,12 +350,12 @@ For the phone app, install the newest APK from Releases over the old one.
 
 ### Checking on Buddy
 
-From any device on your tailnet (`TOKEN` = your `BUDDY_TOKEN`):
+In Termux on your phone, with Tailscale on (`TOKEN` = the part after `token=` in your Buddy server link):
 
 | What | Command |
 |---|---|
-| Is it running? | `tailscale ssh root@buddy systemctl status buddy` |
-| Recent log | `tailscale ssh root@buddy journalctl -u buddy -n 50 --no-pager` |
+| Is it running? | `ssh root@buddy systemctl status buddy` |
+| Recent log | `ssh root@buddy journalctl -u buddy -n 50 --no-pager` |
 | Claude spend this month | `curl -H "Authorization: Bearer TOKEN" https://buddy.<tailnet>.ts.net/admin/usage` |
 | Research and other jobs | `curl -H "Authorization: Bearer TOKEN" https://buddy.<tailnet>.ts.net/api/jobs` |
 | Agents and their status | `curl -H "Authorization: Bearer TOKEN" https://buddy.<tailnet>.ts.net/admin/agents` |
@@ -353,21 +367,37 @@ From any device on your tailnet (`TOKEN` = your `BUDDY_TOKEN`):
 Every night at 03:15 the server writes an encrypted backup to `/var/backups/buddy/`
 and keeps the last 14. Once a month, test that you can restore one:
 
-1. Copy one to your laptop (Tailscale on):
+In Termux on your phone (Tailscale on):
+
+1. Put your backup key in a file: `nano buddy-backup.key`, paste the
+   `AGE-SECRET-KEY-…` line from your password manager, save (**Ctrl+O, Enter, Ctrl+X**).
+2. Copy last night's backup to the phone:
    `scp root@buddy:/var/backups/buddy/buddy-YYYYMMDD-HHMM.db.age .`
-2. Decrypt it: `age -d -i buddy-backup.key buddy-YYYYMMDD-HHMM.db.age > buddy.db`
-3. The result is still encrypted with `BUDDY_DB_KEY`. To restore, copy it to
-   `/var/lib/buddy/buddy.db` on the server (owner `buddy`) and restart Buddy.
+   (see the names with `ssh root@buddy ls /var/backups/buddy`)
+3. Decrypt it: `age -d -i buddy-backup.key buddy-YYYYMMDD-HHMM.db.age > buddy.db`.
+   If that works, your backups are good. Then delete both files from the phone:
+   `rm buddy-backup.key buddy.db buddy-*.age`
+4. To actually restore: the decrypted file is still encrypted with `BUDDY_DB_KEY`. Copy it
+   back (`scp buddy.db root@buddy:/var/lib/buddy/buddy.db`), then on the server
+   `chown buddy:buddy /var/lib/buddy/buddy.db && systemctl restart buddy`.
 
 For a copy off the server, install `rclone`, configure a remote (for example
 Backblaze B2), and add `BUDDY_BACKUP_REMOTE=b2:my-bucket/buddy` to `/etc/buddy/buddy.env`.
 
 ### If you lose your phone
 
-1. Tailscale admin console → **Machines** → the phone → **Remove**. It can no longer reach Buddy.
-2. On the server, give Buddy a new token: edit `BUDDY_TOKEN` in `/etc/buddy/buddy.env`
-   (any long random text, e.g. from `openssl rand -hex 24`), then `systemctl restart buddy`.
-3. On the new phone, paste the link with the new token.
+1. In Chrome on any device, open the Tailscale admin console → **Machines** → the lost
+   phone → **Remove**. It can no longer reach Buddy.
+2. On the new phone, do Steps 2–3 (Tailscale, Termux, new SSH key). Your old phone's
+   SSH key is gone, so log in once through DigitalOcean's web page: Droplet →
+   **Access → Launch Droplet Console**, and run:
+   ```
+   echo "<paste the new phone's ssh-ed25519 line>" >> /root/.ssh/authorized_keys
+   sed -i '/<old key comment, e.g. u0_a123@localhost>/d' /root/.ssh/authorized_keys
+   ```
+3. Give Buddy a new token: `nano /etc/buddy/buddy.env`, replace `BUDDY_TOKEN` with the
+   output of `openssl rand -hex 24`, save, `systemctl restart buddy`.
+4. In the Buddy app on the new phone, paste the server link with the new token.
 
 ---
 

@@ -49,17 +49,20 @@ each other. If there are no builds for a week the cache expires, the key
 changes, and Android asks you to uninstall before installing the next build
 (you then paste the server link again).
 
-To sign with a key only you hold, run this once on a laptop with Java:
+To sign with a key only you hold, run this once in Termux on your phone
+(`pkg install openjdk-17` first):
 
 ```
 keytool -genkeypair -keystore buddy.jks -alias buddy -keyalg RSA -keysize 2048 -validity 10000
-base64 -w0 buddy.jks > buddy.jks.b64      # macOS: base64 -i buddy.jks -o buddy.jks.b64
+base64 -w0 buddy.jks > buddy.jks.b64
+cat buddy.jks.b64      # long-press to copy for the GitHub secret below
 ```
 
 In GitHub → the repo → Settings → Secrets and variables → Actions, add
 `BUDDY_KEYSTORE_B64` (contents of `buddy.jks.b64`), `BUDDY_KEYSTORE_PASSWORD`,
-`BUDDY_KEY_ALIAS` (`buddy`) and `BUDDY_KEY_PASSWORD`. Keep `buddy.jks` in your
-password manager. Switching keys needs one uninstall.
+`BUDDY_KEY_ALIAS` (`buddy`) and `BUDDY_KEY_PASSWORD` (GitHub's Settings pages work in
+Chrome on the phone). Keep the base64 text in your password manager. Switching keys
+needs one uninstall.
 
 ## Building locally
 
