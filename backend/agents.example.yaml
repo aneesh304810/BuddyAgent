@@ -5,6 +5,7 @@
 #   command | url      stdio subprocess, or a Streamable HTTP endpoint on your private server
 #   enabled            false keeps it off; you can also switch agents via /admin/agents
 #   url_env, token_env names of settings in /etc/buddy/buddy.env holding a secret URL / token
+#   env_from           settings from /etc/buddy/buddy.env passed to a command agent
 #   approval_required  tool names (or "*") that do nothing until you say "yes"
 #   no_approval_for    tool-name patterns that never need a yes (read-only lookups)
 #   daily_call_limit   calls per 24 hours before Buddy stops calling it
@@ -17,6 +18,19 @@ agents:
     enabled: true
     approval_required: []
     daily_call_limit: 200
+
+  # Gmail: read, write and clean up, with the same app password as the email
+  # connector (BUDDY_EMAIL_ADDRESS, BUDDY_EMAIL_APP_PASSWORD). Looking, reading and
+  # saving drafts run straight away; sending and every cleanup action ask you first.
+  - name: gmail
+    description: Search, read, draft, send and clean up Gmail.
+    command: [".venv/bin/python", "-m", "agents.gmail.server"]
+    env_from: [BUDDY_EMAIL_ADDRESS, BUDDY_EMAIL_APP_PASSWORD, BUDDY_EMAIL_IMAP_HOST,
+               BUDDY_EMAIL_SMTP_HOST, BUDDY_EMAIL_SMTP_PORT]
+    enabled: true
+    approval_required: ["*"]
+    no_approval_for: [search_mail, read_mail, inbox_summary, unsubscribe_links, create_draft]
+    daily_call_limit: 300
 
   # Zapier: thousands of everyday apps (Notion, Todoist, Sheets, Slack...) through
   # Zapier MCP. Set ZAPIER_MCP_URL in /etc/buddy/buddy.env (see docs/ZAPIER.md);

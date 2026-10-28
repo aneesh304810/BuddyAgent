@@ -55,7 +55,23 @@ Treat the secret address like a password; if it ever leaks, reset it in the same
    ```
 4. `sudo systemctl restart buddy`
 
-Buddy opens the mailbox **read-only** and never marks anything as read. Try: *"Did my
+Buddy opens the mailbox **read-only** and never marks anything as read.
+
+The same app password also powers the **Gmail agent**, which can act on your mail:
+
+| You say | Buddy | Asks first? |
+|---|---|---|
+| "Any emails from Chase this week?" | Searches with Gmail's own search | No |
+| "Read me Priya's email" | Reads it (it stays unread) | No |
+| "Draft a reply saying Friday works" | Saves a draft in Gmail for you to check | No |
+| "Send it" / "Email Raj the address" | Reads back who, subject and gist | **Yes** |
+| "Clean up my inbox" | Shows who fills it, proposes a plan, gives counts | **Yes**, before each step |
+| Archive, trash, mark read, label | Up to 500 at a time; trash can be undone for 30 days | **Yes** |
+| "How do I unsubscribe from Shop?" | Finds the unsubscribe link for you | No |
+
+Nothing is ever deleted for good. It's on by default once the app password is set
+(the `gmail` agent in `agents.yaml`; if your server was set up before it existed, copy
+that block from `agents.example.yaml`). Try: *"Did my
 flight confirmation come?"*, *"Any card bills this week?"*. Your bank's alert emails
 become the first source for the money manager.
 

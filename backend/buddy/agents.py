@@ -52,6 +52,9 @@ class AgentSpec:
     token_env: str | None = None   # sent as "Authorization: Bearer <token>"
     server: Any = None
     env: dict[str, str] = field(default_factory=dict)
+    # Settings passed through from /etc/buddy/buddy.env to a command agent (by name,
+    # so secrets never sit in agents.yaml). Agents otherwise get a minimal environment.
+    env_from: list[str] = field(default_factory=list)
     enabled: bool = True
     approval_required: list[str] = field(default_factory=list)  # tool names, or ["*"]
     # Tool-name patterns that never need approval, e.g. "*_find_*" for read-only lookups.
@@ -134,9 +137,8 @@ class AgentRegistry:
         if spec.server is not None:
             target = spec.server
         elif spec.command:
-            target = StdioServerParameters(
-                command=spec.command[0], args=spec.command[1:], env=spec.env or None
-            )
+            env = {**{k: os.environ[k] for k in spec.env_from if k in os.environ}, **spec.env}
+            target = StdioServerParameters(command=spec.command[0], args=spec.command[1:], env=env or None)
         elif spec.endpoint():
             token = os.environ.get(spec.token_env, "").strip() if spec.token_env else ""
             if token:
