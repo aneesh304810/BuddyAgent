@@ -4,8 +4,11 @@
 #   name               letters, digits, - and single _ (Claude sees tools as <name>__<tool>)
 #   command | url      stdio subprocess, or a Streamable HTTP endpoint on your private server
 #   enabled            false keeps it off; you can also switch agents via /admin/agents
+#   url_env, token_env names of settings in /etc/buddy/buddy.env holding a secret URL / token
 #   approval_required  tool names (or "*") that do nothing until you say "yes"
+#   no_approval_for    tool-name patterns that never need a yes (read-only lookups)
 #   daily_call_limit   calls per 24 hours before Buddy stops calling it
+#   monthly_call_limit calls per 30 days (optional; for services billed per call)
 
 agents:
   - name: worldclock
@@ -14,6 +17,20 @@ agents:
     enabled: true
     approval_required: []
     daily_call_limit: 200
+
+  # Zapier: thousands of everyday apps (Notion, Todoist, Sheets, Slack...) through
+  # Zapier MCP. Set ZAPIER_MCP_URL in /etc/buddy/buddy.env (see docs/ZAPIER.md);
+  # until then Buddy skips it. Every action that changes something asks you first;
+  # finds, searches and lookups don't.
+  - name: zapier
+    description: Everyday apps through Zapier (Notion, Todoist, Google Sheets, Slack...).
+    url_env: ZAPIER_MCP_URL
+    token_env: ZAPIER_MCP_TOKEN          # only if Zapier gave you a separate API key
+    enabled: true
+    approval_required: ["*"]
+    no_approval_for: ["*_find_*", "*_search*", "*_lookup*", "*_get_*", "*_list_*", "*_retrieve*"]
+    daily_call_limit: 20
+    monthly_call_limit: 45               # Zapier free plan: 100 tasks = about 50 calls a month
 
   # Phase 1 adds the money agent here, for example:
   # - name: money

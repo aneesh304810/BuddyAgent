@@ -114,3 +114,99 @@ def test_load_specs_validates_names(tmp_path):
     with pytest.raises(ValueError):
         load_specs(bad)
     assert load_specs(tmp_path / "missing.yaml") == []
+
+
+# --- remote agents like Zapier: secret URL and token from settings, limits -------
+
+
+def test_read_only_patterns_skip_approval():
+    spec = AgentSpec(name="zapier", url_env="ZAPIER_MCP_URL", approval_required=["*"],
+                     no_approval_for=["*_find_*", "*_lookup*", "*_search*"])
+    assert spec.needs_approval("notion_create_page")
+    assert spec.needs_approval("slack_send_channel_message")
+    assert not spec.needs_approval("gmail_find_email")
+    assert not spec.needs_approval("google_sheets_lookup_spreadsheet_row")
+
+
+def test_unconfigured_remote_agent_is_skipped(monkeypatch):
+    monkeypatch.delenv("ZAPIER_MCP_URL", raising=False)
+
+    async def body():
+        reg = AgentRegistry(Memory(":memory:"), [AgentSpec(name="zapier", url_env="ZAPIER_MCP_URL")])
+        await reg.start()  # no error, just skipped
+        assert reg.clients == {} and reg.status()[0]["connected"] is False
+        await reg.close()
+
+    run(body())
+
+
+def test_monthly_limit_survives_restarts():
+    async def body():
+        srv, _ = make_server()
+        mem = Memory(":memory:")
+        reg = AgentRegistry(mem, [AgentSpec(name="bank", server=srv, monthly_call_limit=2)])
+        await reg.start()
+        for _ in range(2):
+            assert "Balance" in await reg.call("bank__balance", {"account": "x"}, 1)
+        await reg.close()
+        reg2 = AgentRegistry(mem, [AgentSpec(name="bank", server=srv, monthly_call_limit=2)])
+        await reg2.start()  # a restart: the in-memory daily counter is empty again
+        out = await reg2.call("bank__balance", {"account": "x"}, 1)
+        await reg2.close()
+        return out
+
+    assert "used its 2 calls" in run(body())
+
+
+def test_remote_agent_over_http_with_bearer_token(monkeypatch):
+    import socket
+    import threading
+
+    import uvicorn
+
+    srv, _ = make_server()
+    inner = srv.streamable_http_app()
+    seen = []
+
+    async def app(scope, receive, send):
+        if scope["type"] == "http":
+            seen.append(dict(scope["headers"]).get(b"authorization", b"").decode())
+        await inner(scope, receive, send)
+
+    sock = socket.socket()
+    sock.bind(("127.0.0.1", 0))
+    port = sock.getsockname()[1]
+    sock.close()
+    server = uvicorn.Server(uvicorn.Config(app, host="127.0.0.1", port=port, log_level="warning", lifespan="on"))
+    thread = threading.Thread(target=server.run, daemon=True)
+    thread.start()
+    try:
+        import time as _t
+        for _ in range(100):
+            if server.started:
+                break
+            _t.sleep(0.05)
+        monkeypatch.setenv("TEST_MCP_URL", f"http://127.0.0.1:{port}/mcp")
+        monkeypatch.setenv("TEST_MCP_TOKEN", "s3cret")
+
+        async def body():
+            reg = AgentRegistry(Memory(":memory:"), [AgentSpec(
+                name="zapier", url_env="TEST_MCP_URL", token_env="TEST_MCP_TOKEN",
+                approval_required=["*"], no_approval_for=["balance"],
+            )])
+            await reg.start()
+            try:
+                assert "zapier__balance" in reg.tools
+                out = await reg.call("zapier__balance", {"account": "main"}, 1)
+                with pytest.raises(ApprovalNeeded):
+                    await reg.call("zapier__pay_bill", {"card": "x", "amount": 5}, 1)
+                return out
+            finally:
+                await reg.close()
+
+        out = run(body())
+    finally:
+        server.should_exit = True
+        thread.join(timeout=5)
+    assert "Balance of main" in out and "4111 1111" not in out  # results masked
+    assert seen and all(h == "Bearer s3cret" for h in seen)

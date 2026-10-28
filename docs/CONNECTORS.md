@@ -111,7 +111,8 @@ can't share notifications with apps at all.
 | WhatsApp (tutor lessons to you) | WhatsApp Business API | Sends only to you | Phase 5 |
 | Booking sites, forms, subscriptions | Browser agent in a sandbox | Acts, with your yes | Phase 6 |
 | Teams, Zoom, Meet | Laptop helper or meeting bot | Reads (Call Co-pilot) | Later |
-| Notion, Slack, Google Drive, others | Their official MCP servers, as agents | Reads; acts with your yes | As needed |
+| Notion, Todoist, Google Sheets, Slack and thousands more | Zapier agent (`docs/ZAPIER.md`) | Lookups; changes with your yes | ✅ Now (bring your Zapier link) |
+| Notion, Slack, Google Drive, others (direct) | Their official MCP servers, as agents | Reads; acts with your yes | As needed |
 
 ## For developers: adding a connector
 

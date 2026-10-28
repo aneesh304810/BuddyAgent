@@ -16,16 +16,19 @@ Agents are declared in agents.yaml (see agents.example.yaml).
 import asyncio
 import json
 import logging
+import os
 import secrets
 import time
 from contextlib import AsyncExitStack
 from dataclasses import dataclass, field
-from datetime import datetime, timezone
+from datetime import datetime, timedelta, timezone
+from fnmatch import fnmatchcase
 from pathlib import Path
 from typing import Any
 
 import yaml
 from mcp import Client, StdioServerParameters
+from mcp.client.streamable_http import create_mcp_http_client, streamable_http_client
 
 from .memory import Memory
 from .privacy import mask
@@ -43,14 +46,29 @@ class AgentSpec:
     # Exactly one of: command (stdio subprocess), url (Streamable HTTP), server (in-process, tests).
     command: list[str] | None = None
     url: str | None = None
+    # Secret URLs and tokens (e.g. Zapier's) live in /etc/buddy/buddy.env, not in agents.yaml:
+    # name the environment variables here instead.
+    url_env: str | None = None
+    token_env: str | None = None   # sent as "Authorization: Bearer <token>"
     server: Any = None
     env: dict[str, str] = field(default_factory=dict)
     enabled: bool = True
     approval_required: list[str] = field(default_factory=list)  # tool names, or ["*"]
+    # Tool-name patterns that never need approval, e.g. "*_find_*" for read-only lookups.
+    no_approval_for: list[str] = field(default_factory=list)
     daily_call_limit: int = 200
+    # Calls per 30 days (counted from the audit log, so restarts don't reset it). None = no limit.
+    monthly_call_limit: int | None = None
 
     def needs_approval(self, tool: str) -> bool:
+        if any(fnmatchcase(tool, pattern) for pattern in self.no_approval_for):
+            return False
         return "*" in self.approval_required or tool in self.approval_required
+
+    def endpoint(self) -> str | None:
+        if self.url_env:
+            return os.environ.get(self.url_env, "").strip() or None
+        return self.url
 
 
 @dataclass
@@ -101,6 +119,9 @@ class AgentRegistry:
         for spec in self.specs.values():
             if not self.is_enabled(spec.name):
                 continue
+            if spec.url_env and not spec.endpoint():
+                log.info("agent %s not set up yet (%s is empty); skipping", spec.name, spec.url_env)
+                continue
             try:
                 await self._connect(spec)
             except Exception:
@@ -116,8 +137,17 @@ class AgentRegistry:
             target = StdioServerParameters(
                 command=spec.command[0], args=spec.command[1:], env=spec.env or None
             )
-        elif spec.url:
-            target = spec.url
+        elif spec.endpoint():
+            token = os.environ.get(spec.token_env, "").strip() if spec.token_env else ""
+            if token:
+                http = await self._stack.enter_async_context(
+                    create_mcp_http_client(headers={"Authorization": f"Bearer {token}"})
+                )
+                target = streamable_http_client(spec.endpoint(), http_client=http)
+            else:
+                target = spec.endpoint()
+        elif spec.url_env:
+            raise ValueError(f"agent {spec.name}: set {spec.url_env} in the server's settings file")
         else:
             raise ValueError(f"agent {spec.name} has no command, url or server")
         client = await self._stack.enter_async_context(Client(target))
@@ -165,6 +195,8 @@ class AgentRegistry:
                 "approval_required": s.approval_required,
                 "calls_last_24h": len(self._recent_calls(s.name)),
                 "daily_call_limit": s.daily_call_limit,
+                "calls_last_30_days": self._calls_last_30_days(s.name),
+                "monthly_call_limit": s.monthly_call_limit,
             }
             for s in self.specs.values()
         ]
@@ -184,6 +216,14 @@ class AgentRegistry:
         calls = [t for t in self._calls.get(agent, []) if t > cutoff]
         self._calls[agent] = calls
         return calls
+
+    def _calls_last_30_days(self, agent: str) -> int:
+        since = (datetime.now(timezone.utc) - timedelta(days=30)).isoformat()
+        row = self.memory.db.execute(
+            "SELECT COUNT(*) AS n FROM audit WHERE agent = ? AND status IN ('ok', 'error') AND ts >= ?",
+            (agent, since),
+        ).fetchone()
+        return int(row["n"])
 
     async def call(self, claude_name: str, args: dict, turn: int) -> str:
         """Run an agent tool for Claude. Raises ApprovalNeeded for gated tools."""
@@ -232,6 +272,12 @@ class AgentRegistry:
         if len(self._recent_calls(spec.name)) >= spec.daily_call_limit:
             self.audit(spec.name, tool, args, "blocked", "daily call limit reached")
             return f"The {spec.name} agent hit its daily limit of {spec.daily_call_limit} calls."
+        if spec.monthly_call_limit is not None and self._calls_last_30_days(spec.name) >= spec.monthly_call_limit:
+            self.audit(spec.name, tool, args, "blocked", "monthly call limit reached")
+            return (
+                f"The {spec.name} agent used its {spec.monthly_call_limit} calls for the last 30 days "
+                "(monthly_call_limit in agents.yaml)."
+            )
         self._calls.setdefault(spec.name, []).append(time.time())
         try:
             result = await asyncio.wait_for(
