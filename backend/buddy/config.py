@@ -19,6 +19,8 @@ class Settings:
     access_token: str = os.getenv("BUDDY_TOKEN", "")
     # Without a token the server refuses everyone, unless this is a developer's machine.
     dev_mode: bool = os.getenv("BUDDY_DEV", "") == "1"
+    # How freely Buddy searches the web: thrifty (default), generous or max.
+    search_level: str = os.getenv("BUDDY_SEARCH_LEVEL", "thrifty").strip().lower()
     # Languages the user understands; Listen-in only translates everything else.
     known_languages: str = os.getenv(
         "BUDDY_KNOWN_LANGUAGES", "English, Hindi, Malayalam, Marathi, Tamil"
@@ -74,6 +76,21 @@ class Settings:
 
 
 settings = Settings()
+
+# Web searches and page reads allowed per answer or job, by BUDDY_SEARCH_LEVEL.
+SEARCH_CAPS = {
+    #            chat  chat   research  research  research  research  expert  expert
+    #            srch  fetch  quick s.  quick f.  deep s.   deep f.   srch    fetch
+    "thrifty":  (3,    0,     5,        6,        15,       20,       4,      4),
+    "generous": (6,    4,     10,       12,       30,       40,       8,      8),
+    "max":      (10,   8,     20,       25,       50,       60,       12,     12),
+}
+
+
+def search_caps() -> dict[str, int]:
+    names = ("chat_search", "chat_fetch", "quick_search", "quick_fetch", "deep_search", "deep_fetch",
+             "expert_search", "expert_fetch")
+    return dict(zip(names, SEARCH_CAPS.get(settings.search_level, SEARCH_CAPS["thrifty"])))
 
 
 def claude_client():

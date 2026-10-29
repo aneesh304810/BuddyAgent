@@ -1,0 +1,54 @@
+# Search: better sources, cleaner data, lower cost
+
+Buddy picks the cheapest source that gives a good answer. Compact sources return clean
+results (titles, snippets, scores, links) instead of whole pages, so Claude reads a few
+hundred tokens instead of tens of thousands: better data for less money.
+
+| Source | Gives | Cost per use | Setup |
+|---|---|---|---|
+| **Google Trends** | What's being searched right now, per country, with the news behind it | Free | None: always on |
+| **Reddit** | Real people's opinions, reviews and tips; top posts and comments of any subreddit | Free (Reddit's personal-use API) | 2 minutes, below |
+| **Google results and News** (via Serper) | Google's own ranking, answer box, top stories, local results | About $0.001 | 2 minutes, below |
+| Claude's web search | Any page on the web | About $0.01 plus the results it reads | None |
+| Reading a whole page | Everything on one page | Its length in tokens (1–3 cents) | None |
+
+Results are cached (Google 15 minutes, Reddit and trends 30 minutes), so asking twice
+doesn't cost twice. The research and deals agents use these sources too, for example to
+check what real buyers say on Reddit before recommending a product.
+
+## How freely Buddy searches
+
+| `BUDDY_SEARCH_LEVEL` | Chat: searches / pages per answer | Quick job | Deep job | For |
+|---|---|---|---|---|
+| `thrifty` (default) | 3 / 0 | 5 / 6 | 15 / 20 | Lowest cost |
+| `generous` | 6 / 4 | 10 / 12 | 30 / 40 | Thorough answers, a few cents more |
+| `max` | 10 / 8 | 20 / 25 | 50 / 60 | Most complete answers; quality over cost |
+
+```
+sudo bash /opt/buddy/deploy/set.sh BUDDY_SEARCH_LEVEL      # type: generous  (or max)
+```
+Your monthly budget, per-job cap ($5) and approvals for anything over 50 cents still apply.
+
+## Connect Reddit (free)
+1. In Chrome on your phone, open **reddit.com/prefs/apps** (log in; tap ⋮ → Desktop site).
+2. Tap **create another app**: name `Buddy`, choose **script**, redirect URI `http://localhost:8080`, **create app**.
+3. The **client ID** is the short code under the app's name; the **secret** is next to "secret".
+4. On the server:
+   ```
+   sudo bash /opt/buddy/deploy/set.sh BUDDY_REDDIT_CLIENT_ID
+   sudo bash /opt/buddy/deploy/set.sh BUDDY_REDDIT_SECRET
+   ```
+Try: *"What does Reddit say about Cusco in December?"*, *"Top posts in r/personalfinance this week"*.
+
+## Connect Google results (Serper)
+1. Open **serper.dev**, sign up (free starting credits), and copy your **API key**.
+2. `sudo bash /opt/buddy/deploy/set.sh BUDDY_SERPER_KEY`
+
+Try: *"Google the best ceviche in Lima"*, *"Any news about Copa Libertadores?"*.
+
+## X (Twitter)
+Not included: X's official API, including trends, is paid (its entry plans cost hundreds of
+dollars a month), and reading X without the API breaks its terms. Two options if you want
+it: xAI's Grok API, which can search X, or the X API itself. Ask Buddy to build an agent
+for either (*"build an agent for X trends with my xAI key"*); Google Trends and Reddit
+cover most of what's trending meanwhile.

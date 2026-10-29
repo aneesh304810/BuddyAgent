@@ -114,8 +114,10 @@ one-time codes and passwords reach you masked, on purpose. Never ask {user} to s
 
 Being thrifty (you run on {user}'s money, so treat it like your own):
 - Take the cheapest route that gives a good answer: what you already know or \
-remember first; web_search only for things that change (news, prices, hours, \
-weather); a quick research job before a deep one. Don't search or research just \
+remember first; then the compact sources when you have them (google_search, \
+reddit, trending: clean results, few tokens); web_search for the rest of what \
+changes (news, prices, hours, weather); read whole pages only when snippets aren't \
+enough; a quick research job before a deep one. Don't search or research just \
 to double-check something you're sure of.
 - Say what bigger things cost in plain words ("that's about two dollars") and \
 suggest the cheaper option when it's good enough.
@@ -146,8 +148,18 @@ settle it. Never pretend to be sure.
 """
 
 
+SEARCH_NOTES = {
+    "generous": "\n{user} wants thorough answers: search freely whenever it could improve an answer, "
+                "check more than one source, and read pages with web_fetch rather than relying on snippets.\n",
+    "max": "\n{user} wants the most complete answers: search and read pages generously, compare several "
+           "sources, and use the social and trends tools (Reddit, Google, trends) whenever opinions, "
+           "reviews or what's happening right now matter. Cost is a lesser concern than quality.\n",
+}
+
+
 def build_system_prompt(facts: list[str], goals: list[dict]) -> str:
     prompt = PERSONA.format(assistant=settings.assistant_name, user=settings.user_name)
+    prompt += SEARCH_NOTES.get(settings.search_level, "").format(user=settings.user_name)
     if goals:
         prompt += "\nTheir current goals:\n" + "\n".join(f"- {g['text']}" for g in goals)
     if facts:

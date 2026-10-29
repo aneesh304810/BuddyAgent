@@ -18,10 +18,11 @@ from dataclasses import dataclass
 import anthropic
 
 from .agent import fallback_kwargs
-from .config import claude_client, settings
+from .config import claude_client, search_caps, settings
 from .jobs import JobContext, JobFailed, JobResult
 from .privacy import mask
-from .tools import local_now
+from .social import SOCIAL_TOOL_NAMES, Social, run_social_tool, social_tools
+from .tools import ToolError, local_now
 
 log = logging.getLogger(__name__)
 
@@ -37,10 +38,17 @@ class Depth:
     max_steps: int  # API round trips: pauses of the server-side loop plus memory lookups
 
 
-DEPTHS = {
-    "quick": Depth(effort="medium", max_tokens=32_000, searches=5, fetches=6, max_steps=8),
-    "deep": Depth(effort="high", max_tokens=64_000, searches=15, fetches=20, max_steps=20),
-}
+def depths() -> dict[str, Depth]:
+    caps = search_caps()  # BUDDY_SEARCH_LEVEL: thrifty, generous or max
+    return {
+        "quick": Depth(effort="medium", max_tokens=32_000, searches=caps["quick_search"],
+                       fetches=caps["quick_fetch"], max_steps=8 + caps["quick_search"] // 5),
+        "deep": Depth(effort="high", max_tokens=64_000, searches=caps["deep_search"],
+                      fetches=caps["deep_fetch"], max_steps=20 + caps["deep_search"] // 10),
+    }
+
+
+DEPTHS = depths()
 
 RECALL_TOOL = {
     "name": "recall_memory",
@@ -62,6 +70,8 @@ write a report {user} reads on their phone; {assistant} reads a short summary al
 How to work:
 {method}
 - Use recall_memory only when the answer depends on {user}'s own situation.
+- If you have them: reddit for real people's experiences and reviews, google_search for \
+Google's own ranking or local results, trending for what's happening right now.
 - {user} lives and travels in the USA and South America and has ties to India: use \
 the currency and units of the place in question.
 - Today is {today}. Say how current each key number is.
@@ -140,6 +150,7 @@ def _tools(mode: str, depth: Depth) -> list[dict]:
             {"type": "web_search_20260209", "name": "web_search", "max_uses": depth.searches},
             {"type": "web_fetch_20260209", "name": "web_fetch", "max_uses": depth.fetches},
         ]
+        tools += social_tools(Social())  # Reddit, Google and trends, when connected
     return tools + [RECALL_TOOL]
 
 
@@ -168,7 +179,7 @@ def _first_message(params: dict) -> str:
 async def run_research(job: dict, ctx: JobContext) -> JobResult:
     params = job["params"]
     mode = params.get("mode", "web")
-    depth = DEPTHS.get(params.get("depth", "quick"), DEPTHS["quick"])
+    depth = depths().get(params.get("depth", "quick"), depths()["quick"])
     cap = settings.research_max_usd
     messages: list[dict] = [{"role": "user", "content": _first_message(params)}]
     response = None
@@ -197,7 +208,7 @@ async def run_research(job: dict, ctx: JobContext) -> JobResult:
         if response.stop_reason == "pause_turn":
             continue  # the server-side search loop wants another round; it resumes by itself
         if response.stop_reason == "tool_use":
-            messages.append({"role": "user", "content": _run_tools(ctx, response.content)})
+            messages.append({"role": "user", "content": await _run_tools(ctx, response.content)})
             continue
         if response.stop_reason == "max_tokens":
             stopped_early = "The report hit its length limit and may be cut short."
@@ -213,15 +224,20 @@ async def run_research(job: dict, ctx: JobContext) -> JobResult:
     return await _summarize(ctx, params["question"], report)
 
 
-def _run_tools(ctx: JobContext, content) -> list[dict]:
+async def _run_tools(ctx: JobContext, content) -> list[dict]:
     results = []
     for block in content:
         if block.type != "tool_use":
             continue
+        args = block.input if isinstance(block.input, dict) else json.loads(block.input)
         if block.name == "recall_memory":
-            args = block.input if isinstance(block.input, dict) else json.loads(block.input)
             facts = ctx.memory.recall(str(args.get("query", "")))
             text, is_error = mask("\n".join(facts)) or "Nothing remembered about that.", False
+        elif block.name in SOCIAL_TOOL_NAMES:
+            try:
+                text, is_error = await run_social_tool(Social(), block.name, args), False
+            except ToolError as e:
+                text, is_error = str(e), True
         else:
             text, is_error = f"Unknown tool {block.name}.", True
         results.append({"type": "tool_result", "tool_use_id": block.id, "content": text, "is_error": is_error})

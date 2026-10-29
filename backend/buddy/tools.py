@@ -7,7 +7,18 @@ from .config import settings
 from .memory import Memory
 
 # Anthropic-hosted web search: runs server-side, no local code needed.
-WEB_SEARCH = {"type": "web_search_20260209", "name": "web_search", "max_uses": 3}
+def web_tools() -> list[dict]:
+    """Chat's web tools; how many uses per answer follows BUDDY_SEARCH_LEVEL."""
+    from .config import search_caps
+
+    caps = search_caps()
+    tools = [{"type": "web_search_20260209", "name": "web_search", "max_uses": caps["chat_search"]}]
+    if caps["chat_fetch"]:
+        tools.append({"type": "web_fetch_20260209", "name": "web_fetch", "max_uses": caps["chat_fetch"]})
+    return tools
+
+
+WEB_SEARCH = web_tools()[0]  # kept for older imports
 
 CLIENT_TOOLS = [
     {

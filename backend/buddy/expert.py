@@ -15,7 +15,7 @@ import anthropic
 
 from . import usage
 from .agent import fallback_kwargs
-from .config import claude_client, settings
+from .config import claude_client, search_caps, settings
 from .memory import Memory
 from .privacy import mask
 from .tools import ToolError, local_now
@@ -87,8 +87,8 @@ async def ask_expert(memory: Memory, args: dict) -> str:
         today=local_now().strftime("%A %d %B %Y"),
     )
     tools = [
-        {"type": "web_search_20260209", "name": "web_search", "max_uses": 4},
-        {"type": "web_fetch_20260209", "name": "web_fetch", "max_uses": 4},
+        {"type": "web_search_20260209", "name": "web_search", "max_uses": search_caps()["expert_search"]},
+        {"type": "web_fetch_20260209", "name": "web_fetch", "max_uses": search_caps()["expert_fetch"]},
     ]
     cost = 0.0
     response = None
