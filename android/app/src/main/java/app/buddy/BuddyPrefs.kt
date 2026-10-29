@@ -53,9 +53,10 @@ class BuddyPrefs(context: Context) {
         get() = prefs.getString("earbudsStart", "listen") ?: "listen"
         set(value) = prefs.edit().putString("earbudsStart", value).apply()
 
-    /** Speech recognition: "phone" (Google's, on the phone) or "server" (Whisper on your server). */
+    /** Speech recognition: "auto" (phone while the screen is on, your server's Whisper when it's off),
+     *  "phone" (Google's) or "server" (Whisper on your server). */
     var speechEngine: String
-        get() = prefs.getString("speechEngine", "phone") ?: "phone"
+        get() = prefs.getString("speechEngine", "auto") ?: "auto"
         set(value) = prefs.edit().putString("speechEngine", value).apply()
 
     /** Send the phone's location to your server when Buddy is used, for "near me" searches. */

@@ -10,6 +10,7 @@ live on your private server; this app connects to it over Tailscale.
 | No tapping | Put your earbuds in and Buddy starts Listen-in by itself; say "Hey Buddy, ..." to talk to it; for 30 seconds after each answer, a follow-up needs no "Hey Buddy". Beyond that, Buddy judges from context whether a sentence is meant for it or for the people around you. Take them out and it stops. (Settings → When earbuds connect.) |
 | Talk to Buddy | Tap the orb, or tap your earbud (play/pause). Hands-free keeps listening after each reply. |
 | Interrupt | Just start talking over Buddy. |
+| Phone closed or locked | Keeps listening through your earbuds. With Speech recognition on **Automatic** (the default), Whisper on your server takes over while the screen is off, since Google's recognizer often stops then (needs `deploy/whisper.sh`). |
 | Works with the screen off | Runs as a foreground service with a "Buddy" notification (Android requires it). |
 | Listen-in | Works out the room's language by itself (Android 14+, or pick one) and the microphone: the phone's, or the earbuds' while the phone is in your pocket. Hears the room in the language you pick, and whispers translations, "they're talking about you" and fact checks. |
 | Share my location | Optional (Settings): sends your location to your server when you open or talk to Buddy, so "a spa near me" works. Only the latest is kept; "approximate" shares neighbourhood level. |

@@ -67,6 +67,29 @@ class BuddyService : Service() {
     }
 
     private lateinit var prefs: BuddyPrefs
+    @Volatile private var screenOff = false
+    @Volatile private var whisperOnServer = false
+
+    /** Screen off (phone closed or locked) or on: Automatic speech switches ears. */
+    private val screenWatch = object : android.content.BroadcastReceiver() {
+        override fun onReceive(context: Context, intent: Intent) {
+            screenOff = intent.action == Intent.ACTION_SCREEN_OFF
+            if (prefs.speechEngine == "auto" && whisperOnServer && (phoneEars.active || serverEars.active)) {
+                startListening(activeMode)  // stops the current ears and starts the right ones
+            }
+        }
+    }
+
+    /** Does the server have Whisper? Asked on every connect. */
+    private fun checkWhisper(link: ServerLink) {
+        Thread {
+            whisperOnServer = runCatching {
+                okhttp3.OkHttpClient().newCall(okhttp3.Request.Builder().url(link.baseUrl + "/health").build())
+                    .execute().use { JSONObject(it.body?.string() ?: "{}").optBoolean("whisper") }
+            }.getOrDefault(false)
+        }.start()
+    }
+
     private lateinit var phoneEars: Ears
     private lateinit var serverEars: ServerEars
 
@@ -76,6 +99,9 @@ class BuddyService : Service() {
             serverEars.active -> serverEars
             phoneEars.active -> phoneEars
             prefs.speechEngine == "server" -> serverEars
+            // Automatic: Google's recognizer while the screen is on; with the phone closed or
+            // locked it often stops, so Whisper on your server takes over (if it's installed).
+            prefs.speechEngine == "auto" && screenOff && whisperOnServer -> serverEars
             else -> phoneEars
         }
     private lateinit var mouth: Mouth
@@ -95,6 +121,10 @@ class BuddyService : Service() {
         super.onCreate()
         instance = this
         prefs = BuddyPrefs(this)
+        registerReceiver(screenWatch, android.content.IntentFilter().apply {
+            addAction(Intent.ACTION_SCREEN_OFF)
+            addAction(Intent.ACTION_SCREEN_ON)
+        })
         Notes.createChannels(this)
         val onActive = { on: Boolean -> BuddyState.update { it.copy(listening = on) }; refreshNotification() }
         val onProblem = { problem: String -> BuddyState.add(Line(problem, Speaker.ERROR)) }
@@ -152,6 +182,7 @@ class BuddyService : Service() {
     }
 
     override fun onDestroy() {
+        runCatching { unregisterReceiver(screenWatch) }
         phoneEars.destroy()
         serverEars.destroy()
         watchdog.removeCallbacksAndMessages(null)
@@ -192,6 +223,7 @@ class BuddyService : Service() {
             }
             refreshNotification()
             if (status == BuddyClient.Status.ONLINE) {
+                checkWhisper(link)
                 PhoneBridge.flush()  // notifications that arrived while offline
                 syncCalendar()
                 LocationShare.maybeSend(this, force = true)

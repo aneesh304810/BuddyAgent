@@ -509,13 +509,14 @@ private fun SettingsPanel(
         Spacer(Modifier.height(8.dp))
         Text("Speech recognition", color = Color.White)
         Text(
-            "Phone: Google's recognizer, fastest. Your server: Whisper on your own server, more private, " +
-                "detects every language by itself; install it first (deploy/whisper.sh). Takes effect " +
-                "the next time Buddy starts listening.",
+            "Automatic: the phone's recognizer while the screen is on, and Whisper on your server when the " +
+                "phone is closed or locked (it keeps working through your earbuds). Phone: Google's " +
+                "recognizer only, fastest. Your server: Whisper always, most private. Whisper needs " +
+                "deploy/whisper.sh on the server.",
             color = Muted, fontSize = 13.sp,
         )
         Row(horizontalArrangement = Arrangement.spacedBy(8.dp)) {
-            listOf("phone" to "Phone", "server" to "Your server (Whisper)").forEach { (value, name) ->
+            listOf("auto" to "Automatic", "phone" to "Phone", "server" to "Server").forEach { (value, name) ->
                 FilterChip(
                     selected = speechEngine == value,
                     onClick = { speechEngine = value; prefs.speechEngine = value },
