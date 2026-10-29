@@ -87,7 +87,7 @@ echo "    (Your hosting provider's web console still works for emergencies.)"
 
 echo "==> 5/7 Buddy"
 if [[ -d $APP/.git ]]; then
-  git -C "$APP" pull --ff-only
+  git -c safe.directory="$APP" -C "$APP" pull --ff-only   # owned by buddy, pulled by root
 else
   git clone ${BRANCH:+--branch "$BRANCH"} "$REPO_URL" "$APP"
 fi

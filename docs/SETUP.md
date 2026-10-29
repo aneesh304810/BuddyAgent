@@ -363,7 +363,7 @@ When new code is pushed:
 
 ```
 ssh root@buddy
-cd /opt/buddy && sudo -u buddy git pull && sudo -u buddy backend/.venv/bin/pip install -q -r backend/requirements.txt && sudo systemctl restart buddy
+sudo bash /opt/buddy/deploy/update.sh
 ```
 
 Research jobs running at that moment resume by themselves after the restart.
