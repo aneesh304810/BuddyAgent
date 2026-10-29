@@ -94,6 +94,7 @@ class BuddyService : Service() {
         val onProblem = { problem: String -> BuddyState.add(Line(problem, Speaker.ERROR)) }
         phoneEars = Ears(this, onHeard = ::heard, onActive = onActive, onProblem = onProblem)
         serverEars = ServerEars(
+            earbudMic = { earbudMicOn },
             send = { message -> client?.send(message) ?: false },
             onHeard = ::heard, onActive = onActive, onProblem = onProblem,
             // On the loudspeaker Buddy would hear itself; with earbuds that's no problem.
@@ -488,17 +489,44 @@ class BuddyService : Service() {
     // --- audio routing ---------------------------------------------------
 
     /** Hear you through the earbud mic (Bluetooth headset mode). Off: the phone's mic. */
+    /** True while the earbud microphone is the one listening. */
+    @Volatile
+    private var earbudMicOn = false
+
     private fun useEarbudMic(on: Boolean) {
         val audio = getSystemService(AudioManager::class.java)
         if (!on) {
-            audio.clearCommunicationDevice()
+            if (earbudMicOn || calls.buddyOwnsMode) useEarbudMicOff(audio)
+            earbudMicOn = false
             return
         }
-        audio.availableCommunicationDevices
-            .firstOrNull {
-                it.type == AudioDeviceInfo.TYPE_BLUETOOTH_SCO || it.type == AudioDeviceInfo.TYPE_BLE_HEADSET
-            }
-            ?.let { audio.setCommunicationDevice(it) }
+        if (earbudMicOn) return  // already on
+        val device = audio.availableCommunicationDevices.firstOrNull {
+            it.type == AudioDeviceInfo.TYPE_BLUETOOTH_SCO || it.type == AudioDeviceInfo.TYPE_BLE_HEADSET
+        }
+        if (device == null) {
+            BuddyState.add(Line("No earbud microphone found, so I'm using the phone's.", Speaker.ERROR))
+            return
+        }
+        // Bluetooth earbud mics only work in voice-call mode: switch to it (our own
+        // call detector knows it's us), then send the microphone to the earbuds.
+        if (audio.mode != AudioManager.MODE_IN_COMMUNICATION) {
+            calls.buddyOwnsMode = true
+            audio.mode = AudioManager.MODE_IN_COMMUNICATION
+        }
+        earbudMicOn = audio.setCommunicationDevice(device)
+        if (!earbudMicOn) {
+            BuddyState.add(Line("The earbuds wouldn't share their microphone, so I'm using the phone's.", Speaker.ERROR))
+            useEarbudMicOff(audio)
+        }
+    }
+
+    private fun useEarbudMicOff(audio: AudioManager) {
+        audio.clearCommunicationDevice()
+        if (calls.buddyOwnsMode) {
+            audio.mode = AudioManager.MODE_NORMAL
+            calls.buddyOwnsMode = false
+        }
     }
 
     // --- foreground notification -----------------------------------------

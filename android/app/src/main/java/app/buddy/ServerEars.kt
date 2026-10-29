@@ -23,6 +23,7 @@ import kotlin.math.sqrt
  * where the phone recognizer's would (talk, Listen-in, "Hey Buddy").
  */
 class ServerEars(
+    private val earbudMic: () -> Boolean,  // earbud mic chosen: record the voice-call input
     private val send: (JSONObject) -> Boolean,
     private val onHeard: (text: String, final: Boolean) -> Unit,
     private val onActive: (Boolean) -> Unit,
@@ -71,7 +72,9 @@ class ServerEars(
         val minBuffer = AudioRecord.getMinBufferSize(RATE, AudioFormat.CHANNEL_IN_MONO, AudioFormat.ENCODING_PCM_16BIT)
         val recorder = runCatching {
             AudioRecord(
-                MediaRecorder.AudioSource.VOICE_RECOGNITION, RATE,
+                if (earbudMic()) MediaRecorder.AudioSource.VOICE_COMMUNICATION
+                else MediaRecorder.AudioSource.VOICE_RECOGNITION,
+                RATE,
                 AudioFormat.CHANNEL_IN_MONO, AudioFormat.ENCODING_PCM_16BIT, max(minBuffer, RATE),
             )
         }.getOrNull()

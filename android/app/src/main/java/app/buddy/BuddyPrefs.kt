@@ -39,7 +39,7 @@ class BuddyPrefs(context: Context) {
 
     /** Talk mode: hear you through the earbud microphone instead of the phone's. */
     var earbudMic: Boolean
-        get() = prefs.getBoolean("earbudMic", false)
+        get() = prefs.getBoolean("earbudMic", true)  // with earbuds in, hear you through them
         set(value) = prefs.edit().putBoolean("earbudMic", value).apply()
 
     /** Listen-in microphone: "auto" (earbuds while the phone is in a pocket), "phone" or "earbuds". */

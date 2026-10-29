@@ -30,6 +30,10 @@ class CallWatcher(context: Context, private val onCall: (Boolean) -> Unit) {
     private val executor = context.mainExecutor
     private val listener = AudioManager.OnModeChangedListener { mode -> onCall(isCall(mode)) }
 
+    /** True while Buddy itself holds the voice-call audio mode (for the earbud mic). */
+    @Volatile
+    var buddyOwnsMode = false
+
     fun start() {
         audio.addOnModeChangedListener(executor, listener)
         onCall(isCall(audio.mode))
@@ -40,8 +44,8 @@ class CallWatcher(context: Context, private val onCall: (Boolean) -> Unit) {
     }
 
     private fun isCall(mode: Int) = when (mode) {
+        AudioManager.MODE_IN_COMMUNICATION -> !buddyOwnsMode
         AudioManager.MODE_IN_CALL,
-        AudioManager.MODE_IN_COMMUNICATION,
         AudioManager.MODE_RINGTONE,
         AudioManager.MODE_CALL_SCREENING -> true
         else -> false
