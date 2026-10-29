@@ -7,6 +7,20 @@ set -euo pipefail
 APP=/opt/buddy
 [[ $EUID -eq 0 ]] || { echo "Run as root (sudo)."; exit 1; }
 git -c safe.directory="$APP" -C "$APP" pull --ff-only
+# Settings files written by older versions: bring the gmail agent up to date (all accounts).
+python3 - "$APP/backend/agents.yaml" <<'PY'
+import re, sys
+path = sys.argv[1]
+try:
+    text = open(path).read()
+except FileNotFoundError:
+    sys.exit()
+new = re.sub(r"env_from: \[BUDDY_EMAIL_ADDRESS[^\]]*\]", 'env_from: ["BUDDY_EMAIL_*"]', text)
+new = new.replace("unsubscribe_links, create_draft]", "unsubscribe_links, create_draft, list_accounts]")
+if new != text:
+    open(path, "w").write(new)
+    print("Updated the gmail agent in agents.yaml (all email accounts).")
+PY
 chown -R buddy:buddy "$APP"
 sudo -u buddy "$APP/backend/.venv/bin/pip" install -q -r "$APP/backend/requirements.txt"
 systemctl restart buddy

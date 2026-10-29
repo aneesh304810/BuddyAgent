@@ -188,7 +188,7 @@ def test_bad_app_password_is_a_clear_error():
 
 def test_agent_reads_freely_but_asks_before_sending_or_cleaning(gmail, monkeypatch):
     fake, box = gmail
-    monkeypatch.setattr(gmail_server, "_box", lambda: box)
+    monkeypatch.setattr(gmail_server, "_box", lambda account="": box)
 
     async def body():
         reg = AgentRegistry(Memory(":memory:"), [AgentSpec(
@@ -237,3 +237,35 @@ def test_agent_process_gets_only_the_settings_it_is_given(monkeypatch):
             await reg.close()
 
     assert "Email isn't set up" in asyncio.run(body())
+
+
+def test_accounts_from_settings():
+    from buddy.email_accounts import email_accounts, pick_account
+
+    env = {"BUDDY_EMAIL_ADDRESS": "me@gmail.com", "BUDDY_EMAIL_APP_PASSWORD": "abcd efgh",
+           "BUDDY_EMAIL_2_ADDRESS": "me@work.com", "BUDDY_EMAIL_2_APP_PASSWORD": "x",
+           "BUDDY_EMAIL_3_ADDRESS": "me@icloud.com", "BUDDY_EMAIL_3_APP_PASSWORD": "y",
+           "BUDDY_EMAIL_4_ADDRESS": "no-password@gmail.com"}
+    accounts = email_accounts(env)
+    assert [a.address for a in accounts] == ["me@gmail.com", "me@work.com", "me@icloud.com"]
+    assert accounts[0].password == "abcdefgh" and accounts[1].is_gmail  # Workspace on its own domain
+    assert not accounts[2].is_gmail and accounts[2].smtp_port == 587
+    assert pick_account(accounts, "").address == "me@gmail.com"
+    assert pick_account(accounts, "work").address == "me@work.com"
+    with pytest.raises(LookupError, match="Which account"):
+        pick_account(accounts, "me@")
+
+
+def test_agent_works_on_the_account_asked_for(monkeypatch):
+    monkeypatch.setenv("BUDDY_EMAIL_ADDRESS", "me@gmail.com")
+    monkeypatch.setenv("BUDDY_EMAIL_APP_PASSWORD", "apppass")
+    monkeypatch.setenv("BUDDY_EMAIL_2_ADDRESS", "me@icloud.com")
+    monkeypatch.setenv("BUDDY_EMAIL_2_APP_PASSWORD", "apppass")
+    fake = FakeGmail()
+    monkeypatch.setattr(mb.imaplib, "IMAP4_SSL", fake)
+    monkeypatch.setattr(mb.Mailbox.__init__, "__defaults__", ("imap.gmail.com", "smtp.gmail.com", 465, fake, FakeSMTP))
+    out = json.loads(gmail_server.search_mail("from:shop", account="gmail"))
+    assert out["account"] == "me@gmail.com" and out["total_matches"] == 2
+    assert "isn't a Gmail account" in gmail_server.search_mail("x", account="icloud")
+    assert json.loads(gmail_server.list_accounts()) == [
+        {"account": "me@gmail.com", "manageable": True}, {"account": "me@icloud.com", "manageable": False}]

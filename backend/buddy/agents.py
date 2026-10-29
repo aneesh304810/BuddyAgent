@@ -137,7 +137,9 @@ class AgentRegistry:
         if spec.server is not None:
             target = spec.server
         elif spec.command:
-            env = {**{k: os.environ[k] for k in spec.env_from if k in os.environ}, **spec.env}
+            # env_from entries are names or patterns ("BUDDY_EMAIL_*" covers every account).
+            passed = {k: v for k, v in os.environ.items() if any(fnmatchcase(k, p) for p in spec.env_from)}
+            env = {**passed, **spec.env}
             target = StdioServerParameters(command=spec.command[0], args=spec.command[1:], env=env or None)
         elif spec.endpoint():
             token = os.environ.get(spec.token_env, "").strip() if spec.token_env else ""
