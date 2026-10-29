@@ -18,7 +18,8 @@ from .jobs import JOB_TOOL_NAMES, JOB_TOOLS, JobRunner, run_job_tool
 from .connectors import CONNECTOR_TOOL_NAMES, CONNECTOR_TOOLS, ConnectorHub, run_connector_tool
 from .bankfeed import BALANCES_TOOL, BankFeed, run_balances_tool
 from .social import SOCIAL_TOOL_NAMES, Social, run_social_tool, social_tools
-from .taste import TASTE_TOOL_NAMES, TASTE_TOOLS, Taste, run_taste_tool
+from .location import Location
+from .taste import TASTE_TOOL_NAMES, TASTE_TOOLS, WHERE_TOOL, Taste, run_taste_tool
 from .builder import BUILDER_TOOL_NAMES, BUILDER_TOOLS, AgentBuilder, run_builder_tool
 from .deals import WATCH_TOOL_NAMES, WATCH_TOOLS, PriceWatcher, run_watch_tool
 from .finops import COST_TOOL, FinOps
@@ -98,6 +99,7 @@ class Conversation:
         self.bank = BankFeed(memory)
         self.social = Social()
         self.taste = Taste(memory)
+        self.location = Location(memory)
         self.messages: list[dict] = []
         self.turn = 0  # counts user messages; approvals need a newer one
         self.via = "user"
@@ -202,7 +204,7 @@ class Conversation:
         spending += WATCH_TOOLS if self.watcher else []
         spending += BUILDER_TOOLS if self.builder and self.jobs else []
         spending += CONNECTOR_TOOLS if self.hub else []
-        spending += social_tools(self.social) + TASTE_TOOLS
+        spending += social_tools(self.social) + TASTE_TOOLS + [WHERE_TOOL]
         return (
             CLIENT_TOOLS + orchestration + job_tools + spending + [_expert_tool()]
             + agent_tools + web_tools()
@@ -234,7 +236,11 @@ class Conversation:
         if self.watcher and name in WATCH_TOOL_NAMES:
             return await run_watch_tool(self.watcher, name, args, self.thrift)
         if name in TASTE_TOOL_NAMES:
-            return await run_taste_tool(self.taste, self.social, name, args)
+            return await run_taste_tool(self.taste, self.social, name, args, self.location)
+        if name == "where_am_i":
+            here = self.location.current()
+            return json.dumps(here) if here else ("Not shared right now. The user can turn on Share my location "
+                                                  "in the Buddy app's settings, or just tell you.")
         if name in SOCIAL_TOOL_NAMES:
             return await run_social_tool(self.social, name, args)
         if name == "account_balances":

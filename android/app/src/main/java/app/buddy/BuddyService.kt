@@ -181,6 +181,7 @@ class BuddyService : Service() {
             if (status == BuddyClient.Status.ONLINE) {
                 PhoneBridge.flush()  // notifications that arrived while offline
                 syncCalendar()
+                LocationShare.maybeSend(this, force = true)
             }
         }.also { it.connect() }
         scheduleCalendarSync()
@@ -276,6 +277,7 @@ class BuddyService : Service() {
         mouth.stop()
         muted = false
         replyOpen = false
+        LocationShare.maybeSend(this)  // "near me" should mean where you are now
         BuddyState.add(Line(text, Speaker.YOU))
         send(JSONObject().put("type", "user").put("text", text).put("via", via))
     }

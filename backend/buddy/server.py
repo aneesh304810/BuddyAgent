@@ -7,6 +7,7 @@ Protocol (JSON messages):
                    {"type": "ambient", "text": "...", "lang": "hi-IN"}
   phone -> server  {"type": "audio", "pcm": "<base64 16 kHz mono 16-bit>", "lang": "auto"}
   server -> phone  {"type": "heard", "text": "...", "lang": "es"}  (Whisper on the server)
+  phone -> server  {"type": "location", "lat": -12.12, "lng": -77.03, "accuracy": 50}  (when shared)
   server -> phone  {"type": "approval", "question": "..."}  Buddy is waiting for a yes:
                    show Approve / Decline; they send a user message "Yes, go ahead." / "No."
                                                       listen-in mode: speech around the user
@@ -52,6 +53,7 @@ from .deals import PriceWatcher
 from .finops import FinOps
 from . import lifelog
 from .lifelog import LifeLog
+from .location import Location
 from . import whisper as speech_to_text  # not `whisper`: that's Listen-in's whisper below
 from .mailbrain import MailManager
 from .thrift import Thrift
@@ -404,6 +406,13 @@ async def talk(ws: WebSocket) -> None:
                     await ws.send_json({"type": "error", "text": str(e)})
                 except Exception:
                     log.exception("whisper failed")
+            elif msg.get("type") == "location":
+                # The user shares where they are (Settings -> Share my location); only the latest is kept.
+                with contextlib.suppress(TypeError, ValueError):
+                    await asyncio.to_thread(Location(memory).update, float(msg["lat"]), float(msg["lng"]),
+                                            msg.get("accuracy"))
+            elif msg.get("type") == "location_off":
+                Location(memory).forget()
             elif msg.get("type") == "ambient_stop":
                 listener.stop()
     except WebSocketDisconnect:

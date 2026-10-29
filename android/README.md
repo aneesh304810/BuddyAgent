@@ -12,6 +12,7 @@ live on your private server; this app connects to it over Tailscale.
 | Interrupt | Just start talking over Buddy. |
 | Works with the screen off | Runs as a foreground service with a "Buddy" notification (Android requires it). |
 | Listen-in | Works out the room's language by itself (Android 14+, or pick one) and the microphone: the phone's, or the earbuds' while the phone is in your pocket. Hears the room in the language you pick, and whispers translations, "they're talking about you" and fact checks. |
+| Share my location | Optional (Settings): sends your location to your server when you open or talk to Buddy, so "a spa near me" works. Only the latest is kept; "approximate" shares neighbourhood level. |
 | Approve / Decline | When Buddy asks before sending, booking, cleaning up or spending, tap Approve or Decline in the app or right on the notification. |
 | Reminders and nudges | Spoken in your earbuds and shown as notifications. |
 | Calls | Pauses itself during any call (phone, WhatsApp, Teams, Meet) and resumes afterwards. Android doesn't let apps hear call audio. |

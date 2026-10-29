@@ -47,7 +47,9 @@ CREATE TABLE IF NOT EXISTS price_watches (
 CHECK_PROMPT = """\
 Find the current lowest real price for this, for {user}: {what}
 Currency: {currency}. Today is {today}. Search, open the most promising offer pages, \
-and use the total price (taxes, fees, shipping or baggage included where they apply). \
+and use the TRUE total: taxes, booking and resort fees, baggage, shipping, whatever \
+the seller adds before payment. In "note" give the biggest catch in a few words \
+(non-refundable, basic economy with no bag, resort fee extra, third-party seller...). \
 Finish with one line of JSON and nothing after it:
 {{"found": true, "price": 123.45, "where": "seller or airline", "url": "https://...", "note": "one short catch"}}
 or {{"found": false, "price": 0, "where": "", "url": "", "note": "why not"}}"""

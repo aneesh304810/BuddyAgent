@@ -128,6 +128,7 @@ class MainActivity : ComponentActivity() {
 
     override fun onResume() {
         super.onResume()
+        LocationShare.maybeSend(this)
         BuddyService.instance?.claimEarbud() // opening Buddy takes the earbud button back from music apps
     }
 
@@ -421,9 +422,16 @@ private fun SettingsPanel(
     var speechEngine by remember { mutableStateOf(prefs.speechEngine) }
     var deviceName by remember { mutableStateOf(prefs.deviceName) }
     var shareCalendar by remember { mutableStateOf(prefs.shareCalendar) }
+    var shareLocation by remember { mutableStateOf(prefs.shareLocation) }
     var workBusyOnly by remember { mutableStateOf(prefs.workBusyOnly) }
     val context = LocalContext.current
     val notificationsOn = NotificationManagerCompat.getEnabledListenerPackages(context).contains(context.packageName)
+    val askLocation = rememberLauncherForActivityResult(ActivityResultContracts.RequestMultiplePermissions()) { result ->
+        val granted = result.values.any { it }
+        shareLocation = granted
+        prefs.shareLocation = granted
+        if (granted) LocationShare.maybeSend(context, force = true)
+    }
     val askCalendar = rememberLauncherForActivityResult(ActivityResultContracts.RequestPermission()) { granted ->
         shareCalendar = granted
         prefs.shareCalendar = granted
@@ -553,6 +561,21 @@ private fun SettingsPanel(
                 onClick = { context.startActivity(Intent(Settings.ACTION_NOTIFICATION_LISTENER_SETTINGS)) },
                 modifier = Modifier.padding(top = 4.dp),
             ) { Text(if (notificationsOn) "Change notification access" else "Turn on notification access") }
+        }
+        Row(verticalAlignment = Alignment.CenterVertically) {
+            Column(Modifier.weight(1f)) {
+                Text("Share my location", color = Color.White)
+                Text(
+                    "So \"a spa near me\" works. Sent only to your server, only when you open or talk to Buddy, " +
+                        "and only the latest one is kept. Choose \"approximate\" for neighbourhood-level only.",
+                    color = Muted, fontSize = 13.sp,
+                )
+            }
+            Switch(checked = shareLocation, onCheckedChange = { on ->
+                if (on) askLocation.launch(arrayOf(Manifest.permission.ACCESS_FINE_LOCATION,
+                                                   Manifest.permission.ACCESS_COARSE_LOCATION))
+                else { shareLocation = false; prefs.shareLocation = false; LocationShare.stopSharing() }
+            })
         }
         Row(verticalAlignment = Alignment.CenterVertically) {
             Column(Modifier.weight(1f)) {

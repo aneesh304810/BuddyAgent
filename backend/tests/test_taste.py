@@ -93,3 +93,66 @@ def test_places_parsing():
     found = Social(env={"BUDDY_SERPER_KEY": "k"}, http=web).places("spa in Miami")
     assert found == [{"title": "Aire Ancient Baths", "rating": 4.8, "ratingCount": 900, "priceLevel": "$$$",
                       "address": "Miami"}]
+
+
+def test_location_near_me_and_staleness(monkeypatch):
+    from buddy import location as loc_mod
+    from buddy.location import Location
+
+    memory = Memory(":memory:")
+    lookups = []
+
+    def reverse(lat, lng):
+        lookups.append((lat, lng))
+        return {"area": "Miraflores", "city": "Lima", "country": "PE"}
+
+    here = Location(memory, reverse=reverse)
+    assert here.label() == ""
+    here.update(-12.1211, -77.0297, 30)
+    assert here.label() == "Miraflores, Lima"
+
+    class FakeSocial:
+        def has_google(self):
+            return True
+
+        def has_reddit(self):
+            return False
+
+        def places(self, query, country):
+            assert query == "spa in Miraflores, Lima" and country == "PE"
+            return []
+
+    out = asyncio.run(run_taste_tool(Taste(memory), FakeSocial(), "find_places", {"what": "spa near me"}, here))
+    assert '"where": "Miraflores, Lima"' in out and "tip expected" in out  # the spa catches to check
+    stale = json.loads(memory.get("location:current"))
+    stale["at"] = "2020-01-01T00:00:00+00:00"
+    memory.set("location:current", json.dumps(stale))
+    assert here.current() is None
+    out = asyncio.run(run_taste_tool(Taste(memory), FakeSocial(), "find_places", {"what": "spa"}, here))
+    assert "Share my location" in out
+    try:
+        here.update(200, 0)
+        raise AssertionError("bad coordinates accepted")
+    except ValueError:
+        pass
+
+
+def test_catches_and_too_good_ratings():
+    from buddy.taste import _review_check
+
+    class FakeSocial:
+        def has_reddit(self):
+            return False
+
+        def has_google(self):
+            return True
+
+        def google(self, query, country="US", num=8):
+            if "scam" in query:
+                return {"results": [{"title": "Sky Bar Lima - cover charge", "link": "https://www.reddit.com/r/lima/x",
+                                     "snippet": "Sky Bar adds a 40 sol cover after 10pm and a 15% service charge"}]}
+            return {"results": []}
+
+    found = _review_check(FakeSocial(), {"title": "Sky Bar", "rating": 4.9, "ratingCount": 12}, "Miraflores, Lima", "PE")
+    assert found["complaints_and_catches"][0]["says"].startswith("Sky Bar adds a 40 sol cover")
+    assert "few reviews" in found["caution"]

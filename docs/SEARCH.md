@@ -33,6 +33,23 @@ Only the best five are checked, with short snippets, so a search costs about a c
 decision (a hotel for a week, an expensive dinner), ask for a deal hunt instead: the research
 agent reads full reviews and compares in depth.
 
+**What places don't advertise.** For each category Buddy has a checklist of usual catches and
+looks for them in reviews, Reddit and complaint threads, then tells you plainly:
+- restaurants: service charge or cover, minimum spend, cash only, tourist menus and prices
+- nightlife: cover charge, minimum spend or bottle service, dress code and door policy, drink
+  prices, the real crowd, safety late at night
+- spas: expected tips, add-ons pushed during the treatment, table time shorter than advertised
+- hotels: resort, city and cleaning fees, parking and breakfast extra, noise, renovations,
+  rooms unlike the photos, deposits
+- a suspiciously perfect rating from very few reviews
+
+Deal hunts for flights and hotels compare the **true total** (bags, seats, booking and resort
+fees, taxes at checkout, currency-conversion markups) and the **cancellation rules** (refundable
+or not, until when, cash or credit, booking direct versus third-party sites), and price watches
+report the biggest catch with every drop.
+
+**Near me**: turn on *Settings → Share my location* in the Android app and say "near me".
+
 It knows your taste from:
 - **what you say**: *"I love rooftop bars"*, *"no chains"*, *"I'm vegetarian"*, *"boutique hotels,
   mid-range"*, *"that spa was amazing"*, saved as you talk (ask *"what's my taste in food?"*)

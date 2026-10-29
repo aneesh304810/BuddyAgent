@@ -58,6 +58,11 @@ class BuddyPrefs(context: Context) {
         get() = prefs.getString("speechEngine", "phone") ?: "phone"
         set(value) = prefs.edit().putString("speechEngine", value).apply()
 
+    /** Send the phone's location to your server when Buddy is used, for "near me" searches. */
+    var shareLocation: Boolean
+        get() = prefs.getBoolean("shareLocation", false)
+        set(value) = prefs.edit().putBoolean("shareLocation", value).apply()
+
     /** How this phone is labelled on the server, e.g. "Fold 8" or "Work phone". */
     var deviceName: String
         get() = prefs.getString("deviceName", "") ?: ""

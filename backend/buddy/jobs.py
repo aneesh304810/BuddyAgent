@@ -278,8 +278,9 @@ JOB_TOOLS = [
         "name": "find_deals",
         "description": (
             "Hand a deal hunt to the research agent: the best flights, hotels, car hire, or the best "
-            "price on something to buy. It compares many sellers on total price (fees, shipping, "
-            "baggage), checks coupons, reviews and return rules, and says whether to buy now or wait. "
+            "price on something to buy. It compares many sellers on the TRUE total (hidden fees: baggage, "
+            "seats, resort and booking fees, taxes at checkout, shipping), checks cancellation and refund "
+            "rules, seller complaints, coupons and reviews, and says whether to buy now or wait. "
             "Runs in the background like start_research (same costs). Put every detail in the request: "
             "dates, flexibility, cities, budget, model, size. Afterwards you can offer watch_price."
         ),

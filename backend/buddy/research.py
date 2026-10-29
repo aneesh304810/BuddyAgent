@@ -97,17 +97,30 @@ DEALS_METHOD = """\
 now: compare at least five across different sellers, airlines, hotels or booking sites, \
 not just the first results. Use recall_memory for their home airport, sizes, brands, \
 budget and preferences when it matters.
-- Compare the total price: taxes, fees, shipping, baggage, resort fees, import duty. \
-Check coupon codes, cashback, card offers, bundles, refurbished or open-box, nearby \
+- Compare the TRUE total, not the headline price. Dig out the hidden costs sellers \
+bury in the small print and add them in:
+  - Flights: checked and cabin bags, seat selection, basic-economy limits (no carry-on, \
+last to board, no changes), change and cancellation fees, airport and booking fees, \
+card or payment surcharges, long or overnight layovers (and needing a transit visa), \
+self-transfer itineraries where a missed connection is your problem.
+  - Hotels and stays: resort, destination, city, cleaning and service fees, taxes shown \
+only at checkout, parking, breakfast, Wi-Fi, deposits or card holds, extra-guest fees.
+  - Shopping: shipping, import duty, restocking fees, warranty that isn't valid locally.
+  - Everywhere: "pay in local currency" conversion markups (dynamic currency conversion).
+- Check the cancellation and change rules for every option: refundable or not, the \
+deadline, refund as cash or only credit, and whether a cheap third-party site (OTA) \
+makes changes and refunds hard compared with booking direct. Look for complaints about \
+the seller on Reddit and review sites (refunds not paid, bookings lost, overbooking).
+- Check coupon codes, cashback, card offers, bundles, refurbished or open-box, nearby \
 dates or airports, and whether booking direct is cheaper.
-- Check the catches: seller and shop trust, reviews, return or cancellation rules, \
-warranty, stopovers and layover times.
+- Check the catches: seller and shop trust, reviews, warranty, stopovers and layover times.
 - Look for price history (for example Google Flights' price insights, camelcamelcamel, \
 Keepa) and say whether to buy now or wait, and why.
 - Read the actual offer pages with web_fetch; prices in snippets are often stale.
-- In the report: a table of the best options (what, total price, where, catch, link), \
-then "Best value", "Cheapest" and, if different, "Best quality", then "Buy now or \
-wait?" with a target price worth watching for."""
+- In the report: a table of the best options with columns what, headline price, hidden \
+fees, TRUE total, cancellation (refundable? until when?), where, link; then "Best value", \
+"Cheapest true total" and, if different, "Best quality"; then "Watch out for" (the catches \
+in plain words); then "Buy now or wait?" with a target price worth watching for."""
 
 DATA_METHOD = """\
 - The data to analyze is in the user message. Use code for every calculation, \
