@@ -81,6 +81,8 @@ class Social:
                period: str = "week", limit: int = 10, post: str = "") -> list[dict]:
         limit = max(1, min(int(limit or 10), 25))
         sub = subreddit.strip().removeprefix("r/").strip("/")
+        if not self.has_reddit():
+            return self._reddit_via_google(action, query, sub)
         if action == "comments":
             post_id = post.rstrip("/").split("/comments/")[-1].split("/")[0] if "/comments/" in post else post
             if not post_id:
@@ -107,6 +109,15 @@ class Social:
                  "posted": time.strftime("%Y-%m-%d", time.gmtime(p["data"].get("created_utc", 0))),
                  "link": "https://www.reddit.com" + p["data"].get("permalink", ""),
                  "text": mask(p["data"].get("selftext", ""))[:500]} for p in posts]
+
+    def _reddit_via_google(self, action: str, query: str, sub: str) -> list[dict]:
+        """Without a Reddit app: Reddit threads as Google finds them (titles and snippets)."""
+        if action == "comments":
+            raise ToolError("Reading a thread's comments needs the Reddit app (docs/KEYS.md); search works without it.")
+        site = f"site:reddit.com/r/{sub}" if sub else "site:reddit.com"
+        results = self.google(f"{site} {query or 'top posts'}", num=10).get("results", [])
+        return [{"title": r.get("title"), "link": r.get("link"), "date": r.get("date"),
+                 "text": mask(r.get("snippet") or "")[:300], "via": "Google"} for r in results]
 
     # --- Google (Serper) ------------------------------------------------------
     def google(self, query: str, news: bool = False, country: str = "US", num: int = 10) -> dict:
@@ -177,7 +188,7 @@ def social_tools(social: Social) -> list[dict]:
             "additionalProperties": False,
         },
     }]
-    if social.has_reddit():
+    if social.has_reddit() or social.has_google():  # without a Reddit app, Reddit is searched through Google
         tools.append({
             "name": "reddit",
             "description": "Search Reddit (compact, cheap results) for real people's opinions, reviews, tips and experiences (products, "
@@ -241,8 +252,8 @@ async def _run(social: Social, name: str, args: dict) -> str:
         if name == "trending":
             result = await asyncio.to_thread(social.trending, args.get("country", "US"), args.get("limit", 15))
         elif name == "reddit":
-            if not social.has_reddit():
-                raise ToolError("Reddit isn't connected yet (docs/SEARCH.md).")
+            if not (social.has_reddit() or social.has_google()):
+                raise ToolError("Reddit isn't connected yet (docs/KEYS.md).")
             result = await asyncio.to_thread(
                 social.reddit, args.get("action", "search"), args.get("query", ""), args.get("subreddit", ""),
                 args.get("sort", "relevance"), args.get("period", "week"), args.get("limit", 10), args.get("post", ""))

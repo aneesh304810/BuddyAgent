@@ -45,8 +45,12 @@ Check: *"Google the best ceviche in Lima"*, *"Find a spa near me"*.
 Top up on the same site when the free credits run out; Buddy falls back to web search meanwhile.
 
 ## 3. Reddit
-1. Chrome → **reddit.com** → log in → open **reddit.com/prefs/apps**
-   (if it shows the mobile site, tap ⋮ → **Desktop site**).
+Optional: with the Serper key, Buddy already searches Reddit through Google (titles and
+snippets). A Reddit app adds full threads, top comments and scores.
+
+1. Chrome → type **old.reddit.com/prefs/apps** in the address bar (not Settings → Privacy;
+   the developer page isn't in the new settings menus). Tap ⋮ → **Desktop site** if needed.
+   If Reddit asks you to accept its developer terms or request API access first, do that.
 2. At the bottom tap **create another app** (or **are you a developer? create an app**).
 3. Fill in: name `Buddy`, choose **script**, redirect URI `http://localhost:8080` → **create app**.
 4. Copy two things:

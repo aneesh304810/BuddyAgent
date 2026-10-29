@@ -68,6 +68,22 @@ def test_reddit_and_google_when_connected():
     assert g["answerBox"] == {"answer": "La Mar"} and g["results"][0]["title"] == "Best ceviche in Lima"
 
 
+def test_reddit_through_google_without_an_app():
+    calls = []
+
+    def web(url, data=None, headers=None):
+        calls.append(json.loads(data))
+        return json.dumps({"organic": [{"title": "Best spa in Lima? : r/lima", "link": "https://www.reddit.com/r/lima/x",
+                                        "snippet": "Go to Aqua Spa, ask for Rosa"}]}).encode()
+
+    social = Social(env={"BUDDY_SERPER_KEY": "k"}, http=web)
+    assert "reddit" in {t["name"] for t in social_tools(social)}
+    posts = social.reddit("search", "best spa", "lima")
+    assert calls[0]["q"] == "site:reddit.com/r/lima best spa" and posts[0]["via"] == "Google"
+    with pytest.raises(ToolError, match="needs the Reddit app"):
+        social.reddit("comments", post="https://www.reddit.com/r/lima/comments/x/")
+
+
 def test_answers_are_cached():
     import buddy.social as soc
     soc._cache.clear()

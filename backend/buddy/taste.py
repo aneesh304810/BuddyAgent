@@ -156,12 +156,12 @@ def _review_check(social, place: dict, where: str, country: str) -> dict:
     name = place.get("title", "")
     city = where.split(",")[-1].strip() or where
     found: dict = {}
-    if social.has_reddit():
+    if social.has_reddit() or social.has_google():
         try:
             posts = social.reddit("search", f'"{name}" {city}', sort="relevance", period="all", limit=5)
             mentions = [p for p in posts if name.split()[0].lower() in (p["title"] + p["text"]).lower()]
             if mentions:
-                found["reddit"] = [{"title": p["title"], "subreddit": p["subreddit"], "score": p["score"],
+                found["reddit"] = [{"title": p["title"], "subreddit": p.get("subreddit"), "score": p.get("score"),
                                     "says": p["text"][:240]} for p in mentions[:3]]
         except Exception:
             pass
