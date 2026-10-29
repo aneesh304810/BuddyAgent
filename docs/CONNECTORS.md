@@ -78,7 +78,8 @@ become the first source for the money manager.
 To remove access at any time: delete the app password in your Google account.
 
 ### More email accounts
-Add each extra account with its own app password (accounts 2 to 9):
+Easiest: `sudo bash /opt/buddy/deploy/email.sh` asks for each address and app password,
+checks the login, saves them and restarts Buddy. Or one setting at a time (accounts 2 to 9):
 ```
 sudo bash /opt/buddy/deploy/set.sh BUDDY_EMAIL_2_ADDRESS
 sudo bash /opt/buddy/deploy/set.sh BUDDY_EMAIL_2_APP_PASSWORD
