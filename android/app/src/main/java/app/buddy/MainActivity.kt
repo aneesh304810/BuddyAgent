@@ -123,6 +123,11 @@ class MainActivity : ComponentActivity() {
             }
         }
 
+    override fun onResume() {
+        super.onResume()
+        BuddyService.instance?.claimEarbud() // opening Buddy takes the earbud button back from music apps
+    }
+
     override fun onCreate(savedInstanceState: Bundle?) {
         super.onCreate(savedInstanceState)
         prefs = BuddyPrefs(this)

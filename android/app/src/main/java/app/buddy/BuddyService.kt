@@ -63,7 +63,12 @@ class BuddyService : Service() {
             onActive = { on -> BuddyState.update { it.copy(listening = on) }; refreshNotification() },
             onProblem = { problem -> BuddyState.add(Line(problem, Speaker.ERROR)) },
         )
-        mouth = Mouth(this) { on -> BuddyState.update { it.copy(speaking = on) } }
+        mouth = Mouth(this) { on ->
+            BuddyState.update { it.copy(speaking = on) }
+            // Buddy's voice plays through the speech engine, which Android counts as another
+            // app: claim the earbud button back after every reply.
+            if (!on) claimEarbud()
+        }
         calls = CallWatcher(this, ::callChanged)
         button = EarbudButton(this) { toggle() }
         calls.start()
@@ -82,6 +87,11 @@ class BuddyService : Service() {
         button.claim()
         // Not sticky: Android can't restart a microphone service from the background.
         return START_NOT_STICKY
+    }
+
+    /** Make Buddy the app that receives the earbud's play/pause tap. */
+    fun claimEarbud() {
+        if (::button.isInitialized) main.post { button.claim() }
     }
 
     override fun onDestroy() {
@@ -131,6 +141,7 @@ class BuddyService : Service() {
     fun sendQuietly(message: JSONObject): Boolean = client?.send(message) ?: false
 
     private val calendarTimer = android.os.Handler(android.os.Looper.getMainLooper())
+    private val main = android.os.Handler(android.os.Looper.getMainLooper())
 
     private fun scheduleCalendarSync() {
         calendarTimer.removeCallbacksAndMessages(null)
