@@ -33,11 +33,17 @@ private val HEADSET_TYPES = setOf(
     AudioDeviceInfo.TYPE_USB_HEADSET,
 )
 
-/** "Hey Buddy, ..." (speech recognition sometimes hears "body"), or "Buddy, ...". */
+/** "Hey Buddy, ...", "Buddy, ...", also as speech recognition often hears it ("hey body",
+ *  "hey bud", "okay buddy"), after a filler word ("so hey buddy..."). */
 private val WAKE_PHRASE = Regex(
-    "^(?:(?:hey|hi|ok|okay)\\s+(?:buddy|body)|buddy)\\b[\\s,.!?]*(.*)$",
+    "^(?:(?:so|okay|ok|um|uh|and|well|yeah)[\\s,]+)?" +
+        "(?:(?:hey|hi|hello|ok|okay|yo)[\\s,]+(?:buddy|buddie|body|bodhi|birdie|bud|baddie)|buddy|buddie)" +
+        "\\b[\\s,.!?]*(.*)$",
     RegexOption.IGNORE_CASE,
 )
+
+/** "..., buddy?" at the end: "can you hear me buddy". */
+private val WAKE_AT_END = Regex("^(.+?)[\\s,]+(?:hey\\s+)?(?:buddy|buddie)[.!?]*$", RegexOption.IGNORE_CASE)
 
 class BuddyService : Service() {
 
@@ -107,7 +113,7 @@ class BuddyService : Service() {
             if (!on) {
                 claimEarbud()
                 // Just answered something asked with "Hey Buddy": a follow-up needs no wake phrase.
-                if (answeringRoom) followUpUntil = android.os.SystemClock.elapsedRealtime() + FOLLOW_UP_MS
+                if (answeringRoom) openConversation()
             }
         }
         calls = CallWatcher(this, ::callChanged)
@@ -431,11 +437,26 @@ class BuddyService : Service() {
     private var wakeArmed = false
     private var answeringRoom = false   // Buddy's current reply answers a "Hey Buddy" request
     private var followUpUntil = 0L
-    private val FOLLOW_UP_MS = 8_000L
+    private val FOLLOW_UP_MS = 30_000L  // a natural pause to think before answering back
 
     /** The words after "Hey Buddy", "" for the wake phrase alone, or null if it wasn't said. */
+    /** After an answer: the next 30 seconds need no "Hey Buddy"; the screen says so. */
+    private fun openConversation() {
+        followUpUntil = android.os.SystemClock.elapsedRealtime() + FOLLOW_UP_MS
+        BuddyState.update { it.copy(conversationOpen = true) }
+        main.removeCallbacks(closeConversation)
+        main.postDelayed(closeConversation, FOLLOW_UP_MS)
+    }
+
+    private val closeConversation = Runnable {
+        if (android.os.SystemClock.elapsedRealtime() >= followUpUntil) {
+            BuddyState.update { it.copy(conversationOpen = false) }
+        }
+    }
+
     private fun afterWakePhrase(text: String): String? =
         WAKE_PHRASE.find(text.trim())?.groupValues?.get(1)?.trim()
+            ?: WAKE_AT_END.find(text.trim())?.groupValues?.get(1)?.trim()
 
     private fun heard(text: String, final: Boolean) {
         if (activeMode == Mode.LISTEN_IN && final) {
@@ -447,6 +468,7 @@ class BuddyService : Service() {
                 else -> {
                     wakeArmed = false
                     followUpUntil = 0L
+                    BuddyState.update { it.copy(conversationOpen = false) }
                     answeringRoom = true
                     sayToBuddy(request, via = "room")
                     return

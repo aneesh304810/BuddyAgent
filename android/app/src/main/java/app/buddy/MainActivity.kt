@@ -351,7 +351,9 @@ private fun Controls(ui: UiState, prefs: BuddyPrefs) {
                 ui.onCall -> "Paused while you're on a call"
                 ui.speaking -> "Buddy is talking. Just speak to interrupt."
                 ui.thinking -> "Got it, thinking…"
-                ui.listening && ui.mode == Mode.LISTEN_IN -> "Listening to the room. Say \"Buddy, …\" to ask me."
+                ui.listening && ui.mode == Mode.LISTEN_IN && ui.conversationOpen ->
+                    "I'm listening to you: just reply, no \"Hey Buddy\" needed."
+                ui.listening && ui.mode == Mode.LISTEN_IN -> "Listening to the room. Say \"Hey Buddy, …\" to ask me."
                 ui.listening -> "Listening…"
                 ui.mode == Mode.LISTEN_IN -> "Tap to listen to the room"
                 else -> "Tap the orb or your earbud to talk"

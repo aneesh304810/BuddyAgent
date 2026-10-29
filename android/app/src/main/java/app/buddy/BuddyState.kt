@@ -18,6 +18,7 @@ data class UiState(
     val listening: Boolean = false,
     val speaking: Boolean = false,
     val thinking: Boolean = false,    // the server has the question and is working on it
+    val conversationOpen: Boolean = false,  // Listen-in: a follow-up now needs no "Hey Buddy"
     val onCall: Boolean = false,
     val mode: Mode = Mode.TALK,
     val lines: List<Line> = emptyList(),
