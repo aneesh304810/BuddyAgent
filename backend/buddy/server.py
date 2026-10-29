@@ -57,6 +57,7 @@ from .finops import FinOps
 from . import lifelog
 from .lifelog import LifeLog
 from .location import Location
+from . import addressee
 from . import whisper as speech_to_text  # not `whisper`: that's Listen-in's whisper below
 from .mailbrain import MailManager
 from .thrift import Thrift
@@ -345,6 +346,7 @@ async def talk(ws: WebSocket) -> None:
     connections[ws] = convo
     jobs.wake.set()  # results that finished while the phone was away go out now
     current: asyncio.Task | None = None
+    last_exchange = {"at": -1e9, "said": ""}  # when Buddy last answered, and what it said
     trace("·", {"type": "connected"})
 
     async def send(message: dict) -> None:
@@ -373,6 +375,7 @@ async def talk(ws: WebSocket) -> None:
             started = time.monotonic()
             await convo.reply(text, say_and_keep, via)
             log.info("reply took %.1fs (%d sentences)", time.monotonic() - started, len(spoken))
+            last_exchange.update(at=time.monotonic(), said=" ".join(spoken))
             # Buddy just asked for a yes (to send, book, spend...): the phone shows
             # Approve and Decline buttons, which answer "yes" or "no" for the user.
             new_thrift = thrift.pending is not None and thrift.pending.id != thrift_asks
@@ -385,6 +388,20 @@ async def talk(ws: WebSocket) -> None:
         except anthropic.APIError as e:
             log.warning("Claude API error: %s", e)
             await send({"type": "error", "text": brain_error(e)})
+
+    async def room_or_buddy(text: str, lang: str) -> None:
+        """No "Hey Buddy": decide from context whether it's said to Buddy or to the room."""
+        nonlocal current
+        since = time.monotonic() - last_exchange["at"]
+        room = [t for _, _, t in list(listener.segments)]
+        if addressee.worth_checking(text, since) and await addressee.is_for_buddy(
+                memory, text, last_exchange["said"], since, room):
+            trace("·", {"type": "for_buddy", "text": text})
+            await stop_current()
+            await send({"type": "thinking"})
+            current = asyncio.create_task(answer(text, "room"))
+        else:
+            listener.hear(text, lang)
 
     async def stop_current() -> None:
         if current and not current.done():
@@ -414,10 +431,11 @@ async def talk(ws: WebSocket) -> None:
                     await stop_current()
                     await send({"type": "thinking"})
                     current = asyncio.create_task(answer(command, "room"))
-                else:
+                elif is_think_cue(text):  # "let me think": whisper them an answer now
                     listener.hear(text, str(msg.get("lang", "")))
-                    if is_think_cue(text):  # "let me think": whisper them an answer now
-                        listener.think()
+                    listener.think()
+                else:
+                    asyncio.create_task(room_or_buddy(text, str(msg.get("lang", ""))))
             elif msg.get("type") == "notification":
                 added = hub.ingest("notifications", [NotificationsConnector.to_record(msg)])
                 if added and should_announce(msg):

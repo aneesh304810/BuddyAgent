@@ -19,6 +19,8 @@ class Settings:
     access_token: str = os.getenv("BUDDY_TOKEN", "")
     # Without a token the server refuses everyone, unless this is a developer's machine.
     dev_mode: bool = os.getenv("BUDDY_DEV", "") == "1"
+    # Listen-in: judge from context whether a sentence without "Hey Buddy" is for Buddy.
+    smart_addressing: bool = os.getenv("BUDDY_SMART_ADDRESSING", "1") != "0"
     # How freely Buddy searches the web: thrifty (default), generous or max.
     search_level: str = os.getenv("BUDDY_SEARCH_LEVEL", "thrifty").strip().lower()
     # Languages the user understands; Listen-in only translates everything else.
