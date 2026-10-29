@@ -137,8 +137,11 @@ class FinOps:
                     {"Authorization": f"Bearer {token}"},
                 )
                 mtd = float(data.get("month_to_date_usage", 0) or 0)
-                return CostLine(name, round(mtd, 2), max(_project(mtd), mtd), "live",
-                                "droplet and anything else on the account")
+                note = "droplet and anything else on the account"
+                balance = float(data.get("account_balance", 0) or 0)
+                if balance < 0:  # DigitalOcean shows unused credit as a negative balance
+                    note += f"; ${-balance:.2f} of credit left, used before your card is charged"
+                return CostLine(name, round(mtd, 2), max(_project(mtd), mtd), "live", note)
             except Exception as e:
                 log.warning("DigitalOcean balance failed: %s", e)
                 note = f"live bill unavailable ({type(e).__name__}); showing the plan price"

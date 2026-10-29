@@ -30,7 +30,7 @@ class FakeAPIs:
             raise OSError("down")
         if "digitalocean" in url:
             assert headers["Authorization"] == "Bearer do-token"
-            return {"month_to_date_usage": "7.50", "account_balance": "0.00"}
+            return {"month_to_date_usage": "7.50", "account_balance": "-4.70"}
         assert headers["x-api-key"] == "admin-key"
         if "page=p2" in url:
             return {"data": [{"results": [{"amount": "250.5"}]}], "has_more": False}
@@ -60,6 +60,7 @@ def test_live_bills_from_digitalocean_and_anthropic():
     report = asyncio.run(fo.FinOps(Memory(":memory:"), env=env, fetch=apis).report())
     lines = {l["provider"]: l for l in report["lines"]}
     assert lines["DigitalOcean"] == {**lines["DigitalOcean"], "month_to_date": 7.5, "source": "live"}
+    assert "$4.70 of credit left" in lines["DigitalOcean"]["note"]
     assert lines["Claude"]["month_to_date"] == 13.0 and lines["Claude"]["source"] == "live"  # 1300 cents
     assert sum("anthropic" in url for url, _ in apis.calls) == 2  # followed the next page
 
