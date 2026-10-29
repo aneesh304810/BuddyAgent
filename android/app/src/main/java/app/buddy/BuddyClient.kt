@@ -19,6 +19,7 @@ sealed interface ServerEvent {
     data class Whisper(val kind: String, val text: String) : ServerEvent
     data class Error(val text: String) : ServerEvent
     data class Approval(val question: String) : ServerEvent
+    data class Heard(val text: String, val lang: String) : ServerEvent
 
     companion object {
         fun parse(raw: String): ServerEvent? = runCatching {
@@ -34,6 +35,7 @@ sealed interface ServerEvent {
                 "whisper" -> Whisper(msg.optString("kind"), msg.getString("text"))
                 "error" -> Error(msg.getString("text"))
                 "approval" -> Approval(msg.getString("question"))
+                "heard" -> Heard(msg.getString("text"), msg.optString("lang"))
                 else -> null
             }
         }.getOrNull()

@@ -61,7 +61,17 @@ class BuddyService : Service() {
     }
 
     private lateinit var prefs: BuddyPrefs
-    private lateinit var ears: Ears
+    private lateinit var phoneEars: Ears
+    private lateinit var serverEars: ServerEars
+
+    /** The ears in use: whichever is listening, else the one chosen in Settings. */
+    private val ears: Hearing
+        get() = when {
+            serverEars.active -> serverEars
+            phoneEars.active -> phoneEars
+            prefs.speechEngine == "server" -> serverEars
+            else -> phoneEars
+        }
     private lateinit var mouth: Mouth
     private lateinit var calls: CallWatcher
     private lateinit var button: EarbudButton
@@ -80,11 +90,14 @@ class BuddyService : Service() {
         instance = this
         prefs = BuddyPrefs(this)
         Notes.createChannels(this)
-        ears = Ears(
-            this,
-            onHeard = ::heard,
-            onActive = { on -> BuddyState.update { it.copy(listening = on) }; refreshNotification() },
-            onProblem = { problem -> BuddyState.add(Line(problem, Speaker.ERROR)) },
+        val onActive = { on: Boolean -> BuddyState.update { it.copy(listening = on) }; refreshNotification() }
+        val onProblem = { problem: String -> BuddyState.add(Line(problem, Speaker.ERROR)) }
+        phoneEars = Ears(this, onHeard = ::heard, onActive = onActive, onProblem = onProblem)
+        serverEars = ServerEars(
+            send = { message -> client?.send(message) ?: false },
+            onHeard = ::heard, onActive = onActive, onProblem = onProblem,
+            // On the loudspeaker Buddy would hear itself; with earbuds that's no problem.
+            paused = { mouth.speaking && activeMode == Mode.TALK && !headsetConnected() },
         )
         mouth = Mouth(this) { on ->
             BuddyState.update { it.copy(speaking = on) }
@@ -128,7 +141,8 @@ class BuddyService : Service() {
     }
 
     override fun onDestroy() {
-        ears.destroy()
+        phoneEars.destroy()
+        serverEars.destroy()
         mouth.shutdown()
         calls.stop()
         getSystemService(AudioManager::class.java).unregisterAudioDeviceCallback(headsets)
@@ -216,6 +230,7 @@ class BuddyService : Service() {
                 mouth.speak(event.text)
             }
             ServerEvent.Done -> replyOpen = false
+            is ServerEvent.Heard -> serverEars.heard(event.text, event.lang)
             is ServerEvent.Approval -> {
                 BuddyState.update { it.copy(approval = event.question) }
                 Notes.approval(this, event.question)

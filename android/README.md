@@ -41,8 +41,10 @@ Every push to `android/` builds a new APK automatically (GitHub Actions, workflo
 - Only HTTPS links are accepted; traffic also runs inside Tailscale.
 - The app needs no access to contacts, call logs, SMS or location. Call detection
   watches the audio mode, not your calls.
-- Speech recognition uses the phone's built-in Google service, as the web app
-  does. Moving it to Whisper on your own server is on the roadmap.
+- Speech recognition uses the phone's built-in Google service by default. For more
+  privacy, install Whisper on your server (`sudo bash /opt/buddy/deploy/whisper.sh`)
+  and choose Settings → Speech recognition → Your server: the phone then sends short
+  recordings only to your own server.
 
 ## Signing key (optional)
 
@@ -73,7 +75,7 @@ from this folder: `./gradlew assembleRelease`. Tests: `./gradlew testDebugUnitTe
 
 ## Next
 
-- Whisper speech-to-text on your server, with speaker labels.
+- Speaker labels ("who said what") in Listen-in.
 - "Hey Buddy" wake word, on the phone.
 - Call Co-pilot: live advice on calls made through Buddy's own number.
 - Galaxy Watch companion for quiet nudges.

@@ -418,6 +418,7 @@ private fun SettingsPanel(
     var earbudMic by remember { mutableStateOf(prefs.earbudMic) }
     var listenMic by remember { mutableStateOf(prefs.listenMic) }
     var earbudsStart by remember { mutableStateOf(prefs.earbudsStart) }
+    var speechEngine by remember { mutableStateOf(prefs.speechEngine) }
     var deviceName by remember { mutableStateOf(prefs.deviceName) }
     var shareCalendar by remember { mutableStateOf(prefs.shareCalendar) }
     var workBusyOnly by remember { mutableStateOf(prefs.workBusyOnly) }
@@ -492,6 +493,23 @@ private fun SettingsPanel(
             }
         }
 
+        Spacer(Modifier.height(8.dp))
+        Text("Speech recognition", color = Color.White)
+        Text(
+            "Phone: Google's recognizer, fastest. Your server: Whisper on your own server, more private, " +
+                "detects every language by itself; install it first (deploy/whisper.sh). Takes effect " +
+                "the next time Buddy starts listening.",
+            color = Muted, fontSize = 13.sp,
+        )
+        Row(horizontalArrangement = Arrangement.spacedBy(8.dp)) {
+            listOf("phone" to "Phone", "server" to "Your server (Whisper)").forEach { (value, name) ->
+                FilterChip(
+                    selected = speechEngine == value,
+                    onClick = { speechEngine = value; prefs.speechEngine = value },
+                    label = { Text(name) },
+                )
+            }
+        }
         Spacer(Modifier.height(8.dp))
         Text("When earbuds connect", color = Color.White)
         Text(

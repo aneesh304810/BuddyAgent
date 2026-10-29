@@ -23,6 +23,15 @@ val DETECTABLE_LANGUAGES = listOf(
     "en-US", "hi-IN", "ml-IN", "ta-IN", "mr-IN", "es-419", "pt-BR", "kn-IN", "te-IN", "fr-FR",
 )
 
+/** Something that hears the user: the phone's recognizer, or Whisper on the server. */
+interface Hearing {
+    val active: Boolean
+    val currentLanguage: String
+    fun start(lang: String)
+    fun stop()
+    fun destroy()
+}
+
 /**
  * Buddy's ears: Android speech recognition, restarted after every phrase so it
  * keeps listening. Partial results allow barge-in (talking over Buddy).
@@ -32,7 +41,7 @@ class Ears(
     private val onHeard: (text: String, final: Boolean) -> Unit,
     private val onActive: (Boolean) -> Unit,
     private val onProblem: (String) -> Unit,
-) {
+) : Hearing {
     private val main = Handler(Looper.getMainLooper())
     private var recognizer: SpeechRecognizer? = null
     private var language = "en-US"
@@ -41,13 +50,13 @@ class Ears(
     private var failures = 0
 
     /** What is being transcribed: the chosen language, or (automatic) the last one heard. */
-    val currentLanguage: String
+    override val currentLanguage: String
         get() = if (autoLanguage) detected ?: language else language
 
-    var active = false
+    override var active = false
         private set
 
-    fun start(lang: String) {
+    override fun start(lang: String) {
         if (!SpeechRecognizer.isRecognitionAvailable(context)) {
             onProblem("This phone has no speech recognition service. Install or update the Google app.")
             return
@@ -66,7 +75,7 @@ class Ears(
         listen()
     }
 
-    fun stop() {
+    override fun stop() {
         main.removeCallbacksAndMessages(null)
         recognizer?.cancel()
         if (active) {
@@ -75,7 +84,7 @@ class Ears(
         }
     }
 
-    fun destroy() {
+    override fun destroy() {
         stop()
         recognizer?.destroy()
         recognizer = null

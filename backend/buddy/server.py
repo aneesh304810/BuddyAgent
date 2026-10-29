@@ -5,6 +5,8 @@ Protocol (JSON messages):
                    {"type": "user", "text": "..."}   something the user said
                    {"type": "interrupt"}              user started talking over Buddy
                    {"type": "ambient", "text": "...", "lang": "hi-IN"}
+  phone -> server  {"type": "audio", "pcm": "<base64 16 kHz mono 16-bit>", "lang": "auto"}
+  server -> phone  {"type": "heard", "text": "...", "lang": "es"}  (Whisper on the server)
   server -> phone  {"type": "approval", "question": "..."}  Buddy is waiting for a yes:
                    show Approve / Decline; they send a user message "Yes, go ahead." / "No."
                                                       listen-in mode: speech around the user
@@ -24,6 +26,7 @@ Protocol (JSON messages):
 """
 
 import asyncio
+import base64
 import contextlib
 import logging
 import secrets
@@ -46,6 +49,7 @@ from .builder import AgentBuilder
 from .deals import PriceWatcher
 from .finops import FinOps
 from .lifelog import LifeLog
+from . import whisper
 from .mailbrain import MailManager
 from .thrift import Thrift
 from .tools import ToolError, set_user_tz
@@ -138,7 +142,7 @@ app = FastAPI(title="Buddy", lifespan=lifespan)
 
 @app.get("/health")
 def health() -> dict:
-    return {"ok": True}
+    return {"ok": True, "whisper": whisper.available()}
 
 
 def addressed_to_buddy(text: str) -> str | None:
@@ -354,6 +358,17 @@ async def talk(ws: WebSocket) -> None:
                     "DELETE FROM records WHERE source = 'phone_calendar' AND body LIKE ?", (f"[{device}]%",)
                 )
                 hub.ingest("phone_calendar", records)
+            elif msg.get("type") == "audio" and msg.get("pcm"):
+                # Speech recognition on this server (Whisper): send back the text; the phone
+                # routes it like its own recognizer's (talk, Listen-in, "Hey Buddy").
+                try:
+                    heard, lang = await whisper.transcribe(base64.b64decode(msg["pcm"]), str(msg.get("lang", "")))
+                    if heard:
+                        await ws.send_json({"type": "heard", "text": heard, "lang": lang, "id": msg.get("id")})
+                except whisper.WhisperUnavailable as e:
+                    await ws.send_json({"type": "error", "text": str(e)})
+                except Exception:
+                    log.exception("whisper failed")
             elif msg.get("type") == "ambient_stop":
                 listener.stop()
     except WebSocketDisconnect:

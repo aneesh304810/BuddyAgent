@@ -117,3 +117,33 @@ def test_asking_for_a_yes_shows_approval_buttons(monkeypatch):
         server.registry.pending.pop("abc123", None)
     assert [m["type"] for m in got] == ["say", "approval", "done"]
     assert got[1]["question"] == "Shall I send Priya the email saying Friday works?"
+
+
+def test_whisper_on_the_server(monkeypatch):
+    import base64
+    from buddy import whisper
+
+    async def fake_transcribe(pcm, language=""):
+        assert pcm == b"\x01\x00" * 8000 and language == "auto"
+        return "hola, ¿dónde está la estación?", "es"
+
+    monkeypatch.setattr(whisper, "transcribe", fake_transcribe)
+    audio = base64.b64encode(b"\x01\x00" * 8000).decode()
+    with TestClient(server.app) as c, c.websocket_connect("/ws") as ws:
+        ws.send_json({"type": "audio", "pcm": audio, "lang": "auto"})
+        got = ws.receive_json()
+    assert got == {"type": "heard", "text": "hola, ¿dónde está la estación?", "lang": "es", "id": None}
+
+
+def test_whisper_not_installed_says_how(monkeypatch):
+    import base64
+    from buddy import whisper
+
+    async def missing(pcm, language=""):
+        raise whisper.WhisperUnavailable("Whisper isn't installed on the server yet: run deploy/whisper.sh")
+
+    monkeypatch.setattr(whisper, "transcribe", missing)
+    with TestClient(server.app) as c, c.websocket_connect("/ws") as ws:
+        ws.send_json({"type": "audio", "pcm": base64.b64encode(b"\x00\x00").decode()})
+        got = ws.receive_json()
+    assert got["type"] == "error" and "whisper.sh" in got["text"]

@@ -53,6 +53,11 @@ class BuddyPrefs(context: Context) {
         get() = prefs.getString("earbudsStart", "listen") ?: "listen"
         set(value) = prefs.edit().putString("earbudsStart", value).apply()
 
+    /** Speech recognition: "phone" (Google's, on the phone) or "server" (Whisper on your server). */
+    var speechEngine: String
+        get() = prefs.getString("speechEngine", "phone") ?: "phone"
+        set(value) = prefs.edit().putString("speechEngine", value).apply()
+
     /** How this phone is labelled on the server, e.g. "Fold 8" or "Work phone". */
     var deviceName: String
         get() = prefs.getString("deviceName", "") ?: ""
