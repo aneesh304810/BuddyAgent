@@ -99,7 +99,7 @@ Tests: `cd backend && pytest`
 | ✅ Done | Private server, encryption, masking, orchestrator and agent registry |
 | ✅ Done | Background jobs, research agent, expert escalation, thrifty spending limits, FinOps cost report |
 | ✅ Done | Connectors: calendar, email, phone notifications, phone and work calendars |
-| ✅ Done | Agents: Gmail (read, draft, send, cleanup), Zapier |
+| ✅ Done | Agents: Gmail across all accounts (read, draft, send, cleanup), email manager (priorities, rules, auto-organise), Zapier |
 | ✅ Done | Android app: screen-off listening, earbud button, call pause, voice picker, smart Listen-in, starts when earbuds connect, "Hey Buddy" |
 | Next | Money agent: card bill reminders, expense tracking, spending limits |
 | Next | Organiser: tasks, evening wrap-up (morning briefing done) |
