@@ -231,3 +231,25 @@ def test_trace_shows_both_directions(monkeypatch, caplog):
     assert any(line.startswith("← user") and "room" in line for line in lines)
     assert any(line.startswith("→ thinking") for line in lines) and any("→ say" in line for line in lines)
     assert not any("4111 1111 1111 1111" in line for line in lines)  # masked in the log too
+
+
+def test_tools_load_on_demand_and_history_is_trimmed():
+    from buddy.memory import Memory
+
+    convo = agent.Conversation(Memory(":memory:"))
+    tools = convo.tools()
+    assert tools[0]["type"] == "tool_search_tool_bm25_20251119"
+    loaded = {t["name"] for t in tools if not t.get("defer_loading")}
+    assert loaded >= {"tool_search_tool_bm25", "remember_fact", "set_reminder", "add_task", "web_search"}
+    assert len(loaded) <= 8 and len(tools) > 30  # everything is there, few are loaded
+    assert next(t for t in tools if t["name"] == "add_expense")["defer_loading"] is True
+
+    convo.messages = []
+    for i in range(30):
+        convo.messages += [{"role": "user", "content": f"q{i}"},
+                           {"role": "assistant", "content": [{"type": "tool_use", "id": f"t{i}"}]},
+                           {"role": "user", "content": [{"type": "tool_result", "tool_use_id": f"t{i}"}]}]
+    convo._trim_history()
+    assert len(convo.messages) <= agent.KEEP_HISTORY
+    assert convo.messages[0]["role"] == "user" and isinstance(convo.messages[0]["content"], str)
+    assert agent._request_kwargs("x")["cache_control"] == {"type": "ephemeral"}

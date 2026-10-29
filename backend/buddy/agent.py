@@ -41,6 +41,10 @@ FALLBACK_BETA = "server-side-fallback-2026-07-01"
 MAX_TOOL_ROUNDS = 8
 SENTENCE_END = re.compile(r"(?<=[.!?])\s+")
 FILLER_AFTER_SECONDS = 2.5
+# Loaded on every request; everything else is found with tool search when needed.
+ALWAYS_LOADED = {"remember_fact", "recall_memory", "set_reminder", "confirm_action", "add_task"}
+MAX_HISTORY = 40      # messages; above this, older turns are dropped
+KEEP_HISTORY = 24
 FILLERS = ("One sec, let me check.", "Give me a moment, looking that up.", "Hang on, checking.",
            "Let me look into that.", "One moment.")
 
@@ -64,6 +68,8 @@ def _request_kwargs(system: str) -> dict:
         model=settings.chat_model,
         max_tokens=4096,
         system=[{"type": "text", "text": system, "cache_control": {"type": "ephemeral"}}],
+        # Also cache the conversation so far: earlier turns are read back at a tenth of the price.
+        cache_control={"type": "ephemeral"},
         output_config={"effort": settings.effort},
         **fallback_kwargs(settings.chat_model),
     )
@@ -140,6 +146,7 @@ class Conversation:
             return
 
         stamp = local_now().strftime("%A %d %B %Y, %I:%M %p")
+        self._trim_history()
         # Sensitive numbers never leave the server.
         self.messages.append({"role": "user", "content": f"({stamp}) {mask(user_text)}"})
         spoken: list[str] = []
@@ -203,6 +210,16 @@ class Conversation:
             await speak(buffer.strip())
         return response
 
+    def _trim_history(self) -> None:
+        """Long talks: keep the latest turns. Done in one jump, so the cache rebuilds only rarely."""
+        if len(self.messages) <= MAX_HISTORY:
+            return
+        keep = self.messages[-KEEP_HISTORY:]
+        # Start at a plain user message (never a tool result, whose tool call would be cut off).
+        while keep and not (keep[0]["role"] == "user" and isinstance(keep[0]["content"], str)):
+            keep = keep[1:]
+        self.messages = keep
+
     def _note_exchange(self, user_text: str, answer: str) -> None:
         """Keep an exchange handled without Claude in the history, for context."""
         stamp = local_now().strftime("%A %d %B %Y, %I:%M %p")
@@ -210,6 +227,17 @@ class Conversation:
         self.messages.append({"role": "assistant", "content": answer})
 
     def tools(self) -> list[dict]:
+        """Every tool, but only a few load up front: Claude finds the rest with tool search
+        when a question needs them, so each request carries a short prefix, not ~60 tools."""
+        tools = [{"type": "tool_search_tool_bm25_20251119", "name": "tool_search_tool_bm25"}]
+        for tool in self._all_tools():
+            if tool.get("type", "custom") != "custom" or tool["name"] in ALWAYS_LOADED:
+                tools.append(tool)  # server tools (web search) and the everyday ones stay loaded
+            else:
+                tools.append({**tool, "defer_loading": True})
+        return tools
+
+    def _all_tools(self) -> list[dict]:
         agent_tools = self.registry.tool_definitions() if self.registry else []
         orchestration = ORCHESTRATION_TOOLS if self.registry else []
         job_tools = JOB_TOOLS if self.jobs else []
