@@ -145,6 +145,10 @@ All of Part B happens in Termux, logged in to the server (`root@buddy:~#`).
 
 ### Step 5. Let the server read the code
 
+**Steps 5 and 6 run on the server, not on the phone.** In Termux, connect first with
+`ssh root@<IP>`; the prompt must read `root@buddy:~#`. If it reads `~ $`, you're still on
+the phone. (On the phone, the commands below would replace the key you log in with.)
+
 The repo is private, so give the server its own read-only key:
 
 ```
@@ -157,7 +161,7 @@ Settings → Deploy keys → Add deploy key** (on the phone, Settings is under t
 **⋯** menu if you don't see it). Title `buddy-server`, paste the key, leave **Allow write
 access off**, **Add key**.
 
-Back in Termux:
+Still on the server (`root@buddy:~#`):
 ```
 ssh -T git@github.com
 ```
@@ -167,6 +171,7 @@ ssh -T git@github.com
 
 ### Step 6. Run the setup script
 
+On the server (`root@buddy:~#`):
 ```
 git clone --branch claude/personal-ai-voice-assistant-0zc5yh git@github.com:aneesh304810/BuddyAgent.git /tmp/buddy-setup
 sudo bash /tmp/buddy-setup/deploy/bootstrap.sh git@github.com:aneesh304810/BuddyAgent.git generate claude/personal-ai-voice-assistant-0zc5yh
