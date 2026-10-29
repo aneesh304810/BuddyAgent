@@ -26,8 +26,7 @@ def cost_usd(model: str, usage) -> float:
     )
     cache_read = getattr(usage, "cache_read_input_tokens", 0) or 0
     cache_write = getattr(usage, "cache_creation_input_tokens", 0) or 0
-    server_tools = getattr(usage, "server_tool_use", None)
-    searches = (getattr(server_tools, "web_search_requests", 0) or 0) if server_tools else 0
+    searches = web_searches(usage)
     return (
         usage.input_tokens * price_in
         + cache_read * price_in * 0.1
@@ -50,6 +49,11 @@ def spent_on(memory: Memory, day: str, purpose: str = "") -> float:
     return float(value) if value else 0.0
 
 
+def web_searches(usage) -> int:
+    server_tools = getattr(usage, "server_tool_use", None)
+    return (getattr(server_tools, "web_search_requests", 0) or 0) if server_tools else 0
+
+
 def record(memory: Memory, model: str, usage, purpose: str = "") -> float:
     """Log one response's cost. `purpose` (e.g. "listen") gets its own daily tally."""
     day = datetime.now(timezone.utc).date().isoformat()
@@ -59,6 +63,9 @@ def record(memory: Memory, model: str, usage, purpose: str = "") -> float:
     _add(memory, f"spend:{local_day}", cost)
     if purpose:
         _add(memory, f"spend:{purpose}:{local_day}", cost)
+    if searches := web_searches(usage):
+        # Not a "spend:" key: searches are part of the purposes above, counted for FinOps.
+        _add(memory, f"searches:{local_day}", searches)
     memory.db.execute(
         """INSERT INTO usage (day, model, input_tokens, output_tokens,
                               cache_read_tokens, cache_write_tokens, cost_usd)

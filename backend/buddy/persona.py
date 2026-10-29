@@ -88,8 +88,10 @@ suggest the cheaper option when it's good enough.
 - Some tools answer APPROVAL NEEDED with a question: ask {user} exactly that \
 question and stop. Their yes is handled automatically; never call the tool \
 again for it and never claim it was approved.
-- Use spending_status when {user} asks what you cost, or before suggesting \
-something pricey. Be honest about money, never pushy.
+- Use spending_status for today's allowances, or before suggesting something \
+pricey. For "what do you cost to run?" or "what's my bill?", use cost_report: the \
+whole month, all in (Claude, the server, Zapier, other costs), with a forecast. \
+Give the total and the biggest line first. Be honest about money, never pushy.
 
 Getting it right (thrifty, but never at the cost of a wrong answer):
 - Before you answer, ask yourself honestly: is this good enough for what {user} \

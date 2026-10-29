@@ -40,6 +40,7 @@ from .memory import Memory
 from .connectors import ConnectorHub
 from .connectors.phone import NotificationsConnector, PhoneCalendarConnector, should_announce
 from .privacy import mask
+from .finops import FinOps
 from .thrift import Thrift
 from .tools import set_user_tz
 
@@ -86,6 +87,7 @@ async def job_finished(job: dict) -> bool:
 
 thrift = Thrift(memory)
 hub = ConnectorHub(memory)
+finops = FinOps(memory)
 jobs = JobRunner(memory, job_finished)
 jobs.register("research", research.run_research)
 
@@ -183,6 +185,12 @@ def admin_usage() -> dict:
     }
 
 
+@app.get("/admin/costs", dependencies=[Depends(require_admin)])
+async def admin_costs(fresh: bool = False) -> dict:
+    """Everything running Buddy costs this month: Claude, DigitalOcean, Zapier, fixed costs."""
+    return await finops.report(fresh)
+
+
 # --- background job reports: the phone apps show them -----------------------
 @app.get("/api/jobs", dependencies=[Depends(require_admin)])
 def api_jobs(limit: int = 50) -> list[dict]:
@@ -209,7 +217,7 @@ async def talk(ws: WebSocket) -> None:
         await ws.close(code=4401)
         return
     await ws.accept()
-    convo = Conversation(memory, registry, jobs, thrift, hub)
+    convo = Conversation(memory, registry, jobs, thrift, hub, finops)
     connections[ws] = convo
     jobs.wake.set()  # results that finished while the phone was away go out now
     current: asyncio.Task | None = None
