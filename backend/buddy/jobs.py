@@ -275,6 +275,26 @@ JOB_TOOLS = [
         },
     },
     {
+        "name": "find_deals",
+        "description": (
+            "Hand a deal hunt to the research agent: the best flights, hotels, car hire, or the best "
+            "price on something to buy. It compares many sellers on total price (fees, shipping, "
+            "baggage), checks coupons, reviews and return rules, and says whether to buy now or wait. "
+            "Runs in the background like start_research (same costs). Put every detail in the request: "
+            "dates, flexibility, cities, budget, model, size. Afterwards you can offer watch_price."
+        ),
+        "input_schema": {
+            "type": "object",
+            "properties": {
+                "request": {"type": "string", "description": "What to find, with all the details"},
+                "category": {"type": "string", "enum": ["travel", "shopping", "other"]},
+                "depth": {"type": "string", "enum": ["quick", "deep"]},
+            },
+            "required": ["request", "category", "depth"],
+            "additionalProperties": False,
+        },
+    },
+    {
         "name": "list_jobs",
         "description": "List recent background jobs (research and others) with status and short "
         "summary. Optional keywords filter by topic.",
@@ -313,6 +333,11 @@ REPORT_CHARS_FOR_CLAUDE = 12_000
 
 
 def run_job_tool(runner: JobRunner, name: str, args: dict, thrift: Thrift | None = None) -> str:
+    if name == "find_deals":  # a research job in deals mode
+        category = args.get("category") if args.get("category") in ("travel", "shopping") else "other"
+        args = {"question": args.get("request", ""), "depth": args.get("depth", "quick"),
+                "mode": "deals", "category": category}
+        name = "start_research"
     if name == "start_research":
         if runner.started_today("research") >= settings.research_daily_limit:
             raise ToolError(
@@ -328,8 +353,10 @@ def run_job_tool(runner: JobRunner, name: str, args: dict, thrift: Thrift | None
         params = {
             "question": question,
             "depth": "deep" if args.get("depth") == "deep" else "quick",
-            "mode": "data" if args.get("mode") == "data" else "web",
+            "mode": args.get("mode") if args.get("mode") in ("data", "deals") else "web",
         }
+        if params["mode"] == "deals":
+            params["category"] = args.get("category", "other")
         if params["mode"] == "data":
             params["data"] = mask(args.get("data", ""))[:100_000]
         estimate, in_words = RESEARCH_COST[params["depth"]]
@@ -339,8 +366,9 @@ def run_job_tool(runner: JobRunner, name: str, args: dict, thrift: Thrift | None
                 return "Great, it's started. I'll tell you when it's done."
 
             topic = question if len(question) <= 80 else question[:77] + "…"
+            what = "deal hunt" if params["mode"] == "deals" else "research job"
             return thrift.ask_action(
-                f"A {params['depth']} research job on \"{topic}\" costs {in_words}. Shall I start it?", start
+                f"A {params['depth']} {what} on \"{topic}\" costs {in_words}. Shall I start it?", start
             )
         job_id = runner.submit("research", question, params)
         return f"Research job {job_id} started ({params['depth']}). The result will arrive by itself."

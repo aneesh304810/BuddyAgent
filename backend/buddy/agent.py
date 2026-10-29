@@ -16,6 +16,7 @@ from .agents import AgentRegistry, ApprovalNeeded
 from .config import claude_client, settings
 from .jobs import JOB_TOOL_NAMES, JOB_TOOLS, JobRunner, run_job_tool
 from .connectors import CONNECTOR_TOOL_NAMES, CONNECTOR_TOOLS, ConnectorHub, run_connector_tool
+from .deals import WATCH_TOOL_NAMES, WATCH_TOOLS, PriceWatcher, run_watch_tool
 from .finops import COST_TOOL, FinOps
 from .mailbrain import MAIL_TOOL_NAMES, MAIL_TOOLS, MailManager, run_mail_tool
 from .money import MONEY_TOOL_NAMES, MONEY_TOOLS, Money, run_money_tool
@@ -74,6 +75,7 @@ class Conversation:
         hub: ConnectorHub | None = None,
         finops: FinOps | None = None,
         mail: MailManager | None = None,
+        watcher: PriceWatcher | None = None,
     ):
         self.memory = memory
         self.registry = registry
@@ -82,6 +84,7 @@ class Conversation:
         self.hub = hub
         self.finops = finops
         self.mail = mail
+        self.watcher = watcher
         self.organiser = Organiser(memory)
         self.money = Money(memory)
         self.messages: list[dict] = []
@@ -181,6 +184,7 @@ class Conversation:
         spending += [COST_TOOL] if self.finops else []
         spending += MAIL_TOOLS if self.mail else []
         spending += TASK_TOOLS + MONEY_TOOLS
+        spending += WATCH_TOOLS if self.watcher else []
         spending += CONNECTOR_TOOLS if self.hub else []
         return (
             CLIENT_TOOLS + orchestration + job_tools + spending + [_expert_tool()]
@@ -208,6 +212,8 @@ class Conversation:
             return run_job_tool(self.jobs, name, args, self.thrift)
         if self.hub and name in CONNECTOR_TOOL_NAMES:
             return await run_connector_tool(self.hub, name, args)
+        if self.watcher and name in WATCH_TOOL_NAMES:
+            return await run_watch_tool(self.watcher, name, args, self.thrift)
         if name in MONEY_TOOL_NAMES:
             return run_money_tool(self.money, name, args)
         if name in TASK_TOOL_NAMES:

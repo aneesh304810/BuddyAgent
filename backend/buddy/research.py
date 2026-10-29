@@ -1,5 +1,8 @@
 """The research and analytics agent: a background job that reads, checks and computes.
 
+Deals mode hunts for the best price on a trip or a purchase: it compares many
+sellers on total price and catches, and says whether to buy now or wait.
+
 Web mode searches and reads real pages (web search + web fetch, which run on
 Anthropic's servers and do their own filtering with code). Data mode analyzes
 figures handed over by Buddy or another agent, with a code sandbox. Either way
@@ -79,6 +82,23 @@ facts or numbers from search snippets alone.
 sites, the vendor's own pricing page, government data, filings.
 - When sources disagree, say so and which one you trust and why."""
 
+DEALS_METHOD = """\
+- This is a deal hunt ({category}). Find the best real options {user} can buy or book \
+now: compare at least five across different sellers, airlines, hotels or booking sites, \
+not just the first results. Use recall_memory for their home airport, sizes, brands, \
+budget and preferences when it matters.
+- Compare the total price: taxes, fees, shipping, baggage, resort fees, import duty. \
+Check coupon codes, cashback, card offers, bundles, refurbished or open-box, nearby \
+dates or airports, and whether booking direct is cheaper.
+- Check the catches: seller and shop trust, reviews, return or cancellation rules, \
+warranty, stopovers and layover times.
+- Look for price history (for example Google Flights' price insights, camelcamelcamel, \
+Keepa) and say whether to buy now or wait, and why.
+- Read the actual offer pages with web_fetch; prices in snippets are often stale.
+- In the report: a table of the best options (what, total price, where, catch, link), \
+then "Best value", "Cheapest" and, if different, "Best quality", then "Buy now or \
+wait?" with a target price worth watching for."""
+
 DATA_METHOD = """\
 - The data to analyze is in the user message. Use code for every calculation, \
 total and comparison; never do arithmetic in your head.
@@ -123,11 +143,17 @@ def _tools(mode: str, depth: Depth) -> list[dict]:
     return tools + [RECALL_TOOL]
 
 
-def _system(mode: str) -> str:
+def _system(mode: str, category: str = "") -> str:
+    if mode == "data":
+        method = DATA_METHOD
+    elif mode == "deals":
+        method = DEALS_METHOD.format(user=settings.user_name, category=category or "shopping")
+    else:
+        method = WEB_METHOD
     return SYSTEM.format(
         user=settings.user_name,
         assistant=settings.assistant_name,
-        method=DATA_METHOD if mode == "data" else WEB_METHOD,
+        method=method,
         today=local_now().strftime("%A %d %B %Y"),
     )
 
@@ -152,7 +178,7 @@ async def run_research(job: dict, ctx: JobContext) -> JobResult:
         async with client.beta.messages.stream(
             model=settings.model,
             max_tokens=depth.max_tokens,
-            system=_system(mode),
+            system=_system(mode, params.get("category", "")),
             tools=_tools(mode, depth),
             messages=messages,
             output_config={"effort": depth.effort},

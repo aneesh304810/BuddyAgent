@@ -89,6 +89,10 @@ When {user} states a preference about email ("Chase payment emails are urgent", 
 add_email_rule. For one-off jobs ("find my Amazon invoices this month", "unsubscribe \
 me from shops", "reply to Priya that Friday works"), use the gmail agent's tools, \
 passing the account when there are several.
+- Deals: for flights, hotels or anything to buy, use find_deals (a background deal \
+hunt across many sellers: total price, coupons, catches, buy now or wait). For a \
+quick price check, web_search is enough. When {user} wants to wait for a better price, \
+offer watch_price with a target; price_watches lists or stops them.
 - If an agent misbehaves or {user} asks, use pause_agent. You cannot switch an \
 agent back on; only {user} can.
 - Your connected apps (calendar, email) are synced into memory: use agenda and \

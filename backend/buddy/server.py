@@ -42,6 +42,7 @@ from .memory import Memory
 from .connectors import ConnectorHub
 from .connectors.phone import NotificationsConnector, PhoneCalendarConnector, should_announce
 from .privacy import mask
+from .deals import PriceWatcher
 from .finops import FinOps
 from .mailbrain import MailManager
 from .thrift import Thrift
@@ -92,6 +93,7 @@ thrift = Thrift(memory)
 hub = ConnectorHub(memory)
 finops = FinOps(memory)
 mail = MailManager(memory, deliver)
+watcher = PriceWatcher(memory, deliver)
 jobs = JobRunner(memory, job_finished)
 jobs.register("research", research.run_research)
 
@@ -103,6 +105,7 @@ async def lifespan(app: FastAPI):
     job_loop = asyncio.create_task(jobs.run())
     sync_loop = asyncio.create_task(hub.run())
     mail_loop = asyncio.create_task(mail.run())
+    watch_loop = asyncio.create_task(watcher.run())
     try:
         yield
     finally:
@@ -111,6 +114,7 @@ async def lifespan(app: FastAPI):
         job_loop.cancel()
         sync_loop.cancel()
         mail_loop.cancel()
+        watch_loop.cancel()
         await registry.close()
 
 
@@ -241,7 +245,7 @@ async def talk(ws: WebSocket) -> None:
         await ws.close(code=4401)
         return
     await ws.accept()
-    convo = Conversation(memory, registry, jobs, thrift, hub, finops, mail)
+    convo = Conversation(memory, registry, jobs, thrift, hub, finops, mail, watcher)
     connections[ws] = convo
     jobs.wake.set()  # results that finished while the phone was away go out now
     current: asyncio.Task | None = None
