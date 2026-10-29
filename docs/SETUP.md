@@ -127,6 +127,16 @@ spending, and confirming costs nothing. A yes to more money for the month adds
 
 **Check:** the prompt changes to `root@buddy:~#`. You're on your server.
 
+**`Permission denied (publickey)`?** The droplet doesn't have this phone's key. Usually the
+key wasn't ticked when the droplet was created, or the key was made on another device.
+Check that `ls ~/.ssh` in Termux lists `id_ed25519`; if not, run `ssh-keygen -t ed25519`.
+Then add the key through DigitalOcean's web console:
+1. In Termux, run `cat ~/.ssh/id_ed25519.pub` and copy the whole line.
+2. In Chrome (desktop site), open the droplet → **Access** → **Launch Droplet Console**.
+3. In the console, type `cat >> ~/.ssh/authorized_keys`, then paste the line, press Enter,
+   then press Ctrl+D (in Termux's extra keys or your keyboard: CTRL, then d).
+4. Back in Termux, run `ssh root@<IP>` again.
+
 ---
 
 ## Part B — The brain on your server (30 minutes)
