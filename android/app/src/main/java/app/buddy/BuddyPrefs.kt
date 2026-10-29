@@ -47,6 +47,11 @@ class BuddyPrefs(context: Context) {
         get() = prefs.getString("deviceName", "") ?: ""
         set(value) = prefs.edit().putString("deviceName", value.trim()).apply()
 
+    /** Buddy's voice: a text-to-speech voice name, or "" for the phone's default. */
+    var voiceName: String
+        get() = prefs.getString("voiceName", "") ?: ""
+        set(value) = prefs.edit().putString("voiceName", value).apply()
+
     /** Send this phone's calendars to Buddy. */
     var shareCalendar: Boolean
         get() = prefs.getBoolean("shareCalendar", false)

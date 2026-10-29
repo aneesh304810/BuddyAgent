@@ -42,6 +42,7 @@ import androidx.compose.material3.FilterChip
 import androidx.compose.material3.MaterialTheme
 import androidx.compose.material3.OutlinedButton
 import androidx.compose.material3.OutlinedTextField
+import androidx.compose.material3.RadioButton
 import androidx.compose.material3.Switch
 import androidx.compose.material3.Text
 import androidx.compose.material3.TextButton
@@ -453,6 +454,9 @@ private fun SettingsPanel(
         }
 
         Spacer(Modifier.height(8.dp))
+        VoicePicker(prefs)
+
+        Spacer(Modifier.height(8.dp))
         Text("This phone", color = Color.White, fontSize = 18.sp)
         OutlinedTextField(
             value = deviceName,
@@ -518,6 +522,40 @@ private fun SettingsPanel(
                     Text("Allow Buddy to run in the background")
                 }
             }
+        }
+    }
+}
+
+
+/** Pick Buddy's voice: tap one to hear it. The list is this phone's English voices. */
+@Composable
+private fun VoicePicker(prefs: BuddyPrefs) {
+    var chosen by remember { mutableStateOf(prefs.voiceName) }
+    var open by remember { mutableStateOf(false) }
+    val voices = remember(open) { BuddyService.instance?.voices().orEmpty() }
+    Text("Buddy's voice", color = Color.White, fontSize = 18.sp)
+    Text(
+        "Tap a voice to hear it. Voices come from the phone's speech engine; for more, open Android " +
+            "Settings → Text-to-speech output → the engine's settings → Install voice data.",
+        color = Muted, fontSize = 13.sp,
+    )
+    OutlinedButton(onClick = { open = !open }) { Text(if (open) "Hide voices" else "Choose a voice") }
+    if (!open) return
+    if (voices.isEmpty()) {
+        Text("Start Buddy first, then come back here to pick a voice.", color = Muted, fontSize = 13.sp)
+        return
+    }
+    (listOf(VoiceChoice("", "Phone's default voice")) + voices).forEach { voice ->
+        Row(
+            Modifier.fillMaxWidth().clickable {
+                chosen = voice.name
+                BuddyService.instance?.useVoice(voice.name)
+            }.padding(vertical = 6.dp),
+            verticalAlignment = Alignment.CenterVertically,
+        ) {
+            RadioButton(selected = chosen == voice.name, onClick = null)
+            Spacer(Modifier.width(8.dp))
+            Text(voice.label, color = Color.White, fontSize = 15.sp)
         }
     }
 }

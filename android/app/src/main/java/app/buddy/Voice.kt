@@ -11,6 +11,7 @@ import android.speech.RecognizerIntent
 import android.speech.SpeechRecognizer
 import android.speech.tts.TextToSpeech
 import android.speech.tts.UtteranceProgressListener
+import android.speech.tts.Voice
 import java.util.Locale
 
 /**
@@ -130,7 +131,11 @@ class Ears(
 }
 
 /** Buddy's mouth: text-to-speech, played wherever the phone's audio goes (your earbuds). */
+/** One voice Buddy can speak with, as shown in Settings. */
+data class VoiceChoice(val name: String, val label: String)
+
 class Mouth(context: Context, private val onSpeaking: (Boolean) -> Unit) : TextToSpeech.OnInitListener {
+    private val prefs = BuddyPrefs(context)
     private val main = Handler(Looper.getMainLooper())
     private val tts = TextToSpeech(context.applicationContext, this)
     private val waiting = mutableListOf<Pair<String, Boolean>>()
@@ -145,6 +150,7 @@ class Mouth(context: Context, private val onSpeaking: (Boolean) -> Unit) : TextT
         main.post {
             if (status != TextToSpeech.SUCCESS) return@post
             tts.language = Locale.US
+            applyVoice(prefs.voiceName)
             tts.setAudioAttributes(
                 AudioAttributes.Builder()
                     .setUsage(AudioAttributes.USAGE_ASSISTANT)
@@ -171,6 +177,36 @@ class Mouth(context: Context, private val onSpeaking: (Boolean) -> Unit) : TextT
             waiting.forEach { (text, quiet) -> speak(text, quiet) }
             waiting.clear()
         }
+    }
+
+    /** English voices installed on this phone (or downloadable by the engine), best first. */
+    fun voices(): List<VoiceChoice> {
+        if (!ready) return emptyList()
+        val all = runCatching { tts.voices }.getOrNull().orEmpty()
+            .filter { it.locale.language == "en" }
+            .filterNot { TextToSpeech.Engine.KEY_FEATURE_NOT_INSTALLED in it.features }
+        // Google lists most voices twice (on the phone, and online): keep one of each.
+        return all.groupBy { it.name.removeSuffix("-local").removeSuffix("-network") }
+            .map { (_, same) -> same.minByOrNull { if (it.isNetworkConnectionRequired) 1 else 0 }!! }
+            .sortedWith(compareBy<Voice>({ it.locale.country != "US" }, { it.locale.country }, { it.name }))
+            .mapIndexed { i, v ->
+                val place = v.locale.displayCountry.ifEmpty { "English" }
+                val online = if (v.isNetworkConnectionRequired) ", needs internet" else ""
+                VoiceChoice(v.name, "Voice ${i + 1} · $place$online")
+            }
+    }
+
+    /** Switch voice ("" = the phone's default) and say a line so the user can hear it. */
+    fun useVoice(name: String, preview: String? = null) {
+        prefs.voiceName = name
+        if (!ready) return
+        applyVoice(name)
+        preview?.let { stop(); speak(it) }
+    }
+
+    private fun applyVoice(name: String) {
+        val voice = runCatching { tts.voices }.getOrNull()?.firstOrNull { it.name == name }
+        if (voice != null) tts.voice = voice else tts.language = Locale.US
     }
 
     /** Queue one sentence. Quiet = a Listen-in whisper: softer and a little faster. */

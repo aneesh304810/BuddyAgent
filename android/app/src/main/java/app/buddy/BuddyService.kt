@@ -89,6 +89,12 @@ class BuddyService : Service() {
         return START_NOT_STICKY
     }
 
+    fun voices(): List<VoiceChoice> = if (::mouth.isInitialized) mouth.voices() else emptyList()
+
+    fun useVoice(name: String) {
+        if (::mouth.isInitialized) main.post { mouth.useVoice(name, "Hey, it's Buddy. How do I sound?") }
+    }
+
     /** Make Buddy the app that receives the earbud's play/pause tap. */
     fun claimEarbud() {
         if (::button.isInitialized) main.post { button.claim() }
