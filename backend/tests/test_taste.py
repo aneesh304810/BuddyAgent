@@ -46,15 +46,34 @@ def test_find_places_brings_maps_taste_and_history():
         def has_google(self):
             return True
 
+        def has_reddit(self):
+            return True
+
         def places(self, query, country):
             assert query == "ceviche in Miraflores, Lima" and country == "PE"
-            return [{"title": "Punto Azul", "rating": 4.6, "ratingCount": 5321, "priceLevel": "$$",
+            return [{"title": "New Spot", "rating": 5.0, "ratingCount": 4, "priceLevel": "$$"},
+                    {"title": "Punto Azul", "rating": 4.6, "ratingCount": 5321, "priceLevel": "$$",
                      "category": "Seafood restaurant", "address": "Calle San Martin 595"}]
+
+        def reddit(self, action, query, sort="relevance", period="all", limit=5):
+            if "Punto Azul" not in query:
+                return []
+            return [{"title": "Punto Azul is worth the queue", "subreddit": "r/PERU", "score": 88,
+                     "text": "Go before 1pm, huge portions."},
+                    {"title": "Unrelated ceviche thread", "subreddit": "r/food", "score": 3, "text": "x"}]
+
+        def google(self, query, country="US", num=8):
+            return {"results": [{"link": "https://www.tripadvisor.com/punto-azul", "snippet": "4.5 of 5, 3,100 reviews"},
+                                {"link": "https://random-blog.example/x", "snippet": "nope"}]}
 
     out = asyncio.run(run_taste_tool(taste, FakeSocial(), "find_places",
                                      {"what": "ceviche", "where": "Miraflores, Lima", "country": "PE"}))
     data = json.loads(out.split("\n", 1)[1])
-    assert data["places"][0]["title"] == "Punto Azul"
+    assert data["places"][0]["title"] == "Punto Azul"  # 4.6 from 5,321 beats 5.0 from 4
+    other = data["places"][0]["other_reviews"]
+    assert other["reddit"] == [{"title": "Punto Azul is worth the queue", "subreddit": "r/PERU", "score": 88,
+                                "says": "Go before 1pm, huge portions."}]
+    assert other["review_sites"] == [{"site": "tripadvisor.com", "says": "4.5 of 5, 3,100 reviews"}]
     assert data["your_taste"]["likes"] == ["seafood"] and data["your_taste"]["dislikes"] == ["chains"]
     assert data["your_history"]["you_spend_at"][0]["merchant"] == "La Mar Cebichería"
     assert data["your_history"]["places_you_go"][0]["title"] == "Isolina Taberna"

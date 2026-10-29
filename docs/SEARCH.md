@@ -21,6 +21,18 @@ Restaurants, cafes, bars and nightlife, spas, hotels, shops and things to do: Bu
 Google Maps (ratings, number of reviews, price level, opening hours, address; needs the
 Serper key below) and picks the three that suit **you**, each with a line on why.
 
+Every recommendation is checked across channels:
+- **Google Maps**: rating, number of reviews, price level. Places are ranked so a 4.6 from 5,000
+  people beats a 5.0 from 4.
+- **Reddit**: threads that mention the place (with Reddit connected), for the real vibe and tips
+  ("go before 1 pm", "overpriced since the new owners").
+- **Review sites** through Google: TripAdvisor, Yelp, Time Out, Eater, The Infatuation, Michelin,
+  Booking.com, Zomato, OpenTable, TheFork and more.
+
+Only the best five are checked, with short snippets, so a search costs about a cent. For a big
+decision (a hotel for a week, an expensive dinner), ask for a deal hunt instead: the research
+agent reads full reviews and compares in depth.
+
 It knows your taste from:
 - **what you say**: *"I love rooftop bars"*, *"no chains"*, *"I'm vegetarian"*, *"boutique hotels,
   mid-range"*, *"that spa was amazing"*, saved as you talk (ask *"what's my taste in food?"*)
