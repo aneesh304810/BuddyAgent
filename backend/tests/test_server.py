@@ -182,3 +182,20 @@ def test_yes_heard_in_listen_in_cannot_approve():
     assert "tap Approve" in said and not ran and thrift.pending is not None
     said, _ = aio.run(thrift.resolve("yes", trusted=True))
     assert said == "Sent." and ran == [1]
+
+
+def test_slow_answers_get_a_quick_filler(monkeypatch):
+    class SlowStream(FakeStream):
+        def __aiter__(self):
+            async def gen():
+                await asyncio.sleep(0.3)  # e.g. a web search before the first word
+                yield SimpleNamespace(type="text", text="Found it. ")
+            return gen()
+
+    monkeypatch.setattr(agent, "FILLER_AFTER_SECONDS", 0.05)
+    monkeypatch.setattr(agent.client.beta.messages, "stream", lambda **kw: SlowStream("Found it."))
+    with TestClient(server.app) as c, c.websocket_connect("/ws") as ws:
+        ws.send_json({"type": "user", "text": "best spa near me"})
+        got = [ws.receive_json() for _ in range(3)]
+    assert got[0]["type"] == "say" and got[0]["text"] in agent.FILLERS
+    assert got[1] == {"type": "say", "text": "Found it."} and got[2]["type"] == "done"

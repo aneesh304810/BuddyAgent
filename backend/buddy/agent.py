@@ -4,8 +4,10 @@ Replies are streamed sentence by sentence so the phone can start speaking
 before Claude has finished writing, which is what makes it feel live.
 """
 
+import asyncio
 import json
 import logging
+import random
 import re
 from collections.abc import Awaitable, Callable
 
@@ -38,6 +40,9 @@ log = logging.getLogger(__name__)
 FALLBACK_BETA = "server-side-fallback-2026-07-01"
 MAX_TOOL_ROUNDS = 8
 SENTENCE_END = re.compile(r"(?<=[.!?])\s+")
+FILLER_AFTER_SECONDS = 2.5
+FILLERS = ("One sec, let me check.", "Give me a moment, looking that up.", "Hang on, checking.",
+           "Let me look into that.", "One moment.")
 
 Say = Callable[[str], Awaitable[None]]
 
@@ -138,11 +143,20 @@ class Conversation:
         # Sensitive numbers never leave the server.
         self.messages.append({"role": "user", "content": f"({stamp}) {mask(user_text)}"})
         spoken: list[str] = []
+        said_anything = asyncio.Event()
 
         async def speak(sentence: str) -> None:
+            said_anything.set()
             spoken.append(sentence)
             await say(sentence)
 
+        async def filler() -> None:
+            # Searching or checking places can take a while: don't leave the user in silence.
+            await asyncio.sleep(FILLER_AFTER_SECONDS)
+            if not said_anything.is_set():
+                await say(random.choice(FILLERS))
+
+        waiting = asyncio.create_task(filler())
         try:
             for _ in range(MAX_TOOL_ROUNDS):
                 response = await self._stream_step(speak)
@@ -167,6 +181,8 @@ class Conversation:
                     {"role": "assistant", "content": " ".join(spoken) + " —"}
                 )
             raise
+        finally:
+            waiting.cancel()
 
     async def _stream_step(self, speak: Say):
         buffer = ""
