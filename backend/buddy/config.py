@@ -50,6 +50,7 @@ class Settings:
     effort: str = os.getenv("BUDDY_EFFORT", "low")
     # Local time for the daily morning briefing, "HH:MM". Empty disables it.
     morning_brief_at: str = os.getenv("BUDDY_MORNING_BRIEF", "08:00")
+    evening_wrap_at: str = os.getenv("BUDDY_EVENING_WRAP", "21:00")  # "" turns it off
     # Stop calling Claude once this month's estimated spend reaches this (USD).
     monthly_budget_usd: float = float(os.getenv("BUDDY_MONTHLY_BUDGET_USD", "40"))
     # Thrift: Buddy asks before going past any of these. A yes adds topup_usd to the

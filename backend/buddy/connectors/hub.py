@@ -208,6 +208,7 @@ def _view(row) -> dict:
     return {
         "source": row["source"], "kind": row["kind"], "title": row["title"],
         "when": format_local(row["start_at"]) if row["start_at"] else "",
+        "start_at": row["start_at"],
         "snippet": row["body"][:300],
     }
 
