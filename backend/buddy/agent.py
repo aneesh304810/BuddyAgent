@@ -13,7 +13,7 @@ import anthropic
 
 from . import usage
 from .agents import AgentRegistry, ApprovalNeeded
-from .config import settings
+from .config import claude_client, settings
 from .jobs import JOB_TOOL_NAMES, JOB_TOOLS, JobRunner, run_job_tool
 from .connectors import CONNECTOR_TOOL_NAMES, CONNECTOR_TOOLS, ConnectorHub, run_connector_tool
 from .finops import COST_TOOL, FinOps
@@ -31,7 +31,7 @@ SENTENCE_END = re.compile(r"(?<=[.!?])\s+")
 
 Say = Callable[[str], Awaitable[None]]
 
-client = anthropic.AsyncAnthropic()
+client = claude_client()
 
 
 def fallback_kwargs(model: str) -> dict:

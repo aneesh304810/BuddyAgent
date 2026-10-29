@@ -15,14 +15,14 @@ import anthropic
 
 from . import usage
 from .agent import fallback_kwargs
-from .config import settings
+from .config import claude_client, settings
 from .memory import Memory
 from .privacy import mask
 from .tools import ToolError, local_now
 
 log = logging.getLogger(__name__)
 
-client = anthropic.AsyncAnthropic()
+client = claude_client()
 
 ESTIMATE_USD = 0.15  # a typical expert answer with a couple of searches
 MAX_STEPS = 4        # resumes of the server-side search loop

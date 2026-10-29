@@ -71,3 +71,13 @@ class Settings:
 
 
 settings = Settings()
+
+
+def claude_client():
+    """The Claude client. Keys not scoped to one workspace (sk-ant-usr...) also need
+    ANTHROPIC_WORKSPACE_ID, the workspace that pays for Buddy's calls."""
+    import anthropic
+
+    workspace = os.getenv("ANTHROPIC_WORKSPACE_ID", "").strip()
+    headers = {"anthropic-workspace-id": workspace} if workspace else None
+    return anthropic.AsyncAnthropic(default_headers=headers)

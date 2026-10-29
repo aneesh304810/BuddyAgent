@@ -15,14 +15,14 @@ from dataclasses import dataclass
 import anthropic
 
 from .agent import fallback_kwargs
-from .config import settings
+from .config import claude_client, settings
 from .jobs import JobContext, JobFailed, JobResult
 from .privacy import mask
 from .tools import local_now
 
 log = logging.getLogger(__name__)
 
-client = anthropic.AsyncAnthropic()
+client = claude_client()
 
 
 @dataclass(frozen=True)

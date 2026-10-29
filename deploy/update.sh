@@ -10,5 +10,10 @@ git -c safe.directory="$APP" -C "$APP" pull --ff-only
 chown -R buddy:buddy "$APP"
 sudo -u buddy "$APP/backend/.venv/bin/pip" install -q -r "$APP/backend/requirements.txt"
 systemctl restart buddy
-sleep 3
-curl -fsS http://127.0.0.1:8000/health && echo "  Buddy updated and running."
+for _ in $(seq 30); do   # starting takes a few seconds (agents start too)
+  if curl -fsS http://127.0.0.1:8000/health 2>/dev/null; then echo "  Buddy updated and running."; exit 0; fi
+  sleep 1
+done
+echo "!! Buddy didn't start. The last lines of its log:"
+journalctl -u buddy -n 25 --no-pager
+exit 1

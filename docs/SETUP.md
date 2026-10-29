@@ -266,6 +266,11 @@ BUDDY_LISTEN_MODEL=claude-sonnet-5-5
 BUDDY_LISTEN_BATCH_SECONDS=45
 ```
 
+**Claude key starting `sk-ant-usr`?** That kind of key isn't tied to one workspace, so Buddy
+must name the workspace that pays: add `ANTHROPIC_WORKSPACE_ID=wrkspc_...` (Claude Console →
+Settings → Workspaces → your workspace; the ID is in the address bar or the workspace's
+details). Or create a key inside a workspace instead (it starts `sk-ant-api03-`).
+
 **Never change** `BUDDY_DB_KEY` (it unlocks your database) or `BUDDY_TOKEN`.
 After any change: `sudo systemctl restart buddy`.
 
