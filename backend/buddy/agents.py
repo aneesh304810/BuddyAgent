@@ -130,6 +130,17 @@ class AgentRegistry:
             except Exception:
                 log.exception("agent %s failed to start; continuing without it", spec.name)
 
+    async def add(self, spec: AgentSpec) -> None:
+        """Register and start an agent while Buddy runs (built or connected by the agent builder)."""
+        self.specs[spec.name] = spec
+        self.memory.db.execute(
+            "INSERT INTO agent_state (name, enabled) VALUES (?, 1) ON CONFLICT(name) DO UPDATE SET enabled = 1",
+            (spec.name,),
+        )
+        self.memory.db.commit()
+        if spec.name not in self.clients:
+            await self._connect(spec)
+
     async def close(self) -> None:
         await self._stack.aclose()
 

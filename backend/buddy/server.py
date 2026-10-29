@@ -42,6 +42,7 @@ from .memory import Memory
 from .connectors import ConnectorHub
 from .connectors.phone import NotificationsConnector, PhoneCalendarConnector, should_announce
 from .privacy import mask
+from .builder import AgentBuilder
 from .deals import PriceWatcher
 from .finops import FinOps
 from .lifelog import LifeLog
@@ -72,6 +73,15 @@ async def deliver(kind: str, text: str, **extra) -> bool:
 
 async def job_finished(job: dict) -> bool:
     """Tell the user a background job is done (or why it failed)."""
+    if job["kind"] == "build_agent" and job["status"] == "done":
+        name = (job.get("params") or {}).get("name", "")
+
+        async def switch_on() -> str:
+            return await builder.activate(name)
+
+        question = "Shall I switch it on?"
+        thrift.ask_action(question, switch_on)
+        return await deliver("job_done", f"{job.get('summary') or ''} {question}".strip(), job_id=job["id"])
     if job["status"] == "done":
         text = f"Your research on {job['title']} is ready. {job.get('summary') or ''}".strip()
         params = job.get("params") or {}
@@ -97,6 +107,10 @@ mail = MailManager(memory, deliver)
 watcher = PriceWatcher(memory, deliver)
 jobs = JobRunner(memory, job_finished)
 jobs.register("research", research.run_research)
+builder = AgentBuilder(memory, registry)
+jobs.register("build_agent", builder.build)
+for _spec in builder.active_specs():  # agents built or connected earlier
+    registry.specs.setdefault(_spec.name, _spec)
 
 
 @contextlib.asynccontextmanager
@@ -259,7 +273,7 @@ async def talk(ws: WebSocket) -> None:
         await ws.close(code=4401)
         return
     await ws.accept()
-    convo = Conversation(memory, registry, jobs, thrift, hub, finops, mail, watcher)
+    convo = Conversation(memory, registry, jobs, thrift, hub, finops, mail, watcher, builder)
     connections[ws] = convo
     jobs.wake.set()  # results that finished while the phone was away go out now
     current: asyncio.Task | None = None

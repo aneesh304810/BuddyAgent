@@ -35,6 +35,7 @@ people talk about you, and corrects technical nonsense in the room.
 | **Money agent** | Reads charges, bills, payments and refunds from your bank and card emails; spending by category and currency, cash expenses by voice, bill reminders before the due date, monthly limits with warnings at 80% and 100%. |
 | **Deals finder** | Background deal hunts for flights, hotels and shopping: many sellers compared on total price (fees, shipping, baggage), coupons, reviews and return rules, and whether to buy now or wait. Price watches keep checking and tell you when it drops to your target. |
 | **Life log** | Import Google Maps Timeline or Takeout, Airbnb and other exports from the Buddy page; plus a daily diary from each evening wrap-up. Ask "when did I last go to Cusco?" |
+| **Agent builder** | When you need something Buddy can't do yet, it builds a new agent: researches the service's API, writes a small MCP server, runs safety checks (import allowlist, banned calls, a second model's review), test-starts it, and switches it on only after your yes. Or connects an MCP server you name. |
 | **Email manager** | Sorts new mail from all your accounts by priority and your rules, tells you about urgent mail right away, organises Gmail automatically (label, archive, mark read) after your one-time yes. |
 | **Gmail agent** | Read, search, draft, send and clean up Gmail (archive, trash, mark read, label, unsubscribe links) with the same app password; sending and cleanup ask first, trash is recoverable for 30 days. |
 | **Zapier agent** | Thousands of everyday apps (Notion, Todoist, Sheets, Slack...) through Zapier MCP (`docs/ZAPIER.md`). Changes need your yes; lookups don't; daily and monthly call limits; secrets in the server's settings file. |
@@ -107,6 +108,7 @@ Tests: `cd backend && pytest`
 | ✅ Done | Android app: screen-off listening, earbud button, call pause, voice picker, smart Listen-in, starts when earbuds connect, "Hey Buddy" |
 | ✅ Done | Organiser (tasks, evening wrap-up) and money agent (spending, bills, limits) |
 | ✅ Done | Approve/Decline buttons, in the app, the browser and on the notification |
-| Later | Whisper speech-to-text on the server, English tutor, flights and travel, life log, Oura Ring, call co-pilot, learns your style, agent builder, Galaxy Watch |
+| ✅ Done | Deals finder and price watches, life log, agent builder |
+| Later | English tutor, Oura Ring, call co-pilot, Outlook/Microsoft 365, learns your style, Galaxy Watch |
 
 The Android app's install guide is in [`android/README.md`](android/README.md).

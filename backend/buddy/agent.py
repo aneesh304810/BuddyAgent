@@ -16,6 +16,7 @@ from .agents import AgentRegistry, ApprovalNeeded
 from .config import claude_client, settings
 from .jobs import JOB_TOOL_NAMES, JOB_TOOLS, JobRunner, run_job_tool
 from .connectors import CONNECTOR_TOOL_NAMES, CONNECTOR_TOOLS, ConnectorHub, run_connector_tool
+from .builder import BUILDER_TOOL_NAMES, BUILDER_TOOLS, AgentBuilder, run_builder_tool
 from .deals import WATCH_TOOL_NAMES, WATCH_TOOLS, PriceWatcher, run_watch_tool
 from .finops import COST_TOOL, FinOps
 from .lifelog import LIFELOG_TOOL, LifeLog, run_lifelog_tool
@@ -77,6 +78,7 @@ class Conversation:
         finops: FinOps | None = None,
         mail: MailManager | None = None,
         watcher: PriceWatcher | None = None,
+        builder: AgentBuilder | None = None,
     ):
         self.memory = memory
         self.registry = registry
@@ -86,6 +88,7 @@ class Conversation:
         self.finops = finops
         self.mail = mail
         self.watcher = watcher
+        self.builder = builder
         self.organiser = Organiser(memory)
         self.money = Money(memory)
         self.lifelog = LifeLog(memory)
@@ -187,6 +190,7 @@ class Conversation:
         spending += MAIL_TOOLS if self.mail else []
         spending += TASK_TOOLS + MONEY_TOOLS + [LIFELOG_TOOL]
         spending += WATCH_TOOLS if self.watcher else []
+        spending += BUILDER_TOOLS if self.builder and self.jobs else []
         spending += CONNECTOR_TOOLS if self.hub else []
         return (
             CLIENT_TOOLS + orchestration + job_tools + spending + [_expert_tool()]
@@ -214,6 +218,8 @@ class Conversation:
             return run_job_tool(self.jobs, name, args, self.thrift)
         if self.hub and name in CONNECTOR_TOOL_NAMES:
             return await run_connector_tool(self.hub, name, args)
+        if self.builder and self.jobs and name in BUILDER_TOOL_NAMES:
+            return await run_builder_tool(self.builder, self.jobs, name, args, self.thrift)
         if self.watcher and name in WATCH_TOOL_NAMES:
             return await run_watch_tool(self.watcher, name, args, self.thrift)
         if name == "life_log":
