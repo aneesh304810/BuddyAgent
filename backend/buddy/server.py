@@ -8,6 +8,7 @@ Protocol (JSON messages):
   phone -> server  {"type": "audio", "pcm": "<base64 16 kHz mono 16-bit>", "lang": "auto"}
   server -> phone  {"type": "heard", "text": "...", "lang": "es"}  (Whisper on the server)
   phone -> server  {"type": "location", "lat": -12.12, "lng": -77.03, "accuracy": 50}  (when shared)
+  server -> phone  {"type": "thinking"}  the question arrived and Buddy is working on it
   server -> phone  {"type": "approval", "question": "..."}  Buddy is waiting for a yes:
                    show Approve / Decline; they send a user message "Yes, go ahead." / "No."
                                                       listen-in mode: speech around the user
@@ -371,12 +372,14 @@ async def talk(ws: WebSocket) -> None:
             elif msg.get("type") == "user" and msg.get("text", "").strip():
                 await stop_current()  # new speech always wins over an old reply
                 via = "room" if msg.get("via") == "room" else "user"  # "Hey Buddy" heard in Listen-in
+                await ws.send_json({"type": "thinking"})  # "got it": the phone plays a soft tone
                 current = asyncio.create_task(answer(msg["text"].strip(), via))
             elif msg.get("type") == "ambient" and msg.get("text", "").strip():
                 text = msg["text"].strip()
                 command = addressed_to_buddy(text)
                 if command:  # "Buddy, what did he just say?" is a command, not ambient talk
                     await stop_current()
+                    await ws.send_json({"type": "thinking"})
                     current = asyncio.create_task(answer(command, "room"))
                 else:
                     listener.hear(text, str(msg.get("lang", "")))

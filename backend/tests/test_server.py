@@ -41,8 +41,9 @@ def test_reply_streams_sentences(monkeypatch):
     )
     with TestClient(server.app) as c, c.websocket_connect("/ws") as ws:
         ws.send_json({"type": "user", "text": "hi buddy"})
-        got = [ws.receive_json() for _ in range(4)]
-    assert [m["type"] for m in got] == ["say", "say", "say", "done"]
+        got = [ws.receive_json() for _ in range(5)]
+    assert [m["type"] for m in got] == ["thinking", "say", "say", "say", "done"]
+    got = got[1:]
     assert got[0]["text"] == "Hey Aneesh!"
 
 
@@ -112,6 +113,7 @@ def test_asking_for_a_yes_shows_approval_buttons(monkeypatch):
     try:
         with TestClient(server.app) as c, c.websocket_connect("/ws") as ws:
             ws.send_json({"type": "user", "text": "reply to Priya"})
+            assert ws.receive_json() == {"type": "thinking"}
             got = [ws.receive_json() for _ in range(3)]
     finally:
         server.registry.pending.pop("abc123", None)
@@ -196,6 +198,7 @@ def test_slow_answers_get_a_quick_filler(monkeypatch):
     monkeypatch.setattr(agent.client.beta.messages, "stream", lambda **kw: SlowStream("Found it."))
     with TestClient(server.app) as c, c.websocket_connect("/ws") as ws:
         ws.send_json({"type": "user", "text": "best spa near me"})
+        assert ws.receive_json() == {"type": "thinking"}
         got = [ws.receive_json() for _ in range(3)]
     assert got[0]["type"] == "say" and got[0]["text"] in agent.FILLERS
     assert got[1] == {"type": "say", "text": "Found it."} and got[2]["type"] == "done"

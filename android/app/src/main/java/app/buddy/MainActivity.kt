@@ -97,6 +97,7 @@ private val Panel = Color(0xFF151C33)
 private val Accent = Color(0xFF5B8CFF)
 private val Listening = Color(0xFF3DDC97)
 private val Talking = Color(0xFFFFB547)
+private val Thinking = Color(0xFFB98CFF)  // the question arrived; Buddy is working on it
 private val Muted = Color(0xFF8A93B2)
 
 /** What fills the screen below the header. */
@@ -332,6 +333,7 @@ private fun Controls(ui: UiState, prefs: BuddyPrefs) {
         val orbColor by animateColorAsState(
             when {
                 ui.speaking -> Talking
+                ui.thinking -> Thinking
                 ui.listening -> Listening
                 else -> Accent
             },
@@ -348,6 +350,7 @@ private fun Controls(ui: UiState, prefs: BuddyPrefs) {
             when {
                 ui.onCall -> "Paused while you're on a call"
                 ui.speaking -> "Buddy is talking. Just speak to interrupt."
+                ui.thinking -> "Got it, thinking…"
                 ui.listening && ui.mode == Mode.LISTEN_IN -> "Listening to the room. Say \"Buddy, …\" to ask me."
                 ui.listening -> "Listening…"
                 ui.mode == Mode.LISTEN_IN -> "Tap to listen to the room"

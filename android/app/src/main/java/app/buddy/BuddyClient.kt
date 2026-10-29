@@ -15,6 +15,7 @@ import java.util.concurrent.TimeUnit
 sealed interface ServerEvent {
     data class Say(val text: String) : ServerEvent
     data object Done : ServerEvent
+    data object Thinking : ServerEvent
     data class Nudge(val kind: String, val text: String, val jobId: Int? = null) : ServerEvent
     data class Whisper(val kind: String, val text: String) : ServerEvent
     data class Error(val text: String) : ServerEvent
@@ -27,6 +28,7 @@ sealed interface ServerEvent {
             when (msg.optString("type")) {
                 "say" -> Say(msg.getString("text"))
                 "done" -> Done
+                "thinking" -> Thinking
                 "nudge" -> Nudge(
                     msg.optString("kind"),
                     msg.getString("text"),

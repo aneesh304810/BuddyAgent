@@ -155,6 +155,8 @@ function connect() {
       speak(msg.text, true);
     } else if (msg.type === "error") {
       addLine(msg.text, "error");
+    } else if (msg.type === "thinking") {
+      statusEl.textContent = "Got it, thinking…";
     } else if (msg.type === "approval") {
       showApproval(msg.question);
       speak(msg.text);

@@ -147,6 +147,8 @@ class BuddyService : Service() {
     override fun onDestroy() {
         phoneEars.destroy()
         serverEars.destroy()
+        watchdog.removeCallbacksAndMessages(null)
+        tone?.release()
         mouth.shutdown()
         calls.stop()
         getSystemService(AudioManager::class.java).unregisterAudioDeviceCallback(headsets)
@@ -227,7 +229,26 @@ class BuddyService : Service() {
         return sent
     }
 
+    // --- "got it": a soft tone when the question arrives, and no silent waits ---------------
+    private val tone by lazy { runCatching { android.media.ToneGenerator(AudioManager.STREAM_MUSIC, 35) }.getOrNull() }
+    private val watchdog = android.os.Handler(android.os.Looper.getMainLooper())
+
+    private fun thinking(on: Boolean) {
+        watchdog.removeCallbacksAndMessages(null)
+        BuddyState.update { it.copy(thinking = on) }
+        if (!on) return
+        tone?.startTone(android.media.ToneGenerator.TONE_PROP_ACK, 120)
+        watchdog.postDelayed({ mouth.speak("Still working on it.", quiet = true) }, 20_000)
+        watchdog.postDelayed({
+            BuddyState.update { it.copy(thinking = false) }
+            mouth.speak("Sorry, I lost that one. Can you ask again?")
+        }, 75_000)
+    }
+
     private fun onServer(event: ServerEvent) {
+        if (event !is ServerEvent.Thinking && event !is ServerEvent.Heard && BuddyState.ui.value.thinking) {
+            thinking(false)  // the answer (or an error, or a question) has started
+        }
         when (event) {
             is ServerEvent.Say -> if (!muted) {
                 BuddyState.buddySentence(event.text, newReply = !replyOpen)
@@ -235,6 +256,7 @@ class BuddyService : Service() {
                 mouth.speak(event.text)
             }
             ServerEvent.Done -> replyOpen = false
+            ServerEvent.Thinking -> thinking(true)
             is ServerEvent.Heard -> serverEars.heard(event.text, event.lang)
             is ServerEvent.Approval -> {
                 BuddyState.update { it.copy(approval = event.question) }
@@ -286,7 +308,9 @@ class BuddyService : Service() {
         replyOpen = false
         LocationShare.maybeSend(this)  // "near me" should mean where you are now
         BuddyState.add(Line(text, Speaker.YOU))
-        send(JSONObject().put("type", "user").put("text", text).put("via", via))
+        if (!send(JSONObject().put("type", "user").put("text", text).put("via", via))) {
+            mouth.speak("I can't reach your server right now. Check Tailscale, then say it again.")
+        }
     }
 
     /** You started talking over Buddy: stop speaking and drop the rest of that reply. */
