@@ -469,7 +469,6 @@ private fun SettingsPanel(
                     label = { Text(name) },
                 )
             }
-        })
         }
 
         Spacer(Modifier.height(8.dp))
