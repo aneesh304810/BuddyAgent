@@ -15,7 +15,6 @@ by voice. Code lives in the data folder, never in the app's own code.
 """
 
 import ast
-import asyncio
 import json
 import logging
 import os
@@ -43,8 +42,18 @@ ALLOWED_IMPORTS = {
     "urllib", "xml", "os", "logging",
 }
 BANNED_CALLS = {"eval", "exec", "compile", "__import__", "open", "input", "breakpoint", "globals", "vars",
-                "getattr", "setattr", "delattr"}
-OS_ALLOWED = {"environ", "getenv", "path"}
+                "getattr", "setattr", "delattr", "locals", "memoryview", "type", "super"}
+OS_ALLOWED = {"environ", "getenv"}
+# Attribute names that reach files, processes or the interpreter, on any object
+# (e.g. io.open, os.path.os.system, pathlib's read_text).
+BANNED_ATTRIBUTES = {
+    "open", "read_text", "read_bytes", "write_text", "write_bytes", "unlink", "remove", "rmdir", "rmtree",
+    "rename", "mkdir", "makedirs", "listdir", "scandir", "walk", "glob", "chmod", "chown", "symlink",
+    "system", "popen", "fork", "kill", "exec", "execv", "execve", "spawn", "startfile", "os", "sys",
+    "subprocess", "builtins", "modules", "import_module", "loader", "f_globals", "f_locals", "gi_frame",
+    "tb_frame", "mount", "transport", "file",
+}
+MCP_IMPORTS = {"mcp.server.mcpserver": {"MCPServer"}, "mcp.types": None}
 
 SCHEMA_SQL = """
 CREATE TABLE IF NOT EXISTS built_agents (
@@ -125,11 +134,21 @@ def check_code(code: str, hosts: list[str]) -> list[str]:
         return [f"syntax error: {e}"]
     problems = []
     for node in ast.walk(tree):
-        if isinstance(node, (ast.Import, ast.ImportFrom)):
-            names = [a.name for a in node.names] if isinstance(node, ast.Import) else [node.module or ""]
-            for name in names:
-                if name.split(".")[0] not in ALLOWED_IMPORTS:
-                    problems.append(f"import of {name} is not allowed")
+        if isinstance(node, ast.Import):
+            for alias in node.names:
+                if alias.name.split(".")[0] not in ALLOWED_IMPORTS or alias.name.split(".")[0] == "mcp":
+                    problems.append(f"import of {alias.name} is not allowed")
+        elif isinstance(node, ast.ImportFrom):
+            module = node.module or ""
+            names = {a.name for a in node.names}
+            if node.level or module.split(".")[0] not in ALLOWED_IMPORTS:
+                problems.append(f"import from {module or '.'} is not allowed")
+            elif module.split(".")[0] == "mcp":
+                allowed = MCP_IMPORTS.get(module, set())
+                if module not in MCP_IMPORTS or (allowed is not None and not names <= allowed):
+                    problems.append(f"from {module} import {', '.join(sorted(names))} is not allowed")
+            if any(n.startswith("_") or n == "*" for n in names):
+                problems.append(f"importing private or all names from {module} is not allowed")
         elif isinstance(node, ast.Call):
             fn = node.func
             if isinstance(fn, ast.Name) and fn.id in BANNED_CALLS:
@@ -137,12 +156,19 @@ def check_code(code: str, hosts: list[str]) -> list[str]:
         elif isinstance(node, ast.Attribute):
             if isinstance(node.value, ast.Name) and node.value.id == "os" and node.attr not in OS_ALLOWED:
                 problems.append(f"os.{node.attr} is not allowed")
-            if node.attr.startswith("__") and node.attr not in ("__name__", "__main__"):
-                problems.append(f"dunder access {node.attr} is not allowed")
+            elif node.attr in BANNED_ATTRIBUTES:
+                problems.append(f".{node.attr} is not allowed")
+            if node.attr.startswith("_"):
+                problems.append(f"private attribute {node.attr} is not allowed")
+        elif isinstance(node, ast.Name):
+            if node.id.startswith("__") and node.id != "__name__":
+                problems.append(f"{node.id} is not allowed")
         elif isinstance(node, ast.Constant) and isinstance(node.value, str):
-            for host in re.findall(r"https?://([^/\s\"'{}]+)", node.value):
+            for host in re.findall(r"https?://([^/\s\"'{}:]+)", node.value):
                 if not any(host == h or host.endswith("." + h) for h in hosts):
                     problems.append(f"talks to {host}, which isn't in its list of hosts")
+            if re.search(r"\bhttp://", node.value):
+                problems.append("plain http:// links are not allowed")
     if "MCPServer(" not in code or "server.run()" not in code:
         problems.append("it isn't an MCP server in the expected shape")
     return sorted(set(problems))
@@ -186,11 +212,12 @@ class AgentBuilder:
                 no_approval_for=["*find*", "*search*", "*get*", "*list*", "*lookup*", "*retrieve*"],
                 daily_call_limit=100,
             )
+        home = self.folder / f"{agent['name']}_home"  # its own empty folder, not Buddy's data
         return AgentSpec(
             name=agent["name"], description=agent["summary"] or agent["purpose"],
-            command=[sys.executable, str(self.path(agent["name"]))],
-            env_from=agent["settings"], approval_required=["*"], no_approval_for=read_only,
-            daily_call_limit=100,
+            command=[sys.executable, "-I", str(self.path(agent["name"]))],
+            env_from=agent["settings"], env={"HOME": str(home)}, cwd=str(home),
+            approval_required=["*"], no_approval_for=read_only, daily_call_limit=100,
         )
 
     def active_specs(self) -> list[AgentSpec]:
@@ -201,8 +228,13 @@ class AgentBuilder:
         if not agent or agent["status"] == "removed":
             raise ToolError(f"No built agent called {name}.")
         spec = self.spec(agent)
+        if spec.cwd:
+            Path(spec.cwd).mkdir(parents=True, exist_ok=True)
         if self.registry is not None:
-            await self.registry.add(spec)
+            try:
+                await self.registry.add(spec)  # same task: the MCP client's scopes must stay in it
+            except Exception as e:
+                return f"The {name} agent didn't start ({type(e).__name__}), so it stays off."
         self.memory.db.execute("UPDATE built_agents SET status = 'active' WHERE name = ?", (name,))
         self.memory.db.commit()
         missing = [s for s in agent["settings"] if s not in os.environ]
@@ -274,7 +306,7 @@ class AgentBuilder:
 
         self.folder.mkdir(parents=True, exist_ok=True)
         self.path(name).write_text(code)
-        tools = await self._smoke_test(name, meta.get("settings", []))
+        tools = meta.get("tools", [])  # it first runs when the user switches it on
         self.memory.db.execute(
             "INSERT OR REPLACE INTO built_agents (name, kind, purpose, summary, tools, hosts, settings, status, "
             "created_at) VALUES (?, 'built', ?, ?, ?, ?, ?, 'draft', ?)",
@@ -291,7 +323,7 @@ class AgentBuilder:
                   + f"\n\n## Code\n```python\n{code}\n```")
         return JobResult(
             summary=f"Your {name} agent is built: {meta.get('summary', '')} It talks to {hosts}, "
-                    f"and its {len(tools)} tools ask you before changing anything.",
+                    f"and its {len(tools)} tools ask you before changing anything. It hasn't run yet.",
             report=report, findings=[t["does"] for t in meta.get("tools", [])], confidence="high")
 
     async def _review(self, ctx: JobContext, code: str, meta: dict) -> list[str]:
@@ -314,20 +346,6 @@ class AgentBuilder:
         except json.JSONDecodeError:
             return ["the safety review couldn't be read"]
         return [] if verdict["safe"] else [f"review: {p}" for p in verdict["problems"]] or ["review: unsafe"]
-
-    async def _smoke_test(self, name: str, env_names: list[str]) -> list[str]:
-        """Start the agent once and list its tools; raises JobFailed if it won't start."""
-        from mcp import Client, StdioServerParameters
-
-        target = StdioServerParameters(command=sys.executable, args=[str(self.path(name))],
-                                       env={k: v for k, v in os.environ.items() if k in env_names} or None)
-        try:
-            async with asyncio.timeout(30):
-                async with Client(target) as c:
-                    listing = await c.list_tools()
-        except Exception as e:
-            raise JobFailed(f"The agent was written but wouldn't start ({type(e).__name__}).") from e
-        return [t.name for t in listing.tools]
 
 
 BUILDER_TOOLS = [

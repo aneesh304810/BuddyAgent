@@ -17,6 +17,8 @@ class Settings:
     timezone: ZoneInfo = ZoneInfo(os.getenv("BUDDY_TIMEZONE", "UTC"))
     # Shared secret the phone must send to connect. Required once the server is public.
     access_token: str = os.getenv("BUDDY_TOKEN", "")
+    # Without a token the server refuses everyone, unless this is a developer's machine.
+    dev_mode: bool = os.getenv("BUDDY_DEV", "") == "1"
     # Languages the user understands; Listen-in only translates everything else.
     known_languages: str = os.getenv(
         "BUDDY_KNOWN_LANGUAGES", "English, Hindi, Malayalam, Marathi, Tamil"

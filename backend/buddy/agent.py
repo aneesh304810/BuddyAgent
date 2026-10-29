@@ -96,19 +96,23 @@ class Conversation:
         self.bank = BankFeed(memory)
         self.messages: list[dict] = []
         self.turn = 0  # counts user messages; approvals need a newer one
+        self.via = "user"
         # Frozen for the whole session so the cached prompt prefix stays valid.
         self.system = build_system_prompt(memory.recall(""), memory.open_goals())
 
-    async def reply(self, user_text: str, say: Say) -> None:
+    async def reply(self, user_text: str, say: Say, via: str = "user") -> None:
         """Answer one user utterance, calling `say` with each sentence to speak.
 
+        via "room": the words came through Listen-in ("Hey Buddy, ..."), where
+        anyone nearby could have said them, so they can't approve anything.
         If the task running this is cancelled (the user interrupted), the history
         keeps what was already spoken so Buddy knows where it was cut off.
         """
         self.turn += 1
+        self.via = via
         if self.thrift:
             # Money questions are answered in code, at no cost: Claude never approves spending.
-            said, resume = await self.thrift.resolve(user_text)
+            said, resume = await self.thrift.resolve(user_text, trusted=via != "room")
             if said:
                 await say(said)
                 self._note_exchange(user_text, said)
@@ -250,6 +254,9 @@ class Conversation:
             return await expert.ask_expert(self.memory, args)
         if self.registry:
             if name == "confirm_action":
+                if self.via == "room":
+                    return ("Not confirmed: that yes came through Listen-in, where someone else in the room "
+                            "could have said it. Ask the user to tap Approve or answer in Talk mode.")
                 return await self.registry.confirm(args["id"], self.turn)
             if name == "list_agents":
                 return json.dumps(

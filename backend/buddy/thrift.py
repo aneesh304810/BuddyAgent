@@ -196,11 +196,13 @@ class Thrift:
             f"\"{question}\" Their answer is handled automatically; don't call this tool again."
         )
 
-    async def resolve(self, user_text: str) -> tuple[str | None, str | None]:
+    async def resolve(self, user_text: str, trusted: bool = True) -> tuple[str | None, str | None]:
         """Read the user's reply to a pending question.
 
         Returns (what to say, request to answer next). (None, None) means there
         was nothing to decide and the message should be answered normally.
+        trusted=False: the words came through Listen-in ("Hey Buddy, yes"), where
+        anyone in the room could have said them, so a yes doesn't count.
         """
         self.turn += 1
         p = self.pending
@@ -212,6 +214,9 @@ class Thrift:
         answer = answer_of(user_text)
         if answer is None:
             return None, None  # a new topic; the question stays open for a while
+        if answer is True and not trusted:
+            return ("To be safe, I only take a yes for that from you directly: tap Approve, or say it "
+                    "in Talk mode."), None
         self.pending = None
         if answer is False:
             if p.kind in ("month", "day"):

@@ -13,7 +13,7 @@ from datetime import date, datetime, time, timedelta
 import icalendar
 import recurring_ical_events
 
-from ..tools import user_tz
+from ..tools import require_https, user_tz
 from .base import Connector, Record
 
 LOOK_BACK_DAYS = 1
@@ -85,6 +85,6 @@ class CalendarConnector(Connector):
 
 
 def _download(url: str) -> bytes:
-    request = urllib.request.Request(url, headers={"User-Agent": "Buddy/1.0"})
-    with urllib.request.urlopen(request, timeout=30) as response:
+    request = urllib.request.Request(require_https(url), headers={"User-Agent": "Buddy/1.0"})
+    with urllib.request.urlopen(request, timeout=30) as response:  # nosec B310: https only (require_https)
         return response.read(MAX_BYTES)

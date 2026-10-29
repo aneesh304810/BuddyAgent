@@ -12,6 +12,8 @@ function storageGet(k) { try { return localStorage.getItem(k); } catch { return 
 function storageSet(k, v) { try { localStorage.setItem(k, v); } catch {} }
 if (params.get("token")) storageSet("buddyToken", params.get("token"));
 const token = params.get("token") || storageGet("buddyToken") || "";
+// Keep the token out of the address bar and browser history once it's remembered.
+if (params.get("token") && storageGet("buddyToken") === token) history.replaceState(null, "", location.pathname);
 
 // --- transcript ------------------------------------------------------------
 function addLine(text, cls) {

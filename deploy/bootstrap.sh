@@ -93,7 +93,7 @@ else
 fi
 chown -R buddy:buddy "$APP"
 sudo -u buddy python3 -m venv "$APP/backend/.venv"
-sudo -u buddy "$APP/backend/.venv/bin/pip" install -q --upgrade pip
+sudo -u buddy "$APP/backend/.venv/bin/pip" install -q --upgrade pip setuptools
 sudo -u buddy "$APP/backend/.venv/bin/pip" install -q -r "$APP/backend/requirements.txt"
 [[ -f $APP/backend/agents.yaml ]] || sudo -u buddy cp "$APP/backend/agents.example.yaml" "$APP/backend/agents.yaml"
 
@@ -112,8 +112,10 @@ BUDDY_MORNING_BRIEF=08:00
 BUDDY_MONTHLY_BUDGET_USD=40
 BUDDY_AGE_RECIPIENT=$AGE_RECIPIENT
 ENV
-  chown root:buddy "$ENV_FILE"
-  chmod 640 "$ENV_FILE"
+  # Only root reads it: systemd passes the settings to Buddy, and agents (which run as
+  # the buddy user) can't read the other secrets in it.
+  chown root:root "$ENV_FILE"
+  chmod 600 "$ENV_FILE"
 fi
 
 install -m 644 "$APP/deploy/buddy.service" /etc/systemd/system/buddy.service

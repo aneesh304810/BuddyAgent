@@ -29,6 +29,7 @@ import asyncio
 import base64
 import contextlib
 import logging
+import re
 import secrets
 
 import anthropic
@@ -49,6 +50,7 @@ from .bankfeed import BankFeed
 from .builder import AgentBuilder
 from .deals import PriceWatcher
 from .finops import FinOps
+from . import lifelog
 from .lifelog import LifeLog
 from . import whisper as speech_to_text  # not `whisper`: that's Listen-in's whisper below
 from .mailbrain import MailManager
@@ -141,7 +143,25 @@ async def lifespan(app: FastAPI):
         await registry.close()
 
 
-app = FastAPI(title="Buddy", lifespan=lifespan)
+# No public API docs: the only callers are Buddy's own apps.
+app = FastAPI(title="Buddy", lifespan=lifespan, docs_url=None, redoc_url=None, openapi_url=None)
+
+
+class _HideTokens(logging.Filter):
+    """The phone connects with ?token=...: keep it out of the server's logs."""
+
+    TOKEN = re.compile(r"(token=)[^&\s\"']+")
+
+    def filter(self, record: logging.LogRecord) -> bool:
+        if isinstance(record.args, tuple):
+            record.args = tuple(self.TOKEN.sub(r"\1***", a) if isinstance(a, str) else a for a in record.args)
+        if isinstance(record.msg, str):
+            record.msg = self.TOKEN.sub(r"\1***", record.msg)
+        return True
+
+
+for _name in ("uvicorn.access", "uvicorn.error", "uvicorn"):
+    logging.getLogger(_name).addFilter(_HideTokens())
 
 
 @app.get("/health")
@@ -246,7 +266,16 @@ async def admin_costs(fresh: bool = False) -> dict:
 @app.post("/api/import", dependencies=[Depends(require_admin)])
 async def api_import(request: Request, name: str = "upload.json") -> dict:
     """The raw file is the body (no form encoding); ?name= keeps its file name."""
-    data = await request.body()
+    limit = lifelog.MAX_UPLOAD_BYTES
+    if int(request.headers.get("content-length") or 0) > limit:
+        raise HTTPException(status_code=413, detail="That file is too big (150 MB at most).")
+    chunks, size = [], 0
+    async for chunk in request.stream():  # stop reading as soon as it's too big
+        size += len(chunk)
+        if size > limit:
+            raise HTTPException(status_code=413, detail="That file is too big (150 MB at most).")
+        chunks.append(chunk)
+    data = b"".join(chunks)
     if not data:
         raise HTTPException(status_code=400, detail="empty file")
     try:
@@ -271,7 +300,7 @@ def api_job(job_id: int) -> dict:
 
 def authorized(token: str | None) -> bool:
     if not settings.access_token:
-        return True  # local development only; set BUDDY_TOKEN before exposing
+        return settings.dev_mode  # no token set: closed, except on a developer's machine
     return token is not None and secrets.compare_digest(token, settings.access_token)
 
 
@@ -295,7 +324,7 @@ async def talk(ws: WebSocket) -> None:
 
     listener = AmbientListener(memory, whisper, thrift)
 
-    async def answer(text: str) -> None:
+    async def answer(text: str, via: str = "user") -> None:
         try:
             agent_asks = set(registry.pending)
             thrift_asks = thrift.pending.id if thrift.pending else None
@@ -305,7 +334,7 @@ async def talk(ws: WebSocket) -> None:
                 spoken.append(sentence)
                 await say(sentence)
 
-            await convo.reply(text, say_and_keep)
+            await convo.reply(text, say_and_keep, via)
             # Buddy just asked for a yes (to send, book, spend...): the phone shows
             # Approve and Decline buttons, which answer "yes" or "no" for the user.
             new_thrift = thrift.pending is not None and thrift.pending.id != thrift_asks
@@ -336,13 +365,14 @@ async def talk(ws: WebSocket) -> None:
                 await stop_current()
             elif msg.get("type") == "user" and msg.get("text", "").strip():
                 await stop_current()  # new speech always wins over an old reply
-                current = asyncio.create_task(answer(msg["text"].strip()))
+                via = "room" if msg.get("via") == "room" else "user"  # "Hey Buddy" heard in Listen-in
+                current = asyncio.create_task(answer(msg["text"].strip(), via))
             elif msg.get("type") == "ambient" and msg.get("text", "").strip():
                 text = msg["text"].strip()
                 command = addressed_to_buddy(text)
                 if command:  # "Buddy, what did he just say?" is a command, not ambient talk
                     await stop_current()
-                    current = asyncio.create_task(answer(command))
+                    current = asyncio.create_task(answer(command, "room"))
                 else:
                     listener.hear(text, str(msg.get("lang", "")))
                     if is_think_cue(text):  # "let me think": whisper them an answer now

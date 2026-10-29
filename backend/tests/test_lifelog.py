@@ -85,3 +85,18 @@ def test_upload_endpoint_needs_the_token(monkeypatch):
         r = c.post("/api/import?name=Timeline.json", content=json.dumps(TIMELINE),
                    headers={"Authorization": "Bearer s3cret"})
     assert r.status_code == 200 and r.json()["files"] == 1
+
+
+def test_zip_bombs_and_bad_zips_are_refused(monkeypatch):
+    import pytest
+    from buddy.tools import ToolError
+
+    log = LifeLog(Memory(":memory:"))
+    monkeypatch.setattr(lifelog, "MAX_UNZIPPED_BYTES", 1000)
+    buf = io.BytesIO()
+    with zipfile.ZipFile(buf, "w", zipfile.ZIP_DEFLATED) as z:
+        z.writestr("big.json", "0" * 5000)  # compresses to almost nothing
+    with pytest.raises(ToolError, match="too big"):
+        asyncio.run(log.import_file("bomb.zip", buf.getvalue()))
+    with pytest.raises(ToolError, match="damaged"):
+        asyncio.run(log.import_file("x.zip", b"not a zip"))

@@ -164,6 +164,13 @@ class ToolError(Exception):
     """A tool failed in a way the model should hear about and recover from."""
 
 
+def require_https(url: str) -> str:
+    """Buddy only fetches https:// links (never file:// or plain http://)."""
+    if not url.lower().startswith("https://"):
+        raise ToolError("Only https:// links are allowed.")
+    return url
+
+
 def run_tool(memory: Memory, name: str, args: dict) -> str:
     """Execute one client tool and return its result as text for the model."""
     if name == "remember_fact":

@@ -28,7 +28,7 @@ from datetime import datetime, timedelta, timezone
 
 from . import usage
 from .memory import Memory
-from .tools import local_now
+from .tools import local_now, require_https
 
 log = logging.getLogger(__name__)
 
@@ -72,8 +72,8 @@ def _parse_fixed(spec: str) -> list[tuple[str, float]]:
 
 
 def _get_json(url: str, headers: dict[str, str]) -> dict:
-    request = urllib.request.Request(url, headers={"User-Agent": "Buddy/1.0", **headers})
-    with urllib.request.urlopen(request, timeout=30) as response:
+    request = urllib.request.Request(require_https(url), headers={"User-Agent": "Buddy/1.0", **headers})
+    with urllib.request.urlopen(request, timeout=30) as response:  # nosec B310: https only (require_https)
         return json.loads(response.read())
 
 

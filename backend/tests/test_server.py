@@ -104,7 +104,7 @@ def test_conversation_offers_job_tools():
 def test_asking_for_a_yes_shows_approval_buttons(monkeypatch):
     from buddy.agents import PendingAction
 
-    async def fake_reply(self, text, say):
+    async def fake_reply(self, text, say, via="user"):
         await say("Shall I send Priya the email saying Friday works?")
         server.registry.pending["abc123"] = PendingAction("abc123", "gmail", "send_mail", {}, 1, 0.0)
 
@@ -147,3 +147,38 @@ def test_whisper_not_installed_says_how(monkeypatch):
         ws.send_json({"type": "audio", "pcm": base64.b64encode(b"\x00\x00").decode()})
         got = ws.receive_json()
     assert got["type"] == "error" and "whisper.sh" in got["text"]
+
+
+def test_no_token_means_closed_unless_developing(monkeypatch):
+    from dataclasses import replace
+
+    monkeypatch.setattr(server, "settings", replace(server.settings, access_token="", dev_mode=False))
+    assert not server.authorized(None) and not server.authorized("anything")
+    monkeypatch.setattr(server, "settings", replace(server.settings, access_token="s3cret"))
+    assert server.authorized("s3cret") and not server.authorized("s3cre")
+
+
+def test_api_docs_are_not_public():
+    with TestClient(server.app) as c:
+        assert c.get("/docs").status_code in (404, 405) or "swagger" not in c.get("/docs").text.lower()
+        assert "openapi" not in c.get("/openapi.json").text.lower()
+
+
+def test_yes_heard_in_listen_in_cannot_approve():
+    import asyncio as aio
+    from buddy.memory import Memory
+    from buddy.thrift import Thrift
+
+    thrift = Thrift(Memory(":memory:"))
+    ran = []
+
+    async def act():
+        ran.append(1)
+        return "Sent."
+
+    thrift.turn = 1
+    thrift.ask_action("Send the email to Priya?", act)
+    said, _ = aio.run(thrift.resolve("yes, send it", trusted=False))
+    assert "tap Approve" in said and not ran and thrift.pending is not None
+    said, _ = aio.run(thrift.resolve("yes", trusted=True))
+    assert said == "Sent." and ran == [1]

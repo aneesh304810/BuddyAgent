@@ -266,8 +266,9 @@ class BuddyService : Service() {
         sayToBuddy(if (yes) "Yes, go ahead." else "No, don't do it.")
     }
 
-    /** Something you said or typed, for Buddy. */
-    fun sayToBuddy(text: String) {
+    /** Something you said or typed, for Buddy. via "room": heard through Listen-in ("Hey Buddy, ..."),
+     *  where anyone nearby could have said it, so the server won't take it as an approval. */
+    fun sayToBuddy(text: String, via: String = "user") {
         if (BuddyState.ui.value.approval != null) {  // any answer settles the question
             BuddyState.update { it.copy(approval = null) }
             Notes.clearApproval(this)
@@ -276,7 +277,7 @@ class BuddyService : Service() {
         muted = false
         replyOpen = false
         BuddyState.add(Line(text, Speaker.YOU))
-        send(JSONObject().put("type", "user").put("text", text))
+        send(JSONObject().put("type", "user").put("text", text).put("via", via))
     }
 
     /** You started talking over Buddy: stop speaking and drop the rest of that reply. */
@@ -405,7 +406,7 @@ class BuddyService : Service() {
             when {
                 request == null -> Unit
                 request.isEmpty() -> { wakeArmed = true; mouth.speak("Yeah?", quiet = true); return }
-                else -> { wakeArmed = false; sayToBuddy(request); return }
+                else -> { wakeArmed = false; sayToBuddy(request, via = "room"); return }
             }
         }
         if (activeMode == Mode.LISTEN_IN) {

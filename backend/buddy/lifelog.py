@@ -30,6 +30,8 @@ log = logging.getLogger(__name__)
 client = claude_client()
 
 MAX_UPLOAD_BYTES = 150 * 1024 * 1024
+MAX_UNZIPPED_BYTES = 400 * 1024 * 1024  # a zip can't expand past this (zip bombs)
+MAX_ZIP_FILES = 5_000
 MAX_GENERIC_CHARS = 2_000_000          # about 5 cents of the cheap model, at most
 CHUNK_CHARS = 40_000
 TEXT_TYPES = (".json", ".csv", ".html", ".htm", ".txt", ".xml", ".ics", ".md")
@@ -120,10 +122,22 @@ class LifeLog:
         before = self._counts()
         files = []
         if name.lower().endswith(".zip"):
-            with zipfile.ZipFile(io.BytesIO(data)) as z:
-                for info in z.infolist():
-                    if not info.is_dir() and info.filename.lower().endswith(TEXT_TYPES):
-                        files.append((info.filename, z.read(info)))
+            try:
+                z = zipfile.ZipFile(io.BytesIO(data))
+            except zipfile.BadZipFile as e:
+                raise ToolError("That zip file is damaged.") from e
+            with z:
+                wanted = [i for i in z.infolist() if not i.is_dir() and i.filename.lower().endswith(TEXT_TYPES)]
+                if len(wanted) > MAX_ZIP_FILES or sum(i.file_size for i in wanted) > MAX_UNZIPPED_BYTES:
+                    raise ToolError("That zip is too big once unpacked. Export only what you need.")
+                total = 0
+                for info in wanted:
+                    with z.open(info) as f:  # read in pieces: the sizes in a zip can lie
+                        raw = f.read(MAX_UNZIPPED_BYTES - total + 1)
+                    total += len(raw)
+                    if total > MAX_UNZIPPED_BYTES:
+                        raise ToolError("That zip is too big once unpacked. Export only what you need.")
+                    files.append((info.filename, raw))
         else:
             files.append((name, data))
         generic: list[tuple[str, str]] = []

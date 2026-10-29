@@ -25,7 +25,7 @@ from . import usage
 from .config import claude_client, settings
 from .memory import Memory
 from .money import CATEGORIES, Money
-from .tools import ToolError
+from .tools import ToolError, require_https
 
 log = logging.getLogger(__name__)
 client = claude_client()
@@ -68,13 +68,13 @@ CATEGORY_SCHEMA = {
 
 def _get_json(url: str) -> dict:
     """GET with the Basic credentials embedded in a SimpleFIN access URL."""
-    parts = urllib.parse.urlsplit(url)
+    parts = urllib.parse.urlsplit(require_https(url))
     clean = parts._replace(netloc=parts.hostname + (f":{parts.port}" if parts.port else "")).geturl()
     request = urllib.request.Request(clean, headers={"User-Agent": "Buddy/1.0"})
     if parts.username:
         creds = f"{urllib.parse.unquote(parts.username)}:{urllib.parse.unquote(parts.password or '')}"
         request.add_header("Authorization", "Basic " + base64.b64encode(creds.encode()).decode())
-    with urllib.request.urlopen(request, timeout=60) as response:
+    with urllib.request.urlopen(request, timeout=60) as response:  # nosec B310: https only (require_https)
         return json.loads(response.read())
 
 

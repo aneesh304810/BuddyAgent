@@ -52,6 +52,7 @@ class AgentSpec:
     token_env: str | None = None   # sent as "Authorization: Bearer <token>"
     server: Any = None
     env: dict[str, str] = field(default_factory=dict)
+    cwd: str | None = None   # working folder for a command agent (built agents get their own)
     # Settings passed through from /etc/buddy/buddy.env to a command agent (by name,
     # so secrets never sit in agents.yaml). Agents otherwise get a minimal environment.
     env_from: list[str] = field(default_factory=list)
@@ -139,7 +140,11 @@ class AgentRegistry:
         )
         self.memory.db.commit()
         if spec.name not in self.clients:
-            await self._connect(spec)
+            try:
+                await self._connect(spec)
+            except Exception:
+                self.specs.pop(spec.name, None)
+                raise
 
     async def close(self) -> None:
         await self._stack.aclose()
@@ -151,7 +156,8 @@ class AgentRegistry:
             # env_from entries are names or patterns ("BUDDY_EMAIL_*" covers every account).
             passed = {k: v for k, v in os.environ.items() if any(fnmatchcase(k, p) for p in spec.env_from)}
             env = {**passed, **spec.env}
-            target = StdioServerParameters(command=spec.command[0], args=spec.command[1:], env=env or None)
+            target = StdioServerParameters(command=spec.command[0], args=spec.command[1:], env=env or None,
+                                           cwd=spec.cwd)
         elif spec.endpoint():
             token = os.environ.get(spec.token_env, "").strip() if spec.token_env else ""
             if token:
