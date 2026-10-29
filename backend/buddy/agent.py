@@ -302,9 +302,12 @@ class Conversation:
         return run_tool(self.memory, name, args)
 
     def note_proactive(self, text: str) -> None:
-        """Record something Buddy said unprompted, so the user can reply to it."""
-        if self.messages and self.messages[-1]["role"] == "assistant":
-            self.messages.append({"role": "assistant", "content": text})
+        """Record something Buddy said unprompted (a whisper, a nudge), so a follow-up
+        like "why?" or "tell me more" has it as context."""
+        if self.messages and self.messages[-1]["role"] == "user":
+            return  # a reply is on its way; don't split the user's turn
+        self.messages.append({"role": "user", "content": "(Buddy spoke up on its own; no question asked.)"})
+        self.messages.append({"role": "assistant", "content": text})
 
 
 async def compose(system: str, instruction: str, memory: Memory | None = None) -> str:

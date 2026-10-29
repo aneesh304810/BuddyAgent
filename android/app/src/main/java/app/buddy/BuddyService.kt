@@ -253,6 +253,8 @@ class BuddyService : Service() {
                     "answer" -> "Say this: "
                     else -> ""
                 }
+                // After a "let me think" answer, a follow-up question needs no "Hey Buddy".
+                if (event.kind == "answer") answeringRoom = true
                 BuddyState.add(Line(label + event.text, Speaker.WHISPER))
                 mouth.speak(event.text, quiet = true)
             }

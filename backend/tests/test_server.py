@@ -199,3 +199,15 @@ def test_slow_answers_get_a_quick_filler(monkeypatch):
         got = [ws.receive_json() for _ in range(3)]
     assert got[0]["type"] == "say" and got[0]["text"] in agent.FILLERS
     assert got[1] == {"type": "say", "text": "Found it."} and got[2]["type"] == "done"
+
+
+def test_whispers_become_context_for_follow_ups():
+    from buddy.memory import Memory
+
+    convo = agent.Conversation(Memory(":memory:"))
+    convo.note_proactive("Canberra is the capital of Australia.")  # nothing said before: still kept
+    assert [m["role"] for m in convo.messages] == ["user", "assistant"]
+    assert convo.messages[1]["content"] == "Canberra is the capital of Australia."
+    convo.messages.append({"role": "user", "content": "a question being answered"})
+    convo.note_proactive("A nudge")  # mid-turn: not inserted
+    assert convo.messages[-1]["content"] == "a question being answered"
