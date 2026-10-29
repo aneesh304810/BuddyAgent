@@ -42,6 +42,11 @@ class BuddyPrefs(context: Context) {
         get() = prefs.getBoolean("earbudMic", false)
         set(value) = prefs.edit().putBoolean("earbudMic", value).apply()
 
+    /** Listen-in: hear the room through the earbud microphone instead of the phone's. */
+    var earbudMicListenIn: Boolean
+        get() = prefs.getBoolean("earbudMicListenIn", false)
+        set(value) = prefs.edit().putBoolean("earbudMicListenIn", value).apply()
+
     /** How this phone is labelled on the server, e.g. "Fold 8" or "Work phone". */
     var deviceName: String
         get() = prefs.getString("deviceName", "") ?: ""

@@ -237,7 +237,7 @@ class BuddyService : Service() {
         if (ears.active) stopListening()
         activeMode = mode
         BuddyState.update { it.copy(mode = mode) }
-        useEarbudMic(mode == Mode.TALK && prefs.earbudMic)
+        useEarbudMic(if (mode == Mode.TALK) prefs.earbudMic else prefs.earbudMicListenIn)
         val language = if (mode == Mode.LISTEN_IN) prefs.roomLanguage else Locale.getDefault().toLanguageTag()
         ears.start(language)
     }
