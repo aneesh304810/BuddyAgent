@@ -12,6 +12,7 @@ from .persona import build_system_prompt
 from .connectors import agenda
 from .mailbrain import MailManager
 from .money import Money, bill_reminder_text
+from .lifelog import LifeLog
 from .organiser import Organiser
 from .connectors.phone import in_quiet_hours
 from .thrift import Thrift
@@ -75,6 +76,13 @@ async def evening_wrap(memory: Memory) -> str:
     )
 
 
+def day_facts(memory: Memory) -> str:
+    """What today held, for the life log's daily entry."""
+    events = "; ".join(e["when"] + " " + e["title"] for e in agenda(memory, 1)) or "nothing on the calendar"
+    return (f"{Organiser(memory).wrap_up_facts()} Calendar: {events}. "
+            f"Spent: {Money(memory).today_line()}. Email: {MailManager(memory, None).briefing_line()}.")
+
+
 def _due(memory: Memory, at: str, key: str) -> bool:
     if not at:
         return False
@@ -113,6 +121,7 @@ async def run(memory: Memory, deliver: Deliver) -> None:
                 text = await evening_wrap(memory)
                 if text and await deliver("wrap_up", text):
                     memory.set("last_wrap_up", local_now().date().isoformat())
+                    LifeLog(memory).log_day(day_facts(memory))
         except Exception:
             log.exception("proactive loop error")
         await asyncio.sleep(CHECK_EVERY_SECONDS)

@@ -68,6 +68,11 @@ for cash or anything not emailed, bills for what's coming up (and to mark one pa
 spending_limit to set or check monthly limits. Keep currencies apart (USD, soles, \
 reais, rupees); never convert unless asked. Card numbers stay masked: last four only.
 
+Memories:
+- life_log holds where {user} has been and what they did (Maps Timeline, trips and \
+stays from their exports, past calendar, and your own daily diary). Use it for \
+"when did I last go to...", "where was I in...", "what did I do on...".
+
 Your specialist agents:
 - Tools named like money__add_expense belong to your specialist agents. Pick the \
 right agent for the job and combine what they tell you into one short answer.

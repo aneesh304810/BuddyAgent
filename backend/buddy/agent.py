@@ -18,6 +18,7 @@ from .jobs import JOB_TOOL_NAMES, JOB_TOOLS, JobRunner, run_job_tool
 from .connectors import CONNECTOR_TOOL_NAMES, CONNECTOR_TOOLS, ConnectorHub, run_connector_tool
 from .deals import WATCH_TOOL_NAMES, WATCH_TOOLS, PriceWatcher, run_watch_tool
 from .finops import COST_TOOL, FinOps
+from .lifelog import LIFELOG_TOOL, LifeLog, run_lifelog_tool
 from .mailbrain import MAIL_TOOL_NAMES, MAIL_TOOLS, MailManager, run_mail_tool
 from .money import MONEY_TOOL_NAMES, MONEY_TOOLS, Money, run_money_tool
 from .organiser import TASK_TOOL_NAMES, TASK_TOOLS, Organiser, run_task_tool
@@ -87,6 +88,7 @@ class Conversation:
         self.watcher = watcher
         self.organiser = Organiser(memory)
         self.money = Money(memory)
+        self.lifelog = LifeLog(memory)
         self.messages: list[dict] = []
         self.turn = 0  # counts user messages; approvals need a newer one
         # Frozen for the whole session so the cached prompt prefix stays valid.
@@ -183,7 +185,7 @@ class Conversation:
         spending = [SPENDING_TOOL] if self.thrift else []
         spending += [COST_TOOL] if self.finops else []
         spending += MAIL_TOOLS if self.mail else []
-        spending += TASK_TOOLS + MONEY_TOOLS
+        spending += TASK_TOOLS + MONEY_TOOLS + [LIFELOG_TOOL]
         spending += WATCH_TOOLS if self.watcher else []
         spending += CONNECTOR_TOOLS if self.hub else []
         return (
@@ -214,6 +216,8 @@ class Conversation:
             return await run_connector_tool(self.hub, name, args)
         if self.watcher and name in WATCH_TOOL_NAMES:
             return await run_watch_tool(self.watcher, name, args, self.thrift)
+        if name == "life_log":
+            return run_lifelog_tool(self.lifelog, args)
         if name in MONEY_TOOL_NAMES:
             return run_money_tool(self.money, name, args)
         if name in TASK_TOOL_NAMES:

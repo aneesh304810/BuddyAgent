@@ -268,6 +268,25 @@ async function openReport(id) {
   } catch (e) { addLine(`Couldn't open the report (${e.message}).`, "error"); }
 }
 
+// --- life log: import Google Timeline / Takeout, Airbnb and other exports ------
+$("importBtn").onclick = () => $("importFile").click();
+$("importFile").onchange = async (e) => {
+  const file = e.target.files[0];
+  e.target.value = "";
+  if (!file) return;
+  addLine(`Importing ${file.name} into your life log…`, "buddy nudge");
+  try {
+    const res = await fetch(`/api/import?name=${encodeURIComponent(file.name)}`, {
+      method: "POST", headers: { Authorization: `Bearer ${token}` }, body: file,
+    });
+    const r = await res.json();
+    if (!res.ok) throw new Error(r.detail || `error ${res.status}`);
+    const kinds = Object.entries(r.by_kind).map(([k, n]) => `${n} ${k}${n === 1 ? "" : "s"}`).join(", ");
+    addLine(r.added ? `Added ${r.added} to your life log (${kinds}). Ask me "where was I last March?"`
+      : "Nothing new found in that file.", "buddy nudge");
+  } catch (err) { addLine(`Couldn't import it (${err.message}).`, "error"); }
+};
+
 // --- what Buddy costs to run, all in (FinOps) -----------------------------------
 const usd = (n) => `$${Number(n || 0).toFixed(2)}`;
 
@@ -298,7 +317,7 @@ $("costsBtn").onclick = async () => {
       ["", "So far", "Month", "From"]));
     h("Claude, by what it did");
     const p = r.claude_by_purpose || {};
-    const names = { chat_and_other: "Chat and agents", listen: "Listen-in", think: "Let me think", expert: "Expert", research: "Research", mail: "Email sorting", deals: "Price watches" };
+    const names = { chat_and_other: "Chat and agents", listen: "Listen-in", think: "Let me think", expert: "Expert", research: "Research", mail: "Email sorting", deals: "Price watches", lifelog: "Life log imports" };
     body.appendChild(costTable(Object.keys(names).filter((k) => k in p).map((k) => [names[k], usd(p[k])]), ["", "So far"]));
     if (p.web_searches) {
       const note = document.createElement("p");

@@ -29,7 +29,7 @@ import logging
 import secrets
 
 import anthropic
-from fastapi import Depends, FastAPI, Header, HTTPException, WebSocket, WebSocketDisconnect
+from fastapi import Depends, FastAPI, Header, HTTPException, Request, WebSocket, WebSocketDisconnect
 from fastapi.staticfiles import StaticFiles
 
 from . import proactive, research, usage
@@ -44,9 +44,10 @@ from .connectors.phone import NotificationsConnector, PhoneCalendarConnector, sh
 from .privacy import mask
 from .deals import PriceWatcher
 from .finops import FinOps
+from .lifelog import LifeLog
 from .mailbrain import MailManager
 from .thrift import Thrift
-from .tools import set_user_tz
+from .tools import ToolError, set_user_tz
 
 logging.basicConfig(level=logging.INFO, format="%(asctime)s %(name)s %(message)s")
 log = logging.getLogger("buddy")
@@ -217,6 +218,19 @@ def admin_usage() -> dict:
 async def admin_costs(fresh: bool = False) -> dict:
     """Everything running Buddy costs this month: Claude, DigitalOcean, Zapier, fixed costs."""
     return await finops.report(fresh)
+
+
+# --- life log: files uploaded from the phone (Timeline, Takeout, Airbnb...) ----
+@app.post("/api/import", dependencies=[Depends(require_admin)])
+async def api_import(request: Request, name: str = "upload.json") -> dict:
+    """The raw file is the body (no form encoding); ?name= keeps its file name."""
+    data = await request.body()
+    if not data:
+        raise HTTPException(status_code=400, detail="empty file")
+    try:
+        return await LifeLog(memory).import_file(name, data)
+    except ToolError as e:
+        raise HTTPException(status_code=400, detail=str(e)) from e
 
 
 # --- background job reports: the phone apps show them -----------------------

@@ -130,6 +130,22 @@ Notifications are kept 7 days. Limits: an app inside an Android **Work profile**
 icon) keeps its notifications and calendar private from personal apps by design; an iPhone
 can't share notifications with apps at all.
 
+### Life log: where you've been and what you did
+Open your Buddy link in Chrome and tap **Import**, then pick a file (or a .zip):
+
+| Export | How to get it on your Fold |
+|---|---|
+| **Google Maps Timeline** | Settings → Location → Location services → **Timeline** → **Export Timeline data** (saves Timeline.json). Places show as Home, Work or coordinates |
+| **Google Takeout** (older history, with place names) | takeout.google.com → select only **Location History (Timeline)** → export → download the zip |
+| **Airbnb** | Airbnb app → Profile → Account → **Privacy** → Request your personal data → download the file they email |
+| **Other bookings, airline histories, CSV or JSON exports** | Upload as they are: Buddy reads them and pulls out trips, stays and events |
+| **Past calendar** | Any .ics file |
+
+Every evening wrap-up also writes a diary entry for the day. Then ask *"When did I last
+go to Cusco?"*, *"Where was I in March 2024?"*, *"What did I do on my birthday?"*.
+Card numbers and codes are masked; files up to 150 MB; reading non-Google exports costs
+a few cents at most.
+
 ### Check and control
 | What | How |
 |---|---|
@@ -148,8 +164,8 @@ can't share notifications with apps at all.
 | Email (Gmail, Outlook, any IMAP) | App password, read-only mailbox | Reads | ✅ Now |
 | Bank and card alerts, Amazon, Uber, airline and hotel confirmations | Through the email connector | Reads | ✅ Now (via email) |
 | Bank accounts and cards | Actual Budget + SimpleFIN (read-only bank feed; Buddy never has your bank password) | Reads | Phase 1b |
-| Airbnb history | Your Airbnb data export, imported as a file | Reads | Phase 1a |
-| Google Takeout (Maps timeline, places, photos metadata) | Export file import | Reads | Phase 1a |
+| Airbnb history | Your Airbnb data export, imported from the Buddy page | Reads | ✅ Now |
+| Google Maps Timeline and Takeout location history | Export file import | Reads | ✅ Now |
 | Gmail drafting and sending | Gmail API with your own Google Cloud OAuth app | Acts, with your yes | Phase 3 |
 | Google Calendar booking | Calendar API OAuth | Acts, with your yes | Phase 3 |
 | Contacts | Google People API, or a vCard export | Reads | Phase 3 |
