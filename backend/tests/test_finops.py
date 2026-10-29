@@ -43,14 +43,13 @@ def test_fixed_costs_parse_and_forgive_typos():
         ("Backblaze", 0.1), ("Domain", 1.25)]
 
 
-def test_defaults_without_any_keys_use_buddy_meter_and_plan_price():
+def test_defaults_without_any_keys_show_only_what_buddy_meters():
     memory = Memory(":memory:")
     usage.record(memory, "claude-sonnet-5-5", fake_usage(searches=3), purpose="")
     report = asyncio.run(fo.FinOps(memory, env={}).report())
     lines = {l["provider"]: l for l in report["lines"]}
-    assert set(lines) == {"Claude", "DigitalOcean"}  # Zapier unused: no line
+    assert set(lines) == {"Claude"}  # no server price, Zapier unused: no lines
     assert lines["Claude"]["source"] == "buddy meter" and lines["Claude"]["month_to_date"] == 2.03
-    assert lines["DigitalOcean"]["source"] == "plan price" and lines["DigitalOcean"]["forecast"] == 12
     assert report["claude_by_purpose"]["web_searches"] == {"count": 3, "usd_included_above": 0.03}
     assert report["all_in_budget_usd"] is None and not report["over_budget"]
 
@@ -67,6 +66,7 @@ def test_live_bills_from_digitalocean_and_anthropic():
 
 def test_provider_outage_falls_back_instead_of_failing():
     env = {"BUDDY_DO_TOKEN": "do-token", "BUDDY_ANTHROPIC_ADMIN_KEY": "admin-key"}
+    env["BUDDY_COST_SERVER_USD"] = "12"
     report = asyncio.run(fo.FinOps(Memory(":memory:"), env=env, fetch=FakeAPIs(fail=True)).report())
     lines = {l["provider"]: l for l in report["lines"]}
     assert lines["DigitalOcean"]["source"] == "plan price" and "unavailable" in lines["DigitalOcean"]["note"]
@@ -81,10 +81,11 @@ def test_zapier_tasks_fixed_costs_budget_and_cache():
                           (now, status))
     env = {"BUDDY_ZAPIER_PLAN_USD": "20", "BUDDY_ZAPIER_TASKS_PER_MONTH": "750",
            "BUDDY_FIXED_COSTS": "Backblaze=1, Twilio=2", "BUDDY_ALLIN_BUDGET_USD": "30",
-           "BUDDY_COST_SERVER_USD": "12"}
+           "BUDDY_COST_SERVER_USD": "12"}  # another host, no DigitalOcean token
     ops = fo.FinOps(memory, env=env)
     report = asyncio.run(ops.report())
     lines = {l["provider"]: l for l in report["lines"]}
+    assert lines["Server"]["forecast"] == 12 and lines["Server"]["source"] == "plan price"
     assert lines["Zapier"]["forecast"] == 20 and "about 6 of 750 tasks" in lines["Zapier"]["note"]
     assert lines["Backblaze"]["source"] == "fixed" and lines["Twilio"]["forecast"] == 2
     assert report["forecast_usd"] == 35.0 and report["over_budget"]  # 0 + 12 + 20 + 1 + 2
@@ -119,4 +120,10 @@ def test_buddy_can_answer_what_it_costs():
     assert "cost_report" in [t["name"] for t in convo.tools()]
     report = json.loads(asyncio.run(convo._dispatch("cost_report", {})))
     assert report["month"] == local_now().strftime("%B %Y")
-    assert [l["provider"] for l in report["lines"]] == ["Claude", "DigitalOcean", "Domain"]
+    assert [l["provider"] for l in report["lines"]] == ["Claude", "Domain"]
+
+
+def test_any_host_by_name():
+    env = {"BUDDY_SERVER_PROVIDER": "Hetzner", "BUDDY_COST_SERVER_USD": "5"}
+    line = asyncio.run(fo.FinOps(Memory(":memory:"), env=env).server())
+    assert line.provider == "Hetzner" and line.forecast == 5

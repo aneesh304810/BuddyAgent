@@ -8,7 +8,7 @@ end-of-month forecast, the biggest line first, and whether you're within budget.
 |---|---|---|
 | **Claude** | Buddy meters every call it makes (tokens and web searches, at list prices), split by purpose: chat, Listen-in, "let me think", expert, research, plus web searches | None: always on |
 | Claude (exact bill) | Anthropic's cost report | Optional, **organizations only**: an Admin API key (`sk-ant-admin...`). Individual accounts can't get one; Buddy's own meter is then used and is close to the bill |
-| **DigitalOcean** | Your live month-to-date bill (droplet, backups, anything else on the account) | A DigitalOcean token; without it, the plan price, spread over the month |
+| **Server** (only if you pay for one) | DigitalOcean: your live month-to-date bill. Any other host: the monthly price you set | DigitalOcean token, or `BUDDY_SERVER_PROVIDER` and `BUDDY_COST_SERVER_USD`. Not set: no server line |
 | **Zapier** | Your plan price, plus Buddy's count of Zapier calls (about 2 tasks each) against your monthly task allowance | Plan price and allowance (Zapier has no billing API) |
 | **Anything else** | Fixed monthly amounts you list: Tailscale, Backblaze backups, a domain, Twilio, ElevenLabs, xAI... | One line in the settings file |
 
@@ -17,7 +17,7 @@ DigitalOcean and Anthropic are cached for 30 minutes.
 
 ## Set it up from your phone (about 5 minutes)
 
-1. **DigitalOcean token (recommended).** In Chrome, open **cloud.digitalocean.com → API →
+1. **DigitalOcean token (only if Buddy runs on DigitalOcean).** In Chrome, open **cloud.digitalocean.com → API →
    Tokens → Generate New Token**. Name it "Buddy costs", pick **Custom scopes** and tick
    only **billing: read** (if your account doesn't offer custom scopes, choose **Read**
    only). Copy the token; it's shown once.
@@ -25,9 +25,10 @@ DigitalOcean and Anthropic are cached for 30 minutes.
    Settings → Admin keys → Create**. Skip this on an individual account.
 3. In Termux, `ssh root@buddy`, then `nano /etc/buddy/buddy.env` and add what applies:
    ```
-   BUDDY_DO_TOKEN=dop_v1_...
+   # BUDDY_DO_TOKEN=dop_v1_...                    # only on DigitalOcean
+   # BUDDY_SERVER_PROVIDER=Oracle Cloud            # any other host: its name...
+   # BUDDY_COST_SERVER_USD=0                       # ...and monthly price (free tier: leave out)
    # BUDDY_ANTHROPIC_ADMIN_KEY=sk-ant-admin...      # organizations only
-   BUDDY_COST_SERVER_USD=12                       # droplet price, used without a token
    BUDDY_ZAPIER_PLAN_USD=0                        # 0 on the free plan
    BUDDY_ZAPIER_TASKS_PER_MONTH=100
    BUDDY_FIXED_COSTS=Tailscale=0, Backblaze=0.50, Domain=1.25

@@ -5,7 +5,8 @@ forecast and where the number came from:
 
   Claude        Buddy's own meter of every call (always), or Anthropic's cost
                 report when an Admin API key is set (organizations only)
-  DigitalOcean  the live month-to-date bill (read-only API token), or the plan price
+  Server        DigitalOcean's live month-to-date bill (read-only API token), or the
+                monthly price of whatever host you use; no line if neither is set
   Zapier        the plan price, plus Buddy's own count of Zapier calls against the
                 plan's task allowance (Zapier has no billing API)
   Fixed costs   anything else you pay monthly (BUDDY_FIXED_COSTS)
@@ -124,9 +125,11 @@ class FinOps:
             page = data.get("next_page")
         return total_cents / 100
 
-    async def digitalocean(self) -> CostLine:
+    async def server(self) -> CostLine | None:
+        """The machine Buddy runs on: DigitalOcean's live bill, or any host's monthly price."""
         token = self.setting("BUDDY_DO_TOKEN")
-        plan = float(self.setting("BUDDY_COST_SERVER_USD", "12"))
+        name = self.setting("BUDDY_SERVER_PROVIDER", "DigitalOcean" if token else "Server")
+        price = self.setting("BUDDY_COST_SERVER_USD")
         if token:
             try:
                 data = await asyncio.to_thread(
@@ -134,15 +137,18 @@ class FinOps:
                     {"Authorization": f"Bearer {token}"},
                 )
                 mtd = float(data.get("month_to_date_usage", 0) or 0)
-                return CostLine("DigitalOcean", round(mtd, 2), max(_project(mtd), mtd), "live",
+                return CostLine(name, round(mtd, 2), max(_project(mtd), mtd), "live",
                                 "droplet and anything else on the account")
             except Exception as e:
                 log.warning("DigitalOcean balance failed: %s", e)
                 note = f"live bill unavailable ({type(e).__name__}); showing the plan price"
+        elif not price:
+            return None  # no server cost set: nothing to show
         else:
-            note = "plan price (add BUDDY_DO_TOKEN for the live bill)"
+            note = "monthly price you set"
+        plan = float(price or 0)
         fraction, _ = _month_progress()
-        return CostLine("DigitalOcean", round(plan * fraction, 2), plan, "plan price", note)
+        return CostLine(name, round(plan * fraction, 2), plan, "plan price", note)
 
     def zapier(self) -> CostLine | None:
         plan = float(self.setting("BUDDY_ZAPIER_PLAN_USD", "0"))
@@ -171,10 +177,8 @@ class FinOps:
     async def report(self, fresh: bool = False) -> dict:
         if not fresh and self._cache and time.time() - self._cache[0] < CACHE_SECONDS:
             return self._cache[1]
-        lines = [await self.claude(), await self.digitalocean()]
-        zap = self.zapier()
-        if zap:
-            lines.append(zap)
+        lines = [await self.claude()]
+        lines += [line for line in (await self.server(), self.zapier()) if line]
         lines += self.fixed()
         mtd = round(sum(l.month_to_date for l in lines), 2)
         forecast = round(sum(l.forecast for l in lines), 2)
@@ -229,7 +233,7 @@ class FinOps:
 
 COST_TOOL = {
     "name": "cost_report",
-    "description": "What running Buddy costs this month, all in: Claude, the DigitalOcean server, "
+    "description": "What running Buddy costs this month, all in: Claude, the server (if any), "
     "Zapier and fixed costs, each with month-to-date, end-of-month forecast and where the number "
     "comes from, plus where Claude money went (chat, Listen-in, expert, research). Use for 'how much "
     "do you cost?', 'what's my bill?'. spending_status is only today's Claude allowances.",
