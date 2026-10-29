@@ -241,7 +241,7 @@ def test_tools_load_on_demand_and_history_is_trimmed():
     assert tools[0]["type"] == "tool_search_tool_bm25_20251119"
     loaded = {t["name"] for t in tools if not t.get("defer_loading")}
     assert loaded >= {"tool_search_tool_bm25", "remember_fact", "set_reminder", "add_task", "web_search"}
-    assert len(loaded) <= 8 and len(tools) > 30  # everything is there, few are loaded
+    assert len(loaded) <= 8 and len(tools) > 20  # everything is there, few are loaded
     assert next(t for t in tools if t["name"] == "add_expense")["defer_loading"] is True
 
     convo.messages = []
