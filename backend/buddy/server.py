@@ -49,7 +49,7 @@ from .builder import AgentBuilder
 from .deals import PriceWatcher
 from .finops import FinOps
 from .lifelog import LifeLog
-from . import whisper
+from . import whisper as speech_to_text  # not `whisper`: that's Listen-in's whisper below
 from .mailbrain import MailManager
 from .thrift import Thrift
 from .tools import ToolError, set_user_tz
@@ -142,7 +142,7 @@ app = FastAPI(title="Buddy", lifespan=lifespan)
 
 @app.get("/health")
 def health() -> dict:
-    return {"ok": True, "whisper": whisper.available()}
+    return {"ok": True, "whisper": speech_to_text.available()}
 
 
 def addressed_to_buddy(text: str) -> str | None:
@@ -362,10 +362,11 @@ async def talk(ws: WebSocket) -> None:
                 # Speech recognition on this server (Whisper): send back the text; the phone
                 # routes it like its own recognizer's (talk, Listen-in, "Hey Buddy").
                 try:
-                    heard, lang = await whisper.transcribe(base64.b64decode(msg["pcm"]), str(msg.get("lang", "")))
+                    heard, lang = await speech_to_text.transcribe(
+                        base64.b64decode(msg["pcm"]), str(msg.get("lang", "")))
                     if heard:
                         await ws.send_json({"type": "heard", "text": heard, "lang": lang, "id": msg.get("id")})
-                except whisper.WhisperUnavailable as e:
+                except speech_to_text.WhisperUnavailable as e:
                     await ws.send_json({"type": "error", "text": str(e)})
                 except Exception:
                     log.exception("whisper failed")
