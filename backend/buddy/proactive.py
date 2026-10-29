@@ -9,6 +9,7 @@ from .config import settings
 from .memory import Memory
 from .persona import build_system_prompt
 from .connectors import agenda
+from .mailbrain import MailManager
 from .thrift import Thrift
 from .tools import format_local, local_now
 
@@ -40,10 +41,11 @@ async def morning_briefing(memory: Memory) -> str:
         system,
         f"It's {local_now().strftime('%A %d %B, %I:%M %p')}. Give the user a short, upbeat "
         "morning briefing, about four spoken sentences: greet them, mention what's "
-        "coming up today, nudge them on one of their goals, and end with yesterday's AI "
+        "coming up today and any urgent email, nudge them on one of their goals, and end with yesterday's AI "
         "cost in a few words (say if we're running ahead of budget). "
         f"Upcoming reminders: {'; '.join(reminders) or 'none'}. "
         f"Today's calendar: {'; '.join(e['when'] + ' ' + e['title'] for e in agenda(memory, 1)) or 'nothing or not connected'}. "
+        f"Email: {MailManager(memory, None).briefing_line()}. "
         f"Spending: {Thrift(memory).summary()}",
         memory,
     )

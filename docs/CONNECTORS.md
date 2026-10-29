@@ -77,6 +77,36 @@ become the first source for the money manager.
 
 To remove access at any time: delete the app password in your Google account.
 
+### More email accounts
+Add each extra account with its own app password (accounts 2 to 9):
+```
+sudo bash /opt/buddy/deploy/set.sh BUDDY_EMAIL_2_ADDRESS
+sudo bash /opt/buddy/deploy/set.sh BUDDY_EMAIL_2_APP_PASSWORD
+```
+Gmail and Google Workspace accounts get everything (read, draft, send, clean up, rules).
+Yahoo and iCloud are read-only (they need their own app password). Outlook, Hotmail and
+Microsoft 365 work accounts don't allow app passwords any more, so read those through
+phone notifications instead. Say *"from my work account"* to pick one.
+
+### Email manager: priorities and rules
+Every 5 minutes Buddy sorts new mail from all accounts:
+
+| Priority | What Buddy does |
+|---|---|
+| **Urgent** (bill due soon, fraud alert, flight change, a person needing an answer) | Tells you straight away, or in the morning briefing during quiet hours |
+| **Worth reading** | Lists it when you ask *"anything important in my email?"*, and in the morning briefing |
+| **Low** (newsletters, promotions, notifications) | Stays quiet |
+
+Teach it with rules, in your own words:
+- *"Emails from Chase about payments are urgent."*
+- *"Label Uber and Lyft receipts Travel."*
+- *"Archive LinkedIn notifications."*
+- *"What are my email rules?"* / *"Remove rule 3."*
+
+Rules that change mail (label, archive, mark read) ask for your yes once, then run on
+new Gmail by themselves. Nothing is ever deleted or sent automatically. Sorting uses
+the cheap model: about a tenth of a cent per batch of new mail.
+
 ### Phone notifications and calendars (every phone with the Buddy app)
 On each Android phone with Buddy (your Fold, a work phone...): **Settings → This phone**.
 
