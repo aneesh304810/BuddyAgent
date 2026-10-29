@@ -192,6 +192,7 @@ class FinOps:
             "over_budget": bool(budget and forecast > budget),
             "lines": [asdict(l) for l in lines],
             "claude_by_purpose": self.claude_by_purpose(),
+            "agents": self.by_agent(),
             "generated_at": datetime.now(timezone.utc).isoformat(),
         }
         self._cache = (time.time(), report)
@@ -222,6 +223,30 @@ class FinOps:
         ).fetchone()["n"]
         named["web_searches"] = {"count": int(searches), "usd_included_above": round(searches * usage.WEB_SEARCH_USD, 2)}
         return named
+
+    def by_agent(self) -> list[dict]:
+        """Each agent's calls this month and what they cost outside Claude, where known.
+
+        Claude's own tokens for agent work are already in claude_by_purpose (chat)."""
+        month = local_now().strftime("%Y-%m")
+        try:
+            rows = self.memory.db.execute(
+                "SELECT agent, COUNT(*) AS calls FROM audit WHERE status IN ('ok', 'approved') "
+                "AND ts LIKE ? GROUP BY agent ORDER BY calls DESC", (f"{month}%",)
+            ).fetchall()
+        except Exception:
+            return []
+        zapier_plan = float(self.setting("BUDDY_ZAPIER_PLAN_USD", "0"))
+        out = []
+        for row in rows:
+            entry = {"agent": row["agent"], "calls_this_month": row["calls"], "external_cost_usd": 0.0, "note": ""}
+            if row["agent"] == "zapier":
+                entry["external_cost_usd"] = round(zapier_plan * _month_progress()[0], 2)
+                entry["note"] = f"about {row['calls'] * ZAPIER_TASKS_PER_CALL} Zapier tasks"
+            elif row["agent"] == "gmail":
+                entry["note"] = "free (your Gmail)"
+            out.append(entry)
+        return out
 
     def spoken_summary(self, report: dict) -> str:
         line = f"Buddy has cost ${report['month_to_date_usd']:.2f} so far this month, heading for about ${report['forecast_usd']:.0f}"

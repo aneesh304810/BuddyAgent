@@ -72,3 +72,7 @@ dialog#report a { color: var(--accent); }
 #typeBox { flex: 1; min-width: 0; padding: 10px 14px; border-radius: 999px; border: 1px solid var(--panel); background: var(--panel); color: var(--text); font-size: 16px; }
 #typeBox:focus { outline: none; border-color: var(--accent); }
 #typeForm button { padding: 10px 16px; border: 0; border-radius: 999px; background: var(--user); color: #fff; font-size: 15px; }
+
+table.costs { width: 100%; border-collapse: collapse; margin: 4px 0 12px; font-size: 14px; }
+table.costs th, table.costs td { text-align: left; padding: 6px 4px; border-bottom: 1px solid var(--panel); }
+table.costs th { color: var(--muted); font-weight: 500; }

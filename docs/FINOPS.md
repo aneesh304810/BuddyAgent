@@ -20,7 +20,8 @@ DigitalOcean and Anthropic are cached for 30 minutes.
 1. **DigitalOcean token (only if Buddy runs on DigitalOcean).** In Chrome, open **cloud.digitalocean.com → API →
    Tokens → Generate New Token**. Name it "Buddy costs", pick **Custom scopes** and tick
    only **billing: read** (if your account doesn't offer custom scopes, choose **Read**
-   only). Copy the token; it's shown once.
+   only). Copy the token; it's shown once. Save it on the server with
+   `sudo bash /opt/buddy/deploy/set.sh BUDDY_DO_TOKEN` (paste at the hidden prompt).
 2. **Anthropic Admin key (only for an organization account).** **console.anthropic.com →
    Settings → Admin keys → Create**. Skip this on an individual account.
 3. In Termux, `ssh root@buddy`, then `nano /etc/buddy/buddy.env` and add what applies:
@@ -39,6 +40,13 @@ DigitalOcean and Anthropic are cached for 30 minutes.
 The tokens only read billing figures: they can't create servers or spend money. They stay in
 the server's settings file, like your other keys. To revoke one, delete it on the same page.
 
+## See it all on one page
+
+Open your Buddy link in Chrome and tap **Costs** at the top: the month so far and the
+forecast, each provider, Claude split by what it did (chat and agents, Listen-in, "let me
+think", expert, research, web searches), and each agent's calls this month with any extra
+cost (Zapier tasks).
+
 ## The numbers as data
 
 ```
@@ -46,7 +54,7 @@ curl -H "Authorization: Bearer TOKEN" "https://<server>/admin/costs?fresh=true"
 ```
 returns `month_to_date_usd`, `forecast_usd`, `all_in_budget_usd`, `over_budget`, one entry per
 line (`provider`, `month_to_date`, `forecast`, `source`: live / buddy meter / plan price / fixed,
-`note`) and `claude_by_purpose`.
+`note`), `claude_by_purpose` and `agents` (calls this month and extra cost per agent).
 
 Two money controls work together:
 - **Thrift** (`BUDDY_MONTHLY_BUDGET_USD`, daily allowances) limits Claude spending and asks

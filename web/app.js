@@ -251,6 +251,52 @@ async function openReport(id) {
   } catch (e) { addLine(`Couldn't open the report (${e.message}).`, "error"); }
 }
 
+// --- what Buddy costs to run, all in (FinOps) -----------------------------------
+const usd = (n) => `$${Number(n || 0).toFixed(2)}`;
+
+function costTable(rows, head) {
+  const table = document.createElement("table");
+  table.className = "costs";
+  const tr = (cells, tag) => {
+    const row = document.createElement("tr");
+    cells.forEach((c) => { const cell = document.createElement(tag); cell.textContent = c; row.appendChild(cell); });
+    return row;
+  };
+  table.appendChild(tr(head, "th"));
+  rows.forEach((r) => table.appendChild(tr(r, "td")));
+  return table;
+}
+
+$("costsBtn").onclick = async () => {
+  try {
+    const r = await api("/admin/costs?fresh=true");
+    $("reportTitle").textContent = `Costs · ${r.month}`;
+    const budget = r.all_in_budget_usd ? ` · budget ${usd(r.all_in_budget_usd)}${r.over_budget ? " (over!)" : ""}` : "";
+    $("reportSummary").textContent = `${usd(r.month_to_date_usd)} so far, heading for about ${usd(r.forecast_usd)}${budget}`;
+    const body = $("reportBody");
+    body.replaceChildren();
+    const h = (t) => { const e = document.createElement("h3"); e.textContent = t; body.appendChild(e); };
+    h("By provider");
+    body.appendChild(costTable(r.lines.map((l) => [l.provider, usd(l.month_to_date), usd(l.forecast), l.source]),
+      ["", "So far", "Month", "From"]));
+    h("Claude, by what it did");
+    const p = r.claude_by_purpose || {};
+    const names = { chat_and_other: "Chat and agents", listen: "Listen-in", think: "Let me think", expert: "Expert", research: "Research" };
+    body.appendChild(costTable(Object.keys(names).filter((k) => k in p).map((k) => [names[k], usd(p[k])]), ["", "So far"]));
+    if (p.web_searches) {
+      const note = document.createElement("p");
+      note.textContent = `Includes ${p.web_searches.count} web searches (${usd(p.web_searches.usd_included_above)}).`;
+      body.appendChild(note);
+    }
+    if ((r.agents || []).length) {
+      h("Agents");
+      body.appendChild(costTable(r.agents.map((a) => [a.agent, String(a.calls_this_month), usd(a.external_cost_usd), a.note]),
+        ["", "Calls", "Extra cost", ""]));
+    }
+    if (!reportDlg.open) reportDlg.showModal();
+  } catch (e) { addLine(`Couldn't load costs (${e.message}).`, "error"); }
+};
+
 $("reportsBtn").onclick = async () => {
   try {
     const list = await api("/api/jobs");

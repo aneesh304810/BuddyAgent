@@ -127,3 +127,14 @@ def test_any_host_by_name():
     env = {"BUDDY_SERVER_PROVIDER": "Hetzner", "BUDDY_COST_SERVER_USD": "5"}
     line = asyncio.run(fo.FinOps(Memory(":memory:"), env=env).server())
     assert line.provider == "Hetzner" and line.forecast == 5
+
+
+def test_agents_this_month():
+    memory = Memory(":memory:")
+    now = datetime.now(timezone.utc).isoformat()
+    for agent, status in [("zapier", "ok"), ("zapier", "approved"), ("gmail", "ok"), ("gmail", "blocked")]:
+        memory.db.execute("INSERT INTO audit (ts, agent, tool, args, status, detail) VALUES (?, ?, 't', '{}', ?, '')",
+                          (now, agent, status))
+    agents = {a["agent"]: a for a in fo.FinOps(memory, env={}).by_agent()}
+    assert agents["zapier"]["calls_this_month"] == 2 and "4 Zapier tasks" in agents["zapier"]["note"]
+    assert agents["gmail"]["calls_this_month"] == 1 and agents["gmail"]["external_cost_usd"] == 0
