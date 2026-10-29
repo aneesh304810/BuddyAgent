@@ -281,7 +281,7 @@ $("costsBtn").onclick = async () => {
       ["", "So far", "Month", "From"]));
     h("Claude, by what it did");
     const p = r.claude_by_purpose || {};
-    const names = { chat_and_other: "Chat and agents", listen: "Listen-in", think: "Let me think", expert: "Expert", research: "Research" };
+    const names = { chat_and_other: "Chat and agents", listen: "Listen-in", think: "Let me think", expert: "Expert", research: "Research", mail: "Email sorting" };
     body.appendChild(costTable(Object.keys(names).filter((k) => k in p).map((k) => [names[k], usd(p[k])]), ["", "So far"]));
     if (p.web_searches) {
       const note = document.createElement("p");
