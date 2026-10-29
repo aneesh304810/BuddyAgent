@@ -130,6 +130,9 @@ echo "==> 7/7 Done"
 if grep -q "ANTHROPIC_API_KEY=REPLACE_ME" "$ENV_FILE" && [[ -t 0 ]]; then
   echo
   read -rsp "Paste your Claude API key (starts with sk-ant-; hidden as you paste): " api_key; echo
+  until [[ "$api_key" == sk-ant-* ]]; do
+    read -rsp "That doesn't look like a Claude API key (sk-ant-...). Paste it again: " api_key; echo
+  done
   read -rp "Your first name (what Buddy calls you): " first_name
   read -rp "Monthly AI budget in dollars [40]: " budget
   python3 - "$ENV_FILE" "$api_key" "${first_name:-friend}" "${budget:-40}" <<'PY'

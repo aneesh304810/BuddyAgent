@@ -129,6 +129,24 @@ def addressed_to_buddy(text: str) -> str | None:
     return None
 
 
+def brain_error(e: anthropic.APIError) -> str:
+    """Say why Claude can't be reached, in words the user can act on."""
+    text = str(e).lower()
+    if isinstance(e, anthropic.AuthenticationError):
+        return "I can't reach my brain: the Claude API key is missing or wrong. Check ANTHROPIC_API_KEY in the server settings file."
+    if "credit balance" in text or "billing" in text:
+        return "I can't reach my brain: the Claude account is out of credit. Add some in the Claude Console under Billing."
+    if isinstance(e, anthropic.PermissionDeniedError):
+        return "I can't reach my brain: this Claude API key isn't allowed to do that. Check the key's workspace in the Claude Console."
+    if isinstance(e, anthropic.NotFoundError):
+        return "I can't reach my brain: the model I'm set to use isn't available on this account."
+    if isinstance(e, anthropic.RateLimitError):
+        return "I'm being rate limited by Claude. Give me a minute."
+    if isinstance(e, anthropic.APIConnectionError):
+        return "I can't reach my brain: the server can't connect to Claude right now."
+    return "I can't reach my brain right now."
+
+
 def require_admin(authorization: str | None = Header(default=None)) -> None:
     token = (authorization or "").removeprefix("Bearer ").strip()
     if not authorized(token or None):
@@ -239,7 +257,7 @@ async def talk(ws: WebSocket) -> None:
             raise
         except anthropic.APIError as e:
             log.warning("Claude API error: %s", e)
-            await ws.send_json({"type": "error", "text": "I can't reach my brain right now."})
+            await ws.send_json({"type": "error", "text": brain_error(e)})
 
     async def stop_current() -> None:
         if current and not current.done():
