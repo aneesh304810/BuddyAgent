@@ -74,7 +74,7 @@ def _get_json(url: str) -> dict:
     if parts.username:
         creds = f"{urllib.parse.unquote(parts.username)}:{urllib.parse.unquote(parts.password or '')}"
         request.add_header("Authorization", "Basic " + base64.b64encode(creds.encode()).decode())
-    with urllib.request.urlopen(request, timeout=60) as response:  # nosec B310: https only (require_https)
+    with urllib.request.urlopen(request, timeout=60) as response:  # https only (require_https)  # nosec B310
         return json.loads(response.read())
 
 

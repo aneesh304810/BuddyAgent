@@ -86,5 +86,5 @@ class CalendarConnector(Connector):
 
 def _download(url: str) -> bytes:
     request = urllib.request.Request(require_https(url), headers={"User-Agent": "Buddy/1.0"})
-    with urllib.request.urlopen(request, timeout=30) as response:  # nosec B310: https only (require_https)
+    with urllib.request.urlopen(request, timeout=30) as response:  # https only (require_https)  # nosec B310
         return response.read(MAX_BYTES)

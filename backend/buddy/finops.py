@@ -73,7 +73,7 @@ def _parse_fixed(spec: str) -> list[tuple[str, float]]:
 
 def _get_json(url: str, headers: dict[str, str]) -> dict:
     request = urllib.request.Request(require_https(url), headers={"User-Agent": "Buddy/1.0", **headers})
-    with urllib.request.urlopen(request, timeout=30) as response:  # nosec B310: https only (require_https)
+    with urllib.request.urlopen(request, timeout=30) as response:  # https only (require_https)  # nosec B310
         return json.loads(response.read())
 
 
