@@ -397,6 +397,7 @@ private fun SettingsPanel(
     var problem by remember { mutableStateOf<String?>(null) }
     var earbudMic by remember { mutableStateOf(prefs.earbudMic) }
     var listenMic by remember { mutableStateOf(prefs.listenMic) }
+    var earbudsStart by remember { mutableStateOf(prefs.earbudsStart) }
     var deviceName by remember { mutableStateOf(prefs.deviceName) }
     var shareCalendar by remember { mutableStateOf(prefs.shareCalendar) }
     var workBusyOnly by remember { mutableStateOf(prefs.workBusyOnly) }
@@ -466,6 +467,23 @@ private fun SettingsPanel(
                 FilterChip(
                     selected = listenMic == value,
                     onClick = { listenMic = value; prefs.listenMic = value },
+                    label = { Text(name) },
+                )
+            }
+        }
+
+        Spacer(Modifier.height(8.dp))
+        Text("When earbuds connect", color = Color.White)
+        Text(
+            "Listen-in: Buddy starts listening by itself; say \"Hey Buddy\" to talk to it, no tapping. " +
+                "Talk: everything you say goes to Buddy, so only for when you're alone.",
+            color = Muted, fontSize = 13.sp,
+        )
+        Row(horizontalArrangement = Arrangement.spacedBy(8.dp)) {
+            listOf("listen" to "Listen-in", "talk" to "Talk", "off" to "Nothing").forEach { (value, name) ->
+                FilterChip(
+                    selected = earbudsStart == value,
+                    onClick = { earbudsStart = value; prefs.earbudsStart = value },
                     label = { Text(name) },
                 )
             }

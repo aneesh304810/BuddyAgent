@@ -48,6 +48,11 @@ class BuddyPrefs(context: Context) {
             ?: if (prefs.getBoolean("earbudMicListenIn", false)) "earbuds" else "auto"
         set(value) = prefs.edit().putString("listenMic", value).apply()
 
+    /** When earbuds connect: "listen" (Listen-in, say "Hey Buddy" to talk), "talk" or "off". */
+    var earbudsStart: String
+        get() = prefs.getString("earbudsStart", "listen") ?: "listen"
+        set(value) = prefs.edit().putString("earbudsStart", value).apply()
+
     /** How this phone is labelled on the server, e.g. "Fold 8" or "Work phone". */
     var deviceName: String
         get() = prefs.getString("deviceName", "") ?: ""

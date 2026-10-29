@@ -9,6 +9,7 @@ import android.hardware.Sensor
 import android.hardware.SensorEvent
 import android.hardware.SensorEventListener
 import android.hardware.SensorManager
+import android.media.AudioDeviceCallback
 import android.media.AudioDeviceInfo
 import android.media.AudioManager
 import android.os.IBinder
@@ -22,6 +23,22 @@ import java.util.Locale
  * The phone is only ears and mouth: all thinking, memory and agents live on
  * your server.
  */
+/** Earbuds and headphones: plugging one in can start Buddy. */
+private val HEADSET_TYPES = setOf(
+    AudioDeviceInfo.TYPE_BLUETOOTH_A2DP,
+    AudioDeviceInfo.TYPE_BLUETOOTH_SCO,
+    AudioDeviceInfo.TYPE_BLE_HEADSET,
+    AudioDeviceInfo.TYPE_WIRED_HEADSET,
+    AudioDeviceInfo.TYPE_WIRED_HEADPHONES,
+    AudioDeviceInfo.TYPE_USB_HEADSET,
+)
+
+/** "Hey Buddy, ..." (speech recognition sometimes hears "body"), or "Buddy, ...". */
+private val WAKE_PHRASE = Regex(
+    "^(?:(?:hey|hi|ok|okay)\\s+(?:buddy|body)|buddy)\\b[\\s,.!?]*(.*)$",
+    RegexOption.IGNORE_CASE,
+)
+
 class BuddyService : Service() {
 
     companion object {
@@ -76,6 +93,8 @@ class BuddyService : Service() {
         calls = CallWatcher(this, ::callChanged)
         button = EarbudButton(this) { toggle() }
         calls.start()
+        // Reports the earbuds already connected straight away, then every change.
+        getSystemService(AudioManager::class.java).registerAudioDeviceCallback(headsets, main)
     }
 
     override fun onStartCommand(intent: Intent?, flags: Int, startId: Int): Int {
@@ -108,6 +127,7 @@ class BuddyService : Service() {
         ears.destroy()
         mouth.shutdown()
         calls.stop()
+        getSystemService(AudioManager::class.java).unregisterAudioDeviceCallback(headsets)
         stopListenMic()
         button.release()
         calendarTimer.removeCallbacksAndMessages(null)
@@ -303,7 +323,58 @@ class BuddyService : Service() {
         }
     }
 
+    // --- earbuds in: Buddy starts by itself -------------------------------------
+
+    private var autoStarted = false
+    private val headsets = object : AudioDeviceCallback() {
+        override fun onAudioDevicesAdded(addedDevices: Array<out AudioDeviceInfo>) {
+            if (addedDevices.any { it.isSink && it.type in HEADSET_TYPES }) earbudsIn()
+        }
+
+        override fun onAudioDevicesRemoved(removedDevices: Array<out AudioDeviceInfo>) {
+            if (removedDevices.any { it.type in HEADSET_TYPES } && !headsetConnected()) earbudsOut()
+        }
+    }
+
+    private fun headsetConnected(): Boolean =
+        getSystemService(AudioManager::class.java).getDevices(AudioManager.GET_DEVICES_OUTPUTS)
+            .any { it.type in HEADSET_TYPES }
+
+    private fun earbudsIn() {
+        if (ears.active || BuddyState.ui.value.onCall) return
+        val mode = when (prefs.earbudsStart) {
+            "listen" -> Mode.LISTEN_IN
+            "talk" -> Mode.TALK
+            else -> return
+        }
+        autoStarted = true
+        startListening(mode)
+        mouth.speak(if (mode == Mode.LISTEN_IN) "I'm here. Say hey Buddy when you need me." else "I'm listening.", quiet = true)
+    }
+
+    private fun earbudsOut() {
+        if (autoStarted && ears.active) stopListening()
+        autoStarted = false
+        wakeArmed = false
+    }
+
+    // --- "Hey Buddy": talk to Buddy from Listen-in, no tapping ----------------
+
+    private var wakeArmed = false
+
+    /** The words after "Hey Buddy", "" for the wake phrase alone, or null if it wasn't said. */
+    private fun afterWakePhrase(text: String): String? =
+        WAKE_PHRASE.find(text.trim())?.groupValues?.get(1)?.trim()
+
     private fun heard(text: String, final: Boolean) {
+        if (activeMode == Mode.LISTEN_IN && final) {
+            val request = if (wakeArmed) text else afterWakePhrase(text)
+            when {
+                request == null -> Unit
+                request.isEmpty() -> { wakeArmed = true; mouth.speak("Yeah?", quiet = true); return }
+                else -> { wakeArmed = false; sayToBuddy(request); return }
+            }
+        }
         if (activeMode == Mode.LISTEN_IN) {
             // Other people talking: the server decides whether to whisper. Never barge in.
             if (final) {
