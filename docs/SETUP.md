@@ -402,6 +402,11 @@ In Termux on your phone (Tailscale on):
    back (`scp buddy.db root@buddy:/var/lib/buddy/buddy.db`), then on the server
    `chown buddy:buddy /var/lib/buddy/buddy.db && systemctl restart buddy`.
 
+**Also save your database key.** A backup opened with the backup key is still locked with
+`BUDDY_DB_KEY`, and that key lives only on the server. To restore onto a new server, you
+need both. Once, after setup, run `grep BUDDY_DB_KEY /etc/buddy/buddy.env` on the server
+and save the value in your password manager as "Buddy database key".
+
 For a copy off the server, install `rclone`, configure a remote (for example
 Backblaze B2), and add `BUDDY_BACKUP_REMOTE=b2:my-bucket/buddy` to `/etc/buddy/buddy.env`.
 
