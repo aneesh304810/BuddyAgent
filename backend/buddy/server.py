@@ -32,6 +32,7 @@ import contextlib
 import logging
 import re
 import secrets
+import time
 
 import anthropic
 from fastapi import Depends, FastAPI, Header, HTTPException, Request, WebSocket, WebSocketDisconnect
@@ -336,7 +337,9 @@ async def talk(ws: WebSocket) -> None:
                 spoken.append(sentence)
                 await say(sentence)
 
+            started = time.monotonic()
             await convo.reply(text, say_and_keep, via)
+            log.info("reply took %.1fs (%d sentences)", time.monotonic() - started, len(spoken))
             # Buddy just asked for a yes (to send, book, spend...): the phone shows
             # Approve and Decline buttons, which answer "yes" or "no" for the user.
             new_thrift = thrift.pending is not None and thrift.pending.id != thrift_asks
@@ -398,8 +401,10 @@ async def talk(ws: WebSocket) -> None:
                 # Speech recognition on this server (Whisper): send back the text; the phone
                 # routes it like its own recognizer's (talk, Listen-in, "Hey Buddy").
                 try:
+                    started = time.monotonic()
                     heard, lang = await speech_to_text.transcribe(
                         base64.b64decode(msg["pcm"]), str(msg.get("lang", "")))
+                    log.info("whisper took %.1fs", time.monotonic() - started)
                     if heard:
                         await ws.send_json({"type": "heard", "text": heard, "lang": lang, "id": msg.get("id")})
                 except speech_to_text.WhisperUnavailable as e:
