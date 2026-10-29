@@ -8,13 +8,28 @@ hundred tokens instead of tens of thousands: better data for less money.
 |---|---|---|---|
 | **Google Trends** | What's being searched right now, per country, with the news behind it | Free | None: always on |
 | **Reddit** | Real people's opinions, reviews and tips; top posts and comments of any subreddit | Free (Reddit's personal-use API) | 2 minutes, below |
-| **Google results and News** (via Serper) | Google's own ranking, answer box, top stories, local results | About $0.001 | 2 minutes, below |
+| **Google results, News and Maps places** (via Serper) | Google's own ranking, answer box, top stories; places with ratings, prices and hours | About $0.001 | 2 minutes, below |
 | Claude's web search | Any page on the web | About $0.01 plus the results it reads | None |
 | Reading a whole page | Everything on one page | Its length in tokens (1–3 cents) | None |
 
 Results are cached (Google 15 minutes, Reddit and trends 30 minutes), so asking twice
 doesn't cost twice. The research and deals agents use these sources too, for example to
 check what real buyers say on Reddit before recommending a product.
+
+## Places that fit your taste
+Restaurants, cafes, bars and nightlife, spas, hotels, shops and things to do: Buddy searches
+Google Maps (ratings, number of reviews, price level, opening hours, address; needs the
+Serper key below) and picks the three that suit **you**, each with a line on why.
+
+It knows your taste from:
+- **what you say**: *"I love rooftop bars"*, *"no chains"*, *"I'm vegetarian"*, *"boutique hotels,
+  mid-range"*, *"that spa was amazing"*, saved as you talk (ask *"what's my taste in food?"*)
+- **where you go**: places in your life log (Maps Timeline, trips, stays)
+- **where you spend**: restaurants and shops from your money records
+
+Try: *"Find me a quiet cocktail bar in Barranco tonight"*, *"A good deep tissue massage near
+Brickell"*, *"Boutique hotel in Cusco under 150 dollars"*, *"Dinner in Kochi, something like the
+places I like"*. Say where you are if Buddy doesn't know.
 
 ## How freely Buddy searches
 

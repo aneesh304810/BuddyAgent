@@ -2,7 +2,7 @@
 
   Reddit        posts and top comments, any subreddit (free Reddit "script" app:
                 BUDDY_REDDIT_CLIENT_ID and BUDDY_REDDIT_SECRET)
-  Google        Google's own results and Google News, through Serper
+  Google        Google's own results, Google News and Google Maps places, through Serper
                 (BUDDY_SERPER_KEY; free credits, then about a dollar per 1,000 searches)
   Trending      Google Trends' trending searches for a country (free, no key)
 
@@ -129,6 +129,16 @@ class Social:
             out["top_stories"] = [{k: t.get(k) for k in ("title", "source", "date", "link")}
                                   for t in data["topStories"]]
         return out
+
+    # --- Google Maps places (Serper) ----------------------------------------------
+    def places(self, query: str, country: str = "US", num: int = 12) -> list[dict]:
+        body = json.dumps({"q": query, "gl": _country(country).lower()})
+        data = json.loads(self.http("https://google.serper.dev/places", body.encode(),
+                                    {"X-API-KEY": self.setting("BUDDY_SERPER_KEY"),
+                                     "Content-Type": "application/json"}))
+        keep = ("title", "category", "rating", "ratingCount", "priceLevel", "address", "openingHours",
+                "website", "phoneNumber", "description")
+        return [{k: p[k] for k in keep if p.get(k) not in (None, "", [])} for p in data.get("places", [])][:num]
 
     # --- Google Trends ----------------------------------------------------------
     def trending(self, country: str = "US", limit: int = 15) -> list[dict]:
