@@ -17,6 +17,7 @@
 #   6. Buddy published on your tailnet at https://<host>.<tailnet>.ts.net
 #   7. nightly encrypted backups
 set -euo pipefail
+trap 'echo "!! Setup stopped at line $LINENO ($BASH_COMMAND). It is safe to run the same command again." >&2' ERR
 
 REPO_URL="${1:?usage: bootstrap.sh <git-repo-url> [age-public-key | generate] [branch]}"
 AGE_RECIPIENT="${2:-generate}"
@@ -38,8 +39,9 @@ if [[ "$AGE_RECIPIENT" == generate ]]; then
   if [[ -f $ENV_FILE ]] && grep -q "^BUDDY_AGE_RECIPIENT=age1" "$ENV_FILE"; then
     AGE_RECIPIENT=$(grep "^BUDDY_AGE_RECIPIENT=" "$ENV_FILE" | cut -d= -f2)   # re-run: keep the key
   else
-    KEYFILE=$(mktemp)
-    age-keygen -o "$KEYFILE" 2>/dev/null
+    KEYDIR=$(mktemp -d)
+    KEYFILE="$KEYDIR/backup.key"   # age-keygen refuses to write over an existing file
+    age-keygen -o "$KEYFILE"
     AGE_RECIPIENT=$(age-keygen -y "$KEYFILE")
     echo
     echo "================ YOUR BACKUP KEY: SAVE IT NOW ================"
@@ -55,6 +57,7 @@ if [[ "$AGE_RECIPIENT" == generate ]]; then
       until [[ "$answer" == SAVED ]]; do read -rp "Type SAVED: " answer; done
     fi
     shred -u "$KEYFILE" 2>/dev/null || rm -f "$KEYFILE"
+    rmdir "$KEYDIR"
   fi
 fi
 dpkg-reconfigure -f noninteractive unattended-upgrades

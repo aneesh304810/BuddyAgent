@@ -171,8 +171,11 @@ ssh -T git@github.com
 
 ### Step 6. Run the setup script
 
-On the server (`root@buddy:~#`):
+On the server (`root@buddy:~#`), start `tmux` first so the setup keeps going if your
+phone's connection drops (reconnect with `ssh root@<IP>`, then `tmux attach`):
 ```
+tmux
+rm -rf /tmp/buddy-setup
 git clone --branch claude/personal-ai-voice-assistant-0zc5yh git@github.com:aneesh304810/BuddyAgent.git /tmp/buddy-setup
 sudo bash /tmp/buddy-setup/deploy/bootstrap.sh git@github.com:aneesh304810/BuddyAgent.git generate claude/personal-ai-voice-assistant-0zc5yh
 ```
