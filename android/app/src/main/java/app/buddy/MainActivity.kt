@@ -66,6 +66,7 @@ import androidx.core.app.NotificationManagerCompat
 
 /** Languages people around you might speak, for Listen-in. South America first. */
 val ROOM_LANGUAGES = listOf(
+    AUTO_LANGUAGE to "Automatic (Buddy works it out)",
     "es-419" to "Spanish (Latin America)",
     "pt-BR" to "Portuguese (Brazil)",
     "es-ES" to "Spanish (Spain)",
@@ -395,7 +396,7 @@ private fun SettingsPanel(
     var tokenText by remember { mutableStateOf("") }
     var problem by remember { mutableStateOf<String?>(null) }
     var earbudMic by remember { mutableStateOf(prefs.earbudMic) }
-    var earbudMicListenIn by remember { mutableStateOf(prefs.earbudMicListenIn) }
+    var listenMic by remember { mutableStateOf(prefs.listenMic) }
     var deviceName by remember { mutableStateOf(prefs.deviceName) }
     var shareCalendar by remember { mutableStateOf(prefs.shareCalendar) }
     var workBusyOnly by remember { mutableStateOf(prefs.workBusyOnly) }
@@ -454,20 +455,21 @@ private fun SettingsPanel(
             }
             Switch(checked = earbudMic, onCheckedChange = { earbudMic = it; prefs.earbudMic = it })
         }
-        Row(verticalAlignment = Alignment.CenterVertically) {
-            Column(Modifier.weight(1f)) {
-                Text("Listen-in through the earbuds", color = Color.White)
-                Text(
-                    "Hear the room with the earbud microphone instead of the phone's. Best for one person " +
-                        "close by; earbud mics filter out other voices, so the phone hears a group better. " +
-                        "Earbuds switch to headset mode (phone-call sound) and use more battery.",
-                    color = Muted, fontSize = 13.sp,
+        Text("Listen-in microphone", color = Color.White)
+        Text(
+            "Automatic: the phone's mic, or the earbuds' while the phone is in your pocket. " +
+                "Earbud mics favour one nearby voice and switch the earbuds to phone-call sound.",
+            color = Muted, fontSize = 13.sp,
+        )
+        Row(horizontalArrangement = Arrangement.spacedBy(8.dp)) {
+            listOf("auto" to "Automatic", "phone" to "Phone", "earbuds" to "Earbuds").forEach { (value, name) ->
+                FilterChip(
+                    selected = listenMic == value,
+                    onClick = { listenMic = value; prefs.listenMic = value },
+                    label = { Text(name) },
                 )
             }
-            Switch(checked = earbudMicListenIn, onCheckedChange = {
-                earbudMicListenIn = it
-                prefs.earbudMicListenIn = it
-            })
+        })
         }
 
         Spacer(Modifier.height(8.dp))

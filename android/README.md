@@ -10,7 +10,7 @@ live on your private server; this app connects to it over Tailscale.
 | Talk to Buddy | Tap the orb, or tap your earbud (play/pause). Hands-free keeps listening after each reply. |
 | Interrupt | Just start talking over Buddy. |
 | Works with the screen off | Runs as a foreground service with a "Buddy" notification (Android requires it). |
-| Listen-in | Hears the room through the phone's mic (or the earbud mic, if you turn that on in Settings), in the language you pick, and whispers translations, "they're talking about you" and fact checks. |
+| Listen-in | Works out the room's language by itself (Android 14+, or pick one) and the microphone: the phone's, or the earbuds' while the phone is in your pocket. Hears the room in the language you pick, and whispers translations, "they're talking about you" and fact checks. |
 | Reminders and nudges | Spoken in your earbuds and shown as notifications. |
 | Calls | Pauses itself during any call (phone, WhatsApp, Teams, Meet) and resumes afterwards. Android doesn't let apps hear call audio. |
 | Typing | Type to Buddy when you can't talk. |

@@ -34,7 +34,7 @@ class BuddyPrefs(context: Context) {
 
     /** Listen-in mode: the language people around you are speaking. */
     var roomLanguage: String
-        get() = prefs.getString("roomLanguage", "es-419") ?: "es-419"
+        get() = prefs.getString("roomLanguage", AUTO_LANGUAGE) ?: AUTO_LANGUAGE
         set(value) = prefs.edit().putString("roomLanguage", value).apply()
 
     /** Talk mode: hear you through the earbud microphone instead of the phone's. */
@@ -42,10 +42,11 @@ class BuddyPrefs(context: Context) {
         get() = prefs.getBoolean("earbudMic", false)
         set(value) = prefs.edit().putBoolean("earbudMic", value).apply()
 
-    /** Listen-in: hear the room through the earbud microphone instead of the phone's. */
-    var earbudMicListenIn: Boolean
-        get() = prefs.getBoolean("earbudMicListenIn", false)
-        set(value) = prefs.edit().putBoolean("earbudMicListenIn", value).apply()
+    /** Listen-in microphone: "auto" (earbuds while the phone is in a pocket), "phone" or "earbuds". */
+    var listenMic: String
+        get() = prefs.getString("listenMic", null)
+            ?: if (prefs.getBoolean("earbudMicListenIn", false)) "earbuds" else "auto"
+        set(value) = prefs.edit().putString("listenMic", value).apply()
 
     /** How this phone is labelled on the server, e.g. "Fold 8" or "Work phone". */
     var deviceName: String

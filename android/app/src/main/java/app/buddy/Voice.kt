@@ -3,6 +3,7 @@ package app.buddy
 import android.content.Context
 import android.content.Intent
 import android.media.AudioAttributes
+import android.os.Build
 import android.os.Bundle
 import android.os.Handler
 import android.os.Looper
@@ -13,6 +14,14 @@ import android.speech.tts.TextToSpeech
 import android.speech.tts.UtteranceProgressListener
 import android.speech.tts.Voice
 import java.util.Locale
+
+/** Room language "automatic": the recognizer detects it (Android 14+). */
+const val AUTO_LANGUAGE = "auto"
+
+/** Languages automatic mode listens for: the user's own, then the common ones around them. */
+val DETECTABLE_LANGUAGES = listOf(
+    "en-US", "hi-IN", "ml-IN", "ta-IN", "mr-IN", "es-419", "pt-BR", "kn-IN", "te-IN", "fr-FR",
+)
 
 /**
  * Buddy's ears: Android speech recognition, restarted after every phrase so it
@@ -27,7 +36,13 @@ class Ears(
     private val main = Handler(Looper.getMainLooper())
     private var recognizer: SpeechRecognizer? = null
     private var language = "en-US"
+    private var autoLanguage = false
+    private var detected: String? = null
     private var failures = 0
+
+    /** What is being transcribed: the chosen language, or (automatic) the last one heard. */
+    val currentLanguage: String
+        get() = if (autoLanguage) detected ?: language else language
 
     var active = false
         private set
@@ -37,7 +52,9 @@ class Ears(
             onProblem("This phone has no speech recognition service. Install or update the Google app.")
             return
         }
-        language = lang
+        autoLanguage = lang == AUTO_LANGUAGE
+        language = if (autoLanguage) Locale.getDefault().toLanguageTag() else lang
+        detected = null
         failures = 0
         if (recognizer == null) {
             recognizer = SpeechRecognizer.createSpeechRecognizer(context).also {
@@ -68,8 +85,16 @@ class Ears(
         if (!active) return
         val intent = Intent(RecognizerIntent.ACTION_RECOGNIZE_SPEECH).apply {
             putExtra(RecognizerIntent.EXTRA_LANGUAGE_MODEL, RecognizerIntent.LANGUAGE_MODEL_FREE_FORM)
-            putExtra(RecognizerIntent.EXTRA_LANGUAGE, language)
+            putExtra(RecognizerIntent.EXTRA_LANGUAGE, currentLanguage)
             putExtra(RecognizerIntent.EXTRA_PARTIAL_RESULTS, true)
+            if (autoLanguage && Build.VERSION.SDK_INT >= Build.VERSION_CODES.UPSIDE_DOWN_CAKE) {
+                // Android 14+: the recognizer works out the language and follows switches.
+                val languages = ArrayList(DETECTABLE_LANGUAGES)
+                putExtra(RecognizerIntent.EXTRA_ENABLE_LANGUAGE_DETECTION, true)
+                putStringArrayListExtra(RecognizerIntent.EXTRA_LANGUAGE_DETECTION_ALLOWED_LANGUAGES, languages)
+                putExtra(RecognizerIntent.EXTRA_ENABLE_LANGUAGE_SWITCH, RecognizerIntent.LANGUAGE_SWITCH_BALANCED)
+                putStringArrayListExtra(RecognizerIntent.EXTRA_LANGUAGE_SWITCH_ALLOWED_LANGUAGES, languages)
+            }
             putExtra(RecognizerIntent.EXTRA_SPEECH_INPUT_COMPLETE_SILENCE_LENGTH_MILLIS, 1_500L)
         }
         runCatching { recognizer?.startListening(intent) }.onFailure { restartSoon() }
@@ -98,7 +123,10 @@ class Ears(
                     stop()
                 }
                 SpeechRecognizer.ERROR_LANGUAGE_NOT_SUPPORTED,
-                SpeechRecognizer.ERROR_LANGUAGE_UNAVAILABLE -> {
+                SpeechRecognizer.ERROR_LANGUAGE_UNAVAILABLE -> if (autoLanguage && detected != null) {
+                    detected = null // a detected language this phone can't transcribe: back to the default
+                    restartSoon()
+                } else {
                     onProblem("Speech recognition doesn't support $language on this phone yet.")
                     stop()
                 }
@@ -116,6 +144,14 @@ class Ears(
             failures = 0
             best(results)?.let { onHeard(it, true) }
             restartSoon()
+        }
+
+        override fun onLanguageDetection(results: Bundle) {
+            val lang = results.getString(SpeechRecognizer.DETECTED_LANGUAGE) ?: return
+            val level = results.getInt(SpeechRecognizer.LANGUAGE_DETECTION_CONFIDENCE_LEVEL)
+            if (autoLanguage && level >= SpeechRecognizer.LANGUAGE_DETECTION_CONFIDENCE_LEVEL_CONFIDENT) {
+                detected = lang
+            }
         }
 
         override fun onPartialResults(partialResults: Bundle?) {

@@ -5,6 +5,10 @@ import android.app.Service
 import android.content.Context
 import android.content.Intent
 import android.content.pm.ServiceInfo
+import android.hardware.Sensor
+import android.hardware.SensorEvent
+import android.hardware.SensorEventListener
+import android.hardware.SensorManager
 import android.media.AudioDeviceInfo
 import android.media.AudioManager
 import android.os.IBinder
@@ -104,6 +108,7 @@ class BuddyService : Service() {
         ears.destroy()
         mouth.shutdown()
         calls.stop()
+        stopListenMic()
         button.release()
         calendarTimer.removeCallbacksAndMessages(null)
         useEarbudMic(false)
@@ -237,7 +242,7 @@ class BuddyService : Service() {
         if (ears.active) stopListening()
         activeMode = mode
         BuddyState.update { it.copy(mode = mode) }
-        useEarbudMic(if (mode == Mode.TALK) prefs.earbudMic else prefs.earbudMicListenIn)
+        if (mode == Mode.TALK) useEarbudMic(prefs.earbudMic) else startListenMic()
         val language = if (mode == Mode.LISTEN_IN) prefs.roomLanguage else Locale.getDefault().toLanguageTag()
         ears.start(language)
     }
@@ -247,7 +252,43 @@ class BuddyService : Service() {
             client?.send(JSONObject().put("type", "ambient_stop"))
         }
         ears.stop()
+        stopListenMic()
         useEarbudMic(false)
+    }
+
+    // --- Listen-in microphone: automatic follows the phone in and out of a pocket ---------
+    private var inPocket = false
+    private val proximity = object : SensorEventListener {
+        override fun onSensorChanged(event: SensorEvent) {
+            val near = event.values[0] < event.sensor.maximumRange.coerceAtMost(5f)
+            if (near == inPocket) return
+            inPocket = near
+            // In a pocket the phone's mic is muffled: hear the room through the earbuds instead.
+            if (ears.active && activeMode == Mode.LISTEN_IN) useEarbudMic(inPocket)
+        }
+
+        override fun onAccuracyChanged(sensor: Sensor?, accuracy: Int) {}
+    }
+
+    private fun startListenMic() {
+        when (prefs.listenMic) {
+            "earbuds" -> useEarbudMic(true)
+            "phone" -> useEarbudMic(false)
+            else -> {
+                val sensors = getSystemService(SensorManager::class.java)
+                val sensor = sensors?.getDefaultSensor(Sensor.TYPE_PROXIMITY)
+                if (sensor == null) {
+                    useEarbudMic(false)
+                } else {
+                    sensors?.registerListener(proximity, sensor, SensorManager.SENSOR_DELAY_NORMAL)
+                    useEarbudMic(inPocket)
+                }
+            }
+        }
+    }
+
+    private fun stopListenMic() {
+        getSystemService(SensorManager::class.java)?.unregisterListener(proximity)
     }
 
     /** One button does the obvious thing: interrupt Buddy, or start/stop listening. */
@@ -267,7 +308,7 @@ class BuddyService : Service() {
             // Other people talking: the server decides whether to whisper. Never barge in.
             if (final) {
                 client?.send(
-                    JSONObject().put("type", "ambient").put("text", text).put("lang", prefs.roomLanguage)
+                    JSONObject().put("type", "ambient").put("text", text).put("lang", ears.currentLanguage)
                 )
             }
             return
