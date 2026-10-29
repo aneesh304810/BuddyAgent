@@ -18,6 +18,7 @@ from .jobs import JOB_TOOL_NAMES, JOB_TOOLS, JobRunner, run_job_tool
 from .connectors import CONNECTOR_TOOL_NAMES, CONNECTOR_TOOLS, ConnectorHub, run_connector_tool
 from .finops import COST_TOOL, FinOps
 from .mailbrain import MAIL_TOOL_NAMES, MAIL_TOOLS, MailManager, run_mail_tool
+from .money import MONEY_TOOL_NAMES, MONEY_TOOLS, Money, run_money_tool
 from .organiser import TASK_TOOL_NAMES, TASK_TOOLS, Organiser, run_task_tool
 from .thrift import SPENDING_TOOL, Thrift
 from .memory import Memory
@@ -82,6 +83,7 @@ class Conversation:
         self.finops = finops
         self.mail = mail
         self.organiser = Organiser(memory)
+        self.money = Money(memory)
         self.messages: list[dict] = []
         self.turn = 0  # counts user messages; approvals need a newer one
         # Frozen for the whole session so the cached prompt prefix stays valid.
@@ -178,7 +180,7 @@ class Conversation:
         spending = [SPENDING_TOOL] if self.thrift else []
         spending += [COST_TOOL] if self.finops else []
         spending += MAIL_TOOLS if self.mail else []
-        spending += TASK_TOOLS
+        spending += TASK_TOOLS + MONEY_TOOLS
         spending += CONNECTOR_TOOLS if self.hub else []
         return (
             CLIENT_TOOLS + orchestration + job_tools + spending + [_expert_tool()]
@@ -206,6 +208,8 @@ class Conversation:
             return run_job_tool(self.jobs, name, args, self.thrift)
         if self.hub and name in CONNECTOR_TOOL_NAMES:
             return await run_connector_tool(self.hub, name, args)
+        if name in MONEY_TOOL_NAMES:
+            return run_money_tool(self.money, name, args)
         if name in TASK_TOOL_NAMES:
             return run_task_tool(self.organiser, name, args)
         if self.mail and name in MAIL_TOOL_NAMES:

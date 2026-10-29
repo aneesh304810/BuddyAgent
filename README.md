@@ -31,6 +31,8 @@ people talk about you, and corrects technical nonsense in the room.
 | **Travels with you** | Buddy follows your phone's time zone across the US, South America and India. |
 | **Thrifty, with your approval** | Takes the cheapest good route (memory, then web search only for current facts, quick before deep research). Daily, Listen-in and monthly allowances; when one runs out, or an action costs over $0.50, Buddy asks first. Your yes is read in code, so the AI can't approve its own spending. Hard cap on top. Yesterday's cost in the morning briefing; "how much have you cost me?" works. |
 | **Connectors** | One systematic way to plug in apps (`docs/CONNECTORS.md`): Calendar (private iCal link) and Email (read-only) today; bank, Airbnb, Takeout, Oura and more planned. Read-only, masked, encrypted, with health and a kill switch; app content is treated as information, never instructions. |
+| **Organiser** | To-do lists by voice (shopping, work, home), due dates and priorities; the morning briefing says what's due, the evening wrap-up (9 pm) celebrates what got done and previews tomorrow. |
+| **Money agent** | Reads charges, bills, payments and refunds from your bank and card emails; spending by category and currency, cash expenses by voice, bill reminders before the due date, monthly limits with warnings at 80% and 100%. |
 | **Email manager** | Sorts new mail from all your accounts by priority and your rules, tells you about urgent mail right away, organises Gmail automatically (label, archive, mark read) after your one-time yes. |
 | **Gmail agent** | Read, search, draft, send and clean up Gmail (archive, trash, mark read, label, unsubscribe links) with the same app password; sending and cleanup ask first, trash is recoverable for 30 days. |
 | **Zapier agent** | Thousands of everyday apps (Notion, Todoist, Sheets, Slack...) through Zapier MCP (`docs/ZAPIER.md`). Changes need your yes; lookups don't; daily and monthly call limits; secrets in the server's settings file. |
@@ -101,8 +103,7 @@ Tests: `cd backend && pytest`
 | ✅ Done | Connectors: calendar, email, phone notifications, phone and work calendars |
 | ✅ Done | Agents: Gmail across all accounts (read, draft, send, cleanup), email manager (priorities, rules, auto-organise), Zapier |
 | ✅ Done | Android app: screen-off listening, earbud button, call pause, voice picker, smart Listen-in, starts when earbuds connect, "Hey Buddy" |
-| Next | Money agent: card bill reminders, expense tracking, spending limits |
-| Next | Organiser: tasks, evening wrap-up (morning briefing done) |
+| ✅ Done | Organiser (tasks, evening wrap-up) and money agent (spending, bills, limits) |
 | Next | Approve/Decline buttons on notifications |
 | Later | Whisper speech-to-text on the server, English tutor, flights and travel, life log, Oura Ring, call co-pilot, learns your style, agent builder, Galaxy Watch |
 

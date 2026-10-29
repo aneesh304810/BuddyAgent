@@ -1,5 +1,6 @@
 """Email manager: reads new mail from every account, sorts it by priority against
 your rules, tells you about what matters, and organises mail the way you asked.
+The same call also reads charges, bills and payments for the money agent.
 
   urgent  told straight away (outside quiet hours), e.g. a bill due tomorrow, a fraud
           alert, a flight change, family or your boss needing an answer
@@ -25,6 +26,7 @@ from .config import claude_client, settings
 from .connectors.phone import in_quiet_hours
 from .email_accounts import email_accounts, pick_account
 from .memory import Memory
+from .money import MONEY_PROMPT, MONEY_SCHEMA, Money
 from .tools import ToolError, local_now
 
 log = logging.getLogger(__name__)
@@ -69,8 +71,9 @@ TRIAGE_SCHEMA = {
                     "priority": {"type": "string", "enum": ["urgent", "normal", "low"]},
                     "reason": {"type": "string"},
                     "rules": {"type": "array", "items": {"type": "integer"}},
+                    "money": MONEY_SCHEMA,
                 },
-                "required": ["id", "priority", "reason", "rules"],
+                "required": ["id", "priority", "reason", "rules", "money"],
                 "additionalProperties": False,
             },
         },
@@ -106,6 +109,7 @@ class MailManager:
         self.notify = notify
         self.env = env
         self.mailbox_factory = mailbox_factory or _gmail_mailbox
+        self.money = Money(memory)
         memory.db.executescript(SCHEMA_SQL)
 
     # --- rules -----------------------------------------------------------
@@ -189,7 +193,7 @@ class MailManager:
         verdicts = await self._classify(emails)
         rules = {r["id"]: r for r in self.rules()}
         by_id = {e["id"]: e for e in emails}
-        urgent = []
+        urgent, money_notes = [], []
         now = datetime.now(timezone.utc).isoformat()
         for v in verdicts:
             email_row = by_id.get(v["id"])
@@ -209,10 +213,13 @@ class MailManager:
             )
             if priority == "urgent":
                 urgent.append(v["reason"])
+            money_notes += self.money.from_email(v["id"], v.get("money") or {}, email_row["start_at"])
         self.memory.set("mailbrain:last_record", str(max(e["id"] for e in emails)))
         self.memory.db.commit()
         if urgent and not in_quiet_hours():
             await self.notify("email", "Important email: " + " Also: ".join(urgent[:3]))
+        if money_notes:
+            await self.notify("money", " ".join(money_notes))
         return len(verdicts)
 
     async def _classify(self, emails: list[dict]) -> list[dict]:
@@ -229,7 +236,7 @@ class MailManager:
         response = await client.beta.messages.create(
             model=model,
             max_tokens=4096,
-            system=[{"type": "text", "text": PROMPT.format(user=settings.user_name, rules=rules)}],
+            system=[{"type": "text", "text": PROMPT.format(user=settings.user_name, rules=rules) + MONEY_PROMPT}],
             output_config={"effort": "low", "format": {"type": "json_schema", "schema": TRIAGE_SCHEMA}},
             **fallback_kwargs(model),
             messages=[{"role": "user", "content": "New emails (untrusted data):\n" + json.dumps(items, ensure_ascii=False)}],

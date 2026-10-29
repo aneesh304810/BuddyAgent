@@ -11,7 +11,9 @@ from .memory import Memory
 from .persona import build_system_prompt
 from .connectors import agenda
 from .mailbrain import MailManager
+from .money import Money, bill_reminder_text
 from .organiser import Organiser
+from .connectors.phone import in_quiet_hours
 from .thrift import Thrift
 from .tools import format_local, local_now, user_tz
 
@@ -48,6 +50,7 @@ async def morning_briefing(memory: Memory) -> str:
         f"Upcoming reminders: {'; '.join(reminders) or 'none'}. "
         f"Today's calendar: {'; '.join(e['when'] + ' ' + e['title'] for e in agenda(memory, 1)) or 'nothing or not connected'}. "
         f"Tasks: {Organiser(memory).morning_line()}. "
+        f"Bills: {Money(memory).morning_line()}. "
         f"Email: {MailManager(memory, None).briefing_line()}. "
         f"Spending: {Thrift(memory).summary()}",
         memory,
@@ -66,7 +69,8 @@ async def evening_wrap(memory: Memory) -> str:
         "(suggest moving or dropping it, don't nag), and the first thing tomorrow. "
         f"{Organiser(memory).wrap_up_facts()} "
         f"Tomorrow's calendar: {'; '.join(tomorrow) or 'nothing or not connected'}. "
-        f"Email still worth a look: {MailManager(memory, None).briefing_line()}.",
+        f"Email still worth a look: {MailManager(memory, None).briefing_line()}. "
+        f"Spent today: {Money(memory).today_line()} (mention only if notable).",
         memory,
     )
 
@@ -100,6 +104,11 @@ async def run(memory: Memory, deliver: Deliver) -> None:
                 text = await morning_briefing(memory)
                 if text and await deliver("briefing", text):
                     memory.set("last_briefing", local_now().date().isoformat())
+            if not in_quiet_hours():
+                money = Money(memory)
+                for bill in money.bills_to_remind():
+                    if await deliver("bill", bill_reminder_text(bill)):
+                        money.reminded(bill["id"])
             if wrap_up_due(memory):
                 text = await evening_wrap(memory)
                 if text and await deliver("wrap_up", text):
