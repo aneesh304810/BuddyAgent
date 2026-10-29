@@ -67,3 +67,8 @@ dialog#report pre { white-space: pre-wrap; overflow-x: auto; font-size: .85rem; 
 dialog#report a { color: var(--accent); }
 .job { padding: 10px 0; border-bottom: 1px solid rgba(255, 255, 255, .08); cursor: pointer; }
 .job small { opacity: .7; }
+
+#typeForm { display: flex; gap: 8px; width: 100%; }
+#typeBox { flex: 1; min-width: 0; padding: 10px 14px; border-radius: 999px; border: 1px solid var(--panel); background: var(--panel); color: var(--text); font-size: 16px; }
+#typeBox:focus { outline: none; border-color: var(--accent); }
+#typeForm button { padding: 10px 16px; border: 0; border-radius: 999px; background: var(--user); color: #fff; font-size: 15px; }

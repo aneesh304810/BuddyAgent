@@ -172,6 +172,14 @@ function sendUser(text) {
   send({ type: "user", text });
 }
 
+// Typing works too: in a quiet office, or when speech recognition isn't available.
+document.getElementById("typeForm").addEventListener("submit", (e) => {
+  e.preventDefault();
+  const box = document.getElementById("typeBox");
+  const text = box.value.trim();
+  if (text) { sendUser(text); box.value = ""; }
+});
+
 function interrupt() {
   stopSpeaking();
   muted = true;
