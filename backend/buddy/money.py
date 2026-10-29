@@ -2,7 +2,8 @@
 
 Charges, bills, payments and refunds are read from bank and card emails by the
 email manager (the same cheap sorting call, no extra cost) and can be added by
-voice. Bills due within BILL_WARN_DAYS get a reminder once a day until paid;
+voice. With a bank feed (bankfeed.py, SimpleFIN), transactions and balances come
+straight from the banks instead, and emails are used only for bills. Bills due within BILL_WARN_DAYS get a reminder once a day until paid;
 a payment email for the same biller marks the bill paid. Monthly limits per
 category warn at 80% and again at 100%. Amounts stay in their own currency
 (US dollars, soles, reais, rupees...); nothing is converted or guessed.
@@ -147,6 +148,8 @@ class Money:
         amount = float(money.get("amount") or 0)
         if kind == "none" or (amount <= 0 and kind != "payment"):
             return []
+        if kind in ("charge", "refund") and self.memory.get("money:bank_feed"):
+            return []  # the bank feed already has every transaction, exactly
         source = f"email:{record_id}"
         day = (received or "")[:10] or None
         merchant, currency, card = money.get("merchant", ""), money.get("currency", "USD"), money.get("card", "")

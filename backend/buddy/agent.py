@@ -16,6 +16,7 @@ from .agents import AgentRegistry, ApprovalNeeded
 from .config import claude_client, settings
 from .jobs import JOB_TOOL_NAMES, JOB_TOOLS, JobRunner, run_job_tool
 from .connectors import CONNECTOR_TOOL_NAMES, CONNECTOR_TOOLS, ConnectorHub, run_connector_tool
+from .bankfeed import BALANCES_TOOL, BankFeed, run_balances_tool
 from .builder import BUILDER_TOOL_NAMES, BUILDER_TOOLS, AgentBuilder, run_builder_tool
 from .deals import WATCH_TOOL_NAMES, WATCH_TOOLS, PriceWatcher, run_watch_tool
 from .finops import COST_TOOL, FinOps
@@ -92,6 +93,7 @@ class Conversation:
         self.organiser = Organiser(memory)
         self.money = Money(memory)
         self.lifelog = LifeLog(memory)
+        self.bank = BankFeed(memory)
         self.messages: list[dict] = []
         self.turn = 0  # counts user messages; approvals need a newer one
         # Frozen for the whole session so the cached prompt prefix stays valid.
@@ -188,7 +190,7 @@ class Conversation:
         spending = [SPENDING_TOOL] if self.thrift else []
         spending += [COST_TOOL] if self.finops else []
         spending += MAIL_TOOLS if self.mail else []
-        spending += TASK_TOOLS + MONEY_TOOLS + [LIFELOG_TOOL]
+        spending += TASK_TOOLS + MONEY_TOOLS + [BALANCES_TOOL, LIFELOG_TOOL]
         spending += WATCH_TOOLS if self.watcher else []
         spending += BUILDER_TOOLS if self.builder and self.jobs else []
         spending += CONNECTOR_TOOLS if self.hub else []
@@ -222,6 +224,8 @@ class Conversation:
             return await run_builder_tool(self.builder, self.jobs, name, args, self.thrift)
         if self.watcher and name in WATCH_TOOL_NAMES:
             return await run_watch_tool(self.watcher, name, args, self.thrift)
+        if name == "account_balances":
+            return await run_balances_tool(self.bank, args)
         if name == "life_log":
             return run_lifelog_tool(self.lifelog, args)
         if name in MONEY_TOOL_NAMES:

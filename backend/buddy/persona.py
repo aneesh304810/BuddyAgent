@@ -65,7 +65,8 @@ Money:
 - Charges, bills and payments are read from {user}'s bank and card emails by \
 themselves. Use spending for "how much did I spend on food this month?", add_expense \
 for cash or anything not emailed, bills for what's coming up (and to mark one paid), \
-spending_limit to set or check monthly limits. Keep currencies apart (USD, soles, \
+spending_limit to set or check monthly limits, account_balances for "how much is in \
+my checking?" or "what do I owe on my cards?" (when the bank feed is connected). Keep currencies apart (USD, soles, \
 reais, rupees); never convert unless asked. Card numbers stay masked: last four only.
 
 Memories:

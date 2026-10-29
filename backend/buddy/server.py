@@ -45,6 +45,7 @@ from .memory import Memory
 from .connectors import ConnectorHub
 from .connectors.phone import NotificationsConnector, PhoneCalendarConnector, should_announce
 from .privacy import mask
+from .bankfeed import BankFeed
 from .builder import AgentBuilder
 from .deals import PriceWatcher
 from .finops import FinOps
@@ -109,6 +110,7 @@ hub = ConnectorHub(memory)
 finops = FinOps(memory)
 mail = MailManager(memory, deliver)
 watcher = PriceWatcher(memory, deliver)
+bank = BankFeed(memory, deliver)
 jobs = JobRunner(memory, job_finished)
 jobs.register("research", research.run_research)
 builder = AgentBuilder(memory, registry)
@@ -125,6 +127,7 @@ async def lifespan(app: FastAPI):
     sync_loop = asyncio.create_task(hub.run())
     mail_loop = asyncio.create_task(mail.run())
     watch_loop = asyncio.create_task(watcher.run())
+    bank_loop = asyncio.create_task(bank.run())
     try:
         yield
     finally:
@@ -134,6 +137,7 @@ async def lifespan(app: FastAPI):
         sync_loop.cancel()
         mail_loop.cancel()
         watch_loop.cancel()
+        bank_loop.cancel()
         await registry.close()
 
 
