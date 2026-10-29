@@ -103,7 +103,11 @@ class BuddyService : Service() {
             BuddyState.update { it.copy(speaking = on) }
             // Buddy's voice plays through the speech engine, which Android counts as another
             // app: claim the earbud button back after every reply.
-            if (!on) claimEarbud()
+            if (!on) {
+                claimEarbud()
+                // Just answered something asked with "Hey Buddy": a follow-up needs no wake phrase.
+                if (answeringRoom) followUpUntil = android.os.SystemClock.elapsedRealtime() + FOLLOW_UP_MS
+            }
         }
         calls = CallWatcher(this, ::callChanged)
         button = EarbudButton(this) { toggle() }
@@ -270,6 +274,7 @@ class BuddyService : Service() {
     /** Something you said or typed, for Buddy. via "room": heard through Listen-in ("Hey Buddy, ..."),
      *  where anyone nearby could have said it, so the server won't take it as an approval. */
     fun sayToBuddy(text: String, via: String = "user") {
+        if (via != "room") answeringRoom = false
         if (BuddyState.ui.value.approval != null) {  // any answer settles the question
             BuddyState.update { it.copy(approval = null) }
             Notes.clearApproval(this)
@@ -397,6 +402,9 @@ class BuddyService : Service() {
     // --- "Hey Buddy": talk to Buddy from Listen-in, no tapping ----------------
 
     private var wakeArmed = false
+    private var answeringRoom = false   // Buddy's current reply answers a "Hey Buddy" request
+    private var followUpUntil = 0L
+    private val FOLLOW_UP_MS = 8_000L
 
     /** The words after "Hey Buddy", "" for the wake phrase alone, or null if it wasn't said. */
     private fun afterWakePhrase(text: String): String? =
@@ -404,11 +412,18 @@ class BuddyService : Service() {
 
     private fun heard(text: String, final: Boolean) {
         if (activeMode == Mode.LISTEN_IN && final) {
-            val request = if (wakeArmed) text else afterWakePhrase(text)
+            val followUp = android.os.SystemClock.elapsedRealtime() < followUpUntil
+            val request = if (wakeArmed || followUp) afterWakePhrase(text) ?: text else afterWakePhrase(text)
             when {
                 request == null -> Unit
                 request.isEmpty() -> { wakeArmed = true; mouth.speak("Yeah?", quiet = true); return }
-                else -> { wakeArmed = false; sayToBuddy(request, via = "room"); return }
+                else -> {
+                    wakeArmed = false
+                    followUpUntil = 0L
+                    answeringRoom = true
+                    sayToBuddy(request, via = "room")
+                    return
+                }
             }
         }
         if (activeMode == Mode.LISTEN_IN) {

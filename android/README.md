@@ -7,7 +7,7 @@ live on your private server; this app connects to it over Tailscale.
 
 | Feature | How |
 |---|---|
-| No tapping | Put your earbuds in and Buddy starts Listen-in by itself; say "Hey Buddy, ..." to talk to it. Take them out and it stops. (Settings → When earbuds connect.) |
+| No tapping | Put your earbuds in and Buddy starts Listen-in by itself; say "Hey Buddy, ..." to talk to it; for 8 seconds after each answer, a follow-up needs no "Hey Buddy". Take them out and it stops. (Settings → When earbuds connect.) |
 | Talk to Buddy | Tap the orb, or tap your earbud (play/pause). Hands-free keeps listening after each reply. |
 | Interrupt | Just start talking over Buddy. |
 | Works with the screen off | Runs as a foreground service with a "Buddy" notification (Android requires it). |
