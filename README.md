@@ -93,17 +93,16 @@ Tests: `cd backend && pytest`
 
 ## Roadmap
 
-| Phase | What |
+| Status | What |
 |---|---|
-| 0 ✅ | Private server, encryption, masking, orchestrator and agent registry |
-| 1 | Money agent: card bill reminders, expense tracking, spending limits |
-| 2 | Organiser: tasks, morning briefing, evening wrap-up |
-| 3 | Gmail and Calendar |
-| 1a | Background jobs ✅ and research agent ✅. Next: life log, connectors |
-| 4 | Native Android app ✅ first version: screen-off listening, earbud button, call pause. Next: wake word, approval buttons |
-| 5 | English tutor: grammar, American pronunciation, WhatsApp lessons |
-| 6 | Research and flights |
-| 7 | Learns your style |
-| 8 | Agent builder |
+| ✅ Done | Private server, encryption, masking, orchestrator and agent registry |
+| ✅ Done | Background jobs, research agent, expert escalation, thrifty spending limits, FinOps cost report |
+| ✅ Done | Connectors: calendar, email, phone notifications, phone and work calendars |
+| ✅ Done | Agents: Gmail (read, draft, send, cleanup), Zapier |
+| ✅ Done | Android app: screen-off listening, earbud button, call pause, voice picker, smart Listen-in, starts when earbuds connect, "Hey Buddy" |
+| Next | Money agent: card bill reminders, expense tracking, spending limits |
+| Next | Organiser: tasks, evening wrap-up (morning briefing done) |
+| Next | Approve/Decline buttons on notifications |
+| Later | Whisper speech-to-text on the server, English tutor, flights and travel, life log, Oura Ring, call co-pilot, learns your style, agent builder, Galaxy Watch |
 
 The Android app's install guide is in [`android/README.md`](android/README.md).
