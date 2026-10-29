@@ -214,3 +214,20 @@ def test_whispers_become_context_for_follow_ups():
     convo.messages.append({"role": "user", "content": "a question being answered"})
     convo.note_proactive("A nudge")  # mid-turn: not inserted
     assert convo.messages[-1]["content"] == "a question being answered"
+
+
+def test_trace_shows_both_directions(monkeypatch, caplog):
+    import logging
+
+    monkeypatch.setattr(agent.client.beta.messages, "stream", lambda **kw: FakeStream("Hi there."))
+    with TestClient(server.app) as c:
+        assert c.post("/admin/trace?on=true").json() == {"tracing": True}
+        with caplog.at_level(logging.INFO, logger="buddy.trace"), c.websocket_connect("/ws") as ws:
+            ws.send_json({"type": "user", "text": "hey buddy my card is 4111 1111 1111 1111", "via": "room"})
+            for _ in range(3):
+                ws.receive_json()
+        c.post("/admin/trace?on=false")
+    lines = [r.getMessage() for r in caplog.records if r.name == "buddy.trace"]
+    assert any(line.startswith("← user") and "room" in line for line in lines)
+    assert any(line.startswith("→ thinking") for line in lines) and any("→ say" in line for line in lines)
+    assert not any("4111 1111 1111 1111" in line for line in lines)  # masked in the log too

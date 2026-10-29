@@ -31,6 +31,7 @@ import asyncio
 import base64
 import contextlib
 import logging
+import os
 import re
 import secrets
 import time
@@ -62,6 +63,24 @@ from .thrift import Thrift
 from .tools import ToolError, set_user_tz
 
 logging.basicConfig(level=logging.INFO, format="%(asctime)s %(name)s %(message)s")
+
+# Live trace of every message between the phone and Buddy, for troubleshooting
+# (deploy/trace.sh). Off by default: conversations don't go to the system log.
+trace_log = logging.getLogger("buddy.trace")
+tracing = {"on": os.getenv("BUDDY_TRACE", "") == "1"}
+
+
+def trace(direction: str, msg: dict) -> None:
+    if not tracing["on"]:
+        return
+    kind = msg.get("type", "?")
+    extra = msg.get("via") or msg.get("kind") or msg.get("lang") or ""
+    text = msg.get("text") or msg.get("question") or ""
+    if kind == "audio":
+        text = f"{len(msg.get('pcm', '')) * 3 // 4 // 32000:.0f} s of audio"
+    elif kind == "location":
+        text = "location update"
+    trace_log.info("%s %-12s %-8s %s", direction, kind, extra, mask(str(text))[:160])
 log = logging.getLogger("buddy")
 
 memory = Memory(settings.db_path)
@@ -77,6 +96,7 @@ async def deliver(kind: str, text: str, **extra) -> bool:
         return False
     for ws, convo in list(connections.items()):
         with contextlib.suppress(Exception):
+            trace("→", {"type": "nudge", "kind": kind, "text": text})
             await ws.send_json({"type": "nudge", "kind": kind, "text": text, **extra})
             convo.note_proactive(text)
     return True
@@ -260,6 +280,13 @@ def admin_usage() -> dict:
     }
 
 
+@app.post("/admin/trace", dependencies=[Depends(require_admin)])
+def admin_trace(on: bool) -> dict:
+    """Switch the live message trace on or off (deploy/trace.sh), without a restart."""
+    tracing["on"] = on
+    return {"tracing": on}
+
+
 @app.get("/admin/costs", dependencies=[Depends(require_admin)])
 async def admin_costs(fresh: bool = False) -> dict:
     """Everything running Buddy costs this month: Claude, DigitalOcean, Zapier, fixed costs."""
@@ -318,12 +345,17 @@ async def talk(ws: WebSocket) -> None:
     connections[ws] = convo
     jobs.wake.set()  # results that finished while the phone was away go out now
     current: asyncio.Task | None = None
+    trace("·", {"type": "connected"})
+
+    async def send(message: dict) -> None:
+        trace("→", message)
+        await ws.send_json(message)
 
     async def say(text: str) -> None:
-        await ws.send_json({"type": "say", "text": text})
+        await send({"type": "say", "text": text})
 
     async def whisper(kind: str, text: str) -> None:
-        await ws.send_json({"type": "whisper", "kind": kind, "text": text})
+        await send({"type": "whisper", "kind": kind, "text": text})
         convo.note_proactive(text)
 
     listener = AmbientListener(memory, whisper, thrift)
@@ -346,13 +378,13 @@ async def talk(ws: WebSocket) -> None:
             new_thrift = thrift.pending is not None and thrift.pending.id != thrift_asks
             if new_thrift or set(registry.pending) - agent_asks:
                 question = thrift.pending.question if new_thrift else " ".join(spoken)[-400:]
-                await ws.send_json({"type": "approval", "question": question})
-            await ws.send_json({"type": "done"})
+                await send({"type": "approval", "question": question})
+            await send({"type": "done"})
         except asyncio.CancelledError:
             raise
         except anthropic.APIError as e:
             log.warning("Claude API error: %s", e)
-            await ws.send_json({"type": "error", "text": brain_error(e)})
+            await send({"type": "error", "text": brain_error(e)})
 
     async def stop_current() -> None:
         if current and not current.done():
@@ -363,6 +395,7 @@ async def talk(ws: WebSocket) -> None:
     try:
         while True:
             msg = await ws.receive_json()
+            trace("←", msg)
             if msg.get("type") == "hello":
                 tz = str(msg.get("timezone", ""))
                 if tz and set_user_tz(tz):
@@ -372,14 +405,14 @@ async def talk(ws: WebSocket) -> None:
             elif msg.get("type") == "user" and msg.get("text", "").strip():
                 await stop_current()  # new speech always wins over an old reply
                 via = "room" if msg.get("via") == "room" else "user"  # "Hey Buddy" heard in Listen-in
-                await ws.send_json({"type": "thinking"})  # "got it": the phone plays a soft tone
+                await send({"type": "thinking"})  # "got it": the phone plays a soft tone
                 current = asyncio.create_task(answer(msg["text"].strip(), via))
             elif msg.get("type") == "ambient" and msg.get("text", "").strip():
                 text = msg["text"].strip()
                 command = addressed_to_buddy(text)
                 if command:  # "Buddy, what did he just say?" is a command, not ambient talk
                     await stop_current()
-                    await ws.send_json({"type": "thinking"})
+                    await send({"type": "thinking"})
                     current = asyncio.create_task(answer(command, "room"))
                 else:
                     listener.hear(text, str(msg.get("lang", "")))
@@ -409,9 +442,9 @@ async def talk(ws: WebSocket) -> None:
                         base64.b64decode(msg["pcm"]), str(msg.get("lang", "")))
                     log.info("whisper took %.1fs", time.monotonic() - started)
                     if heard:
-                        await ws.send_json({"type": "heard", "text": heard, "lang": lang, "id": msg.get("id")})
+                        await send({"type": "heard", "text": heard, "lang": lang, "id": msg.get("id")})
                 except speech_to_text.WhisperUnavailable as e:
-                    await ws.send_json({"type": "error", "text": str(e)})
+                    await send({"type": "error", "text": str(e)})
                 except Exception:
                     log.exception("whisper failed")
             elif msg.get("type") == "location":
@@ -423,8 +456,8 @@ async def talk(ws: WebSocket) -> None:
                 Location(memory).forget()
             elif msg.get("type") == "ambient_stop":
                 listener.stop()
-    except WebSocketDisconnect:
-        pass
+    except WebSocketDisconnect as e:
+        trace("·", {"type": "disconnected", "text": f"code {e.code}"})
     finally:
         listener.stop()
         connections.pop(ws, None)
