@@ -153,9 +153,26 @@ function connect() {
       speak(msg.text, true);
     } else if (msg.type === "error") {
       addLine(msg.text, "error");
+    } else if (msg.type === "approval") {
+      showApproval(msg.question);
       speak(msg.text);
     }
   };
+}
+
+// Buddy asks before sending, booking or spending: one tap answers.
+function showApproval(question) {
+  const line = addLine(question, "buddy approval");
+  const row = document.createElement("div");
+  row.className = "approval";
+  for (const [label, reply, cls] of [["Approve", "Yes, go ahead.", "yes"], ["Decline", "No, don't do it.", "no"]]) {
+    const b = document.createElement("button");
+    b.textContent = label;
+    b.className = cls;
+    b.onclick = () => { row.remove(); sendUser(reply); };
+    row.appendChild(b);
+  }
+  line.appendChild(row);
 }
 
 function send(obj) {

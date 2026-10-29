@@ -20,6 +20,7 @@ data class UiState(
     val onCall: Boolean = false,
     val mode: Mode = Mode.TALK,
     val lines: List<Line> = emptyList(),
+    val approval: String? = null,     // Buddy is waiting for a yes: show Approve / Decline
 )
 
 /** What the screen shows. The service writes it; the activity only reads it. */

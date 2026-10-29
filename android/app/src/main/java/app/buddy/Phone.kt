@@ -129,6 +129,7 @@ class EarbudButton(context: Context, private val onPress: () -> Unit) {
 /** Buddy's notifications: a quiet ongoing one while running, loud ones for reminders. */
 object Notes {
     const val STATUS_ID = 1
+    private const val APPROVAL_ID = 2
     private const val STATUS = "buddy_status"
     private const val NUDGES = "buddy_nudges"
     private var nextId = 100
@@ -181,6 +182,36 @@ object Notes {
                 .setContentIntent(jobId?.let { openReport(context, it) } ?: openApp(context))
                 .build(),
         )
+    }
+
+    /** "Send this email?": Approve and Decline right on the notification. */
+    fun approval(context: Context, question: String) {
+        if (context.checkSelfPermission(Manifest.permission.POST_NOTIFICATIONS) !=
+            PackageManager.PERMISSION_GRANTED
+        ) return
+        fun action(label: String, what: String, code: Int) = Notification.Action.Builder(
+            Icon.createWithResource(context, R.drawable.ic_stat_buddy), label,
+            PendingIntent.getService(
+                context, code, Intent(context, BuddyService::class.java).setAction(what),
+                PendingIntent.FLAG_IMMUTABLE or PendingIntent.FLAG_UPDATE_CURRENT,
+            ),
+        ).build()
+        context.getSystemService(NotificationManager::class.java).notify(
+            APPROVAL_ID,
+            Notification.Builder(context, NUDGES)
+                .setSmallIcon(R.drawable.ic_stat_buddy)
+                .setContentTitle("Buddy needs your OK")
+                .setContentText(question)
+                .setStyle(Notification.BigTextStyle().bigText(question))
+                .setContentIntent(openApp(context))
+                .addAction(action("Approve", BuddyService.ACTION_APPROVE, 2001))
+                .addAction(action("Decline", BuddyService.ACTION_DECLINE, 2002))
+                .build(),
+        )
+    }
+
+    fun clearApproval(context: Context) {
+        context.getSystemService(NotificationManager::class.java).cancel(APPROVAL_ID)
     }
 
     /** Tapping a "research is ready" notification opens that report. */

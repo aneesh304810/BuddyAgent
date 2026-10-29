@@ -5,6 +5,8 @@ Protocol (JSON messages):
                    {"type": "user", "text": "..."}   something the user said
                    {"type": "interrupt"}              user started talking over Buddy
                    {"type": "ambient", "text": "...", "lang": "hi-IN"}
+  server -> phone  {"type": "approval", "question": "..."}  Buddy is waiting for a yes:
+                   show Approve / Decline; they send a user message "Yes, go ahead." / "No."
                                                       listen-in mode: speech around the user
                    {"type": "ambient_stop"}           listen-in mode switched off
                    {"type": "notification", "device", "app", "app_name", "title", "text",
@@ -255,7 +257,21 @@ async def talk(ws: WebSocket) -> None:
 
     async def answer(text: str) -> None:
         try:
-            await convo.reply(text, say)
+            agent_asks = set(registry.pending)
+            thrift_asks = thrift.pending.id if thrift.pending else None
+            spoken: list[str] = []
+
+            async def say_and_keep(sentence: str) -> None:
+                spoken.append(sentence)
+                await say(sentence)
+
+            await convo.reply(text, say_and_keep)
+            # Buddy just asked for a yes (to send, book, spend...): the phone shows
+            # Approve and Decline buttons, which answer "yes" or "no" for the user.
+            new_thrift = thrift.pending is not None and thrift.pending.id != thrift_asks
+            if new_thrift or set(registry.pending) - agent_asks:
+                question = thrift.pending.question if new_thrift else " ".join(spoken)[-400:]
+                await ws.send_json({"type": "approval", "question": question})
             await ws.send_json({"type": "done"})
         except asyncio.CancelledError:
             raise

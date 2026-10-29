@@ -246,7 +246,27 @@ private fun BuddyScreen(
         }
 
         Transcript(ui.lines, Modifier.weight(1f)) { onNavigate(Screen.Report(it)) }
+        ui.approval?.let { question -> ApprovalCard(question) }
         Controls(ui, prefs)
+    }
+}
+
+/** Buddy asked for a yes: one tap answers, like saying "yes" or "no". */
+@Composable
+private fun ApprovalCard(question: String) {
+    Column(
+        Modifier.fillMaxWidth().padding(top = 8.dp)
+            .background(Panel, RoundedCornerShape(14.dp)).padding(12.dp),
+    ) {
+        Text(question, color = Color.White, fontSize = 15.sp)
+        Row(Modifier.fillMaxWidth().padding(top = 8.dp), horizontalArrangement = Arrangement.spacedBy(8.dp)) {
+            Button(onClick = { BuddyService.instance?.answerApproval(true) }, modifier = Modifier.weight(1f)) {
+                Text("Approve")
+            }
+            OutlinedButton(onClick = { BuddyService.instance?.answerApproval(false) }, modifier = Modifier.weight(1f)) {
+                Text("Decline")
+            }
+        }
     }
 }
 

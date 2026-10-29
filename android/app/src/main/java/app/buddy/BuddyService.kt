@@ -45,6 +45,8 @@ class BuddyService : Service() {
         const val ACTION_START = "app.buddy.START"
         const val ACTION_STOP = "app.buddy.STOP"
         const val ACTION_TOGGLE = "app.buddy.TOGGLE"
+        const val ACTION_APPROVE = "app.buddy.APPROVE"
+        const val ACTION_DECLINE = "app.buddy.DECLINE"
         private const val TAG = "BuddyService"
 
         /** The running service, for the screen's buttons. Null when Buddy is stopped. */
@@ -105,6 +107,8 @@ class BuddyService : Service() {
                 return START_NOT_STICKY
             }
             ACTION_TOGGLE -> toggle()
+            ACTION_APPROVE -> answerApproval(true)
+            ACTION_DECLINE -> answerApproval(false)
         }
         connect()
         button.claim()
@@ -212,6 +216,10 @@ class BuddyService : Service() {
                 mouth.speak(event.text)
             }
             ServerEvent.Done -> replyOpen = false
+            is ServerEvent.Approval -> {
+                BuddyState.update { it.copy(approval = event.question) }
+                Notes.approval(this, event.question)
+            }
             is ServerEvent.Nudge -> {
                 BuddyState.add(Line(event.text, Speaker.NUDGE, event.jobId))
                 Notes.nudge(this, event.text, event.jobId)
@@ -237,8 +245,18 @@ class BuddyService : Service() {
 
     // --- talking and listening -------------------------------------------
 
+    /** Approve or Decline: answers Buddy's question for you, like saying it. */
+    fun answerApproval(yes: Boolean) {
+        if (BuddyState.ui.value.approval == null) return
+        sayToBuddy(if (yes) "Yes, go ahead." else "No, don't do it.")
+    }
+
     /** Something you said or typed, for Buddy. */
     fun sayToBuddy(text: String) {
+        if (BuddyState.ui.value.approval != null) {  // any answer settles the question
+            BuddyState.update { it.copy(approval = null) }
+            Notes.clearApproval(this)
+        }
         mouth.stop()
         muted = false
         replyOpen = false

@@ -12,6 +12,7 @@ live on your private server; this app connects to it over Tailscale.
 | Interrupt | Just start talking over Buddy. |
 | Works with the screen off | Runs as a foreground service with a "Buddy" notification (Android requires it). |
 | Listen-in | Works out the room's language by itself (Android 14+, or pick one) and the microphone: the phone's, or the earbuds' while the phone is in your pocket. Hears the room in the language you pick, and whispers translations, "they're talking about you" and fact checks. |
+| Approve / Decline | When Buddy asks before sending, booking, cleaning up or spending, tap Approve or Decline in the app or right on the notification. |
 | Reminders and nudges | Spoken in your earbuds and shown as notifications. |
 | Calls | Pauses itself during any call (phone, WhatsApp, Teams, Meet) and resumes afterwards. Android doesn't let apps hear call audio. |
 | Typing | Type to Buddy when you can't talk. |
@@ -72,7 +73,6 @@ from this folder: `./gradlew assembleRelease`. Tests: `./gradlew testDebugUnitTe
 
 ## Next
 
-- Approve and Decline buttons on notifications for agent actions.
 - Whisper speech-to-text on your server, with speaker labels.
 - "Hey Buddy" wake word, on the phone.
 - Call Co-pilot: live advice on calls made through Buddy's own number.

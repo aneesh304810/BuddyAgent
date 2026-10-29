@@ -99,3 +99,21 @@ def test_job_reports_need_the_token(monkeypatch):
 def test_conversation_offers_job_tools():
     names = {t["name"] for t in agent.Conversation(server.memory, server.registry, server.jobs).tools()}
     assert {"start_research", "list_jobs", "job_report", "cancel_job"} <= names
+
+
+def test_asking_for_a_yes_shows_approval_buttons(monkeypatch):
+    from buddy.agents import PendingAction
+
+    async def fake_reply(self, text, say):
+        await say("Shall I send Priya the email saying Friday works?")
+        server.registry.pending["abc123"] = PendingAction("abc123", "gmail", "send_mail", {}, 1, 0.0)
+
+    monkeypatch.setattr(agent.Conversation, "reply", fake_reply)
+    try:
+        with TestClient(server.app) as c, c.websocket_connect("/ws") as ws:
+            ws.send_json({"type": "user", "text": "reply to Priya"})
+            got = [ws.receive_json() for _ in range(3)]
+    finally:
+        server.registry.pending.pop("abc123", None)
+    assert [m["type"] for m in got] == ["say", "approval", "done"]
+    assert got[1]["question"] == "Shall I send Priya the email saying Friday works?"

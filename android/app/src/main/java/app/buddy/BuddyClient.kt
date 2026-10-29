@@ -18,6 +18,7 @@ sealed interface ServerEvent {
     data class Nudge(val kind: String, val text: String, val jobId: Int? = null) : ServerEvent
     data class Whisper(val kind: String, val text: String) : ServerEvent
     data class Error(val text: String) : ServerEvent
+    data class Approval(val question: String) : ServerEvent
 
     companion object {
         fun parse(raw: String): ServerEvent? = runCatching {
@@ -32,6 +33,7 @@ sealed interface ServerEvent {
                 )
                 "whisper" -> Whisper(msg.optString("kind"), msg.getString("text"))
                 "error" -> Error(msg.getString("text"))
+                "approval" -> Approval(msg.getString("question"))
                 else -> null
             }
         }.getOrNull()

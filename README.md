@@ -104,7 +104,7 @@ Tests: `cd backend && pytest`
 | ✅ Done | Agents: Gmail across all accounts (read, draft, send, cleanup), email manager (priorities, rules, auto-organise), Zapier |
 | ✅ Done | Android app: screen-off listening, earbud button, call pause, voice picker, smart Listen-in, starts when earbuds connect, "Hey Buddy" |
 | ✅ Done | Organiser (tasks, evening wrap-up) and money agent (spending, bills, limits) |
-| Next | Approve/Decline buttons on notifications |
+| ✅ Done | Approve/Decline buttons, in the app, the browser and on the notification |
 | Later | Whisper speech-to-text on the server, English tutor, flights and travel, life log, Oura Ring, call co-pilot, learns your style, agent builder, Galaxy Watch |
 
 The Android app's install guide is in [`android/README.md`](android/README.md).
