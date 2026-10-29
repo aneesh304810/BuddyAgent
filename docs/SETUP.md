@@ -109,7 +109,10 @@ spending, and confirming costs nothing. A yes to more money for the month adds
 
 1. In Chrome, go to **digitalocean.com**, sign up.
 2. **Create → Droplets**:
-   - Region: **New York** (closest to both the US and South America)
+   - Region: **New York** if it's offered, otherwise **San Francisco** or any US region.
+     The region barely matters: most of Buddy's response time is Claude thinking, not
+     the trip to the server. You can't move a droplet later, but you can rebuild it
+     anywhere from Buddy's encrypted backup.
    - Image: **Ubuntu 24.04 (LTS) x64**
    - Size: **Basic → Regular → 2 GB / 1 CPU** (about $12)
    - Authentication: **SSH Key → New SSH Key** → paste the line from Step 3, name it "Fold"
