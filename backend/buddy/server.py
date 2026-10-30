@@ -491,6 +491,30 @@ async def talk(ws: WebSocket) -> None:
     listener = AmbientListener(memory, whisper, thrift)
     convo.room = listener.recent  # "what are they talking about?" in Listen-in
 
+    audio_backlog = [0]  # audio clips waiting for Whisper or being transcribed
+    audio_tasks: set[asyncio.Task] = set()
+
+    async def hear_audio(msg: dict) -> None:
+        """Speech recognition on this server (Whisper): send back the text; the phone routes it
+        like its own recognizer's (talk, Listen-in, "Hey Buddy")."""
+        try:
+            started = time.monotonic()
+            stats: dict | None = {} if msg.get("mode") == "talk" and tutor.ON else None
+            heard, lang = await speech_to_text.transcribe(
+                base64.b64decode(msg["pcm"]), str(msg.get("lang", "")), vocabulary.whisper_prompt(memory),
+                **({"stats": stats} if stats is not None else {}))
+            if stats:
+                tutor.log_speech(memory, stats, lang)
+            log.info("whisper took %.1fs", time.monotonic() - started)
+            if heard:
+                await send({"type": "heard", "text": heard, "lang": lang, "id": msg.get("id")})
+        except speech_to_text.WhisperUnavailable as e:
+            await send({"type": "error", "text": str(e)})
+        except Exception:
+            log.exception("whisper failed")
+        finally:
+            audio_backlog[0] -= 1
+
     async def answer(text: str, via: str = "user") -> None:
         try:
             agent_asks = set(registry.pending)
@@ -586,23 +610,16 @@ async def talk(ws: WebSocket) -> None:
                 )
                 hub.ingest("phone_calendar", records)
             elif msg.get("type") == "audio" and msg.get("pcm"):
-                # Speech recognition on this server (Whisper): send back the text; the phone
-                # routes it like its own recognizer's (talk, Listen-in, "Hey Buddy").
-                try:
-                    started = time.monotonic()
-                    stats: dict | None = {} if msg.get("mode") == "talk" and tutor.ON else None
-                    heard, lang = await speech_to_text.transcribe(
-                        base64.b64decode(msg["pcm"]), str(msg.get("lang", "")), vocabulary.whisper_prompt(memory),
-                        **({"stats": stats} if stats is not None else {}))
-                    if stats:
-                        tutor.log_speech(memory, stats, lang)
-                    log.info("whisper took %.1fs", time.monotonic() - started)
-                    if heard:
-                        await send({"type": "heard", "text": heard, "lang": lang, "id": msg.get("id")})
-                except speech_to_text.WhisperUnavailable as e:
-                    await send({"type": "error", "text": str(e)})
-                except Exception:
-                    log.exception("whisper failed")
+                # Speech recognition on this server (Whisper) runs beside the conversation, so the
+                # phone's other messages aren't held up. Room talk that's piling up is skipped
+                # (it's stale by then); what you say in Talk mode never is.
+                if msg.get("mode") != "talk" and audio_backlog[0] >= 2:
+                    log.info("whisper busy: skipped %s of room audio", msg.get("mode") or "some")
+                    continue
+                audio_backlog[0] += 1
+                task = asyncio.create_task(hear_audio(msg))
+                audio_tasks.add(task)
+                task.add_done_callback(audio_tasks.discard)
             elif msg.get("type") == "location":
                 # The user shares where they are (Settings -> Share my location); only the latest is kept.
                 with contextlib.suppress(TypeError, ValueError):
