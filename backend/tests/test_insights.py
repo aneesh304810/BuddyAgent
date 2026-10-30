@@ -58,3 +58,40 @@ def test_insights_endpoint_needs_the_token(monkeypatch):
         assert client.get("/admin/insights").status_code == 401
         body = client.get("/admin/insights?days=3", headers={"Authorization": "Bearer s3cret"}).json()
         assert body["days"] == 3 and "by_model" in body
+
+
+def test_accuracy_from_claude_reviews_and_thumbs_from_you():
+    mem = Memory(":memory:")
+    token = usage.current_turn.set("turn1")
+    usage.record(mem, "claude-sonnet-5-5", fake_usage(), label="chat")
+    good = usage.log_call(mem, provider="deepseek", model="ds", purpose="general:code", seconds=1)
+    fixed = usage.log_call(mem, provider="deepseek", model="ds", purpose="general:code", seconds=1)
+    usage.log_call(mem, provider="deepseek", model="ds", purpose="general:code", ok=False, verdict="failed_check")
+    usage.current_turn.reset(token)
+    assert usage.set_verdict(mem, good, "used")
+    assert usage.set_verdict(mem, fixed, "fixed", "off-by-one")
+    assert not usage.set_verdict(mem, good, "great")  # only the three verdicts
+    assert usage.rate_turn(mem, "turn1", False) == 4
+    r = insights.report(mem)
+    ds = next(g for g in r["by_model"] if g["provider"] == "deepseek")
+    assert (ds["accuracy"], ds["usable"], ds["failed_check"]) == (0.5, 1.0, 1)
+    assert r["totals"]["thumbs_down"] == 1 and r["totals"]["satisfaction"] == 0.0  # one reply, one vote
+    usage.rate_turn(mem, "turn1", None)
+    assert insights.report(mem)["totals"]["satisfaction"] is None
+
+
+def test_turn_id_reaches_the_phone_and_thumbs_come_back(monkeypatch):
+    async def fake_reply(self, text, say, via="user"):
+        self.turn_key = "abc123"
+        await say("Hi.")
+    monkeypatch.setattr(server.Conversation, "reply", fake_reply)
+    with TestClient(server.app) as c, c.websocket_connect("/ws") as ws:
+        ws.send_json({"type": "user", "text": "hello"})
+        got = [ws.receive_json() for _ in range(3)]
+        assert got[-1] == {"type": "done", "turn": "abc123"}
+        server.memory.db.execute("INSERT INTO model_calls (at, provider, model, purpose, turn) "
+                                 "VALUES ('2026-10-30', 'claude', 'm', 'chat', 'abc123')")
+        ws.send_json({"type": "rate", "turn": "abc123", "up": True})
+        ws.send_json({"type": "interrupt"})
+    row = server.memory.db.execute("SELECT rating FROM model_calls WHERE turn = 'abc123'").fetchone()
+    assert row["rating"] == 1

@@ -26,6 +26,26 @@ function addLine(text, cls) {
 }
 let buddyLine = null; // current reply bubble, extended sentence by sentence
 
+// Thumbs on a reply: shown per model and purpose in Insights. Tap again to take it back.
+function addThumbs(line, turn) {
+  const row = document.createElement("div");
+  row.className = "thumbs";
+  let rating = null;
+  [[1, "\u{1F44D}"], [-1, "\u{1F44E}"]].forEach(([value, icon]) => {
+    const b = document.createElement("button");
+    b.textContent = icon;
+    b.title = value > 0 ? "Good answer" : "Not good";
+    b.onclick = () => {
+      rating = rating === value ? null : value;
+      if (!send({ type: "rate", turn, up: rating === null ? null : rating > 0 })) return;
+      row.querySelectorAll("button").forEach((x) => x.classList.remove("on"));
+      if (rating !== null) b.classList.add("on");
+    };
+    row.appendChild(b);
+  });
+  line.after(row);
+}
+
 // --- speaking --------------------------------------------------------------
 const synth = window.speechSynthesis;
 let pending = 0;      // utterances queued or playing
@@ -143,10 +163,18 @@ function connect() {
       buddyLine.textContent += (buddyLine.textContent ? " " : "") + msg.text;
       speak(msg.text);
     } else if (msg.type === "done") {
+      if (buddyLine && msg.turn) addThumbs(buddyLine, msg.turn);
       buddyLine = null;
     } else if (msg.type === "nudge") {
       const line = addLine(msg.text, "buddy nudge");
       if (msg.job_id) addReportButton(line, msg.job_id);
+      if (msg.kind === "health") {
+        const btn = document.createElement("button");
+        btn.className = "link";
+        btn.textContent = "Open Insights";
+        btn.onclick = () => showInsights();
+        line.after(btn);
+      }
       chime();
       setTimeout(() => speak(msg.text), 450);
     } else if (msg.type === "whisper") {
@@ -211,8 +239,8 @@ function interrupt() {
 // --- background job reports ------------------------------------------------
 const reportDlg = $("report");
 
-async function api(path) {
-  const res = await fetch(path, { headers: { Authorization: `Bearer ${token}` } });
+async function api(path, options = {}) {
+  const res = await fetch(path, { ...options, headers: { Authorization: `Bearer ${token}` } });
   if (!res.ok) throw new Error(res.status === 401 ? "bad token" : `error ${res.status}`);
   return res.json();
 }
@@ -371,6 +399,15 @@ const tok = (n) => (n >= 1e6 ? `${(n / 1e6).toFixed(1)}M` : n >= 1e3 ? `${(n / 1
 const money = (n) => (n > 0 && n < 0.01 ? `$${Number(n).toFixed(4)}` : usd(n));
 const insightsView = { days: 7, purpose: "", model: "" };
 
+function quality(g) {
+  const parts = [];
+  const pct = (v) => (v == null ? "–" : `${Math.round(v * 100)}%`);
+  if (g.reviewed) parts.push(`right as given ${pct(g.accuracy)}, usable ${pct(g.usable)} (${g.reviewed} checked)`);
+  if (g.failed_check) parts.push(`${g.failed_check} failed the auto-check`);
+  if (g.thumbs_up + g.thumbs_down) parts.push(`\u{1F44D} ${g.thumbs_up} \u{1F44E} ${g.thumbs_down}`);
+  return parts.length ? " · " + parts.join(" · ") : "";
+}
+
 function el(tag, cls, text) {
   const e = document.createElement(tag);
   if (cls) e.className = cls;
@@ -412,7 +449,80 @@ async function showInsights() {
   tile("Free-model calls", String(t.free_requests), `of ${t.requests}`);
   tile("Cache reuse", t.cache_hit == null ? "–" : `${Math.round(t.cache_hit * 100)}%`, "of prompt tokens");
   tile("Saved by routing", money(t.saved_by_router_usd + t.saved_by_free_usd), "quick + free models");
+  const pct = (v) => (v == null ? "–" : `${Math.round(v * 100)}%`);
+  tile("Free answers right", pct(t.accuracy), `usable ${pct(t.usable)} · ${t.reviewed} checked by Claude`);
+  tile("Your rating", pct(t.satisfaction), `\u{1F44D} ${t.thumbs_up}  \u{1F44E} ${t.thumbs_down}`);
   body.appendChild(tiles);
+
+  h("How it's doing");
+  const healthBox = el("div", "");
+  body.appendChild(healthBox);
+  const drawHealth = (data) => {
+    healthBox.replaceChildren();
+    const latest = data && data.latest;
+    const label = { good: "All good", watch: "Worth watching", act: "Needs a fix" }[latest && latest.status] || "No check yet";
+    const head = el("p", "", `${label}${latest ? ` · checked ${latest.at.slice(0, 16).replace("T", " ")} UTC` : ""}  `);
+    const run = el("button", "link", "Check now");
+    run.onclick = async () => {
+      run.textContent = "Checking…";
+      try { await api("/admin/health/run", { method: "POST" }); drawHealth(await api("/admin/health?history=14")); }
+      catch (e) { run.textContent = `Failed (${e.message})`; }
+    };
+    head.appendChild(run);
+    healthBox.appendChild(head);
+    if (latest && !latest.findings.length) healthBox.appendChild(el("p", "", "Nothing got worse than the week before."));
+    (latest ? latest.findings : []).forEach((f) => {
+      const row = el("div", "call");
+      row.appendChild(el("div", "", `${f.severity === "act" ? "●" : "○"} ${f.title}`));
+      row.appendChild(el("div", "meta", f.area));
+      row.appendChild(el("div", "more", `${f.detail}\nFix: ${f.fix}`));
+      row.onclick = () => row.classList.toggle("open");
+      healthBox.appendChild(row);
+    });
+    const past = (data && data.history) || [];
+    if (past.length > 1) {
+      healthBox.appendChild(costTable(past.slice(0, 7).map((x) => [x.at.slice(0, 10), x.status, secs(x.first_word_median),
+        pct(x.accuracy), pct(x.satisfaction), money(x.cost_usd)]), ["Check", "", "First words", "Free right", "You", "Week $"]));
+    }
+  };
+  api("/admin/health?history=14").then(drawHealth).catch(() => drawHealth(null));
+
+  const sp = r.speed || {};
+  h("Speed (from your side)");
+  const speedTiles = el("div", "tiles");
+  const stile = (label, value, note) => {
+    const d = el("div", "tile");
+    d.append(el("span", "", label), el("b", "", value));
+    if (note) d.appendChild(el("small", "", note));
+    speedTiles.appendChild(d);
+  };
+  const out = sp.outcomes || {};
+  stile("First words", secs(sp.first_word_median), `slowest 5%: ${secs(sp.first_word_p95)}`);
+  stile("Whole reply", secs(sp.total_median), `slowest 5%: ${secs(sp.total_p95)}`);
+  stile("Replies", String(sp.replies || 0), `${(out.error || 0) + (out.too_many_steps || 0) + (out.refusal || 0)} failed · ${out.interrupted || 0} interrupted`);
+  stile("Needed 'one sec'", pct(sp.filler_rate), `handed over ${pct(sp.handed_over_rate)} · ${sp.avg_rounds || 0} steps`);
+  body.appendChild(speedTiles);
+  if ((sp.by_route || []).length) {
+    body.appendChild(costTable(sp.by_route.map((x) => [x.route, String(x.replies), secs(x.first_word_median), secs(x.total_median)]),
+      ["Route", "Replies", "First words", "Whole"]));
+  }
+  if ((sp.slowest_tools || []).length) {
+    body.appendChild(costTable(sp.slowest_tools.map((x) => [x.tool, String(x.replies), secs(x.total_median)]),
+      ["Slowest replies used", "Replies", "Typical"]));
+  }
+  const exportRow = el("p", "", "Download for analysis: ");
+  [["calls", "every request"], ["turns", "reply timings"]].forEach(([table, label]) => {
+    const b = el("button", "link", label);
+    b.onclick = async () => {
+      const res = await fetch(`/admin/insights/export?table=${table}&days=${v.days}`, { headers: { Authorization: `Bearer ${token}` } });
+      const a = document.createElement("a");
+      a.href = URL.createObjectURL(await res.blob());
+      a.download = `buddy-${table}.csv`;
+      a.click();
+    };
+    exportRow.appendChild(b);
+  });
+  body.appendChild(exportRow);
 
   h("Spend per day");
   const dayNote = el("p", "", "");
@@ -453,13 +563,13 @@ async function showInsights() {
   h("What it was for");
   breakdown(r.by_purpose, (g) => g.label,
     (g) => `${g.requests} requests · ${secs(g.median_seconds)} typical · ` +
-      Object.entries(g.models).map(([m, n]) => `${m} ×${n}`).join(", "),
+      Object.entries(g.models).map(([m, n]) => `${m} ×${n}`).join(", ") + quality(g),
     (g) => g.name, v.purpose, (k) => { v.purpose = k; v.model = ""; }, (g) => g.cost_usd);
   h("Each model");
   breakdown(r.by_model, (g) => `${g.model} (${g.provider})`,
     (g) => `${g.requests} requests${g.failed ? ` · ${g.failed} failed` : ""} · ${secs(g.median_seconds)} typical, ` +
       `${secs(g.p95_seconds)} slowest · ${tok(g.input_tokens)} in / ${tok(g.output_tokens)} out` +
-      (g.web_searches ? ` · ${g.web_searches} searches` : ""),
+      (g.web_searches ? ` · ${g.web_searches} searches` : "") + quality(g),
     (g) => g.model, v.model, (k) => { v.model = k; v.purpose = ""; }, (g) => g.requests);
 
   const filter = [v.purpose, v.model].filter(Boolean).join(" · ");
@@ -472,6 +582,9 @@ async function showInsights() {
     const more = [`Tokens: ${tok(c.input_tokens)} in, ${tok(c.output_tokens)} out` +
       (c.cache_read_tokens ? `, ${tok(c.cache_read_tokens)} from cache` : "")];
     if (c.tools) more.push(`Used: ${c.tools}`);
+    const verdict = { used: "Claude used it as given", fixed: "Claude fixed it", redone: "Claude redid it", failed_check: "failed the auto-check" }[c.verdict];
+    if (verdict) more.push(`Review: ${verdict}`);
+    if (c.rating != null) more.push(`You: ${c.rating > 0 ? "\u{1F44D}" : "\u{1F44E}"}`);
     if (c.request) more.push(`Asked: ${c.request}`);
     if (c.reply) more.push(`Answered: ${c.reply}`);
     row.appendChild(el("div", "more", more.join("\n")));

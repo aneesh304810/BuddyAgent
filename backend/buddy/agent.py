@@ -5,10 +5,12 @@ before Claude has finished writing, which is what makes it feel live.
 """
 
 import asyncio
+import contextlib
 import json
 import logging
 import random
 import re
+import secrets
 import time
 from collections.abc import Awaitable, Callable
 
@@ -20,7 +22,8 @@ from .config import claude_client, settings
 from .jobs import JOB_TOOL_NAMES, JOB_TOOLS, JobRunner, run_job_tool
 from .connectors import CONNECTOR_TOOL_NAMES, CONNECTOR_TOOLS, ConnectorHub, run_connector_tool
 from .bankfeed import BALANCES_TOOL, BankFeed, run_balances_tool
-from .free_models import GENERAL_TOOL, FreeModels, run_general_tool
+from .free_models import GENERAL_TOOL, VERDICT_TOOL, FreeModels, run_general_tool
+from .insights import RATE_TOOL
 from .router import HAND_OVER_TOOL, Router
 from .social import SOCIAL_TOOL_NAMES, Social, run_social_tool, social_tools
 from .location import Location
@@ -28,6 +31,7 @@ from .taste import TASTE_TOOL_NAMES, TASTE_TOOLS, WHERE_TOOL, Taste, run_taste_t
 from .builder import BUILDER_TOOL_NAMES, BUILDER_TOOLS, AgentBuilder, run_builder_tool
 from .deals import WATCH_TOOL_NAMES, WATCH_TOOLS, PriceWatcher, run_watch_tool
 from .finops import COST_TOOL, FinOps
+from .health import HEALTH_TOOL, run_health_tool
 from .lifelog import LIFELOG_TOOL, LifeLog, run_lifelog_tool
 from .mailbrain import MAIL_TOOL_NAMES, MAIL_TOOLS, MailManager, run_mail_tool
 from .money import MONEY_TOOL_NAMES, MONEY_TOOLS, Money, run_money_tool
@@ -120,6 +124,8 @@ class Conversation:
         self.model = settings.chat_model  # this turn's model, picked by the router
         self.messages: list[dict] = []
         self.turn = 0  # counts user messages; approvals need a newer one
+        self.turn_key = ""  # tags this turn's model calls, for your thumbs rating
+        self.previous_turn = ""
         self.via = "user"
         # Frozen for the whole session so the cached prompt prefix stays valid.
         self.system = build_system_prompt(memory.recall(""), memory.open_goals())
@@ -134,6 +140,8 @@ class Conversation:
         """
         self.turn += 1
         self.via = via
+        self.previous_turn, self.turn_key = self.turn_key, secrets.token_hex(6)
+        usage.current_turn.set(self.turn_key)
         if self.thrift:
             # Money questions are answered in code, at no cost: Claude never approves spending.
             said, resume = await self.thrift.resolve(user_text, trusted=via != "room")
@@ -157,12 +165,18 @@ class Conversation:
         self.model = self.router.pick(user_text)
         usage.count(self.memory, "router:quick" if self.model == settings.fast_model else "router:main")
         # Sensitive numbers never leave the server.
-        self.messages.append({"role": "user", "content": f"({stamp}) {mask(user_text)}"})
+        self._add_user_text(f"({stamp}) {mask(user_text)}")
         spoken: list[str] = []
         said_anything = asyncio.Event()
+        # Performance of this turn, for Insights and the daily health check.
+        perf = {"started": time.monotonic(), "first": None, "sentences": 0, "rounds": 0, "tools": [],
+                "filler": False, "outcome": "ok", "first_model": self.model}
 
         async def speak(sentence: str) -> None:
             said_anything.set()
+            if perf["first"] is None:
+                perf["first"] = time.monotonic() - perf["started"]
+            perf["sentences"] += 1
             spoken.append(sentence)
             await say(sentence)
 
@@ -170,13 +184,16 @@ class Conversation:
             # Searching or checking places can take a while: don't leave the user in silence.
             await asyncio.sleep(FILLER_AFTER_SECONDS)
             if not said_anything.is_set():
+                perf["filler"] = True
                 await say(random.choice(FILLERS))
 
         waiting = asyncio.create_task(filler())
         try:
             for _ in range(MAX_TOOL_ROUNDS):
                 response = await self._stream_step(speak)
+                perf["rounds"] += 1
                 if response.stop_reason == "refusal":
+                    perf["outcome"] = "refusal"
                     await speak("Hmm, that's one I can't help with. Anything else?")
                     self.messages.append({"role": "assistant", "content": " ".join(spoken)})
                     return
@@ -185,7 +202,12 @@ class Conversation:
                 if response.stop_reason == "pause_turn":
                     continue  # server-side web search wants another round
                 tool_uses = [b for b in response.content if b.type == "tool_use"]
+                perf["tools"] += [b.name for b in tool_uses]
                 if response.stop_reason != "tool_use" or not tool_uses:
+                    return
+                if all(b.name == "free_answer_verdict" for b in tool_uses):
+                    # Only the review note: record it and finish, no extra round (and no extra wait).
+                    self.messages.append({"role": "user", "content": [await self._run(b) for b in tool_uses]})
                     return
                 if any(b.name == "hand_over" for b in tool_uses):
                     # The quick model passes a bigger question to the main one, same turn.
@@ -193,8 +215,10 @@ class Conversation:
                     usage.count(self.memory, "router:handed_over")
                 results = [await self._run(b) for b in tool_uses]
                 self.messages.append({"role": "user", "content": results})
+            perf["outcome"] = "too_many_steps"
             await speak("Sorry, I got a bit tangled up there. Can you say that again?")
-        except BaseException:
+        except BaseException as e:
+            perf["outcome"] = "interrupted" if isinstance(e, asyncio.CancelledError) else f"error: {type(e).__name__}"
             # Interrupted or failed mid-step: record what the user actually heard.
             if spoken:
                 self.messages.append(
@@ -203,6 +227,12 @@ class Conversation:
             raise
         finally:
             waiting.cancel()
+            with contextlib.suppress(Exception):  # metrics never break a reply
+                usage.log_turn(self.memory, turn=self.turn_key, via=via, first_model=perf["first_model"],
+                               final_model=self.model, first_word=perf["first"],
+                               total=time.monotonic() - perf["started"], rounds=perf["rounds"],
+                               tools=perf["tools"], sentences=perf["sentences"], filler=perf["filler"],
+                               outcome=perf["outcome"])
 
     async def _stream_step(self, speak: Say):
         buffer = ""
@@ -234,6 +264,14 @@ class Conversation:
                  for b in content if isinstance(b, dict)]
         return " ".join(parts)
 
+    def _add_user_text(self, text: str) -> None:
+        """A new user message, or added to the last one if a turn ended on tool results."""
+        last = self.messages[-1] if self.messages else None
+        if last and last["role"] == "user" and isinstance(last["content"], list):
+            last["content"] = last["content"] + [{"type": "text", "text": text}]
+        else:
+            self.messages.append({"role": "user", "content": text})
+
     def _trim_history(self) -> None:
         """Long talks: keep the latest turns. Done in one jump, so the cache rebuilds only rarely."""
         if len(self.messages) <= MAX_HISTORY:
@@ -258,7 +296,7 @@ class Conversation:
         if self.model == settings.fast_model and self.model != settings.chat_model:
             everything = [HAND_OVER_TOOL] + everything
         for tool in everything:
-            if tool.get("type", "custom") != "custom" or tool["name"] in ALWAYS_LOADED | {"hand_over"}:
+            if tool.get("type", "custom") != "custom" or tool["name"] in ALWAYS_LOADED | {"hand_over", "free_answer_verdict"}:
                 tools.append(tool)  # server tools (web search) and the everyday ones stay loaded
             else:
                 tools.append({**tool, "defer_loading": True})
@@ -276,7 +314,8 @@ class Conversation:
         spending += BUILDER_TOOLS if self.builder and self.jobs else []
         spending += CONNECTOR_TOOLS if self.hub else []
         spending += social_tools(self.social) + TASTE_TOOLS + [WHERE_TOOL]
-        spending += [GENERAL_TOOL] if self.free.enabled() else []
+        spending += [GENERAL_TOOL, VERDICT_TOOL] if self.free.enabled() else []
+        spending += [RATE_TOOL, HEALTH_TOOL]
         return (
             CLIENT_TOOLS + orchestration + job_tools + spending + [_expert_tool()]
             + agent_tools + web_tools()
@@ -303,6 +342,16 @@ class Conversation:
             return "Handed over to the main model: answer the user's question now."
         if name == "general_task":
             return await run_general_tool(self.free, args)
+        if name == "free_answer_verdict":
+            usage.set_verdict(self.memory, args["call_id"], args["verdict"], args.get("note", ""))
+            return "Noted."
+        if name == "health_report":
+            return run_health_tool(self.memory)
+        if name == "rate_answer":
+            if not self.previous_turn:
+                return "There's no earlier answer to rate yet."
+            usage.rate_turn(self.memory, self.previous_turn, bool(args["good"]))
+            return "Noted, thanks: it's in your Insights."
         if self.jobs and name in JOB_TOOL_NAMES:
             return run_job_tool(self.jobs, name, args, self.thrift)
         if self.hub and name in CONNECTOR_TOOL_NAMES:
@@ -370,7 +419,7 @@ class Conversation:
         self.messages.append({"role": "assistant", "content": text})
 
 
-async def compose(system: str, instruction: str, memory: Memory | None = None) -> str:
+async def compose(system: str, instruction: str, memory: Memory | None = None, label: str = "briefing") -> str:
     """One-shot generation with no tools, for briefings and nudges."""
     started = time.monotonic()
     response = await client.beta.messages.create(
@@ -379,7 +428,7 @@ async def compose(system: str, instruction: str, memory: Memory | None = None) -
     )
     if memory is not None:
         usage.record(memory, response.model, response.usage, response=response, started=started,
-                     request=instruction, label="briefing")
+                     request=instruction, label=label)
     if response.stop_reason == "refusal":
         return ""
     return " ".join(b.text for b in response.content if b.type == "text").strip()

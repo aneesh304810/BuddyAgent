@@ -96,3 +96,6 @@ table.costs th { color: var(--muted); font-weight: 500; }
 .call .more { display: none; white-space: pre-wrap; font-size: 13px; margin-top: 4px; }
 .call.open .more { display: block; }
 .call.failed .meta { color: #ff8a80; }
+.thumbs { display: flex; gap: 4px; margin: -4px 0 4px 6px; }
+.thumbs button { background: none; border: 0; cursor: pointer; font-size: 15px; opacity: 0.6; border-radius: 10px; padding: 2px 8px; }
+.thumbs button.on { opacity: 1; background: var(--panel); }

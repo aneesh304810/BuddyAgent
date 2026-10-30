@@ -5,6 +5,7 @@ import logging
 from datetime import datetime
 from collections.abc import Awaitable, Callable
 
+from . import health
 from .agent import compose
 from .config import settings
 from .memory import Memory
@@ -53,7 +54,9 @@ async def morning_briefing(memory: Memory) -> str:
         f"Tasks: {Organiser(memory).morning_line()}. "
         f"Bills: {Money(memory).morning_line()}. "
         f"Email: {MailManager(memory, None).briefing_line()}. "
-        f"Spending: {Thrift(memory).summary()}",
+        f"Spending: {Thrift(memory).summary()}. "
+        f"Buddy's own health check (mention in a few words only if there's something): "
+        f"{health.morning_line(memory) or 'nothing'}",
         memory,
     )
 

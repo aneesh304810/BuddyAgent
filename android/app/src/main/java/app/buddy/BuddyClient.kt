@@ -14,7 +14,7 @@ import java.util.concurrent.TimeUnit
 /** A message from Buddy's brain (see the protocol at the top of backend/buddy/server.py). */
 sealed interface ServerEvent {
     data class Say(val text: String) : ServerEvent
-    data object Done : ServerEvent
+    data class Done(val turn: String) : ServerEvent  // turn: lets you rate the reply
     data object Thinking : ServerEvent
     data class Nudge(val kind: String, val text: String, val jobId: Int? = null) : ServerEvent
     data class Whisper(val kind: String, val text: String) : ServerEvent
@@ -27,7 +27,7 @@ sealed interface ServerEvent {
             val msg = JSONObject(raw)
             when (msg.optString("type")) {
                 "say" -> Say(msg.getString("text"))
-                "done" -> Done
+                "done" -> Done(msg.optString("turn"))
                 "thinking" -> Thinking
                 "nudge" -> Nudge(
                     msg.optString("kind"),

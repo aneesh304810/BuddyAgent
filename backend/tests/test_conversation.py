@@ -100,3 +100,37 @@ def test_payment_waits_for_yes(monkeypatch):
             await reg.close()
 
     asyncio.run(body())
+
+
+def test_verdict_and_voice_rating_end_the_turn_without_another_round(monkeypatch):
+    from buddy import usage
+
+    mem = Memory(":memory:")
+    convo = agent.Conversation(mem)
+    call_id = usage.log_call(mem, provider="deepseek", model="ds", purpose="general:code")
+    fake = Scripted([
+        [text("Here's the regex."), tool_use("free_answer_verdict", {"call_id": call_id, "verdict": "fixed"})],
+        [tool_use("rate_answer", {"good": False}, "t2")],
+        [text("Sorry about that.")],
+    ])
+    monkeypatch.setattr(agent.client.beta.messages, "stream", fake.stream)
+    said = []
+
+    async def say(s):
+        said.append(s)
+
+    asyncio.run(convo.reply("regex for a zip code", say))
+    assert len(fake.requests) == 1  # no extra round after the review note
+    first_turn = convo.turn_key
+    asyncio.run(convo.reply("that was wrong", say))
+    row = mem.db.execute("SELECT verdict FROM model_calls WHERE id = ?", (call_id,)).fetchone()
+    assert row["verdict"] == "fixed"
+    rated = mem.db.execute("SELECT rating FROM model_calls WHERE turn = ? AND provider = 'claude'",
+                           (first_turn,)).fetchone()
+    assert rated["rating"] == -1
+    # The second turn's text joined the tool results, so the roles still alternate.
+    roles = [m["role"] for m in convo.messages]
+    assert all(a != b for a, b in zip(roles, roles[1:]))
+    timed = mem.db.execute("SELECT * FROM turns WHERE turn = ?", (first_turn,)).fetchone()
+    assert timed["outcome"] == "ok" and timed["first_word_seconds"] is not None
+    assert "free_answer_verdict" in timed["tools"] and timed["rounds"] == 1

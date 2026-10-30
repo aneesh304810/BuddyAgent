@@ -43,6 +43,31 @@ def _price_in_out(model: str) -> tuple[float, float]:
     return next((p for name, p in usage.PRICES.items() if model.startswith(name)), usage.FALLBACK_PRICE)
 
 
+def _quality(rows: list[dict]) -> dict:
+    """Accuracy of free answers (Claude's review) and your thumbs, for a set of calls."""
+    free = [r for r in rows if r["provider"] != "claude"]
+    verdicts = {v: sum(1 for r in free if r["verdict"] == v) for v in (*usage.VERDICTS, "failed_check")}
+    reviewed = verdicts["used"] + verdicts["fixed"] + verdicts["redone"]
+    turns: dict[str, int] = {}
+    for r in rows:
+        if r["turn"] and r["rating"] is not None:
+            turns[r["turn"]] = r["rating"]  # one vote per reply, however many calls it took
+    up, down = sum(1 for v in turns.values() if v > 0), sum(1 for v in turns.values() if v < 0)
+    return {
+        "reviewed": reviewed,
+        "used_as_is": verdicts["used"],
+        "fixed": verdicts["fixed"],
+        "redone": verdicts["redone"],
+        "failed_check": verdicts["failed_check"],
+        "not_reviewed": sum(1 for r in free if r["ok"] and not r["verdict"]),
+        "accuracy": round(verdicts["used"] / reviewed, 2) if reviewed else None,      # right as it came
+        "usable": round((verdicts["used"] + verdicts["fixed"]) / reviewed, 2) if reviewed else None,
+        "thumbs_up": up,
+        "thumbs_down": down,
+        "satisfaction": round(up / (up + down), 2) if up + down else None,
+    }
+
+
 def _group(rows: list[dict], key) -> list[dict]:
     groups: dict[str, list[dict]] = {}
     for r in rows:
@@ -63,8 +88,54 @@ def _group(rows: list[dict], key) -> list[dict]:
             "web_searches": sum(r["web_searches"] for r in rs),
             "median_seconds": _percentile(times, 0.5),
             "p95_seconds": _percentile(times, 0.95),
+            **_quality(rs),
         })
     return sorted(out, key=lambda g: (-g["cost_usd"], -g["requests"]))
+
+
+def turn_rows(memory: Memory, since: str, until: str = "9999") -> list[dict]:
+    return [dict(r) for r in memory.db.execute(
+        "SELECT * FROM turns WHERE at >= ? AND at < ? ORDER BY at", (since, until))]
+
+
+def speed(turns: list[dict]) -> dict:
+    """How replies felt from your side: time to the first word, the whole reply, and what slowed them."""
+    first = [t["first_word_seconds"] for t in turns if t["first_word_seconds"] is not None and t["outcome"] == "ok"]
+    total = [t["total_seconds"] for t in turns if t["outcome"] == "ok"]
+    outcomes: dict[str, int] = {}
+    for t in turns:
+        key = "error" if t["outcome"].startswith("error") else t["outcome"]
+        outcomes[key] = outcomes.get(key, 0) + 1
+    routes: dict[str, list[dict]] = {}
+    for t in turns:
+        name = t["first_model"] if t["first_model"] == t["final_model"] else f"{t['first_model']} → {t['final_model']}"
+        routes.setdefault(name, []).append(t)
+    tools: dict[str, list[float]] = {}
+    for t in turns:
+        for tool in filter(None, (x.strip() for x in t["tools"].split(","))):
+            tools.setdefault(tool, []).append(t["total_seconds"])
+    n = len(turns)
+    return {
+        "replies": n,
+        "first_word_median": _percentile(first, 0.5),
+        "first_word_p95": _percentile(first, 0.95),
+        "total_median": _percentile(total, 0.5),
+        "total_p95": _percentile(total, 0.95),
+        "filler_rate": round(sum(t["filler"] for t in turns) / n, 2) if n else None,
+        "avg_rounds": round(sum(t["rounds"] for t in turns) / n, 1) if n else None,
+        "handed_over_rate": round(sum(1 for t in turns if t["first_model"] != t["final_model"]) / n, 2) if n else None,
+        "outcomes": outcomes,
+        "by_route": sorted(({
+            "route": name, "replies": len(ts),
+            "first_word_median": _percentile([t["first_word_seconds"] for t in ts
+                                              if t["first_word_seconds"] is not None], 0.5),
+            "total_median": _percentile([t["total_seconds"] for t in ts], 0.5),
+        } for name, ts in routes.items()), key=lambda r: -r["replies"]),
+        # Replies that used a tool, and how long they took: the slow ones are worth fixing first.
+        "slowest_tools": sorted(({"tool": name, "replies": len(v), "total_median": _percentile(v, 0.5)}
+                                 for name, v in tools.items() if name != "free_answer_verdict"),
+                                key=lambda r: -(r["total_median"] or 0))[:8],
+    }
 
 
 def report(memory: Memory, days: int = 7, recent: int = 60, model: str = "", purpose: str = "") -> dict:
@@ -110,6 +181,14 @@ def report(memory: Memory, days: int = 7, recent: int = 60, model: str = "", pur
     chat_times = [r["seconds"] for r in rows if r["purpose"] == "chat" and r["seconds"] is not None]
     prompt = sum(r["input_tokens"] + r["cache_read_tokens"] + r["cache_write_tokens"] for r in rows)
 
+    turns = turn_rows(memory, since)
+    for t in turns:
+        day = (datetime.fromisoformat(t["at"]) + offset).date().isoformat()
+        if day in per_day:
+            per_day[day].setdefault("_first", []).append(t["first_word_seconds"])
+    for d in per_day.values():
+        d["first_word_median"] = _percentile([x for x in d.pop("_first", []) if x is not None], 0.5)
+
     picked = [r for r in rows if (not model or r["model"] == model) and (not purpose or r["purpose"] == purpose)]
     return {
         "days": days,
@@ -128,7 +207,9 @@ def report(memory: Memory, days: int = 7, recent: int = 60, model: str = "", pur
             "chat_median_seconds": _percentile(chat_times, 0.5),
             "saved_by_router_usd": round(saved_by_router, 4),
             "saved_by_free_usd": round(saved_by_free, 4),
+            **_quality(rows),
         },
+        "speed": speed(turns),
         "by_model": by_model,
         "by_purpose": by_purpose,
         "by_day": list(per_day.values()),
@@ -137,6 +218,20 @@ def report(memory: Memory, days: int = 7, recent: int = 60, model: str = "", pur
             "purpose_label": purpose_name(r["purpose"]), "input_tokens": r["input_tokens"],
             "output_tokens": r["output_tokens"], "cache_read_tokens": r["cache_read_tokens"],
             "cost_usd": round(r["cost_usd"], 5), "seconds": r["seconds"], "ok": bool(r["ok"]), "stop": r["stop"],
-            "tools": r["tools"], "request": r["request"], "reply": r["reply"],
+            "tools": r["tools"], "request": r["request"], "reply": r["reply"], "verdict": r["verdict"],
+            "rating": r["rating"],
         } for r in reversed(picked[-max(1, min(recent, 300)):])],
     }
+
+
+RATE_TOOL = {
+    "name": "rate_answer",
+    "description": "The user judges your previous answer by voice (\"that was wrong\", \"great answer\", \"that "
+    "didn't help\"): record it as a thumbs up or down for the models that worked on it, shown in Insights.",
+    "input_schema": {
+        "type": "object",
+        "properties": {"good": {"type": "boolean", "description": "true for a thumbs up"}},
+        "required": ["good"],
+        "additionalProperties": False,
+    },
+}

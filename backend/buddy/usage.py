@@ -1,6 +1,7 @@
 """Track Claude token usage and cost, and enforce the monthly budget."""
 
 import time
+from contextvars import ContextVar
 from datetime import datetime, timedelta, timezone
 
 from .memory import Memory
@@ -55,6 +56,10 @@ def web_searches(usage) -> int:
     return (getattr(server_tools, "web_search_requests", 0) or 0) if server_tools else 0
 
 
+# The conversation turn being answered: every model call made for it is tagged, so a
+# thumbs up or down on the reply lands on all the models that worked on it.
+current_turn: ContextVar[str] = ContextVar("current_turn", default="")
+VERDICTS = ("used", "fixed", "redone")
 KEEP_CALLS_DAYS = 90
 PREVIEW_CHARS = 280
 
@@ -69,19 +74,59 @@ def _preview(text: str) -> str:
 def log_call(memory: Memory, *, provider: str, model: str, purpose: str, input_tokens: int = 0,
              output_tokens: int = 0, cache_read: int = 0, cache_write: int = 0, searches: int = 0,
              cost: float = 0.0, seconds: float | None = None, ok: bool = True, stop: str = "",
-             tools: str = "", request: str = "", reply: str = "") -> None:
+             tools: str = "", request: str = "", reply: str = "", verdict: str = "") -> int:
     """One row per model request, for the Insights dashboard. Previews are short and masked."""
     now = datetime.now(timezone.utc)
-    memory.db.execute(
+    cursor = memory.db.execute(
         """INSERT INTO model_calls (at, provider, model, purpose, input_tokens, output_tokens, cache_read_tokens,
-             cache_write_tokens, web_searches, cost_usd, seconds, ok, stop, tools, request, reply)
-           VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)""",
+             cache_write_tokens, web_searches, cost_usd, seconds, ok, stop, tools, request, reply, turn, verdict)
+           VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)""",
         (now.isoformat(), provider, model, purpose or "chat", input_tokens, output_tokens, cache_read, cache_write,
          searches, cost, None if seconds is None else round(seconds, 2), 1 if ok else 0, stop[:200], tools[:200],
-         _preview(request), _preview(reply)),
+         _preview(request), _preview(reply), current_turn.get(), verdict),
     )
+    call_id = cursor.lastrowid
     memory.db.execute("DELETE FROM model_calls WHERE at < ?", ((now - timedelta(days=KEEP_CALLS_DAYS)).isoformat(),))
     memory.db.commit()
+    return call_id
+
+
+def log_turn(memory: Memory, *, turn: str, via: str, first_model: str, final_model: str,
+             first_word: float | None, total: float, rounds: int, tools: list[str], sentences: int,
+             filler: bool, outcome: str) -> None:
+    """One row per reply, timed from the user's side."""
+    if not turn:
+        return
+    now = datetime.now(timezone.utc)
+    memory.db.execute(
+        """INSERT OR REPLACE INTO turns (turn, at, via, first_model, final_model, first_word_seconds,
+             total_seconds, rounds, tools, sentences, filler, outcome) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)""",
+        (turn, now.isoformat(), via, first_model, final_model, None if first_word is None else round(first_word, 2),
+         round(total, 2), rounds, ", ".join(dict.fromkeys(tools))[:300], sentences, 1 if filler else 0, outcome[:80]),
+    )
+    memory.db.execute("DELETE FROM turns WHERE at < ?", ((now - timedelta(days=KEEP_CALLS_DAYS)).isoformat(),))
+    memory.db.commit()
+
+
+def set_verdict(memory: Memory, call_id: int, verdict: str, note: str = "") -> bool:
+    """Claude's review of a free model's answer: used as-is, fixed, or redone."""
+    if verdict not in VERDICTS:
+        return False
+    cursor = memory.db.execute(
+        "UPDATE model_calls SET verdict = ?, stop = CASE WHEN ? = '' THEN stop ELSE ? END "
+        "WHERE id = ? AND provider != 'claude'", (verdict, note, ("review: " + note)[:200], int(call_id)))
+    memory.db.commit()
+    return cursor.rowcount > 0
+
+
+def rate_turn(memory: Memory, turn: str, up: bool | None) -> int:
+    """Your thumbs on a reply: up, down, or None to clear. Returns the calls it covers."""
+    if not turn:
+        return 0
+    cursor = memory.db.execute("UPDATE model_calls SET rating = ? WHERE turn = ?",
+                               (None if up is None else (1 if up else -1), turn))
+    memory.db.commit()
+    return cursor.rowcount
 
 
 def _reply_parts(response) -> tuple[str, str, str]:

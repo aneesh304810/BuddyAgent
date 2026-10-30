@@ -22,6 +22,7 @@ import androidx.compose.runtime.LaunchedEffect
 import androidx.compose.runtime.getValue
 import androidx.compose.runtime.mutableStateOf
 import androidx.compose.runtime.remember
+import androidx.compose.runtime.rememberCoroutineScope
 import androidx.compose.runtime.setValue
 import androidx.compose.ui.Alignment
 import androidx.compose.ui.Modifier
@@ -31,9 +32,11 @@ import androidx.compose.ui.text.font.FontWeight
 import androidx.compose.ui.unit.dp
 import androidx.compose.ui.unit.sp
 import kotlinx.coroutines.Dispatchers
+import kotlinx.coroutines.launch
 import kotlinx.coroutines.withContext
 import okhttp3.OkHttpClient
 import okhttp3.Request
+import okhttp3.RequestBody.Companion.toRequestBody
 import org.json.JSONArray
 import org.json.JSONObject
 import java.util.Locale
@@ -71,6 +74,20 @@ object InsightsApi {
     }
 
     suspend fun costs(link: ServerLink): JSONObject = get(link, "/admin/costs")
+
+    suspend fun health(link: ServerLink): JSONObject = get(link, "/admin/health?history=14")
+
+    suspend fun runHealth(link: ServerLink): JSONObject = withContext(Dispatchers.IO) {
+        val request = Request.Builder()
+            .url(link.baseUrl + "/admin/health/run")
+            .header("Authorization", "Bearer ${link.token}")
+            .post(ByteArray(0).toRequestBody(null))
+            .build()
+        http.newCall(request).execute().use { response ->
+            if (!response.isSuccessful) error("server said ${response.code}")
+            JSONObject(response.body?.string() ?: "{}")
+        }
+    }
 }
 
 private fun usd(v: Double): String = when {
@@ -88,6 +105,20 @@ private fun tokens(n: Long): String = when {
     else -> n.toString()
 }
 
+private fun pct(o: JSONObject, key: String): String =
+    if (o.isNull(key) || !o.has(key)) "–" else "${(o.getDouble(key) * 100).toInt()}%"
+
+/** Accuracy of free answers (Claude's review) and your thumbs, when there are any. */
+private fun quality(o: JSONObject): String {
+    val parts = mutableListOf<String>()
+    if (o.optInt("reviewed") > 0) parts += "right as given ${pct(o, "accuracy")}, usable ${pct(o, "usable")} " +
+        "(${o.optInt("reviewed")} checked)"
+    if (o.optInt("failed_check") > 0) parts += "${o.optInt("failed_check")} failed the auto-check"
+    if (o.optInt("thumbs_up") + o.optInt("thumbs_down") > 0) parts +=
+        "\uD83D\uDC4D ${o.optInt("thumbs_up")} \uD83D\uDC4E ${o.optInt("thumbs_down")}"
+    return if (parts.isEmpty()) "" else "\n" + parts.joinToString(" · ")
+}
+
 private fun JSONArray.objects(): List<JSONObject> = (0 until length()).map { getJSONObject(it) }
 
 @Composable
@@ -98,6 +129,14 @@ fun InsightsScreen(link: ServerLink?) {
     var data by remember { mutableStateOf<JSONObject?>(null) }
     var monthAllIn by remember { mutableStateOf<String?>(null) }
     var problem by remember { mutableStateOf<String?>(null) }
+    var healthData by remember { mutableStateOf<JSONObject?>(null) }
+    var checking by remember { mutableStateOf(false) }
+    val scope = rememberCoroutineScope()
+
+    LaunchedEffect(link) {
+        if (link == null) return@LaunchedEffect
+        runCatching { InsightsApi.health(link) }.onSuccess { healthData = it }
+    }
 
     LaunchedEffect(link, days, purpose, model) {
         if (link == null) {
@@ -151,6 +190,66 @@ fun InsightsScreen(link: ServerLink?) {
                     Tile("Saved by routing", usd(t.optDouble("saved_by_router_usd") + t.optDouble("saved_by_free_usd")),
                         Modifier.weight(1f), "quick model + free models")
                 }
+                Row(horizontalArrangement = Arrangement.spacedBy(8.dp)) {
+                    Tile("Free answers right", pct(t, "accuracy"), Modifier.weight(1f),
+                        "usable ${pct(t, "usable")} · ${t.optInt("reviewed")} checked by Claude")
+                    Tile("Your rating", pct(t, "satisfaction"), Modifier.weight(1f),
+                        "\uD83D\uDC4D ${t.optInt("thumbs_up")}  \uD83D\uDC4E ${t.optInt("thumbs_down")}")
+                }
+            }
+        }
+
+        item { Heading("How it's doing") }
+        item {
+            HealthCard(healthData, checking) {
+                if (link != null && !checking) {
+                    checking = true
+                    scope.launch {
+                        runCatching { InsightsApi.runHealth(link); InsightsApi.health(link) }
+                            .onSuccess { healthData = it }
+                            .onFailure { problem = "Couldn't run the check (${it.message})." }
+                        checking = false
+                    }
+                }
+            }
+        }
+
+        val sp = d.optJSONObject("speed") ?: JSONObject()
+        item { Heading("Speed (from your side)") }
+        item {
+            Column(verticalArrangement = Arrangement.spacedBy(8.dp)) {
+                Row(horizontalArrangement = Arrangement.spacedBy(8.dp)) {
+                    Tile("First words", secs(sp, "first_word_median"), Modifier.weight(1f),
+                        "slowest 5%: ${secs(sp, "first_word_p95")}")
+                    Tile("Whole reply", secs(sp, "total_median"), Modifier.weight(1f),
+                        "slowest 5%: ${secs(sp, "total_p95")}")
+                }
+                Row(horizontalArrangement = Arrangement.spacedBy(8.dp)) {
+                    val outcomes = sp.optJSONObject("outcomes") ?: JSONObject()
+                    val bad = outcomes.optInt("error") + outcomes.optInt("too_many_steps") + outcomes.optInt("refusal")
+                    Tile("Replies", "${sp.optInt("replies")}", Modifier.weight(1f),
+                        "$bad failed · ${outcomes.optInt("interrupted")} interrupted")
+                    Tile("Needed 'one sec'", pct(sp, "filler_rate"), Modifier.weight(1f),
+                        "handed over: ${pct(sp, "handed_over_rate")} · ${sp.optDouble("avg_rounds", 0.0)} steps")
+                }
+            }
+        }
+        val routes = sp.optJSONArray("by_route")?.objects() ?: emptyList()
+        if (routes.isNotEmpty()) item {
+            Column(Modifier.fillMaxWidth().background(Card, RoundedCornerShape(12.dp)).padding(12.dp)) {
+                Text("By model route", color = Dim, fontSize = 12.sp)
+                routes.forEach { r ->
+                    Text("${r.optString("route")}: ${r.optInt("replies")} replies · first words " +
+                        "${secs(r, "first_word_median")} · whole ${secs(r, "total_median")}", color = Bright, fontSize = 13.sp)
+                }
+                val tools = sp.optJSONArray("slowest_tools")?.objects() ?: emptyList()
+                if (tools.isNotEmpty()) {
+                    Text("Slowest replies used", color = Dim, fontSize = 12.sp, modifier = Modifier.padding(top = 8.dp))
+                    tools.forEach { t ->
+                        Text("${t.optString("tool")}: ${secs(t, "total_median")} typical (${t.optInt("replies")} replies)",
+                            color = Bright, fontSize = 13.sp)
+                    }
+                }
             }
         }
 
@@ -168,7 +267,7 @@ fun InsightsScreen(link: ServerLink?) {
                 value = if (p.optDouble("cost_usd") == 0.0 && p.optString("name").startsWith("general:")) "free"
                     else usd(p.optDouble("cost_usd")),
                 share = (p.optDouble("cost_usd") / maxPurpose).toFloat(),
-                detail = "${p.optInt("requests")} requests · ${secs(p, "median_seconds")} typical · $modelText",
+                detail = "${p.optInt("requests")} requests · ${secs(p, "median_seconds")} typical · $modelText" + quality(p),
                 selected = purpose == p.optString("name"),
             ) { purpose = if (purpose == p.optString("name")) "" else p.optString("name"); model = "" }
         }
@@ -185,7 +284,8 @@ fun InsightsScreen(link: ServerLink?) {
                 detail = "${m.optInt("requests")} requests" + (if (failed > 0) " · $failed failed" else "") +
                     " · ${secs(m, "median_seconds")} typical, ${secs(m, "p95_seconds")} slowest" +
                     " · ${tokens(m.optLong("input_tokens"))} in / ${tokens(m.optLong("output_tokens"))} out" +
-                    (if (m.optInt("web_searches") > 0) " · ${m.optInt("web_searches")} searches" else ""),
+                    (if (m.optInt("web_searches") > 0) " · ${m.optInt("web_searches")} searches" else "") +
+                    quality(m),
                 selected = model == m.optString("model"),
             ) { model = if (model == m.optString("model")) "" else m.optString("model"); purpose = "" }
         }
@@ -198,6 +298,60 @@ fun InsightsScreen(link: ServerLink?) {
         if (recent.isEmpty()) item { Text("Nothing yet in this period.", color = Dim) }
         items(recent) { CallRow(it) }
         item { Spacer(Modifier.height(24.dp)) }
+    }
+}
+
+/** The latest daily health check: status, what to fix, and the trend. */
+@Composable
+private fun HealthCard(data: JSONObject?, checking: Boolean, onRun: () -> Unit) {
+    val latest = data?.optJSONObject("latest")
+    Column(Modifier.fillMaxWidth().background(Card, RoundedCornerShape(12.dp)).padding(12.dp)) {
+        Row(verticalAlignment = Alignment.CenterVertically) {
+            val status = latest?.optString("status") ?: ""
+            val label = when (status) {
+                "good" -> "All good"
+                "watch" -> "Worth watching"
+                "act" -> "Needs a fix"
+                else -> "No check yet"
+            }
+            Box(Modifier.size(10.dp).background(
+                when (status) { "act" -> Bad; "watch" -> Color(0xFFFFC46B); "good" -> Bar; else -> Dim },
+                RoundedCornerShape(5.dp)))
+            Spacer(Modifier.size(8.dp))
+            Text(label, color = Color.White, fontSize = 16.sp, fontWeight = FontWeight.SemiBold, modifier = Modifier.weight(1f))
+            Chip(if (checking) "Checking…" else "Check now", false, onRun)
+        }
+        if (latest != null) {
+            Text("Checked ${latest.optString("at").take(16).replace('T', ' ')} UTC, comparing the last 7 days " +
+                "with the week before.", color = Dim, fontSize = 12.sp)
+            val findings = latest.optJSONArray("findings")?.objects() ?: emptyList()
+            if (findings.isEmpty()) Text("Nothing got worse.", color = Bright, fontSize = 13.sp,
+                modifier = Modifier.padding(top = 6.dp))
+            findings.forEach { f ->
+                var open by remember(f.optString("title")) { mutableStateOf(false) }
+                Column(Modifier.fillMaxWidth().padding(top = 8.dp).clickable { open = !open }) {
+                    Text((if (f.optString("severity") == "act") "● " else "○ ") + f.optString("title"),
+                        color = if (f.optString("severity") == "act") Bad else Color(0xFFFFC46B), fontSize = 14.sp)
+                    Text(f.optString("area"), color = Dim, fontSize = 11.sp)
+                    if (open) {
+                        Text(f.optString("detail"), color = Bright, fontSize = 13.sp)
+                        Text("Fix: " + f.optString("fix"), color = Color.White, fontSize = 13.sp,
+                            modifier = Modifier.padding(top = 4.dp))
+                    }
+                }
+            }
+        } else {
+            Text("The first check runs early tomorrow morning, or tap Check now.", color = Dim, fontSize = 12.sp)
+        }
+        val history = data?.optJSONArray("history")?.objects() ?: emptyList()
+        if (history.size > 1) {
+            Text("Past checks (newest first)", color = Dim, fontSize = 12.sp, modifier = Modifier.padding(top = 10.dp))
+            history.take(7).forEach { h ->
+                Text("${h.optString("at").take(10)} · ${h.optString("status")} · first words ${secs(h, "first_word_median")}" +
+                    " · free right ${pct(h, "accuracy")} · you ${pct(h, "satisfaction")}",
+                    color = Bright, fontSize = 12.sp, fontFamily = FontFamily.Monospace)
+            }
+        }
     }
 }
 
@@ -311,6 +465,10 @@ private fun CallRow(c: JSONObject) {
                 if (c.optLong("cache_read_tokens") > 0) append(", ${tokens(c.optLong("cache_read_tokens"))} from cache")
                 if (c.optString("tools").isNotEmpty()) append("\nUsed: ${c.optString("tools")}")
                 if (ok && c.optString("stop").isNotEmpty()) append("\nStopped: ${c.optString("stop")}")
+                val verdict = mapOf("used" to "Claude used it as given", "fixed" to "Claude fixed it",
+                    "redone" to "Claude redid it", "failed_check" to "failed the auto-check")[c.optString("verdict")]
+                if (verdict != null) append("\nReview: $verdict")
+                if (!c.isNull("rating")) append(if (c.optInt("rating") > 0) "\nYou: \uD83D\uDC4D" else "\nYou: \uD83D\uDC4E")
             }
             Text(detail, color = Dim, fontSize = 12.sp, modifier = Modifier.padding(top = 6.dp))
             if (c.optString("request").isNotEmpty()) {

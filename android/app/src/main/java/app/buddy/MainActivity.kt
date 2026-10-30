@@ -253,7 +253,7 @@ private fun BuddyScreen(
             Button(onClick = onStart, modifier = Modifier.fillMaxWidth()) { Text("Start Buddy") }
         }
 
-        Transcript(ui.lines, Modifier.weight(1f)) { onNavigate(Screen.Report(it)) }
+        Transcript(ui.lines, Modifier.weight(1f), { onNavigate(Screen.Insights) }) { onNavigate(Screen.Report(it)) }
         ui.approval?.let { question -> ApprovalCard(question) }
         Controls(ui, prefs)
     }
@@ -279,7 +279,7 @@ private fun ApprovalCard(question: String) {
 }
 
 @Composable
-private fun Transcript(lines: List<Line>, modifier: Modifier, onOpenReport: (Int) -> Unit) {
+private fun Transcript(lines: List<Line>, modifier: Modifier, onOpenInsights: () -> Unit, onOpenReport: (Int) -> Unit) {
     val state = rememberLazyListState()
     LaunchedEffect(lines.size, lines.lastOrNull()?.text) {
         if (lines.isNotEmpty()) state.animateScrollToItem(lines.lastIndex)
@@ -287,9 +287,14 @@ private fun Transcript(lines: List<Line>, modifier: Modifier, onOpenReport: (Int
     LazyColumn(modifier.fillMaxWidth(), state = state, verticalArrangement = Arrangement.spacedBy(8.dp)) {
         items(lines) { line ->
             val mine = line.from == Speaker.YOU
+            Column(Modifier.fillMaxWidth()) {
             Row(Modifier.fillMaxWidth(), horizontalArrangement = if (mine) Arrangement.End else Arrangement.Start) {
                 Text(
-                    if (line.jobId != null) line.text + "\n\nTap to open the report." else line.text,
+                    when {
+                        line.jobId != null -> line.text + "\n\nTap to open the report."
+                        line.opensInsights -> line.text + "\n\nTap to open Insights."
+                        else -> line.text
+                    },
                     color = when (line.from) {
                         Speaker.ERROR -> Color(0xFFFF8A80)
                         Speaker.WHISPER -> Color(0xFFB9C6FF)
@@ -299,6 +304,7 @@ private fun Transcript(lines: List<Line>, modifier: Modifier, onOpenReport: (Int
                     modifier = Modifier
                         .widthIn(max = 300.dp)
                         .then(if (line.jobId != null) Modifier.clickable { onOpenReport(line.jobId) } else Modifier)
+                        .then(if (line.opensInsights) Modifier.clickable { onOpenInsights() } else Modifier)
                         .background(
                             when (line.from) {
                                 Speaker.YOU -> Accent.copy(alpha = 0.35f)
@@ -310,6 +316,27 @@ private fun Transcript(lines: List<Line>, modifier: Modifier, onOpenReport: (Int
                         .padding(horizontal = 12.dp, vertical = 8.dp),
                 )
             }
+            if (line.from == Speaker.BUDDY && line.turn != null) Thumbs(line.turn, line.rating)
+            }
+        }
+    }
+}
+
+/** Was this reply good? Tap again to take it back. */
+@Composable
+private fun Thumbs(turn: String, rating: Int?) {
+    Row(Modifier.padding(start = 6.dp, top = 2.dp), horizontalArrangement = Arrangement.spacedBy(4.dp)) {
+        listOf(1 to "\uD83D\uDC4D", -1 to "\uD83D\uDC4E").forEach { (value, icon) ->
+            val on = rating == value
+            Text(
+                icon,
+                fontSize = 15.sp,
+                color = if (rating == null || on) Color.White else Color.White.copy(alpha = 0.35f),
+                modifier = Modifier
+                    .background(if (on) Accent.copy(alpha = 0.35f) else Color.Transparent, RoundedCornerShape(10.dp))
+                    .clickable { BuddyService.instance?.rate(turn, if (on) null else value) }
+                    .padding(horizontal = 8.dp, vertical = 2.dp),
+            )
         }
     }
 }

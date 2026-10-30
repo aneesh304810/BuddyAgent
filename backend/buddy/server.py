@@ -7,6 +7,7 @@ Protocol (JSON messages):
                    {"type": "ambient", "text": "...", "lang": "hi-IN"}
   phone -> server  {"type": "audio", "pcm": "<base64 16 kHz mono 16-bit>", "lang": "auto"}
   server -> phone  {"type": "heard", "text": "...", "lang": "es"}  (Whisper on the server)
+  phone -> server  {"type": "rate", "turn": "a1b2c3", "up": true}  thumbs on a reply (null clears)
   phone -> server  {"type": "location", "lat": -12.12, "lng": -77.03, "accuracy": 50}  (when shared)
   server -> phone  {"type": "thinking"}  the question arrived and Buddy is working on it
   server -> phone  {"type": "approval", "question": "..."}  Buddy is waiting for a yes:
@@ -18,7 +19,7 @@ Protocol (JSON messages):
                    {"type": "phone_calendar", "device", "events": [{id, title, start,
                     end, calendar, location, all_day, busy_only}]}  the phone's next week
   server -> phone  {"type": "say", "text": "..."}    one sentence to speak
-                   {"type": "done"}                   reply finished
+                   {"type": "done", "turn": "a1b2c3"} reply finished (turn: for a thumbs rating)
                    {"type": "nudge", "kind": "...", "text": "...", "job_id": 3}
                                                       Buddy speaking up (job_id: a finished
                                                       background job; see GET /api/jobs/{id})
@@ -35,11 +36,13 @@ import os
 import re
 import secrets
 import time
+from datetime import datetime, timedelta, timezone
 
 import anthropic
 from fastapi import Depends, FastAPI, Header, HTTPException, Request, WebSocket, WebSocketDisconnect
 from fastapi.staticfiles import StaticFiles
 
+from . import health as healthcheck
 from . import insights, proactive, research, usage
 from .agent import Conversation
 from .agents import AgentRegistry, load_specs
@@ -155,6 +158,7 @@ async def lifespan(app: FastAPI):
     mail_loop = asyncio.create_task(mail.run())
     watch_loop = asyncio.create_task(watcher.run())
     bank_loop = asyncio.create_task(bank.run())
+    health_loop = asyncio.create_task(healthcheck.run(memory, finops, deliver))
     try:
         yield
     finally:
@@ -165,6 +169,7 @@ async def lifespan(app: FastAPI):
         mail_loop.cancel()
         watch_loop.cancel()
         bank_loop.cancel()
+        health_loop.cancel()
         await registry.close()
 
 
@@ -300,6 +305,47 @@ def admin_insights(days: int = 7, recent: int = 60, model: str = "", purpose: st
     return insights.report(memory, days=days, recent=recent, model=model, purpose=purpose)
 
 
+@app.get("/admin/health", dependencies=[Depends(require_admin)])
+def admin_health(history: int = 30) -> dict:
+    """The latest daily health check (what got worse, what to fix) and the trend over past checks."""
+    return {"latest": healthcheck.latest(memory), "history": healthcheck.history(memory, min(history, 365))}
+
+
+@app.post("/admin/health/run", dependencies=[Depends(require_admin)])
+async def admin_health_run() -> dict:
+    """Run the health check now."""
+    try:
+        costs = await finops.report()
+    except Exception:
+        costs = None
+    report = healthcheck.check(memory, finops_report=costs)
+    report["id"] = healthcheck.save(memory, report)
+    return report
+
+
+@app.get("/admin/insights/export", dependencies=[Depends(require_admin)])
+def admin_insights_export(table: str = "calls", days: int = 30):
+    """CSV of the request log (calls) or reply timings (turns), to study or share for fixes.
+    Previews are already short and masked."""
+    import csv
+    import io
+
+    from fastapi.responses import Response
+
+    name = {"calls": "model_calls", "turns": "turns"}.get(table)
+    if not name:
+        raise HTTPException(status_code=400, detail="table is calls or turns")
+    since = (datetime.now(timezone.utc) - timedelta(days=max(1, min(days, 365)))).isoformat()
+    rows = memory.db.execute(f"SELECT * FROM {name} WHERE at >= ? ORDER BY at", (since,)).fetchall()  # nosec B608
+    out = io.StringIO()
+    writer = csv.writer(out)
+    if rows:
+        writer.writerow(rows[0].keys())
+        writer.writerows([tuple(r) for r in rows])
+    return Response(out.getvalue(), media_type="text/csv",
+                    headers={"Content-Disposition": f'attachment; filename="buddy-{table}.csv"'})
+
+
 # --- life log: files uploaded from the phone (Timeline, Takeout, Airbnb...) ----
 @app.post("/api/import", dependencies=[Depends(require_admin)])
 async def api_import(request: Request, name: str = "upload.json") -> dict:
@@ -388,7 +434,7 @@ async def talk(ws: WebSocket) -> None:
             if new_thrift or set(registry.pending) - agent_asks:
                 question = thrift.pending.question if new_thrift else " ".join(spoken)[-400:]
                 await send({"type": "approval", "question": question})
-            await send({"type": "done"})
+            await send({"type": "done", "turn": convo.turn_key})
         except asyncio.CancelledError:
             raise
         except anthropic.APIError as e:
@@ -476,6 +522,9 @@ async def talk(ws: WebSocket) -> None:
                 with contextlib.suppress(TypeError, ValueError):
                     await asyncio.to_thread(Location(memory).update, float(msg["lat"]), float(msg["lng"]),
                                             msg.get("accuracy"))
+            elif msg.get("type") == "rate" and msg.get("turn"):
+                up = msg.get("up")
+                usage.rate_turn(memory, str(msg["turn"])[:32], None if up is None else bool(up))
             elif msg.get("type") == "location_off":
                 Location(memory).forget()
             elif msg.get("type") == "ambient_stop":

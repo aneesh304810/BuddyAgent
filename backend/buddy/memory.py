@@ -59,9 +59,34 @@ CREATE TABLE IF NOT EXISTS model_calls (  -- one row per model request, for the 
     stop TEXT NOT NULL DEFAULT '',  -- why it stopped, or the error
     tools TEXT NOT NULL DEFAULT '', -- tools it asked for
     request TEXT NOT NULL DEFAULT '',  -- short masked previews
-    reply TEXT NOT NULL DEFAULT ''
+    reply TEXT NOT NULL DEFAULT '',
+    turn TEXT NOT NULL DEFAULT '',     -- the conversation turn it served (for your thumbs rating)
+    verdict TEXT NOT NULL DEFAULT '',  -- free answers: used | fixed | redone (Claude's review) | failed_check
+    rating INTEGER                     -- your thumbs: 1 up, -1 down
 );
 CREATE INDEX IF NOT EXISTS model_calls_at ON model_calls (at);
+CREATE TABLE IF NOT EXISTS turns (      -- one row per reply: how it felt from your side
+    turn TEXT PRIMARY KEY,
+    at TEXT NOT NULL,                   -- ISO-8601, UTC
+    via TEXT NOT NULL,                  -- user | room
+    first_model TEXT NOT NULL,          -- what the router picked
+    final_model TEXT NOT NULL,          -- differs when the quick model handed over
+    first_word_seconds REAL,            -- until the first sentence was spoken (not counting the filler)
+    total_seconds REAL NOT NULL,
+    rounds INTEGER NOT NULL,            -- model steps (each tool use adds one)
+    tools TEXT NOT NULL,
+    sentences INTEGER NOT NULL,
+    filler INTEGER NOT NULL,            -- "one sec, let me check" was needed
+    outcome TEXT NOT NULL               -- ok | interrupted | refusal | too_many_steps | error: ...
+);
+CREATE INDEX IF NOT EXISTS turns_at ON turns (at);
+CREATE TABLE IF NOT EXISTS health_reports (  -- the daily check: what got worse, what to fix
+    id INTEGER PRIMARY KEY,
+    at TEXT NOT NULL,
+    status TEXT NOT NULL,               -- good | watch | act
+    findings TEXT NOT NULL,             -- JSON list
+    metrics TEXT NOT NULL               -- JSON: the numbers it compared
+);
 CREATE TABLE IF NOT EXISTS kv (
     key TEXT PRIMARY KEY,
     value TEXT NOT NULL
@@ -77,6 +102,16 @@ class Memory:
     def __init__(self, path: Path | str):
         self.db = connect(path)
         self.db.executescript(SCHEMA)
+        self._add_columns("model_calls", {"turn": "TEXT NOT NULL DEFAULT ''",
+                                          "verdict": "TEXT NOT NULL DEFAULT ''", "rating": "INTEGER"})
+        self.db.execute("CREATE INDEX IF NOT EXISTS model_calls_turn ON model_calls (turn)")
+
+    def _add_columns(self, table: str, columns: dict[str, str]) -> None:
+        """Columns added after a table first shipped (CREATE TABLE IF NOT EXISTS won't add them)."""
+        have = {r[1] for r in self.db.execute(f"PRAGMA table_info({table})")}
+        for name, kind in columns.items():
+            if name not in have:
+                self.db.execute(f"ALTER TABLE {table} ADD COLUMN {name} {kind}")
 
     # --- facts -----------------------------------------------------------
     def remember(self, text: str) -> int:

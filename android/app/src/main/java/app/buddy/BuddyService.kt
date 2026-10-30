@@ -235,6 +235,14 @@ class BuddyService : Service() {
     /** For the phone bridge: send without telling the user if offline. */
     fun sendQuietly(message: JSONObject): Boolean = client?.send(message) ?: false
 
+    /** Thumbs on a reply (null clears): shown per model and purpose in Insights. */
+    fun rate(turn: String, rating: Int?) {
+        val message = JSONObject().put("type", "rate").put("turn", turn)
+            .put("up", if (rating == null) JSONObject.NULL else rating > 0)
+        if (sendQuietly(message)) BuddyState.rated(turn, rating)
+        else BuddyState.add(Line("Not connected, so the rating wasn't saved.", Speaker.ERROR))
+    }
+
     private val calendarTimer = android.os.Handler(android.os.Looper.getMainLooper())
     private val main = android.os.Handler(android.os.Looper.getMainLooper())
 
@@ -294,7 +302,10 @@ class BuddyService : Service() {
                 replyOpen = true
                 mouth.speak(event.text)
             }
-            ServerEvent.Done -> replyOpen = false
+            is ServerEvent.Done -> {
+                replyOpen = false
+                BuddyState.replyDone(event.turn)
+            }
             ServerEvent.Thinking -> thinking(true)
             is ServerEvent.Heard -> serverEars.heard(event.text, event.lang)
             is ServerEvent.Approval -> {
@@ -302,7 +313,7 @@ class BuddyService : Service() {
                 Notes.approval(this, event.question)
             }
             is ServerEvent.Nudge -> {
-                BuddyState.add(Line(event.text, Speaker.NUDGE, event.jobId))
+                BuddyState.add(Line(event.text, Speaker.NUDGE, event.jobId, opensInsights = event.kind == "health"))
                 Notes.nudge(this, event.text, event.jobId)
                 if (!BuddyState.ui.value.onCall) mouth.speak(event.text)
             }

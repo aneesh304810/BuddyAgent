@@ -8,8 +8,16 @@ enum class Mode { TALK, LISTEN_IN }
 
 enum class Speaker { YOU, BUDDY, NUDGE, WHISPER, ERROR }
 
-/** One bubble. `jobId` links a "your research is ready" nudge to its report. */
-data class Line(val text: String, val from: Speaker, val jobId: Int? = null)
+/** One bubble. `jobId` links a "your research is ready" nudge to its report; `turn` lets
+ *  you rate a reply (thumbs up 1, down -1). */
+data class Line(
+    val text: String,
+    val from: Speaker,
+    val jobId: Int? = null,
+    val turn: String? = null,
+    val rating: Int? = null,
+    val opensInsights: Boolean = false,  // the daily health digest: tap for the dashboard
+)
 
 data class UiState(
     val connection: String = "offline",
@@ -33,6 +41,17 @@ object BuddyState {
     fun update(change: (UiState) -> UiState) = state.update(change)
 
     fun add(line: Line) = update { it.copy(lines = (it.lines + line).takeLast(200)) }
+
+    /** The reply just finished: tag its bubble with the turn so it can be rated. */
+    fun replyDone(turn: String) = update {
+        val last = it.lines.lastOrNull()
+        if (turn.isEmpty() || last?.from != Speaker.BUDDY || last.turn != null) it
+        else it.copy(lines = it.lines.dropLast(1) + last.copy(turn = turn))
+    }
+
+    fun rated(turn: String, rating: Int?) = update {
+        it.copy(lines = it.lines.map { line -> if (line.turn == turn) line.copy(rating = rating) else line })
+    }
 
     /** Buddy speaks sentence by sentence; join them into one bubble per reply. */
     fun buddySentence(text: String, newReply: Boolean) = update {

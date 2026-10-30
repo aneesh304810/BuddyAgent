@@ -206,6 +206,10 @@ class NeedsClaude(ToolError):
     pass
 
 
+class BadAnswer(Exception):
+    """The answer failed the automatic check: the next model gets a go."""
+
+
 class RateLimited(Exception):
     def __init__(self, wait: float):
         self.wait = wait
@@ -220,18 +224,39 @@ class FreeModels:
         # Learned as Buddy goes: average answer time (seconds) and recent success rate per provider.
         self.speed: dict[str, float] = {}
         self.success: dict[str, float] = {}
+        self._accuracy: tuple[float, dict] = (0.0, {})
 
     def order(self, kind: str) -> list[str]:
         """Providers to try, best first: suited to the task, then fast and reliable lately."""
         candidates = [n for n in BEST_FOR[kind] if n in self.enabled() and self.cooldown.get(n, 0) <= time.time()]
         rank = {n: i for i, n in enumerate(candidates)}
 
+        accuracy = self.accuracy(kind)
+
         def score(name: str) -> float:
             unreliable = 1 - self.success.get(name, 1.0)  # 0 when it always works
+            # Claude keeps fixing or redoing its answers for this kind of task: try it later.
+            wrong = 1 - accuracy.get(name, 1.0)
             if kind in SPEED_FIRST:
-                return self.speed.get(name, 3.0) + 10 * unreliable + 0.3 * rank[name]
-            return rank[name] + 5 * unreliable  # capability first; a flaky provider drops back
+                return self.speed.get(name, 3.0) + 10 * unreliable + 8 * wrong + 0.3 * rank[name]
+            return rank[name] + 5 * unreliable + 6 * wrong  # capability first; flaky or wrong drops back
         return sorted(candidates, key=score)
+
+    def accuracy(self, kind: str) -> dict[str, float]:
+        """Share of each provider's answers Claude found usable (used or fixed) for this kind
+        of task over the last 14 days, from its reviews. Only with enough reviews to mean something."""
+        at, table = self._accuracy
+        if time.time() - at > 600:
+            table = {}
+            since = time.strftime("%Y-%m-%dT%H:%M:%S", time.gmtime(time.time() - 14 * 86400))
+            for r in self.memory.db.execute(
+                    "SELECT provider, purpose, SUM(verdict IN ('used', 'fixed')) AS good, "
+                    "SUM(verdict IN ('used', 'fixed', 'redone', 'failed_check')) AS judged FROM model_calls "
+                    "WHERE provider != 'claude' AND at >= ? GROUP BY provider, purpose", (since,)):
+                if r["judged"] >= 5:
+                    table.setdefault(r["purpose"], {})[r["provider"]] = r["good"] / r["judged"]
+            self._accuracy = (time.time(), table)
+        return table.get(f"general:{kind}", {})
 
     def _learn(self, name: str, seconds: float | None) -> None:
         ok = seconds is not None
@@ -269,14 +294,15 @@ class FreeModels:
                 if not answer:
                     raise ValueError("empty answer")
                 if problem := answer_problem(kind, answer):
-                    raise ValueError(problem)
+                    raise BadAnswer(problem)
                 self._learn(name, time.monotonic() - started)
                 usage.count(self.memory, f"free:{name}")
-                usage.log_call(self.memory, provider=name, model=self.model_of(name), purpose=f"general:{kind}",
+                call_id = usage.log_call(
+                               self.memory, provider=name, model=self.model_of(name), purpose=f"general:{kind}",
                                input_tokens=tokens.get("prompt_tokens") or 0,
                                output_tokens=tokens.get("completion_tokens") or 0,
                                seconds=time.monotonic() - started, stop="free", request=prompt, reply=answer)
-                return {"answer": answer, "model": f"{name}/{self.model_of(name)}", "free": True,
+                return {"answer": answer, "model": f"{name}/{self.model_of(name)}", "free": True, "call_id": call_id,
                         "seconds": round(time.monotonic() - started, 1)}
             except RateLimited as e:
                 self.cooldown[name] = time.time() + e.wait
@@ -284,6 +310,12 @@ class FreeModels:
                 usage.log_call(self.memory, provider=name, model=self.model_of(name), purpose=f"general:{kind}",
                                seconds=time.monotonic() - started, ok=False, stop="at its free limit",
                                request=prompt)
+            except BadAnswer as e:
+                self._learn(name, None)
+                tried.append(f"{name}: {e}")
+                usage.log_call(self.memory, provider=name, model=self.model_of(name), purpose=f"general:{kind}",
+                               seconds=time.monotonic() - started, ok=False, stop=f"rejected: {e}",
+                               request=prompt, verdict="failed_check")
             except Exception as e:
                 self._learn(name, None)
                 self.cooldown[name] = time.time() + 120
@@ -373,6 +405,27 @@ async def run_general_tool(free: FreeModels, args: dict) -> str:
     except (PersonalData, NeedsClaude) as e:
         return str(e)
     if result.get("free"):
-        result["review"] = ("From a free model: check it before using it. If anything is wrong, missing or "
-                            "unsafe, fix it or do the task yourself; never pass on code you wouldn't stand behind.")
+        result["review"] = (
+            "From a free model: check it before using it. If anything is wrong, missing or unsafe, fix it or do "
+            "the task yourself; never pass on code you wouldn't stand behind. After your answer, in the same "
+            f"response, call free_answer_verdict with call_id {result['call_id']}: used (as it was), fixed (you "
+            "corrected it) or redone (you did it yourself).")
     return json.dumps(result, ensure_ascii=False)
+
+
+VERDICT_TOOL = {
+    "name": "free_answer_verdict",
+    "description": "After using a general_task answer, record your review of it, in the same response as your "
+    "reply: used (good as it was), fixed (you corrected it), redone (you did it yourself). It tracks how "
+    "accurate each free model is; it costs nothing and needs no reply.",
+    "input_schema": {
+        "type": "object",
+        "properties": {
+            "call_id": {"type": "integer"},
+            "verdict": {"type": "string", "enum": list(usage.VERDICTS)},
+            "note": {"type": "string", "description": "What was wrong, in a few words (fixed or redone)"},
+        },
+        "required": ["call_id", "verdict"],
+        "additionalProperties": False,
+    },
+}

@@ -117,6 +117,36 @@ working, set its current name, e.g. `set.sh BUDDY_GROQ_MODEL`. The other setting
 - **Latest requests**: tap one to see its tokens, the tools it used, and a short preview of what
   was asked and answered. Tap a purpose or model above to filter the list.
 
+**Accuracy and your rating.**
+
+- *Free answers right*: Claude reviews every free model's answer and records whether it used it
+  as given, fixed it or redid it (no extra wait: it's noted in the same step as the reply).
+  Insights shows "right as given" and "usable" per model and task, plus answers that failed the
+  automatic check. Buddy uses this itself: a free model Claude keeps correcting for a kind of
+  task is tried later for it.
+- *Your rating*: 👍 / 👎 under each reply in the chat (tap again to take it back), or say "that was
+  wrong" / "great answer". It counts for every model that worked on that reply.
+
+**Speed (from your side)**: time to Buddy's first words and to the end of the reply (typical and
+slowest 5%), replies that failed or were interrupted, how often "one sec" was needed, how often
+the quick model handed over, speed per model route, and which tools the slowest replies used.
+
+**How it's doing: the daily health check.** Early each morning Buddy compares the last 7 days
+with the week before: speed, failures, models failing or at their free limit, free-model
+accuracy, your thumbs down, hand-overs, cost per reply, cache reuse, the month's forecast, and a
+reconciliation that every dollar in the money tally is in the request log. Each finding says
+what to fix (a setting, a tool, or where in the code to look). Reports are kept for a year, so
+the trend shows. **Check now** runs it any time.
+
+**The daily digest.** Around 9am (outside quiet hours) Buddy writes the analysis in plain words
+in your chat: how the week went, and up to three recommendations. Tap it to open Insights. If no
+phone is connected it waits. Settings: `BUDDY_HEALTH_DIGEST_AT` (hour, default `9`),
+`BUDDY_HEALTH_DIGEST=0` to switch it off. Ask "how are you doing?" any time for the same.
+
+**Download** (web Insights): every request, or reply timings, as CSV, to study or to share
+when asking for a fix. Also `GET /admin/insights/export?table=calls|turns&days=30`,
+`GET /admin/health` and `POST /admin/health/run`.
+
 The log lives in your encrypted database for 90 days; previews are 280 characters at most
 with card and ID numbers masked. It's also `GET /admin/insights?days=7`.
 
