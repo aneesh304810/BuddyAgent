@@ -13,6 +13,27 @@ import androidx.activity.ComponentActivity
 import androidx.activity.compose.rememberLauncherForActivityResult
 import androidx.activity.compose.setContent
 import androidx.activity.result.contract.ActivityResultContracts
+import androidx.compose.animation.core.RepeatMode
+import androidx.compose.animation.core.animateFloat
+import androidx.compose.animation.core.infiniteRepeatable
+import androidx.compose.animation.core.rememberInfiniteTransition
+import androidx.compose.animation.core.tween
+import androidx.compose.foundation.layout.PaddingValues
+import androidx.compose.foundation.lazy.itemsIndexed
+import androidx.compose.ui.draw.alpha
+import androidx.compose.ui.draw.clip
+import androidx.compose.ui.draw.scale
+import androidx.compose.ui.text.LinkAnnotation
+import androidx.compose.ui.text.SpanStyle
+import androidx.compose.ui.text.TextLinkStyles
+import androidx.compose.ui.text.buildAnnotatedString
+import androidx.compose.ui.text.font.FontStyle
+import androidx.compose.ui.text.font.FontWeight
+import androidx.compose.ui.text.style.TextAlign
+import androidx.compose.ui.text.style.TextDecoration
+import androidx.compose.ui.text.style.TextOverflow
+import androidx.compose.ui.text.withLink
+import androidx.compose.ui.text.withStyle
 import androidx.compose.animation.animateColorAsState
 import androidx.compose.foundation.background
 import androidx.compose.foundation.clickable
@@ -309,40 +330,140 @@ private fun Transcript(
     LaunchedEffect(lines.size, lines.lastOrNull()?.text) {
         if (lines.isNotEmpty()) state.animateScrollToItem(lines.lastIndex)
     }
-    LazyColumn(modifier.fillMaxWidth(), state = state, verticalArrangement = Arrangement.spacedBy(8.dp)) {
-        items(lines) { line ->
-            val mine = line.from == Speaker.YOU
-            Column(Modifier.fillMaxWidth()) {
-            if (line.text.isNotEmpty()) Row(Modifier.fillMaxWidth(), horizontalArrangement = if (mine) Arrangement.End else Arrangement.Start) {
-                Text(
-                    when {
-                        line.jobId != null -> line.text + "\n\nTap to open the report."
-                        line.opensInsights -> line.text + "\n\nTap to open Insights."
-                        else -> line.text
-                    },
-                    color = when (line.from) {
-                        Speaker.ERROR -> Color(0xFFFF8A80)
-                        Speaker.WHISPER -> Color(0xFFB9C6FF)
-                        else -> Color.White
-                    },
-                    fontSize = if (line.from == Speaker.WHISPER) 14.sp else 16.sp,
-                    modifier = Modifier
-                        .widthIn(max = 300.dp)
+    if (lines.isEmpty()) {
+        Box(modifier.fillMaxWidth(), contentAlignment = Alignment.Center) {
+            Text("Tap the mic and talk, or type below.\nTry: \"what's on today?\"", color = Muted,
+                fontSize = 15.sp, textAlign = TextAlign.Center)
+        }
+        return
+    }
+    LazyColumn(modifier.fillMaxWidth(), state = state, verticalArrangement = Arrangement.spacedBy(10.dp),
+        contentPadding = PaddingValues(vertical = 8.dp)) {
+        itemsIndexed(lines) { i, line ->
+            val previous = lines.getOrNull(i - 1)
+            // A small time label when the conversation picks up again after a pause.
+            if (previous == null || line.at - previous.at > 10 * 60_000) TimeLabel(line.at)
+            when (line.from) {
+                Speaker.YOU -> UserBubble(line)
+                Speaker.STATUS -> StatusLine(line.text)
+                Speaker.ERROR -> SystemNote(line.text)
+                else -> BuddyBubble(line, onOpenInsights, onOpenReport, onOpenCard)
+            }
+        }
+    }
+}
+
+private val TIME = java.text.SimpleDateFormat("EEE HH:mm", java.util.Locale.getDefault())
+
+@Composable
+private fun TimeLabel(at: Long) {
+    Text(TIME.format(java.util.Date(at)), color = Muted, fontSize = 12.sp, textAlign = TextAlign.Center,
+        modifier = Modifier.fillMaxWidth().padding(top = 4.dp))
+}
+
+@Composable
+private fun UserBubble(line: Line) {
+    Row(Modifier.fillMaxWidth(), horizontalArrangement = Arrangement.End) {
+        Text(line.text, color = Color.White, fontSize = 16.sp,
+            modifier = Modifier.widthIn(max = 520.dp)
+                .background(Accent.copy(alpha = 0.45f), RoundedCornerShape(18.dp, 18.dp, 4.dp, 18.dp))
+                .padding(horizontal = 14.dp, vertical = 10.dp))
+    }
+}
+
+@Composable
+private fun StatusLine(text: String) {
+    Row(Modifier.padding(start = 4.dp), verticalAlignment = Alignment.CenterVertically) {
+        Box(Modifier.size(8.dp).background(Thinking, CircleShape))
+        Spacer(Modifier.width(8.dp))
+        Text(text, color = Muted, fontSize = 13.sp, fontStyle = FontStyle.Italic)
+    }
+}
+
+@Composable
+private fun SystemNote(text: String) {
+    Text("ⓘ  $text", color = Color(0xFFFFA8A0), fontSize = 12.sp, textAlign = TextAlign.Center,
+        modifier = Modifier.fillMaxWidth().padding(horizontal = 24.dp))
+}
+
+private fun nudgeLabel(line: Line): String = when {
+    line.from == Speaker.WHISPER -> "🤫 Whisper"
+    line.opensInsights -> "🩺 Daily check · tap for Insights"
+    line.jobId != null -> "📄 Report ready · tap to open"
+    line.kind.contains("remind") -> "⏰ Reminder"
+    line.kind.contains("brief") || line.kind.contains("morning") -> "☀️ Briefing"
+    line.kind.contains("mail") -> "✉️ Email"
+    line.kind.contains("price") || line.kind.contains("deal") -> "🏷️ Price watch"
+    line.kind.contains("notification") -> "🔔 Notification"
+    else -> "💬 Buddy"
+}
+
+@Composable
+private fun BuddyBubble(line: Line, onOpenInsights: () -> Unit, onOpenReport: (Int) -> Unit, onOpenCard: (String) -> Unit) {
+    val special = line.from == Speaker.NUDGE || line.from == Speaker.WHISPER
+    Column(Modifier.fillMaxWidth()) {
+        if (line.text.isNotEmpty()) {
+            Row(verticalAlignment = Alignment.Top) {
+                Box(Modifier.padding(top = 2.dp).size(28.dp).background(
+                    if (special) Talking.copy(alpha = 0.3f) else Accent.copy(alpha = 0.25f), CircleShape),
+                    contentAlignment = Alignment.Center) { Text("B", color = Color.White, fontSize = 13.sp, fontWeight = FontWeight.Bold) }
+                Spacer(Modifier.width(8.dp))
+                Column(
+                    Modifier.widthIn(max = 560.dp)
+                        .background(Panel, RoundedCornerShape(4.dp, 18.dp, 18.dp, 18.dp))
                         .then(if (line.jobId != null) Modifier.clickable { onOpenReport(line.jobId) } else Modifier)
                         .then(if (line.opensInsights) Modifier.clickable { onOpenInsights() } else Modifier)
-                        .background(
-                            when (line.from) {
-                                Speaker.YOU -> Accent.copy(alpha = 0.35f)
-                                Speaker.NUDGE -> Talking.copy(alpha = 0.25f)
-                                else -> Panel
-                            },
-                            RoundedCornerShape(14.dp),
-                        )
-                        .padding(horizontal = 12.dp, vertical = 8.dp),
-                )
+                        .padding(horizontal = 14.dp, vertical = 10.dp)
+                ) {
+                    if (special) Text(nudgeLabel(line), color = Talking, fontSize = 12.sp, fontWeight = FontWeight.SemiBold,
+                        modifier = Modifier.padding(bottom = 4.dp))
+                    RichText(line.text, italic = line.from == Speaker.WHISPER)
+                }
             }
-            line.cards?.let { CardsRow(it, onOpenCard) }
-            if (line.from == Speaker.BUDDY && line.turn != null) Thumbs(line.turn, line.rating)
+        }
+        line.cards?.let { Box(Modifier.padding(start = 36.dp)) { CardsRow(it, onOpenCard) } }
+        if (line.from == Speaker.BUDDY && line.turn != null && line.text.isNotEmpty()) {
+            Box(Modifier.padding(start = 30.dp)) { Thumbs(line.turn, line.rating) }
+        }
+    }
+}
+
+private val URL = Regex("""https://[^\s)]+""")
+private val BOLD = Regex("""\*\*(.+?)\*\*""")
+
+/** Enough formatting for a chat: **bold**, bullet and numbered lists, tappable links. */
+@Composable
+private fun RichText(text: String, italic: Boolean = false) {
+    val blocks = text.lines()
+    Column(verticalArrangement = Arrangement.spacedBy(3.dp)) {
+        blocks.forEach { raw ->
+            val bullet = Regex("""^\s*(?:[-*•]|(\d+)[.)])\s+(.*)""").find(raw)
+            val body = bullet?.groupValues?.get(2) ?: raw
+            if (body.isBlank()) return@forEach
+            val styled = buildAnnotatedString {
+                var rest = body
+                while (rest.isNotEmpty()) {
+                    val b = BOLD.find(rest)
+                    val u = URL.find(rest)
+                    val next = listOfNotNull(b, u).minByOrNull { it.range.first }
+                    if (next == null) { append(rest); break }
+                    append(rest.substring(0, next.range.first))
+                    if (next === b) {
+                        withStyle(SpanStyle(fontWeight = FontWeight.SemiBold)) { append(next.groupValues[1]) }
+                    } else {
+                        withLink(LinkAnnotation.Url(next.value, TextLinkStyles(SpanStyle(color = Color(0xFF8FB0FF),
+                            textDecoration = TextDecoration.Underline)))) {
+                            append(next.value.removePrefix("https://").take(40))
+                        }
+                    }
+                    rest = rest.substring(next.range.last + 1)
+                }
+            }
+            Row {
+                if (bullet != null) Text(if (bullet.groupValues[1].isNotEmpty()) "${bullet.groupValues[1]}. " else "•  ",
+                    color = Muted, fontSize = 16.sp)
+                Text(styled, color = Color.White, fontSize = 16.sp, lineHeight = 22.sp,
+                    fontStyle = if (italic) FontStyle.Italic else FontStyle.Normal)
             }
         }
     }
@@ -351,22 +472,24 @@ private fun Transcript(
 /** Was this reply good? Tap again to take it back. */
 @Composable
 private fun Thumbs(turn: String, rating: Int?) {
-    Row(Modifier.padding(start = 6.dp, top = 2.dp), horizontalArrangement = Arrangement.spacedBy(4.dp)) {
-        listOf(1 to "\uD83D\uDC4D", -1 to "\uD83D\uDC4E").forEach { (value, icon) ->
+    Row(Modifier.padding(start = 6.dp, top = 2.dp), horizontalArrangement = Arrangement.spacedBy(2.dp)) {
+        listOf(1 to "👍", -1 to "👎").forEach { (value, icon) ->
             val on = rating == value
             Text(
                 icon,
-                fontSize = 15.sp,
-                color = if (rating == null || on) Color.White else Color.White.copy(alpha = 0.35f),
+                fontSize = 13.sp,
+                color = if (rating == null || on) Color.White else Color.White.copy(alpha = 0.3f),
                 modifier = Modifier
                     .background(if (on) Accent.copy(alpha = 0.35f) else Color.Transparent, RoundedCornerShape(10.dp))
                     .clickable { BuddyService.instance?.rate(turn, if (on) null else value) }
-                    .padding(horizontal = 8.dp, vertical = 2.dp),
+                    .padding(horizontal = 6.dp, vertical = 2.dp)
+                    .then(if (rating == null) Modifier.alpha(0.6f) else Modifier),
             )
         }
     }
 }
 
+/** The bottom bar: mode and hands-free on one slim line, then typing and the mic. */
 @Composable
 private fun Controls(ui: UiState, prefs: BuddyPrefs) {
     val service = BuddyService.instance
@@ -375,89 +498,94 @@ private fun Controls(ui: UiState, prefs: BuddyPrefs) {
     var languageMenu by remember { mutableStateOf(false) }
     var typed by remember { mutableStateOf("") }
 
-    Column(Modifier.fillMaxWidth().padding(vertical = 12.dp), horizontalAlignment = Alignment.CenterHorizontally) {
-        Row(horizontalArrangement = Arrangement.spacedBy(8.dp)) {
-            FilterChip(
-                selected = ui.mode == Mode.TALK,
-                onClick = { switchMode(Mode.TALK, ui) },
-                label = { Text("Talk") },
-            )
-            FilterChip(
-                selected = ui.mode == Mode.LISTEN_IN,
-                onClick = { switchMode(Mode.LISTEN_IN, ui) },
-                label = { Text("Listen-in") },
-            )
-        }
+    val stateColor by animateColorAsState(
+        when {
+            ui.speaking -> Talking
+            ui.thinking -> Thinking
+            ui.listening -> Listening
+            else -> Accent
+        },
+        label = "mic",
+    )
+    val status = when {
+        ui.onCall -> "Paused while you're on a call"
+        ui.speaking -> "Talking. Speak to interrupt."
+        ui.thinking -> "Got it, thinking…"
+        ui.listening && ui.mode == Mode.LISTEN_IN && ui.conversationOpen -> "Listening to you, just reply"
+        ui.listening && ui.mode == Mode.LISTEN_IN -> "Listening to the room. Say \"Hey Buddy…\""
+        ui.listening -> "Listening…"
+        ui.mode == Mode.LISTEN_IN -> "Tap the mic to listen to the room"
+        else -> "Tap the mic or your earbud to talk"
+    }
 
-        val orbColor by animateColorAsState(
-            when {
-                ui.speaking -> Talking
-                ui.thinking -> Thinking
-                ui.listening -> Listening
-                else -> Accent
-            },
-            label = "orb",
-        )
-        Box(
-            Modifier
-                .padding(vertical = 16.dp)
-                .size(120.dp)
-                .background(orbColor, CircleShape)
-                .clickable(enabled = service != null) { service?.toggle() },
-        )
-        Text(
-            when {
-                ui.onCall -> "Paused while you're on a call"
-                ui.speaking -> "Buddy is talking. Just speak to interrupt."
-                ui.thinking -> "Got it, thinking…"
-                ui.listening && ui.mode == Mode.LISTEN_IN && ui.conversationOpen ->
-                    "I'm listening to you: just reply, no \"Hey Buddy\" needed."
-                ui.listening && ui.mode == Mode.LISTEN_IN -> "Listening to the room. Say \"Hey Buddy, …\" to ask me."
-                ui.listening -> "Listening…"
-                ui.mode == Mode.LISTEN_IN -> "Tap to listen to the room"
-                else -> "Tap the orb or your earbud to talk"
-            },
-            color = Muted,
-            fontSize = 14.sp,
-        )
-
-        Spacer(Modifier.height(8.dp))
-        if (ui.mode == Mode.TALK) {
-            Row(verticalAlignment = Alignment.CenterVertically) {
-                Text("Hands-free", color = Color.White, modifier = Modifier.padding(end = 8.dp))
-                Switch(checked = handsFree, onCheckedChange = { handsFree = it; prefs.handsFree = it })
-            }
-        } else {
-            Box {
-                OutlinedButton(onClick = { languageMenu = true }) {
-                    Text("Room language: " + (ROOM_LANGUAGES.firstOrNull { it.first == roomLanguage }?.second ?: roomLanguage))
+    Column(Modifier.fillMaxWidth().padding(top = 6.dp, bottom = 10.dp), verticalArrangement = Arrangement.spacedBy(8.dp)) {
+        Row(Modifier.fillMaxWidth(), verticalAlignment = Alignment.CenterVertically) {
+            // Talk | Listen-in, as one small switch.
+            Row(Modifier.background(Panel, RoundedCornerShape(50)).padding(3.dp)) {
+                listOf(Mode.TALK to "Talk", Mode.LISTEN_IN to "Listen-in").forEach { (mode, label) ->
+                    val on = ui.mode == mode
+                    Text(label, color = if (on) Color.Black else Color.White, fontSize = 13.sp,
+                        fontWeight = if (on) FontWeight.SemiBold else FontWeight.Normal,
+                        modifier = Modifier.clip(RoundedCornerShape(50))
+                            .background(if (on) Color(0xFFE0E6FF) else Color.Transparent)
+                            .clickable { switchMode(mode, ui) }
+                            .padding(horizontal = 12.dp, vertical = 6.dp))
                 }
-                DropdownMenu(expanded = languageMenu, onDismissRequest = { languageMenu = false }) {
-                    ROOM_LANGUAGES.forEach { (code, name) ->
-                        DropdownMenuItem(text = { Text(name) }, onClick = {
-                            roomLanguage = code
-                            prefs.roomLanguage = code
-                            languageMenu = false
-                            if (ui.listening && ui.mode == Mode.LISTEN_IN) service?.startListening(Mode.LISTEN_IN)
-                        })
+            }
+            Text(status, color = Muted, fontSize = 13.sp, maxLines = 1, overflow = TextOverflow.Ellipsis,
+                modifier = Modifier.weight(1f).padding(horizontal = 10.dp))
+            if (ui.mode == Mode.TALK) {
+                Text(if (handsFree) "🎧 Hands-free" else "🎧 Tap-to-talk",
+                    color = if (handsFree) Listening else Muted, fontSize = 13.sp,
+                    modifier = Modifier.clip(RoundedCornerShape(50))
+                        .background(if (handsFree) Listening.copy(alpha = 0.15f) else Panel)
+                        .clickable { handsFree = !handsFree; prefs.handsFree = handsFree }
+                        .padding(horizontal = 10.dp, vertical = 6.dp))
+            } else {
+                Box {
+                    Text("🌐 " + (ROOM_LANGUAGES.firstOrNull { it.first == roomLanguage }?.second ?: roomLanguage),
+                        color = Color.White, fontSize = 13.sp,
+                        modifier = Modifier.clip(RoundedCornerShape(50)).background(Panel)
+                            .clickable { languageMenu = true }.padding(horizontal = 10.dp, vertical = 6.dp))
+                    DropdownMenu(expanded = languageMenu, onDismissRequest = { languageMenu = false }) {
+                        ROOM_LANGUAGES.forEach { (code, name) ->
+                            DropdownMenuItem(text = { Text(name) }, onClick = {
+                                roomLanguage = code
+                                prefs.roomLanguage = code
+                                languageMenu = false
+                                if (ui.listening && ui.mode == Mode.LISTEN_IN) service?.startListening(Mode.LISTEN_IN)
+                            })
+                        }
                     }
                 }
             }
         }
 
-        // Typing works too: on a quiet train, or when speech recognition struggles.
-        Row(Modifier.fillMaxWidth().padding(top = 8.dp), verticalAlignment = Alignment.CenterVertically) {
+        // Typing, and one round button: Send when there's text, the mic otherwise.
+        Row(Modifier.fillMaxWidth(), verticalAlignment = Alignment.CenterVertically) {
             OutlinedTextField(
                 value = typed,
                 onValueChange = { typed = it },
-                placeholder = { Text("Type to Buddy") },
-                singleLine = true,
+                placeholder = { Text("Message Buddy") },
+                maxLines = 4,
+                shape = RoundedCornerShape(24.dp),
                 modifier = Modifier.weight(1f),
             )
-            TextButton(
-                enabled = typed.isNotBlank() && service != null,
-                onClick = { service?.sayToBuddy(typed.trim()); typed = "" },
-            ) { Text("Send") }
+            Spacer(Modifier.width(10.dp))
+            val sending = typed.isNotBlank()
+            val pulse = rememberInfiniteTransition(label = "pulse")
+            val scale by pulse.animateFloat(1f, if (ui.listening && !sending) 1.12f else 1f,
+                infiniteRepeatable(tween(900), RepeatMode.Reverse), label = "scale")
+            Box(
+                Modifier.size(56.dp).scale(scale).background(if (sending) Accent else stateColor, CircleShape)
+                    .clickable(enabled = service != null) {
+                        if (sending) { service?.sayToBuddy(typed.trim()); typed = "" } else service?.toggle()
+                    },
+                contentAlignment = Alignment.Center,
+            ) {
+                Text(if (sending) "➤" else if (ui.listening) "■" else "🎙️",
+                    color = Color.Black, fontSize = if (sending) 22.sp else 20.sp)
+            }
         }
     }
 }

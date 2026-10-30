@@ -13,7 +13,7 @@ import java.util.concurrent.TimeUnit
 
 /** A message from Buddy's brain (see the protocol at the top of backend/buddy/server.py). */
 sealed interface ServerEvent {
-    data class Say(val text: String) : ServerEvent
+    data class Say(val text: String, val filler: Boolean = false) : ServerEvent
     data class Done(val turn: String) : ServerEvent  // turn: lets you rate the reply
     data class Cards(val json: String) : ServerEvent  // results to show under the reply
     data object Thinking : ServerEvent
@@ -27,7 +27,7 @@ sealed interface ServerEvent {
         fun parse(raw: String): ServerEvent? = runCatching {
             val msg = JSONObject(raw)
             when (msg.optString("type")) {
-                "say" -> Say(msg.getString("text"))
+                "say" -> Say(msg.getString("text"), msg.optBoolean("filler"))
                 "done" -> Done(msg.optString("turn"))
                 "cards" -> Cards(msg.getJSONArray("cards").toString())
                 "thinking" -> Thinking

@@ -18,7 +18,8 @@ Protocol (JSON messages):
                     "posted_at", "key"}               a notification on that phone
                    {"type": "phone_calendar", "device", "events": [{id, title, start,
                     end, calendar, location, all_day, busy_only}]}  the phone's next week
-  server -> phone  {"type": "say", "text": "..."}    one sentence to speak
+  server -> phone  {"type": "say", "text": "...", "filler": true?}  one sentence to speak
+                                                      (filler: "hang on, checking" while tools run)
                    {"type": "cards", "turn": "a1b2c3", "cards": [...]}  results to show under the reply
                    {"type": "done", "turn": "a1b2c3"} reply finished (turn: for a thumbs rating)
                    {"type": "nudge", "kind": "...", "text": "...", "job_id": 3}
@@ -45,7 +46,7 @@ from fastapi.staticfiles import StaticFiles
 
 from . import health as healthcheck
 from . import codejob, insights, proactive, research, usage
-from .agent import Conversation
+from .agent import FILLERS, Conversation
 from .agents import AgentRegistry, load_specs
 from .ambient import AmbientListener, is_think_cue
 from .config import settings
@@ -427,7 +428,8 @@ async def talk(ws: WebSocket) -> None:
         await ws.send_json(message)
 
     async def say(text: str) -> None:
-        await send({"type": "say", "text": text})
+        # "Hang on, checking" while a tool works: spoken, but shown as a status line, not an answer.
+        await send({"type": "say", "text": text, **({"filler": True} if text in FILLERS else {})})
 
     async def whisper(kind: str, text: str) -> None:
         await send({"type": "whisper", "kind": kind, "text": text})

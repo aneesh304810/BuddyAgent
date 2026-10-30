@@ -298,8 +298,12 @@ class BuddyService : Service() {
         }
         when (event) {
             is ServerEvent.Say -> if (!muted) {
-                BuddyState.buddySentence(event.text, newReply = !replyOpen)
-                replyOpen = true
+                if (event.filler) {
+                    BuddyState.status(event.text)
+                } else {
+                    BuddyState.buddySentence(event.text, newReply = !replyOpen)
+                    replyOpen = true
+                }
                 mouth.speak(event.text)
             }
             is ServerEvent.Cards -> BuddyState.attachCards(event.json)
@@ -314,7 +318,8 @@ class BuddyService : Service() {
                 Notes.approval(this, event.question)
             }
             is ServerEvent.Nudge -> {
-                BuddyState.add(Line(event.text, Speaker.NUDGE, event.jobId, opensInsights = event.kind == "health"))
+                BuddyState.add(Line(event.text, Speaker.NUDGE, event.jobId, opensInsights = event.kind == "health",
+                    kind = event.kind))
                 Notes.nudge(this, event.text, event.jobId)
                 if (!BuddyState.ui.value.onCall) mouth.speak(event.text)
             }
