@@ -22,9 +22,9 @@ from .config import claude_client, settings
 from .jobs import JOB_TOOL_NAMES, JOB_TOOLS, JobRunner, run_job_tool
 from .connectors import CONNECTOR_TOOL_NAMES, CONNECTOR_TOOLS, ConnectorHub, run_connector_tool
 from .bankfeed import BALANCES_TOOL, BankFeed, run_balances_tool
-from .free_models import GENERAL_TOOL, VERDICT_TOOL, FreeModels, run_general_tool
+from .free_models import GENERAL_TOOL, UNSURE, VERDICT_TOOL, FreeModels, run_general_tool
 from .insights import RATE_TOOL
-from .router import HAND_OVER_TOOL, Router
+from .router import HAND_OVER_TOOL, Router, free_kind
 from .social import SOCIAL_TOOL_NAMES, Social, run_social_tool, social_tools
 from .location import Location
 from .taste import TASTE_TOOL_NAMES, TASTE_TOOLS, WHERE_TOOL, Taste, run_taste_tool
@@ -169,6 +169,9 @@ class Conversation:
 
         stamp = local_now().strftime("%A %d %B %Y, %I:%M %p")
         self._trim_history()
+        self.turn_question, self._step = mask(user_text), 0
+        if await self._free_turn(user_text, say, via):
+            return
         self.model = self.router.pick(user_text)
         usage.count(self.memory, "router:quick" if self.model == settings.fast_model else "router:main")
         # Sensitive numbers never leave the server.
@@ -257,8 +260,11 @@ class Conversation:
                     if sentence.strip():
                         await speak(sentence.strip())
             response = await stream.get_final_message()
+        self._step = getattr(self, "_step", 0) + 1
+        question = getattr(self, "turn_question", "") or self._last_user_text()
         usage.record(self.memory, response.model, response.usage, response=response, started=started,
-                     request=self._last_user_text(), label="chat")
+                     request=question if self._step == 1 else f"(step {self._step}, after tools) {question}",
+                     label="chat")
         if buffer.strip() and response.stop_reason != "refusal":
             await speak(buffer.strip())
         return response
@@ -293,8 +299,36 @@ class Conversation:
     def _note_exchange(self, user_text: str, answer: str) -> None:
         """Keep an exchange handled without Claude in the history, for context."""
         stamp = local_now().strftime("%A %d %B %Y, %I:%M %p")
-        self.messages.append({"role": "user", "content": f"({stamp}) {mask(user_text)}"})
+        self._add_user_text(f"({stamp}) {mask(user_text)}")
         self.messages.append({"role": "assistant", "content": answer})
+
+    async def _free_turn(self, user_text: str, say: Say, via: str) -> bool:
+        """Simple, general, timeless questions ("what is a black hole", "how do you say thanks in
+        Portuguese") go straight to a free model: no Claude call. True if it answered; anything
+        personal, or a model that isn't sure, falls through to Claude."""
+        kind = free_kind(user_text) if settings.free_direct and self.free.enabled() else ""
+        if not kind:
+            return False
+        started = time.monotonic()
+        try:
+            result = await self.free.direct(kind, mask(user_text))
+        except ToolError:  # personal details, not sure, or every free model busy
+            return False
+        except Exception:
+            log.exception("free turn failed")
+            return False
+        answer = result["answer"].replace(UNSURE, "").strip()
+        first = None
+        sentences = [x.strip() for x in SENTENCE_END.split(answer) if x.strip()]
+        for sentence in sentences:
+            await say(sentence)
+            first = first if first is not None else time.monotonic() - started
+        self._note_exchange(user_text, answer)
+        usage.count(self.memory, "router:free")
+        usage.log_turn(self.memory, turn=self.turn_key, via=via, first_model=result["model"],
+                       final_model=result["model"], first_word=first, total=time.monotonic() - started, rounds=1,
+                       tools=[], sentences=len(sentences), filler=False, outcome="ok")
+        return True
 
     def tools(self) -> list[dict]:
         """Every tool, but only a few load up front: Claude finds the rest with tool search
@@ -304,7 +338,7 @@ class Conversation:
         if self.model == settings.fast_model and self.model != settings.chat_model:
             everything = [HAND_OVER_TOOL] + everything
         for tool in everything:
-            if tool.get("type", "custom") != "custom" or tool["name"] in ALWAYS_LOADED | {"hand_over"} | DISPLAY_ONLY:
+            if tool.get("type", "custom") != "custom" or tool["name"] in ALWAYS_LOADED | {"hand_over", "general_task"} | DISPLAY_ONLY:
                 tools.append(tool)  # server tools (web search) and the everyday ones stay loaded
             else:
                 tools.append({**tool, "defer_loading": True})
@@ -332,6 +366,7 @@ class Conversation:
 
     async def _run(self, block) -> dict:
         args = block.input if isinstance(block.input, dict) else json.loads(block.input)
+        started = time.monotonic()
         try:
             result, is_error = await self._dispatch(block.name, args), False
         except ApprovalNeeded as e:
@@ -339,6 +374,9 @@ class Conversation:
         except (ToolError, KeyError, TypeError, ValueError) as e:
             result, is_error = str(e) or type(e).__name__, True
         log.info("tool %s -> %s", block.name, "error" if is_error else "ok")
+        with contextlib.suppress(Exception):  # for Insights: which tools and agents, how fast, how often failing
+            usage.log_tool(self.memory, block.name, time.monotonic() - started, not is_error,
+                           str(result)[:160] if is_error else "")
         return {
             "type": "tool_result",
             "tool_use_id": block.id,

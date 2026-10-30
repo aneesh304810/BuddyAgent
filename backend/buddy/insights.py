@@ -7,11 +7,13 @@ and masked; the log keeps 90 days.
 from datetime import datetime, timedelta, timezone
 
 from . import usage
+from .config import settings
 from .memory import Memory
 from .tools import local_now
 
 PURPOSE_NAMES = {
     "chat": "Talking with you",
+    "chat_free": "Talking with you (free model)",
     "listen": "Listen-in",
     "addressing": "Was that for me?",
     "think": "Let me think",
@@ -138,6 +140,66 @@ def speed(turns: list[dict]) -> dict:
     }
 
 
+SERVER_TOOLS = ("web_search", "web_fetch", "code_execution")
+
+
+def free_models_overview(memory: Memory, by_model: list[dict]) -> dict:
+    """Every free provider: set up or not, what it's first choice for, and how it did."""
+    import os
+
+    from .free_models import BEST_FOR, PROVIDERS, FreeModels
+
+    free = FreeModels(memory)
+    enabled = free.enabled()
+    stats = {g["provider"]: g for g in by_model if g["provider"] != "claude"}
+    rows = []
+    for name, p in PROVIDERS.items():
+        g = stats.get(name, {})
+        rows.append({
+            "name": name, "model": free.model_of(name), "good_at": p["good_at"],
+            "key_set": bool((os.environ.get(p["key"]) or "").strip()), "on": name in enabled,
+            "first_choice_for": [k.replace("_", " ") for k, order in BEST_FOR.items() if order[0] == name],
+            "requests": g.get("requests", 0), "failed": g.get("failed", 0), "median_seconds": g.get("median_seconds"),
+            "accuracy": g.get("accuracy"), "usable": g.get("usable"),
+        })
+    switched_on = (os.environ.get("BUDDY_FREE_MODELS") or "").strip() == "1"
+    note = ("" if enabled else "Free models are off: set BUDDY_FREE_MODELS to 1 with set.sh." if not switched_on
+            else "No free-model key is set yet (docs/MODELS.md).")
+    return {"on": bool(enabled), "direct_answers": bool(enabled) and settings.free_direct, "note": note,
+            "providers": sorted(rows, key=lambda r: (not r["on"], -r["requests"]))}
+
+
+def tools_overview(memory: Memory, since: str, rows: list[dict]) -> list[dict]:
+    """Tools and agents used for replies: Buddy's own, agents (Zapier, Gmail, built ones) and
+    Claude's server tools (web search, page fetching, code). Calls, failures, time, extra cost."""
+    import os
+
+    calls = [dict(r) for r in memory.db.execute("SELECT * FROM tool_calls WHERE at >= ?", (since,))]
+    plan = float(os.environ.get("BUDDY_ZAPIER_PLAN_USD") or 0)
+    tasks = int(os.environ.get("BUDDY_ZAPIER_TASKS_PER_MONTH") or 0)
+    per_task = plan / tasks if plan and tasks else 0.0
+    groups: dict[tuple[str, str], list[dict]] = {}
+    for c in calls:
+        groups.setdefault((c["agent"], c["tool"]), []).append(c)
+    out = []
+    for (agent, tool), cs in groups.items():
+        times = [c["seconds"] for c in cs if c["seconds"] is not None]
+        errors = [c["error"] for c in cs if not c["ok"] and c["error"]]
+        out.append({"agent": agent, "tool": tool.split("__", 1)[-1], "calls": len(cs),
+                    "failed": sum(1 for c in cs if not c["ok"]), "median_seconds": _percentile(times, 0.5),
+                    "extra_usd": round(len(cs) * per_task, 4) if agent == "zapier" else 0.0,
+                    "last_error": errors[-1] if errors else ""})
+    searches = sum(r["web_searches"] for r in rows)
+    for tool in SERVER_TOOLS:
+        n = sum(1 for r in rows if tool in (r["tools"] or "").split(", "))
+        if n or (tool == "web_search" and searches):
+            out.append({"agent": "claude", "tool": tool, "calls": searches if tool == "web_search" else n,
+                        "failed": 0, "median_seconds": None,
+                        "extra_usd": round(searches * usage.WEB_SEARCH_USD, 4) if tool == "web_search" else 0.0,
+                        "last_error": ""})
+    return sorted(out, key=lambda t: -t["calls"])
+
+
 def report(memory: Memory, days: int = 7, recent: int = 60, model: str = "", purpose: str = "") -> dict:
     days = max(1, min(int(days), usage.KEEP_CALLS_DAYS))
     since = (datetime.now(timezone.utc) - timedelta(days=days)).isoformat()
@@ -210,6 +272,8 @@ def report(memory: Memory, days: int = 7, recent: int = 60, model: str = "", pur
             **_quality(rows),
         },
         "speed": speed(turns),
+        "free_models": free_models_overview(memory, by_model),
+        "tools": tools_overview(memory, since, rows),
         "by_model": by_model,
         "by_purpose": by_purpose,
         "by_day": list(per_day.values()),

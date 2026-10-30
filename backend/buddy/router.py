@@ -29,6 +29,33 @@ NEEDS_SONNET = re.compile(
 )
 FOLLOW_UP_SECONDS = 120
 
+# Simple, general, timeless questions a free model answers as well as Claude: sent straight to
+# one (no Claude call at all) when free models are on. Anything personal, current, local or
+# needing a tool is left out here; the free-model guard refuses personal details again, and a
+# free model that isn't sure hands it back.
+FREE_TRANSLATE = re.compile(r"(?i)^(how do (you|i) say|translate|what('s| is| does) .{1,60} (mean )?in "
+                            r"(spanish|portuguese|english|hindi|french|italian|german|malayalam|tamil|japanese))\b")
+FREE_EXPLAIN = re.compile(r"(?i)^(what is an?|what is the (meaning|definition|difference)|what's an?|what are|"
+                          r"what does .{1,40} mean|define|meaning of|explain|how does|how do .{1,30} work|why is the|"
+                          r"why do|who was|who invented|who wrote|tell me about the history of|how many .{1,30} in an?)\b")
+NOT_FOR_FREE = re.compile(
+    r"(?i)\b(my|me|mine|i|i'm|we|our|us|you|your|buddy|remind|email|mail|calendar|today|tonight|tomorrow|"
+    r"yesterday|now|current|currently|latest|recent|news|this (week|month|year)|price|cost|cheap|deal|weather|"
+    r"near|nearby|open|book|buy|order|stock|score|schedule|bill|bank|spend|money|flight|hotel|restaurant|"
+    r"search|google|reddit|code|script|bug|health|doctor|medical|legal|lawyer|tax|invest)\b")
+
+
+def free_kind(text: str) -> str:
+    """'translate', 'explain' or 'quick_answer' when a free model can take the whole turn, else ''."""
+    text = text.strip()
+    if len(text.split()) > 25:
+        return ""
+    if FREE_TRANSLATE.search(text):
+        return "translate"  # the phrase itself can be anything; the privacy guard still checks it
+    if FREE_EXPLAIN.search(text) and not NOT_FOR_FREE.search(text):
+        return "explain"
+    return ""
+
 HAND_OVER_TOOL = {
     "name": "hand_over",
     "description": "Pass this question to the main model when it needs more than a quick reply: several "

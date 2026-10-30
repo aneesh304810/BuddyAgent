@@ -635,6 +635,25 @@ async function showInsights() {
       (g.web_searches ? ` · ${g.web_searches} searches` : "") + quality(g),
     (g) => g.model, v.model, (k) => { v.model = k; v.purpose = ""; }, (g) => g.requests);
 
+  const fm = r.free_models;
+  if (fm) {
+    h("Free models");
+    if (fm.note) body.appendChild(el("p", "", fm.note));
+    if (fm.direct_answers) body.appendChild(el("p", "", "Simple general questions (\"what is…\", \"how do you say…\") go straight to these; anything personal stays on Claude."));
+    body.appendChild(costTable(fm.providers.map((p) => [
+      `${p.on ? "●" : "○"} ${p.name}`, p.model, p.on ? "on" : (p.key_set ? "key set, off" : "no key"),
+      (p.first_choice_for || []).join(", "), String(p.requests), secs(p.median_seconds),
+      p.accuracy == null ? "–" : `${Math.round(p.accuracy * 100)}%`]),
+      ["", "Model", "", "First choice for", "Requests", "Typical", "Right"]));
+  }
+  h("Tools and agents");
+  if (!(r.tools || []).length) body.appendChild(el("p", "", "No tools used in this period."));
+  else body.appendChild(costTable(r.tools.map((t) => [
+    t.tool.replace(/_/g, " "), { buddy: "Buddy", claude: "Claude (server)" }[t.agent] || `${t.agent} agent`,
+    String(t.calls), t.failed ? String(t.failed) : "", secs(t.median_seconds),
+    t.extra_usd ? money(t.extra_usd) : "", t.last_error || ""]),
+    ["Tool", "Who", "Calls", "Failed", "Typical", "Extra $", "Last error"]));
+
   const filter = [v.purpose, v.model].filter(Boolean).join(" · ");
   h(filter ? `Latest requests: ${filter} (tap it above to clear)` : "Latest requests");
   if (!r.recent.length) body.appendChild(el("p", "", "Nothing yet in this period."));

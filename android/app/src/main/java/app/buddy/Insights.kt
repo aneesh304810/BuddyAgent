@@ -290,6 +290,22 @@ fun InsightsScreen(link: ServerLink?) {
             ) { model = if (model == m.optString("model")) "" else m.optString("model"); purpose = "" }
         }
 
+        val freeInfo = d.optJSONObject("free_models")
+        if (freeInfo != null) {
+            item { Heading("Free models") }
+            if (freeInfo.optString("note").isNotEmpty()) item { Text(freeInfo.optString("note"), color = Dim, fontSize = 13.sp) }
+            if (freeInfo.optBoolean("direct_answers")) item {
+                Text("Simple general questions (\"what is…\", \"how do you say…\") go straight to these; " +
+                    "anything personal stays on Claude.", color = Dim, fontSize = 12.sp)
+            }
+            items(freeInfo.optJSONArray("providers")?.objects() ?: emptyList()) { p -> FreeModelRow(p) }
+        }
+
+        val tools = d.optJSONArray("tools")?.objects() ?: emptyList()
+        item { Heading("Tools and agents") }
+        if (tools.isEmpty()) item { Text("No tools used in this period.", color = Dim, fontSize = 13.sp) }
+        items(tools) { t -> ToolRow(t) }
+
         item {
             val filter = listOf(purpose, model).filter { it.isNotEmpty() }.joinToString(" · ")
             Heading(if (filter.isEmpty()) "Latest requests" else "Latest requests: $filter (tap again to clear)")
@@ -298,6 +314,49 @@ fun InsightsScreen(link: ServerLink?) {
         if (recent.isEmpty()) item { Text("Nothing yet in this period.", color = Dim) }
         items(recent) { CallRow(it) }
         item { Spacer(Modifier.height(24.dp)) }
+    }
+}
+
+@Composable
+private fun FreeModelRow(p: JSONObject) {
+    val on = p.optBoolean("on")
+    Column(Modifier.fillMaxWidth().background(Card, RoundedCornerShape(12.dp)).padding(12.dp)) {
+        Row(verticalAlignment = Alignment.CenterVertically) {
+            Box(Modifier.size(8.dp).background(if (on) Bar else Dim, RoundedCornerShape(4.dp)))
+            Spacer(Modifier.size(8.dp))
+            Text(p.optString("name"), color = Color.White, fontSize = 15.sp, modifier = Modifier.weight(1f))
+            Text(if (on) "on" else if (p.optBoolean("key_set")) "key set, off" else "no key", color = if (on) Bar else Dim,
+                fontSize = 12.sp)
+        }
+        Text(p.optString("model") + " · " + p.optString("good_at"), color = Dim, fontSize = 12.sp)
+        val first = p.optJSONArray("first_choice_for")
+        if (first != null && first.length() > 0) {
+            Text("First choice for: " + (0 until first.length()).joinToString(", ") { first.getString(it) },
+                color = Bright, fontSize = 12.sp)
+        }
+        if (p.optInt("requests") > 0) {
+            Text("${p.optInt("requests")} requests" + (if (p.optInt("failed") > 0) " · ${p.optInt("failed")} failed" else "") +
+                " · ${secs(p, "median_seconds")} typical" +
+                (if (!p.isNull("accuracy")) " · right ${pct(p, "accuracy")}" else ""), color = Bright, fontSize = 12.sp)
+        }
+    }
+}
+
+@Composable
+private fun ToolRow(t: JSONObject) {
+    val who = when (t.optString("agent")) {
+        "buddy" -> "Buddy"
+        "claude" -> "Claude (server tool)"
+        else -> t.optString("agent").replaceFirstChar { it.uppercase() } + " agent"
+    }
+    Column(Modifier.fillMaxWidth().background(Card, RoundedCornerShape(12.dp)).padding(12.dp)) {
+        Row(verticalAlignment = Alignment.CenterVertically) {
+            Text(t.optString("tool").replace('_', ' '), color = Color.White, fontSize = 15.sp, modifier = Modifier.weight(1f))
+            Text(if (t.optDouble("extra_usd") > 0) usd(t.optDouble("extra_usd")) else "no extra cost", color = Bright, fontSize = 12.sp)
+        }
+        Text("$who · ${t.optInt("calls")} calls" + (if (t.optInt("failed") > 0) " · ${t.optInt("failed")} failed" else "") +
+            (if (!t.isNull("median_seconds")) " · ${secs(t, "median_seconds")} typical" else ""), color = Dim, fontSize = 12.sp)
+        if (t.optString("last_error").isNotEmpty()) Text("Last error: ${t.optString("last_error")}", color = Bad, fontSize = 12.sp)
     }
 }
 

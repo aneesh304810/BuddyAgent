@@ -172,3 +172,40 @@ def test_broken_python_moves_on_to_the_next_model():
     assert http.calls[0] == "deepseek" and not result["model"].startswith("deepseek")
     out = asyncio.run(fm.run_general_tool(free(FakeHTTP(), env=ENV_CODE), {"kind": "code", "text": "reverse a list"}))
     assert "check it before using it" in out
+
+
+def test_a_simple_question_is_answered_by_a_free_model_without_claude(monkeypatch):
+    from buddy import agent
+    from buddy.config import settings as real
+    import dataclasses
+
+    monkeypatch.setattr(agent, "settings", dataclasses.replace(real, free_direct=True))
+    mem = Memory(":memory:")
+    convo = agent.Conversation(mem)
+    convo.free = free(FakeHTTP(), memory=mem)
+    claude_calls = []
+    monkeypatch.setattr(agent.client.beta.messages, "stream", lambda **kw: claude_calls.append(kw))
+    said = []
+
+    async def say(s):
+        said.append(s)
+    asyncio.run(convo.reply("what is a black hole", say))
+    assert said and said[0].startswith("answer from") and claude_calls == []
+    row = mem.db.execute("SELECT first_model, outcome FROM turns").fetchone()
+    assert row["first_model"].startswith("gemini/") and row["outcome"] == "ok"
+    assert convo.messages[-1]["role"] == "assistant"  # kept for follow-ups
+
+
+def test_an_unsure_free_model_hands_the_turn_to_claude(monkeypatch):
+    from buddy import agent
+
+    class Unsure(FakeHTTP):
+        def __call__(self, url, body, headers, timeout):
+            self.calls.append(url)
+            return {"choices": [{"message": {"content": fm.UNSURE}}]}
+    mem = Memory(":memory:")
+    convo = agent.Conversation(mem)
+    convo.free = free(Unsure(), memory=mem)
+    convo.free.memory = mem
+    assert asyncio.run(convo._free_turn("what is a black hole", lambda s: None, "user")) is False
+    assert len(convo.free.http.calls) == 1  # handed back at once, not retried elsewhere

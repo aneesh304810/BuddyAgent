@@ -99,6 +99,9 @@ PHONE = re.compile(r"\+\d[\d\s().-]{7,}\d|\(?\b\d{3}\)?[\s.-]\d{3}[\s.-]\d{4}\b"
 SECRETS = SECRET_PATTERNS
 
 
+UNSURE = "NEEDS_CLAUDE"
+
+
 class PersonalData(ToolError):
     pass
 
@@ -258,7 +261,8 @@ class FreeModels:
         p = PROVIDERS[name]
         return (self.env.get(p["model_setting"]) or p["model"]).strip()
 
-    async def run(self, kind: str, text: str, instruction: str = "", target: str = "English") -> dict:
+    async def run(self, kind: str, text: str, instruction: str = "", target: str = "English",
+                  system: str | None = None, purpose: str = "", claude_fallback: bool = True) -> dict:
         import asyncio
 
         if kind not in BEST_FOR:
@@ -268,7 +272,8 @@ class FreeModels:
         if kind == "code" and (why := code_route(instruction + "\n" + text)):
             usage.count(self.memory, "free:code_to_claude")
             raise NeedsClaude(f"This coding task needs you, not a free model ({why}): do it yourself, carefully (hand_over first if you have that tool).")
-        system = INSTRUCTIONS[kind].format(target=target or "English")
+        system = system or INSTRUCTIONS[kind].format(target=target or "English")
+        purpose = purpose or f"general:{kind}"
         prompt = (instruction.strip() + "\n\n" if instruction.strip() else "") + text
         tried = []
         for name in self.order(kind)[:3]:  # at most three tries, so a slow day never drags on
@@ -280,38 +285,58 @@ class FreeModels:
                     raise ValueError("empty answer")
                 if problem := answer_problem(kind, answer):
                     raise BadAnswer(problem)
+                if UNSURE in answer:
+                    # The model knows it isn't the right one for this: hand back, don't guess.
+                    usage.log_call(self.memory, provider=name, model=self.model_of(name), purpose=purpose,
+                                   seconds=time.monotonic() - started, stop="handed back (not sure)",
+                                   request=prompt, verdict="redone")
+                    raise NeedsClaude("not sure")
                 self._learn(name, time.monotonic() - started)
                 usage.count(self.memory, f"free:{name}")
                 call_id = usage.log_call(
-                               self.memory, provider=name, model=self.model_of(name), purpose=f"general:{kind}",
+                               self.memory, provider=name, model=self.model_of(name), purpose=purpose,
                                input_tokens=tokens.get("prompt_tokens") or 0,
                                output_tokens=tokens.get("completion_tokens") or 0,
                                seconds=time.monotonic() - started, stop="free", request=prompt, reply=answer)
                 return {"answer": answer, "model": f"{name}/{self.model_of(name)}", "free": True, "call_id": call_id,
                         "seconds": round(time.monotonic() - started, 1)}
+            except NeedsClaude:
+                raise  # not a failure: this one should be Claude's
             except RateLimited as e:
                 self.cooldown[name] = time.time() + e.wait
                 tried.append(f"{name}: at its free limit")
-                usage.log_call(self.memory, provider=name, model=self.model_of(name), purpose=f"general:{kind}",
+                usage.log_call(self.memory, provider=name, model=self.model_of(name), purpose=purpose,
                                seconds=time.monotonic() - started, ok=False, stop="at its free limit",
                                request=prompt)
             except BadAnswer as e:
                 self._learn(name, None)
                 tried.append(f"{name}: {e}")
-                usage.log_call(self.memory, provider=name, model=self.model_of(name), purpose=f"general:{kind}",
+                usage.log_call(self.memory, provider=name, model=self.model_of(name), purpose=purpose,
                                seconds=time.monotonic() - started, ok=False, stop=f"rejected: {e}",
                                request=prompt, verdict="failed_check")
             except Exception as e:
                 self._learn(name, None)
                 self.cooldown[name] = time.time() + 120
                 tried.append(f"{name}: {type(e).__name__}")
-                usage.log_call(self.memory, provider=name, model=self.model_of(name), purpose=f"general:{kind}",
+                usage.log_call(self.memory, provider=name, model=self.model_of(name), purpose=purpose,
                                seconds=time.monotonic() - started, ok=False, stop=f"error: {type(e).__name__}",
                                request=prompt)
                 log.info("free model %s failed: %s", name, e)
+        if not claude_fallback:
+            raise NeedsClaude("every free model is busy or failed: " + "; ".join(tried))
         answer = await self._claude(system, prompt, kind)  # every free option busy or off: Claude's cheap model
         usage.count(self.memory, "free:fallback_claude")
         return {"answer": answer, "model": settings.fast_model, "free": False, "tried": tried}
+
+    async def direct(self, kind: str, question: str) -> dict:
+        """A whole turn answered by a free model, in Buddy's spoken style (router.free_kind decided
+        it's simple, general and timeless). Raises PersonalData or NeedsClaude: then Claude answers."""
+        system = (f"You are {settings.assistant_name}, a friendly voice assistant. Answer in one to three short "
+                  "spoken sentences, plain words, no lists, no markdown. Be accurate. If you're not sure, or the "
+                  f"answer depends on recent events, the person's own life or where they are, reply only: {UNSURE}")
+        if kind == "translate":
+            system += " For a translation, give the translation and, if useful, how to say it."
+        return await self.run(kind, question, system=system, purpose="chat_free", claude_fallback=False)
 
     def _call(self, name: str, system: str, prompt: str, timeout: float = 30,
               max_tokens: int = 1500) -> tuple[str, dict]:

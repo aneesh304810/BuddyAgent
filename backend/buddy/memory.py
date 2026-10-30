@@ -65,6 +65,17 @@ CREATE TABLE IF NOT EXISTS model_calls (  -- one row per model request, for the 
     rating INTEGER                     -- your thumbs: 1 up, -1 down
 );
 CREATE INDEX IF NOT EXISTS model_calls_at ON model_calls (at);
+CREATE TABLE IF NOT EXISTS tool_calls (  -- every tool Buddy ran for a reply: agents, Zapier, search...
+    id INTEGER PRIMARY KEY,
+    at TEXT NOT NULL,
+    turn TEXT NOT NULL DEFAULT '',
+    tool TEXT NOT NULL,
+    agent TEXT NOT NULL,                -- zapier, gmail, a built agent, or "buddy" for its own tools
+    seconds REAL,
+    ok INTEGER NOT NULL DEFAULT 1,
+    error TEXT NOT NULL DEFAULT ''      -- masked, short
+);
+CREATE INDEX IF NOT EXISTS tool_calls_at ON tool_calls (at);
 CREATE TABLE IF NOT EXISTS turns (      -- one row per reply: how it felt from your side
     turn TEXT PRIMARY KEY,
     at TEXT NOT NULL,                   -- ISO-8601, UTC

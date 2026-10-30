@@ -39,6 +39,16 @@ quick tasks go to whichever is fastest lately, quality tasks to the most capable
 provider drops back. It tries at most three, with short timeouts; a provider at its free limit
 rests until the limit resets. If all are busy, Claude Haiku does it.
 
+### Simple questions: straight to a free model
+
+Simple, general, timeless questions don't need Claude at all: *"what is a black hole"*, *"why do
+cats purr"*, *"how do you say thank you in Portuguese"*. When free models are on, Buddy sends
+these straight to the best free model for the job and speaks its answer (no Claude call). It
+stays on Claude when the question is about you, your things or anything current or local
+(*my*, *today*, *news*, *price*, *weather*, *near*...), when the privacy guard finds personal
+details, or when the free model says it isn't sure. Your 👍/👎 on these answers shows how good
+they are in Insights. `BUDDY_FREE_DIRECT=0` turns it off.
+
 ### Coding: DeepSeek for small questions, Claude for the real work
 
 Buddy decides in code, before anything is sent, which coding tasks a free model may take:
@@ -149,6 +159,13 @@ when asking for a fix. Also `GET /admin/insights/export?table=calls|turns&days=3
 
 The log lives in your encrypted database for 90 days; previews are 280 characters at most
 with card and ID numbers masked. It's also `GET /admin/insights?days=7`.
+
+**Free models** in Insights lists every provider: on, key set but off, or no key; its model;
+what it's first choice for; and its requests, speed and accuracy. **Tools and agents** lists every
+tool used for your replies: Buddy's own, agents (Zapier, Gmail, built ones) and Claude's server
+tools (web search, page fetching, code), with calls, failures, typical time, extra cost (web
+searches; Zapier tasks if `BUDDY_ZAPIER_PLAN_USD` and `BUDDY_ZAPIER_TASKS_PER_MONTH` are set) and
+the last error.
 
 The Costs page also has a **Which model answered** table: turns answered by Claude quick and
 main, how often quick handed over, and calls to each free model (and how often they were all

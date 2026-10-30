@@ -44,3 +44,11 @@ def test_hand_over_switches_to_main(monkeypatch):
 def test_router_off_always_uses_main(monkeypatch):
     use(monkeypatch, router_enabled=False, fast_model="haiku", chat_model="sonnet")
     assert rt.Router().pick("hi") == "sonnet"
+
+
+def test_simple_general_questions_can_go_free():
+    assert rt.free_kind("what is a black hole") == "explain"
+    assert rt.free_kind("how do you say thank you in portuguese") == "translate"
+    for personal_or_current in ("what is my balance", "who is the president", "what is the weather today",
+                                "explain my bill", "what is the price of bitcoin", "book a table"):
+        assert rt.free_kind(personal_or_current) == ""

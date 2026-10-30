@@ -108,6 +108,19 @@ def log_turn(memory: Memory, *, turn: str, via: str, first_model: str, final_mod
     memory.db.commit()
 
 
+def log_tool(memory: Memory, tool: str, seconds: float, ok: bool, error: str = "") -> None:
+    """One tool run (an agent's, Zapier's or Buddy's own), for Insights."""
+    from .privacy import mask
+
+    agent = tool.split("__", 1)[0] if "__" in tool else "buddy"
+    now = datetime.now(timezone.utc)
+    memory.db.execute("INSERT INTO tool_calls (at, turn, tool, agent, seconds, ok, error) VALUES (?, ?, ?, ?, ?, ?, ?)",
+                      (now.isoformat(), current_turn.get(), tool, agent, round(seconds, 2), 1 if ok else 0,
+                       mask(error)[:160]))
+    memory.db.execute("DELETE FROM tool_calls WHERE at < ?", ((now - timedelta(days=KEEP_CALLS_DAYS)).isoformat(),))
+    memory.db.commit()
+
+
 def set_verdict(memory: Memory, call_id: int, verdict: str, note: str = "") -> bool:
     """Claude's review of a free model's answer: used as-is, fixed, or redone."""
     if verdict not in VERDICTS:

@@ -35,6 +35,7 @@ class Settings:
     chat_model: str = os.getenv("BUDDY_CHAT_MODEL", "claude-sonnet-5-5")
     # The router sends simple turns (small talk, reminders, tasks) to this cheaper model.
     fast_model: str = os.getenv("BUDDY_FAST_MODEL", "claude-haiku-5-5")
+    free_direct: bool = os.getenv("BUDDY_FREE_DIRECT", "1") != "0"  # simple general questions: free model first
     router_enabled: bool = os.getenv("BUDDY_ROUTER", "1") != "0"
     # Listen-in: a cheap first pass decides whether anything needs attention;
     # only then does the listen model read it. Empty triage = no first pass.
