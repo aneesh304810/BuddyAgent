@@ -310,7 +310,11 @@ def brain_error(e: anthropic.APIError) -> str:
         return "I'm being rate limited by Claude. Give me a minute."
     if isinstance(e, anthropic.APIConnectionError):
         return "I can't reach my brain: the server can't connect to Claude right now."
-    return "I can't reach my brain right now."
+    if isinstance(e, anthropic.InternalServerError) or getattr(e, "status_code", 0) in (500, 529):
+        return "Claude is overloaded or having trouble right now. Try again in a minute."
+    code = getattr(e, "status_code", None)
+    return f"I can't reach my brain right now (error {code}). The server log has the details." if code \
+        else "I can't reach my brain right now."
 
 
 def require_admin(authorization: str | None = Header(default=None)) -> None:

@@ -195,3 +195,28 @@ def test_speak_malayalam_show_english(monkeypatch):
         ws.send_json({"type": "user", "text": "x"})
         got = [ws.receive_json() for _ in range(2)]
     assert got[1] == {"type": "say", "text": "നാളെ മഴ പെയ്യും.", "display": "It will rain tomorrow."}
+
+
+def test_a_reply_cut_off_mid_tool_does_not_break_the_conversation():
+    from types import SimpleNamespace as S
+    from buddy.agent import Conversation
+    from buddy.memory import Memory
+
+    convo = Conversation.__new__(Conversation)
+    call = S(type="tool_use", id="tu_1", name="google_search", input={"query": "news"})
+    convo.messages = [
+        {"role": "user", "content": "What's the news?"},
+        {"role": "assistant", "content": [S(type="text", text="Checking."), call]},
+        # the user spoke over it: the search was cancelled, then this turn's words were kept
+        {"role": "assistant", "content": "Here's what I — "},
+        {"role": "user", "content": "Never mind."},
+    ]
+    convo._repair_history()
+    roles = [m["role"] for m in convo.messages]
+    assert all(a != b for a, b in zip(roles, roles[1:]))  # alternating again
+    stub = convo.messages[2]["content"][0]
+    assert stub["type"] == "tool_result" and stub["tool_use_id"] == "tu_1" and stub["is_error"]
+
+    convo.messages = [{"role": "user", "content": "x"}, {"role": "assistant", "content": [call]}]
+    convo._repair_history()  # cut off at the very end
+    assert convo.messages[-1]["content"][0]["tool_use_id"] == "tu_1"

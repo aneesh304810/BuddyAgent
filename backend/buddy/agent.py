@@ -216,6 +216,7 @@ class Conversation:
 
         stamp = local_now().strftime("%A %d %B %Y, %I:%M %p")
         self._trim_history()
+        self._repair_history()
         self.turn_question, self._step = mask(user_text), 0
         tutor.log_utterance(self.memory, user_text, via)  # for the English tutor's review
         if not self.memory.get(DUAL_KEY) and await self._free_turn(user_text, say, via):
@@ -349,6 +350,41 @@ class Conversation:
             last["content"] = last["content"] + [{"type": "text", "text": text}]
         else:
             self.messages.append({"role": "user", "content": text})
+
+    def _repair_history(self) -> None:
+        """Every tool call answered, roles alternating: a reply cut off mid-tool (the user spoke over it)
+        left a tool call with no result, and Claude refuses every later request until it's fixed."""
+        def kind(block):
+            return block.get("type") if isinstance(block, dict) else getattr(block, "type", None)
+
+        def blocks(content):
+            return content if isinstance(content, list) else [{"type": "text", "text": content}]
+
+        fixed: list[dict] = []
+        for i, message in enumerate(self.messages):
+            if fixed and fixed[-1]["role"] == message["role"]:  # two in a row: merge them
+                fixed[-1] = {"role": message["role"], "content": blocks(fixed[-1]["content"]) + blocks(message["content"])}
+            else:
+                fixed.append(dict(message))
+            if message["role"] != "assistant" or not isinstance(message["content"], list):
+                continue
+            calls = [b.get("id") if isinstance(b, dict) else b.id for b in message["content"] if kind(b) == "tool_use"]
+            if not calls:
+                continue
+            after = self.messages[i + 1] if i + 1 < len(self.messages) else None
+            answered = {b.get("tool_use_id") for b in blocks(after["content"]) if kind(b) == "tool_result"} \
+                if after and after["role"] == "user" else set()
+            stubs = [{"type": "tool_result", "tool_use_id": c, "content": "Interrupted before it finished.",
+                      "is_error": True} for c in calls if c not in answered]
+            if not stubs:
+                continue
+            if after and after["role"] == "user":
+                self.messages[i + 1] = {"role": "user", "content": stubs + blocks(after["content"])}
+            elif after is None:
+                fixed.append({"role": "user", "content": stubs})
+            else:
+                self.messages.insert(i + 1, {"role": "user", "content": stubs})
+        self.messages = fixed
 
     def _trim_history(self) -> None:
         """Long talks: keep the latest turns. Done in one jump, so the cache rebuilds only rarely."""
