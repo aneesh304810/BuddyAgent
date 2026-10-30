@@ -49,6 +49,11 @@ RemoveIPC=true
 UNIT
 }
 
+# "security.sh BUDDY_GROQ_KEY" (or "security.sh set BUDDY_GROQ_KEY"): add or change one setting,
+# asked for with hidden typing, the same as set.sh.
+if [[ "${1:-}" == "set" ]]; then shift; exec bash "$HERE/set.sh" "$@"; fi
+if [[ "${1:-}" =~ ^[A-Z][A-Z0-9_]*$ ]]; then exec bash "$HERE/set.sh" "$1"; fi
+
 case "${1:-check}" in
   check)
     python3 "$HERE/maintain.py" --pretty ;;
