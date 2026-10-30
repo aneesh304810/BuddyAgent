@@ -42,6 +42,10 @@ object Vocabulary {
     @Volatile var words: List<String> = emptyList()
 }
 
+/** Errors that mean the recogniser itself is stuck or lost its service: replace it, don't retry it. */
+private val JAMMED = setOf(SpeechRecognizer.ERROR_CLIENT, SpeechRecognizer.ERROR_RECOGNIZER_BUSY,
+    SpeechRecognizer.ERROR_SERVER_DISCONNECTED)
+
 class Ears(
     private val context: Context,
     private val onHeard: (text: String, final: Boolean) -> Unit,
@@ -142,6 +146,27 @@ class Ears(
     /** Buddy is about to talk (or play its "got it" tone): give media its sound back. */
     fun releaseMute() = muteBeep(false)
 
+    /** A new recogniser: the old one is stuck (busy, client error) or lost its service. */
+    private fun fresh() {
+        runCatching { recognizer?.destroy() }
+        recognizer = runCatching {
+            SpeechRecognizer.createSpeechRecognizer(context).also { it.setRecognitionListener(listener) }
+        }.getOrNull()
+    }
+
+    private fun errorName(error: Int): String = when (error) {
+        SpeechRecognizer.ERROR_NETWORK_TIMEOUT -> "network timeout"
+        SpeechRecognizer.ERROR_NETWORK -> "network error"
+        SpeechRecognizer.ERROR_AUDIO -> "microphone error"
+        SpeechRecognizer.ERROR_SERVER -> "recognition service error"
+        SpeechRecognizer.ERROR_CLIENT -> "client error"
+        SpeechRecognizer.ERROR_RECOGNIZER_BUSY -> "recogniser busy"
+        SpeechRecognizer.ERROR_SERVER_DISCONNECTED -> "recognition service disconnected"
+        SpeechRecognizer.ERROR_TOO_MANY_REQUESTS -> "too many requests"
+        SpeechRecognizer.ERROR_CANNOT_CHECK_SUPPORT -> "can't check language support"
+        else -> "error $error"
+    }
+
     private fun muteBeep(on: Boolean) {
         if (on == beepMuted) return
         if (on && (!BuddyPrefs(context).muteListenBeep || speaking())) return
@@ -206,13 +231,14 @@ class Ears(
                 else -> {
                     failures++
                     recognizer?.cancel()
-                    if (failures == 2 && !simple) {
+                    if (error in JAMMED) fresh()  // a stuck or disconnected recogniser: start over with a new one
+                    if (failures == 2 && !simple && error !in JAMMED) {
                         simple = true  // drop language switching and vocabulary hints, then retry
-                        onProblem("Speech recognition didn't accept language switching here, so I'm listening " +
-                            "in ${Locale.forLanguageTag(language).displayLanguage} only for now.")
+                        onProblem("Speech recognition didn't accept language switching here (${errorName(error)}), " +
+                            "so I'm listening in ${Locale.forLanguageTag(language).displayLanguage} only for now.")
                     } else if (failures == 6) {
-                        onProblem("Speech recognition keeps failing (error $error). Try Settings → Speech engine → " +
-                            "Server, or restart Buddy.")
+                        onProblem("Speech recognition keeps failing (${errorName(error)}). Try Settings → Speech " +
+                            "engine → Server, or restart Buddy.")
                     } else if (failures >= 12) {
                         onProblem("Stopped listening: speech recognition kept failing (error $error), and each retry " +
                             "beeps. Settings → Speech engine → Server works without it; tap Talk to try again.")

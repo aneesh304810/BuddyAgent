@@ -611,6 +611,8 @@ class BuddyService : Service() {
     @Volatile
     private var earbudMicOn = false
 
+    private var earbudNoteAt = 0L
+
     private fun useEarbudMic(on: Boolean) {
         val audio = getSystemService(AudioManager::class.java)
         if (!on) {
@@ -623,7 +625,11 @@ class BuddyService : Service() {
             it.type == AudioDeviceInfo.TYPE_BLUETOOTH_SCO || it.type == AudioDeviceInfo.TYPE_BLE_HEADSET
         }
         if (device == null) {
-            BuddyState.add(Line("No earbud microphone found, so I'm using the phone's.", Speaker.ERROR))
+            // Only worth saying with earbuds connected (their mic isn't available), and not every time.
+            if (headsetConnected() && System.currentTimeMillis() - earbudNoteAt > 30 * 60_000L) {
+                earbudNoteAt = System.currentTimeMillis()
+                BuddyState.add(Line("Your earbuds' microphone isn't available, so I'm using the phone's.", Speaker.ERROR))
+            }
             return
         }
         // Bluetooth earbud mics only work in voice-call mode: switch to it (our own
