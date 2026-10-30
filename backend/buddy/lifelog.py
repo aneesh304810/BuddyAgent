@@ -12,6 +12,7 @@ and stays in the encrypted database.
 """
 
 import io
+import time
 import json
 import logging
 import re
@@ -233,6 +234,7 @@ class LifeLog:
             text = re.sub(r"\s+", " ", text)[:budget]
             budget -= len(text)
             for i in range(0, len(text), CHUNK_CHARS):
+                started = time.monotonic()
                 response = await client.beta.messages.create(
                     model=model, max_tokens=8_000,
                     system=EXTRACT_PROMPT,
@@ -241,7 +243,7 @@ class LifeLog:
                     messages=[{"role": "user", "content": f"File: {fname}\n\n{text[i:i + CHUNK_CHARS]}"}],
                 )
                 if hasattr(response, "usage"):
-                    usage.record(self.memory, response.model, response.usage, purpose="lifelog")
+                    usage.record(self.memory, response.model, response.usage, purpose="lifelog", response=response, started=started)
                 if response.stop_reason in ("refusal",):
                     continue
                 try:

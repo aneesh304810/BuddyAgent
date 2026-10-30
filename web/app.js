@@ -366,6 +366,123 @@ $("costsBtn").onclick = async () => {
   } catch (e) { addLine(`Couldn't load costs (${e.message}).`, "error"); }
 };
 
+const secs = (v) => (v == null ? "–" : `${Number(v).toFixed(1)}s`);
+const tok = (n) => (n >= 1e6 ? `${(n / 1e6).toFixed(1)}M` : n >= 1e3 ? `${(n / 1e3).toFixed(1)}K` : String(n || 0));
+const money = (n) => (n > 0 && n < 0.01 ? `$${Number(n).toFixed(4)}` : usd(n));
+const insightsView = { days: 7, purpose: "", model: "" };
+
+function el(tag, cls, text) {
+  const e = document.createElement(tag);
+  if (cls) e.className = cls;
+  if (text != null) e.textContent = text;
+  return e;
+}
+
+async function showInsights() {
+  const v = insightsView;
+  const q = new URLSearchParams({ days: v.days, recent: 100, purpose: v.purpose, model: v.model });
+  let r;
+  try { r = await api(`/admin/insights?${q}`); } catch (e) { addLine(`Couldn't load insights (${e.message}).`, "error"); return; }
+  const t = r.totals;
+  $("reportTitle").textContent = `Insights · last ${r.days === 1 ? "day" : `${r.days} days`}`;
+  $("reportSummary").textContent = `${t.requests} model requests, ${money(t.cost_usd)}`;
+  const body = $("reportBody");
+  body.replaceChildren();
+  const h = (text) => body.appendChild(el("h3", "", text));
+
+  const ranges = el("div", "ranges");
+  [[1, "Today"], [7, "7 days"], [30, "30 days"], [90, "90 days"]].forEach(([n, label]) => {
+    const b = el("button", "link", label);
+    if (v.days === n) b.style.color = "var(--text)";
+    b.onclick = () => { v.days = n; showInsights(); };
+    ranges.appendChild(b);
+  });
+  body.appendChild(ranges);
+
+  const tiles = el("div", "tiles");
+  const tile = (label, value, note) => {
+    const d = el("div", "tile");
+    d.append(el("span", "", label), el("b", "", value));
+    if (note) d.appendChild(el("small", "", note));
+    tiles.appendChild(d);
+  };
+  tile("Model spend", money(t.cost_usd));
+  tile("Requests", String(t.requests), t.failed ? `${t.failed} failed` : "");
+  tile("Typical reply", secs(t.chat_median_seconds), `slowest 5%: ${secs(t.p95_seconds)}`);
+  tile("Free-model calls", String(t.free_requests), `of ${t.requests}`);
+  tile("Cache reuse", t.cache_hit == null ? "–" : `${Math.round(t.cache_hit * 100)}%`, "of prompt tokens");
+  tile("Saved by routing", money(t.saved_by_router_usd + t.saved_by_free_usd), "quick + free models");
+  body.appendChild(tiles);
+
+  h("Spend per day");
+  const dayNote = el("p", "", "");
+  const bars = el("div", "days");
+  const max = Math.max(...r.by_day.map((d) => d.cost_usd), 1e-9);
+  const pick = (d, bar) => {
+    dayNote.textContent = `${d.day}: ${money(d.cost_usd)} · ${d.requests} requests (${d.free_requests} free)`;
+    bars.querySelectorAll(".on").forEach((b) => b.classList.remove("on"));
+    bar.classList.add("on");
+  };
+  r.by_day.forEach((d) => {
+    const bar = el("div");
+    bar.style.height = `${Math.max(2, (d.cost_usd / max) * 100)}%`;
+    bar.title = `${d.day}: ${money(d.cost_usd)}, ${d.requests} requests`;
+    bar.onmouseenter = bar.onclick = () => pick(d, bar);
+    bars.appendChild(bar);
+  });
+  body.append(dayNote, bars);
+  if (r.by_day.length) pick(r.by_day[r.by_day.length - 1], bars.lastChild);
+
+  const breakdown = (rows, label, detail, key, active, set, measure) => {
+    const top = Math.max(...rows.map(measure), 1e-9);
+    rows.forEach((g) => {
+      const row = el("div", "call");
+      if (active === key(g)) row.style.background = "var(--bg)";
+      const head = el("div", "", "");
+      const isFree = !g.cost_usd && ((g.provider && g.provider !== "claude") || String(g.name).startsWith("general:"));
+      head.append(el("span", "", label(g)), el("span", "", `  ${isFree ? "free" : money(g.cost_usd)}`));
+      const share = el("div", "share");
+      const fill = el("i");
+      fill.style.width = `${Math.max(1, (measure(g) / top) * 100)}%`;
+      share.appendChild(fill);
+      row.append(head, share, el("div", "meta", detail(g)));
+      row.onclick = () => { set(active === key(g) ? "" : key(g)); showInsights(); };
+      body.appendChild(row);
+    });
+  };
+  h("What it was for");
+  breakdown(r.by_purpose, (g) => g.label,
+    (g) => `${g.requests} requests · ${secs(g.median_seconds)} typical · ` +
+      Object.entries(g.models).map(([m, n]) => `${m} ×${n}`).join(", "),
+    (g) => g.name, v.purpose, (k) => { v.purpose = k; v.model = ""; }, (g) => g.cost_usd);
+  h("Each model");
+  breakdown(r.by_model, (g) => `${g.model} (${g.provider})`,
+    (g) => `${g.requests} requests${g.failed ? ` · ${g.failed} failed` : ""} · ${secs(g.median_seconds)} typical, ` +
+      `${secs(g.p95_seconds)} slowest · ${tok(g.input_tokens)} in / ${tok(g.output_tokens)} out` +
+      (g.web_searches ? ` · ${g.web_searches} searches` : ""),
+    (g) => g.model, v.model, (k) => { v.model = k; v.purpose = ""; }, (g) => g.requests);
+
+  const filter = [v.purpose, v.model].filter(Boolean).join(" · ");
+  h(filter ? `Latest requests: ${filter} (tap it above to clear)` : "Latest requests");
+  if (!r.recent.length) body.appendChild(el("p", "", "Nothing yet in this period."));
+  r.recent.forEach((c) => {
+    const row = el("div", `call${c.ok ? "" : " failed"}`);
+    row.appendChild(el("div", "", `${c.purpose_label} · ${c.provider === "claude" ? money(c.cost_usd) : "free"} · ${secs(c.seconds)}`));
+    row.appendChild(el("div", "meta", `${c.at.slice(5, 19).replace("T", " ")} UTC · ${c.model}${c.ok ? "" : ` · ${c.stop}`}`));
+    const more = [`Tokens: ${tok(c.input_tokens)} in, ${tok(c.output_tokens)} out` +
+      (c.cache_read_tokens ? `, ${tok(c.cache_read_tokens)} from cache` : "")];
+    if (c.tools) more.push(`Used: ${c.tools}`);
+    if (c.request) more.push(`Asked: ${c.request}`);
+    if (c.reply) more.push(`Answered: ${c.reply}`);
+    row.appendChild(el("div", "more", more.join("\n")));
+    row.onclick = () => row.classList.toggle("open");
+    body.appendChild(row);
+  });
+  if (!reportDlg.open) reportDlg.showModal();
+}
+
+$("insightsBtn").onclick = () => showInsights();
+
 $("reportsBtn").onclick = async () => {
   try {
     const list = await api("/api/jobs");

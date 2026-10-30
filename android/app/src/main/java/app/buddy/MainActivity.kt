@@ -105,6 +105,7 @@ sealed interface Screen {
     data object Talk : Screen
     data object Settings : Screen
     data object Reports : Screen
+    data object Insights : Screen
     data class Report(val id: Int) : Screen
 }
 
@@ -218,6 +219,7 @@ private fun BuddyScreen(
             Spacer(Modifier.size(6.dp))
             Text(ui.connection, color = Muted, fontSize = 13.sp, modifier = Modifier.weight(1f))
             if (screen == Screen.Talk) {
+                TextButton(onClick = { onNavigate(Screen.Insights) }) { Text("Insights") }
                 TextButton(onClick = { onNavigate(Screen.Reports) }) { Text("Reports") }
                 TextButton(onClick = { onNavigate(Screen.Settings) }) { Text("Settings") }
             } else {
@@ -234,6 +236,10 @@ private fun BuddyScreen(
             }
             Screen.Reports -> {
                 ReportsScreen(prefs.link) { onNavigate(Screen.Report(it)) }
+                return@Column
+            }
+            Screen.Insights -> {
+                InsightsScreen(prefs.link)
                 return@Column
             }
             is Screen.Report -> {

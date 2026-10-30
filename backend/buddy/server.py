@@ -40,7 +40,7 @@ import anthropic
 from fastapi import Depends, FastAPI, Header, HTTPException, Request, WebSocket, WebSocketDisconnect
 from fastapi.staticfiles import StaticFiles
 
-from . import proactive, research, usage
+from . import insights, proactive, research, usage
 from .agent import Conversation
 from .agents import AgentRegistry, load_specs
 from .ambient import AmbientListener, is_think_cue
@@ -292,6 +292,12 @@ def admin_trace(on: bool) -> dict:
 async def admin_costs(fresh: bool = False) -> dict:
     """Everything running Buddy costs this month: Claude, DigitalOcean, Zapier, fixed costs."""
     return await finops.report(fresh)
+
+
+@app.get("/admin/insights", dependencies=[Depends(require_admin)])
+def admin_insights(days: int = 7, recent: int = 60, model: str = "", purpose: str = "") -> dict:
+    """Every model request: what it was for, which model, tokens, cost, answer time and a short preview."""
+    return insights.report(memory, days=days, recent=recent, model=model, purpose=purpose)
 
 
 # --- life log: files uploaded from the phone (Timeline, Takeout, Airbnb...) ----

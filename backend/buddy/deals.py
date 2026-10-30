@@ -7,6 +7,7 @@ their days run out. Creating one asks first, with the monthly cost in words.
 """
 
 import asyncio
+import time
 import json
 import logging
 import re
@@ -162,6 +163,7 @@ class PriceWatcher:
         messages = [{"role": "user", "content": prompt}]
         response = None
         for _ in range(4):  # the server-side search loop may pause and resume
+            started = time.monotonic()
             response = await client.beta.messages.create(
                 model=model, max_tokens=2_000, messages=messages,
                 tools=[{"type": "web_search_20260209", "name": "web_search", "max_uses": 3},
@@ -170,7 +172,7 @@ class PriceWatcher:
                 **fallback_kwargs(model),
             )
             if hasattr(response, "usage"):
-                usage.record(self.memory, response.model, response.usage, purpose="deals")
+                usage.record(self.memory, response.model, response.usage, purpose="deals", response=response, started=started)
             if response.stop_reason != "pause_turn":
                 break
             messages.append({"role": "assistant", "content": response.content})

@@ -30,7 +30,7 @@ class FakeHTTP:
 def free(http, env=ENV, memory=None):
     f = fm.FreeModels(memory or Memory(":memory:"), env=env, http=http)
 
-    async def no_claude(system, prompt):
+    async def no_claude(system, prompt, kind=""):
         return "answer from claude"
     f._claude = no_claude
     return f

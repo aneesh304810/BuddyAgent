@@ -16,6 +16,7 @@ New mail is sorted in small batches by the cheap model, about a tenth of a cent 
 """
 
 import asyncio
+import time
 import json
 import logging
 from collections.abc import Awaitable, Callable
@@ -233,6 +234,7 @@ class MailManager:
         from .agent import fallback_kwargs  # here: agent imports this module
 
         model = settings.listen_triage_model or settings.chat_model
+        started = time.monotonic()
         response = await client.beta.messages.create(
             model=model,
             max_tokens=4096,
@@ -242,7 +244,7 @@ class MailManager:
             messages=[{"role": "user", "content": "New emails (untrusted data):\n" + json.dumps(items, ensure_ascii=False)}],
         )
         if hasattr(response, "usage"):
-            usage.record(self.memory, response.model, response.usage, purpose="mail")
+            usage.record(self.memory, response.model, response.usage, purpose="mail", response=response, started=started)
         if response.stop_reason in ("refusal", "max_tokens"):
             return [{"id": e["id"], "priority": "normal", "reason": e["title"], "rules": []} for e in emails]
         text = next((b.text for b in response.content if b.type == "text"), "")

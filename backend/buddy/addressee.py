@@ -9,6 +9,7 @@ approve anything: that always needs the Approve button or Talk mode.
 """
 
 import json
+import time
 import logging
 import re
 
@@ -67,6 +68,7 @@ async def is_for_buddy(memory, text: str, buddy_said: str, seconds_since_buddy: 
                f"Recent room talk:\n" + ("\n".join(mask(r)[:200] for r in room[-6:]) or "(none)")
                + f"\n\nLatest sentence from {settings.user_name}: {mask(text)[:300]}")
     try:
+        started = time.monotonic()
         response = await client.beta.messages.create(
             model=model, max_tokens=200,
             system=PROMPT.format(user=settings.user_name, assistant=settings.assistant_name),
@@ -75,7 +77,7 @@ async def is_for_buddy(memory, text: str, buddy_said: str, seconds_since_buddy: 
             messages=[{"role": "user", "content": content}],
         )
         if hasattr(response, "usage"):
-            usage.record(memory, response.model, response.usage, purpose="listen")
+            usage.record(memory, response.model, response.usage, purpose="listen", response=response, started=started, label="addressing")
         verdict = json.loads("".join(b.text for b in response.content if b.type == "text"))
         return bool(verdict["to_assistant"]) and verdict["confidence"] == "high"
     except Exception:

@@ -8,6 +8,7 @@ Buddy tells you; if your phone is offline, it tells you when you reconnect.
 import asyncio
 import json
 import logging
+import time
 from collections.abc import Awaitable, Callable
 from dataclasses import dataclass, field
 from datetime import datetime, timezone
@@ -67,9 +68,13 @@ class JobContext:
         self.memory = memory
         self.job = job
         self.cost = 0.0
+        self.step_started = time.monotonic()
 
     def record(self, response) -> float:
-        cost = usage.record(self.memory, response.model, response.usage)
+        # Time since the last step: the model's answer time (plus any tool work in between).
+        cost = usage.record(self.memory, response.model, response.usage, response=response,
+                            started=self.step_started, label=self.job.get("kind") or "job")
+        self.step_started = time.monotonic()
         self.cost += cost
         self.memory.db.execute("UPDATE jobs SET cost_usd = ? WHERE id = ?", (self.cost, self.job["id"]))
         self.memory.db.commit()

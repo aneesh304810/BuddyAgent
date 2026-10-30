@@ -9,6 +9,7 @@ import json
 import logging
 import random
 import re
+import time
 from collections.abc import Awaitable, Callable
 
 import anthropic
@@ -205,6 +206,7 @@ class Conversation:
 
     async def _stream_step(self, speak: Say):
         buffer = ""
+        started = time.monotonic()
         async with client.beta.messages.stream(
             **_request_kwargs(self.system, self.model), tools=self.tools(), messages=self.messages
         ) as stream:
@@ -217,10 +219,20 @@ class Conversation:
                     if sentence.strip():
                         await speak(sentence.strip())
             response = await stream.get_final_message()
-        usage.record(self.memory, response.model, response.usage)
+        usage.record(self.memory, response.model, response.usage, response=response, started=started,
+                     request=self._last_user_text(), label="chat")
         if buffer.strip() and response.stop_reason != "refusal":
             await speak(buffer.strip())
         return response
+
+    def _last_user_text(self) -> str:
+        """What the user said this turn, or the tool results being answered."""
+        content = self.messages[-1]["content"] if self.messages else ""
+        if isinstance(content, str):
+            return content
+        parts = [b.get("text", "") if b.get("type") == "text" else f"[{b.get('type', '')}]"
+                 for b in content if isinstance(b, dict)]
+        return " ".join(parts)
 
     def _trim_history(self) -> None:
         """Long talks: keep the latest turns. Done in one jump, so the cache rebuilds only rarely."""
@@ -360,12 +372,14 @@ class Conversation:
 
 async def compose(system: str, instruction: str, memory: Memory | None = None) -> str:
     """One-shot generation with no tools, for briefings and nudges."""
+    started = time.monotonic()
     response = await client.beta.messages.create(
         **_request_kwargs(system),
         messages=[{"role": "user", "content": instruction}],
     )
     if memory is not None:
-        usage.record(memory, response.model, response.usage)
+        usage.record(memory, response.model, response.usage, response=response, started=started,
+                     request=instruction, label="briefing")
     if response.stop_reason == "refusal":
         return ""
     return " ".join(b.text for b in response.content if b.type == "text").strip()

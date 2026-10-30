@@ -42,6 +42,26 @@ CREATE TABLE IF NOT EXISTS usage (
     cost_usd REAL NOT NULL DEFAULT 0,
     PRIMARY KEY (day, model)
 );
+CREATE TABLE IF NOT EXISTS model_calls (  -- one row per model request, for the Insights dashboard
+    id INTEGER PRIMARY KEY,
+    at TEXT NOT NULL,               -- ISO-8601, UTC
+    provider TEXT NOT NULL,         -- claude | gemini | groq | ...
+    model TEXT NOT NULL,
+    purpose TEXT NOT NULL,          -- chat | listen | expert | research | mail | general_task ...
+    input_tokens INTEGER NOT NULL DEFAULT 0,
+    output_tokens INTEGER NOT NULL DEFAULT 0,
+    cache_read_tokens INTEGER NOT NULL DEFAULT 0,
+    cache_write_tokens INTEGER NOT NULL DEFAULT 0,
+    web_searches INTEGER NOT NULL DEFAULT 0,
+    cost_usd REAL NOT NULL DEFAULT 0,
+    seconds REAL,                   -- how long the answer took, when known
+    ok INTEGER NOT NULL DEFAULT 1,
+    stop TEXT NOT NULL DEFAULT '',  -- why it stopped, or the error
+    tools TEXT NOT NULL DEFAULT '', -- tools it asked for
+    request TEXT NOT NULL DEFAULT '',  -- short masked previews
+    reply TEXT NOT NULL DEFAULT ''
+);
+CREATE INDEX IF NOT EXISTS model_calls_at ON model_calls (at);
 CREATE TABLE IF NOT EXISTS kv (
     key TEXT PRIMARY KEY,
     value TEXT NOT NULL

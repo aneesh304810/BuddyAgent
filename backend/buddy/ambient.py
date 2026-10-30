@@ -199,6 +199,7 @@ class AmbientListener:
             transcript = "\n".join(f"[{lang}] {text}" for t, lang, text in self.segments if t >= cutoff)
             if not transcript:
                 return
+            started = time.monotonic()
             response = await client.beta.messages.create(
                 model=settings.think_model,
                 max_tokens=2048,
@@ -208,7 +209,7 @@ class AmbientListener:
                 messages=[{"role": "user", "content": f"Transcript, oldest first:\n{transcript}"}],
             )
             if hasattr(response, "usage"):
-                usage.record(self.memory, response.model, response.usage, purpose="think")
+                usage.record(self.memory, response.model, response.usage, purpose="think", response=response, started=started)
             if response.stop_reason in ("refusal", "max_tokens"):
                 return
             verdict = json.loads(next((b.text for b in response.content if b.type == "text"), "{}"))
@@ -256,6 +257,7 @@ class AmbientListener:
         if not settings.listen_triage_model:
             return True
         try:
+            started = time.monotonic()
             response = await client.beta.messages.create(
                 model=settings.listen_triage_model,
                 max_tokens=1024,  # room for brief thinking plus the answer
@@ -268,7 +270,7 @@ class AmbientListener:
                 messages=[{"role": "user", "content": f"Earlier lines:\n{earlier or '(none)'}\n\nNEW lines:\n{new}"}],
             )
             if hasattr(response, "usage"):
-                usage.record(self.memory, response.model, response.usage, purpose="listen")
+                usage.record(self.memory, response.model, response.usage, purpose="listen", response=response, started=started)
             if response.stop_reason in ("refusal", "max_tokens"):
                 return True
             text = next((b.text for b in response.content if b.type == "text"), "")
@@ -297,6 +299,7 @@ class AmbientListener:
                 return
         if not await self._needs_attention(earlier, new):
             return
+        started = time.monotonic()
         response = await client.beta.messages.create(
             model=settings.listen_model,
             max_tokens=1024,
@@ -313,7 +316,7 @@ class AmbientListener:
             }],
         )
         if hasattr(response, "usage"):
-            usage.record(self.memory, response.model, response.usage, purpose="listen")
+            usage.record(self.memory, response.model, response.usage, purpose="listen", response=response, started=started)
         if response.stop_reason in ("refusal", "max_tokens"):
             return
         text = next((b.text for b in response.content if b.type == "text"), "")

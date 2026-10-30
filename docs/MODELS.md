@@ -50,7 +50,14 @@ reliable it gets):
 | Groq | console.groq.com → API Keys | `BUDDY_GROQ_KEY` |
 | Mistral | console.mistral.ai → API Keys (free "Experiment" plan) | `BUDDY_MISTRAL_KEY` |
 | Cerebras | cloud.cerebras.ai → API Keys | `BUDDY_CEREBRAS_KEY` |
+| GitHub Models (OpenAI GPT, free) | github.com → Settings → Developer settings → Fine-grained tokens → new token with the **Models: read** permission | `BUDDY_GITHUB_MODELS_KEY` |
 | OpenRouter | openrouter.ai → Keys | `BUDDY_OPENROUTER_KEY` |
+
+**ChatGPT / OpenAI models:** the ChatGPT app's free plan doesn't include the API, and the
+OpenAI API itself is pay-as-you-go with no free tier. The free way to use OpenAI's models is
+**GitHub Models** (GPT-4.1 mini by default, free with a GitHub account, with daily limits).
+Groq and Cerebras also host OpenAI's open-weight `gpt-oss` models for free: set
+`BUDDY_GROQ_MODEL` to `openai/gpt-oss-120b` to try it.
 
 ```
 sudo bash /opt/buddy/deploy/update.sh
@@ -67,12 +74,26 @@ general, non-personal text goes to them.
 ### Model names
 
 Defaults: `gemini-flash-latest`, `llama-3.3-70b-versatile` (Groq), `mistral-small-latest`,
-`llama-3.3-70b` (Cerebras), `openrouter/free`. Providers rename models often; if one stops
+`llama-3.3-70b` (Cerebras), `openai/gpt-4.1-mini` (GitHub Models), `openrouter/free`. Providers rename models often; if one stops
 working, set its current name, e.g. `set.sh BUDDY_GROQ_MODEL`. The other settings are
-`BUDDY_GEMINI_MODEL`, `BUDDY_MISTRAL_MODEL`, `BUDDY_CEREBRAS_MODEL`, `BUDDY_OPENROUTER_MODEL`.
+`BUDDY_GEMINI_MODEL`, `BUDDY_GITHUB_MODEL`, `BUDDY_MISTRAL_MODEL`, `BUDDY_CEREBRAS_MODEL`, `BUDDY_OPENROUTER_MODEL`.
 
 ## See it working
 
-The Costs page has a **Which model answered** table: turns answered by Claude quick and
+**Insights** (in the Android app's header, and on the web page) shows every model request:
+
+- Totals: model spend, requests and failures, typical reply time (and the slowest 5%), free-model
+  calls, how much of each prompt came from cache, and what routing saved.
+- Spend per day (tap a bar for its numbers).
+- **What it was for**: talking with you, Listen-in, expert, research, email sorting, general
+  tasks... with the cost, request count, typical time and which models did the work.
+- **Each model**: requests, failures, cost, typical and slowest time, tokens in and out.
+- **Latest requests**: tap one to see its tokens, the tools it used, and a short preview of what
+  was asked and answered. Tap a purpose or model above to filter the list.
+
+The log lives in your encrypted database for 90 days; previews are 280 characters at most
+with card and ID numbers masked. It's also `GET /admin/insights?days=7`.
+
+The Costs page also has a **Which model answered** table: turns answered by Claude quick and
 main, how often quick handed over, and calls to each free model (and how often they were all
 busy). It's in `GET /admin/costs` under `routing`, too.

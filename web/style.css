@@ -81,3 +81,18 @@ table.costs th { color: var(--muted); font-weight: 500; }
 .approval button { flex: 1; padding: 8px 12px; border: 0; border-radius: 999px; font-size: 15px; color: #fff; }
 .approval .yes { background: #2ea043; }
 .approval .no { background: #6e7681; }
+.tiles { display: grid; grid-template-columns: repeat(auto-fit, minmax(130px, 1fr)); gap: 8px; margin: 8px 0 12px; }
+.tile { background: var(--bg); border-radius: 10px; padding: 10px; }
+.tile b { display: block; font-size: 20px; }
+.tile small, .tile span { color: var(--muted); font-size: 12px; }
+.days { display: flex; align-items: flex-end; gap: 2px; height: 110px; margin: 6px 0; }
+.days div { flex: 1; background: var(--accent); border-radius: 4px 4px 0 0; min-height: 2px; cursor: pointer; }
+.days div:hover, .days div.on { background: var(--text); }
+.share { height: 6px; background: var(--bg); border-radius: 3px; margin-top: 4px; }
+.share i { display: block; height: 6px; background: var(--accent); border-radius: 3px; }
+.ranges { display: flex; gap: 6px; flex-wrap: wrap; }
+.call { border-bottom: 1px solid var(--bg); padding: 6px 0; cursor: pointer; font-size: 14px; }
+.call .meta { color: var(--muted); font-size: 12px; }
+.call .more { display: none; white-space: pre-wrap; font-size: 13px; margin-top: 4px; }
+.call.open .more { display: block; }
+.call.failed .meta { color: #ff8a80; }

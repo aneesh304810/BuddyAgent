@@ -48,19 +48,22 @@ PROVIDERS = {
     "cerebras": {"base": "https://api.cerebras.ai/v1", "key": "BUDDY_CEREBRAS_KEY",
                  "model_setting": "BUDDY_CEREBRAS_MODEL", "model": "llama-3.3-70b",
                  "good_at": "very fast answers"},
+    "github": {"base": "https://models.github.ai/inference", "key": "BUDDY_GITHUB_MODELS_KEY",
+               "model_setting": "BUDDY_GITHUB_MODEL", "model": "openai/gpt-4.1-mini",
+               "good_at": "OpenAI's GPT models, free with a GitHub account; careful writing and explaining"},
     "openrouter": {"base": "https://openrouter.ai/api/v1", "key": "BUDDY_OPENROUTER_KEY",
                    "model_setting": "BUDDY_OPENROUTER_MODEL", "model": "openrouter/free",
                    "good_at": "a general fallback"},
 }
 # Which providers to try first for each kind of task, by what they're best at.
 BEST_FOR = {
-    "translate": ["gemini", "mistral", "groq", "cerebras", "openrouter"],
-    "summarize": ["gemini", "mistral", "groq", "openrouter", "cerebras"],
-    "rewrite": ["mistral", "groq", "gemini", "cerebras", "openrouter"],
-    "brainstorm": ["gemini", "cerebras", "groq", "mistral", "openrouter"],
-    "explain": ["gemini", "groq", "mistral", "cerebras", "openrouter"],
-    "quick_answer": ["groq", "cerebras", "gemini", "mistral", "openrouter"],
-    "classify": ["groq", "cerebras", "gemini", "mistral", "openrouter"],
+    "translate": ["gemini", "github", "mistral", "groq", "cerebras", "openrouter"],
+    "summarize": ["gemini", "github", "mistral", "groq", "openrouter", "cerebras"],
+    "rewrite": ["mistral", "github", "groq", "gemini", "cerebras", "openrouter"],
+    "brainstorm": ["gemini", "github", "cerebras", "groq", "mistral", "openrouter"],
+    "explain": ["gemini", "github", "groq", "mistral", "cerebras", "openrouter"],
+    "quick_answer": ["groq", "cerebras", "github", "gemini", "mistral", "openrouter"],
+    "classify": ["groq", "cerebras", "github", "gemini", "mistral", "openrouter"],
 }
 INSTRUCTIONS = {
     "translate": "Translate the text into {target}. Keep the meaning and tone; output only the translation.",
@@ -175,43 +178,55 @@ class FreeModels:
         for name in self.order(kind)[:3]:  # at most three tries, so a slow day never drags on
             started = time.monotonic()
             try:
-                answer = await asyncio.wait_for(asyncio.to_thread(self._call, name, system, prompt, TIMEOUT[kind]),
-                                                timeout=TIMEOUT[kind] + 2)
+                answer, tokens = await asyncio.wait_for(
+                    asyncio.to_thread(self._call, name, system, prompt, TIMEOUT[kind]), timeout=TIMEOUT[kind] + 2)
                 if not answer:
                     raise ValueError("empty answer")
                 self._learn(name, time.monotonic() - started)
                 usage.count(self.memory, f"free:{name}")
+                usage.log_call(self.memory, provider=name, model=self.model_of(name), purpose=f"general:{kind}",
+                               input_tokens=tokens.get("prompt_tokens") or 0,
+                               output_tokens=tokens.get("completion_tokens") or 0,
+                               seconds=time.monotonic() - started, stop="free", request=prompt, reply=answer)
                 return {"answer": answer, "model": f"{name}/{self.model_of(name)}", "free": True,
                         "seconds": round(time.monotonic() - started, 1)}
             except RateLimited as e:
                 self.cooldown[name] = time.time() + e.wait
                 tried.append(f"{name}: at its free limit")
+                usage.log_call(self.memory, provider=name, model=self.model_of(name), purpose=f"general:{kind}",
+                               seconds=time.monotonic() - started, ok=False, stop="at its free limit",
+                               request=prompt)
             except Exception as e:
                 self._learn(name, None)
                 self.cooldown[name] = time.time() + 120
                 tried.append(f"{name}: {type(e).__name__}")
+                usage.log_call(self.memory, provider=name, model=self.model_of(name), purpose=f"general:{kind}",
+                               seconds=time.monotonic() - started, ok=False, stop=f"error: {type(e).__name__}",
+                               request=prompt)
                 log.info("free model %s failed: %s", name, e)
-        answer = await self._claude(system, prompt)  # every free option busy or off: Claude's cheap model
+        answer = await self._claude(system, prompt, kind)  # every free option busy or off: Claude's cheap model
         usage.count(self.memory, "free:fallback_claude")
         return {"answer": answer, "model": settings.fast_model, "free": False, "tried": tried}
 
-    def _call(self, name: str, system: str, prompt: str, timeout: float = 30) -> str:
+    def _call(self, name: str, system: str, prompt: str, timeout: float = 30) -> tuple[str, dict]:
         p = PROVIDERS[name]
         body = {"model": self.model_of(name), "max_tokens": 1500, "temperature": 0.3,
                 "messages": [{"role": "system", "content": system}, {"role": "user", "content": prompt}]}
         data = self.http(f"{p['base']}/chat/completions", body,
                          {"Authorization": f"Bearer {self.env[p['key']].strip()}"}, timeout)
-        return data["choices"][0]["message"]["content"].strip()
+        return (data["choices"][0]["message"]["content"] or "").strip(), data.get("usage") or {}
 
-    async def _claude(self, system: str, prompt: str) -> str:
+    async def _claude(self, system: str, prompt: str, kind: str = "") -> str:
         from .agent import fallback_kwargs
 
         model = settings.fast_model or settings.chat_model
+        started = time.monotonic()
         response = await client.beta.messages.create(model=model, max_tokens=1500, system=system,
                                                      messages=[{"role": "user", "content": prompt}],
                                                      **fallback_kwargs(model))
         if hasattr(response, "usage"):
-            usage.record(self.memory, response.model, response.usage)
+            usage.record(self.memory, response.model, response.usage, response=response, started=started,
+                         request=prompt, label=f"general:{kind}")
         return "".join(b.text for b in response.content if b.type == "text").strip()
 
     def status(self) -> dict:

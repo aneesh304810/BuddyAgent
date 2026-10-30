@@ -10,6 +10,7 @@ threshold.
 """
 
 import logging
+import time
 
 import anthropic
 
@@ -93,6 +94,7 @@ async def ask_expert(memory: Memory, args: dict) -> str:
     cost = 0.0
     response = None
     for _ in range(MAX_STEPS):
+        started = time.monotonic()
         async with client.beta.messages.stream(
             model=settings.expert_model,
             max_tokens=16_000,
@@ -103,7 +105,7 @@ async def ask_expert(memory: Memory, args: dict) -> str:
             **fallback_kwargs(settings.expert_model),
         ) as stream:
             response = await stream.get_final_message()
-        cost += usage.record(memory, response.model, response.usage, purpose="expert")
+        cost += usage.record(memory, response.model, response.usage, purpose="expert", response=response, started=started)
         if response.stop_reason == "refusal":
             raise ToolError("The expert declined this question.")
         messages.append({"role": "assistant", "content": response.content})

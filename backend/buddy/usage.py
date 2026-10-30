@@ -1,6 +1,7 @@
 """Track Claude token usage and cost, and enforce the monthly budget."""
 
-from datetime import datetime, timezone
+import time
+from datetime import datetime, timedelta, timezone
 
 from .memory import Memory
 from .tools import local_now
@@ -54,8 +55,52 @@ def web_searches(usage) -> int:
     return (getattr(server_tools, "web_search_requests", 0) or 0) if server_tools else 0
 
 
-def record(memory: Memory, model: str, usage, purpose: str = "") -> float:
-    """Log one response's cost. `purpose` (e.g. "listen") gets its own daily tally."""
+KEEP_CALLS_DAYS = 90
+PREVIEW_CHARS = 280
+
+
+def _preview(text: str) -> str:
+    from .privacy import mask
+
+    text = " ".join((text or "").split())
+    return mask(text[:PREVIEW_CHARS * 2])[:PREVIEW_CHARS]
+
+
+def log_call(memory: Memory, *, provider: str, model: str, purpose: str, input_tokens: int = 0,
+             output_tokens: int = 0, cache_read: int = 0, cache_write: int = 0, searches: int = 0,
+             cost: float = 0.0, seconds: float | None = None, ok: bool = True, stop: str = "",
+             tools: str = "", request: str = "", reply: str = "") -> None:
+    """One row per model request, for the Insights dashboard. Previews are short and masked."""
+    now = datetime.now(timezone.utc)
+    memory.db.execute(
+        """INSERT INTO model_calls (at, provider, model, purpose, input_tokens, output_tokens, cache_read_tokens,
+             cache_write_tokens, web_searches, cost_usd, seconds, ok, stop, tools, request, reply)
+           VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)""",
+        (now.isoformat(), provider, model, purpose or "chat", input_tokens, output_tokens, cache_read, cache_write,
+         searches, cost, None if seconds is None else round(seconds, 2), 1 if ok else 0, stop[:200], tools[:200],
+         _preview(request), _preview(reply)),
+    )
+    memory.db.execute("DELETE FROM model_calls WHERE at < ?", ((now - timedelta(days=KEEP_CALLS_DAYS)).isoformat(),))
+    memory.db.commit()
+
+
+def _reply_parts(response) -> tuple[str, str, str]:
+    """(text, tools asked for, stop reason) from a Claude response."""
+    text, tools = [], []
+    for block in getattr(response, "content", None) or []:
+        kind = getattr(block, "type", "")
+        if kind == "text":
+            text.append(block.text)
+        elif kind in ("tool_use", "server_tool_use", "mcp_tool_use"):
+            tools.append(getattr(block, "name", kind))
+    return " ".join(text), ", ".join(dict.fromkeys(tools)), str(getattr(response, "stop_reason", "") or "")
+
+
+def record(memory: Memory, model: str, usage, purpose: str = "", *, response=None, started: float | None = None,
+           request: str = "", label: str = "") -> float:
+    """Log one response's cost. `purpose` (e.g. "listen") gets its own daily tally.
+    `label` names it on the Insights dashboard when it differs from `purpose`; `started`
+    (time.monotonic() before the call) gives the answer time."""
     day = datetime.now(timezone.utc).date().isoformat()
     cost = cost_usd(model, usage)
     # Daily allowances follow the user's own midnight, wherever they are.
@@ -86,7 +131,13 @@ def record(memory: Memory, model: str, usage, purpose: str = "") -> float:
             cost,
         ),
     )
-    memory.db.commit()
+    text, tools, stop = _reply_parts(response)
+    log_call(memory, provider="claude", model=model, purpose=label or purpose or "chat",
+             input_tokens=usage.input_tokens, output_tokens=usage.output_tokens,
+             cache_read=getattr(usage, "cache_read_input_tokens", 0) or 0,
+             cache_write=getattr(usage, "cache_creation_input_tokens", 0) or 0, searches=searches, cost=cost,
+             seconds=None if started is None else time.monotonic() - started, stop=stop, tools=tools,
+             request=request, reply=text)
     return cost
 
 
