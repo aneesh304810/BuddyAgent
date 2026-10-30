@@ -6,7 +6,7 @@ mcp>=2.3,<3
 pyyaml>=6
 sqlcipher3-wheels>=0.5
 icalendar>=6
-recurring-ical-events>=3
+recurring-ical-events>=3.8.2
 defusedxml>=0.7.1
 # Not used directly, but kept at versions without known vulnerabilities:
 starlette>=0.47.2
