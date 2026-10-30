@@ -71,6 +71,10 @@ def test_listen_in_whispers(monkeypatch):
 def test_addressed_to_buddy():
     assert server.addressed_to_buddy("Buddy, what did he say?") == "what did he say?"
     assert server.addressed_to_buddy("hey buddy translate that") == "translate that"
+    assert server.addressed_to_buddy("Budo, Buddy, why is the allowance 516?") == "why is the allowance 516?"
+    assert server.addressed_to_buddy("Okay buddy, what did she say?") == "what did she say?"
+    assert server.addressed_to_buddy("hey body what's the score") == "what's the score"
+    assert server.addressed_to_buddy("My body hurts after the game") is None  # "body" alone isn't Buddy
     assert server.addressed_to_buddy("my buddy is late") is None
 
 
@@ -241,7 +245,7 @@ def test_tools_load_on_demand_and_history_is_trimmed():
     assert tools[0]["type"] == "tool_search_tool_bm25_20251119"
     loaded = {t["name"] for t in tools if not t.get("defer_loading")}
     assert loaded >= {"tool_search_tool_bm25", "remember_fact", "set_reminder", "add_task", "web_search"}
-    assert len(loaded) <= 8 and len(tools) > 20  # everything is there, few are loaded
+    assert len(loaded) <= 9 and len(tools) > 20  # everything is there, few are loaded
     assert next(t for t in tools if t["name"] == "add_expense")["defer_loading"] is True
 
     convo.messages = []
@@ -285,3 +289,36 @@ def test_a_sentence_cut_off_by_a_pause_is_put_back_together(monkeypatch):
         got = [ws.receive_json() for _ in range(3)]
     assert [m["type"] for m in got] == ["thinking", "say", "done"]
     assert "Why can't we use the free model for the news?" in str(asked[-1])
+
+
+def test_sleep_until_hey_buddy_switches_the_app_to_listen_in(monkeypatch):
+    steps = iter([
+        SimpleNamespace(stop_reason="tool_use", model="claude-opus-5", usage=SimpleNamespace(input_tokens=10, output_tokens=5),
+                        content=[SimpleNamespace(type="tool_use", id="m1", name="switch_mode", input={"mode": "listen_in"})]),
+        SimpleNamespace(stop_reason="end_turn", model="claude-opus-5", usage=SimpleNamespace(input_tokens=10, output_tokens=5),
+                        content=[SimpleNamespace(type="text", text="Going quiet.")]),
+    ])
+
+    class Step(FakeStream):
+        def __init__(self):
+            self.final = next(steps)
+            super().__init__(" ".join(b.text for b in self.final.content if b.type == "text"))
+
+        def __aiter__(self):
+            return super().__aiter__() if self.text else self._none()
+
+        async def _none(self):
+            return
+            yield
+
+        async def get_final_message(self):
+            return self.final
+
+    monkeypatch.setattr(agent.client.beta.messages, "stream", lambda **kw: Step())
+    with TestClient(server.app) as c, c.websocket_connect("/ws") as ws:
+        ws.send_json({"type": "user", "text": "You can sleep now, until I say hey Buddy."})
+        got = []
+        while not got or got[-1]["type"] != "done":
+            got.append(ws.receive_json())
+    assert {"type": "mode", "mode": "listen"} in got
+    assert any(m["type"] == "say" and m["text"] == "Going quiet." for m in got)

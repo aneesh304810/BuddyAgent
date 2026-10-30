@@ -143,3 +143,8 @@ def test_stock_video_phrases_are_dropped():
     assert whisper._clean([seg(" Thank you for watching.")]) == ""
     assert whisper._clean([seg(" Please subscribe to my channel!")]) == ""
     assert whisper._clean([seg(" Thank you.")]) == "Thank you."  # people do say that
+
+
+def test_short_repeats_are_dropped():
+    assert whisper._clean([seg(" Bero, Bero, Bero.")]) == ""
+    assert whisper._clean([seg(" Bla, bla, bla, bla.")]) == ""

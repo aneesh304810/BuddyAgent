@@ -179,6 +179,7 @@ class BuddyService : Service() {
                 if (!headsetConnected()) phoneEars.hold()  // on the loudspeaker it would hear itself
             } else {
                 speechEndedAt = android.os.SystemClock.elapsedRealtime()
+                if (pendingMode != null) main.postDelayed({ applyPendingMode() }, 400)
             }
             BuddyState.update { it.copy(speaking = on) }
             // Buddy's voice plays through the speech engine, which Android counts as another
@@ -361,10 +362,16 @@ class BuddyService : Service() {
             is ServerEvent.Done -> {
                 replyOpen = false
                 BuddyState.replyDone(event.turn)
+                if (pendingMode != null && !mouth.speaking) main.postDelayed({ applyPendingMode() }, 400)
             }
             ServerEvent.Thinking -> thinking(true)
             is ServerEvent.Heard -> serverEars.heard(event.text, event.lang)
             is ServerEvent.SpeechLimit -> speechLimit(event.seconds)
+            is ServerEvent.SwitchMode -> {
+                // After Buddy has finished saying it (Talk would otherwise hear its own reply).
+                pendingMode = if (event.mode == "listen") Mode.LISTEN_IN else Mode.TALK
+                if (!mouth.speaking && !replyOpen) applyPendingMode()
+            }
             is ServerEvent.Approval -> {
                 BuddyState.update { it.copy(approval = event.question) }
                 Notes.approval(this, event.question)
@@ -453,6 +460,15 @@ class BuddyService : Service() {
     }
 
     private var whisperNoteShown = false
+    private var pendingMode: Mode? = null
+
+    private fun applyPendingMode() {
+        val mode = pendingMode ?: return
+        pendingMode = null
+        if (mouth.speaking) { pendingMode = mode; return }
+        if (ears.active && activeMode == mode) return
+        startListening(mode)
+    }
     @Volatile private var phoneUntil = 0L
     private val limitTimer = android.os.Handler(android.os.Looper.getMainLooper())
 

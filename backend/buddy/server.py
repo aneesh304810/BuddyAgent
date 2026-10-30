@@ -271,17 +271,28 @@ def health() -> dict:
     return {"ok": True, "whisper": speech_to_text.available()}
 
 
+# How speech recognition mishears "Buddy" ("Budo, Buddy, why…"); only these count on their own.
+NAME_SOUNDS = {"buddy", "buddie", "budo", "buddo", "buddi", "budy", "baddy", "baddie", "bodi", "bodhi", "buddha"}
+GREETINGS = {"hey", "hi", "hello", "ok", "okay", "yo"}
+
+
 def addressed_to_buddy(text: str) -> str | None:
-    """If speech starts with the assistant's name, return the rest as a command."""
-    name = settings.assistant_name.lower()
-    words = text.split(maxsplit=1)
-    if words and words[0].lower().strip(",.!?:") in (name, f"hey{name}") and len(words) > 1:
-        return words[1].lstrip(",.!?: ")
-    lowered = text.lower()
-    if lowered.startswith(f"hey {name}"):
-        rest = text[len(f"hey {name}"):].lstrip(",.!?: ")
-        return rest or None
-    return None
+    """If speech starts with the assistant's name (or how it's misheard, or "hey" and the name),
+    return the rest as a command."""
+    names = NAME_SOUNDS | {settings.assistant_name.lower(), f"hey{settings.assistant_name.lower()}"}
+    words = text.split()
+    clean = [w.lower().strip(",.!?:;") for w in words]
+    skip = 0
+    if clean and clean[0] in GREETINGS and len(clean) > 1 and (clean[1] in names or clean[1] in ("body", "birdie")):
+        skip = 2
+    elif clean and clean[0] in names:
+        skip = 1
+    if not skip:
+        return None
+    while skip < len(clean) and clean[skip] in names:  # "Budo, Buddy, why…"
+        skip += 1
+    rest = " ".join(words[skip:]).lstrip(",.!?: ")
+    return rest or None
 
 
 def brain_error(e: anthropic.APIError) -> str:
@@ -494,6 +505,11 @@ async def talk(ws: WebSocket) -> None:
     listener = AmbientListener(memory, whisper, thrift)
     convo.room = listener.recent  # "what are they talking about?" in Listen-in
 
+    async def switch_mode(mode: str) -> None:  # "sleep until I say Hey Buddy" -> Listen-in
+        await send({"type": "mode", "mode": mode})
+
+    convo.switch_mode = switch_mode
+
     pending: dict = {"text": "", "task": None}  # a sentence cut off by a pause, waiting for its end
     last_heard = [-1e9]  # when Whisper last sent text back
 
@@ -511,8 +527,13 @@ async def talk(ws: WebSocket) -> None:
         if text:
             await start_answer(text, via)
 
-    audio_backlog = [0]  # audio clips waiting for Whisper or being transcribed
     audio_tasks: set[asyncio.Task] = set()
+    room_slot: dict = {"waiting": None, "worker": None}
+
+    async def hear_room() -> None:
+        while room_slot["waiting"] is not None:
+            msg, room_slot["waiting"] = room_slot["waiting"], None
+            await hear_audio(msg)
 
     async def hear_audio(msg: dict) -> None:
         """Speech recognition on this server (Whisper): send back the text; the phone routes it
@@ -542,8 +563,6 @@ async def talk(ws: WebSocket) -> None:
             await send({"type": "error", "text": str(e)})
         except Exception:
             log.exception("whisper failed")
-        finally:
-            audio_backlog[0] -= 1
 
     async def answer(text: str, via: str = "user") -> None:
         try:
@@ -652,13 +671,18 @@ async def talk(ws: WebSocket) -> None:
                 # Speech recognition on this server (Whisper) runs beside the conversation, so the
                 # phone's other messages aren't held up. Room talk that's piling up is skipped
                 # (it's stale by then); what you say in Talk mode never is.
-                if msg.get("mode") != "talk" and audio_backlog[0] >= 2:
-                    log.info("whisper busy: skipped %s of room audio", msg.get("mode") or "some")
+                if msg.get("mode") == "talk":
+                    task = asyncio.create_task(hear_audio(msg))
+                    audio_tasks.add(task)
+                    task.add_done_callback(audio_tasks.discard)
                     continue
-                audio_backlog[0] += 1
-                task = asyncio.create_task(hear_audio(msg))
-                audio_tasks.add(task)
-                task.add_done_callback(audio_tasks.discard)
+                # Room audio: one clip transcribing, one waiting, and the waiting one is always the
+                # newest (often you saying "Hey Buddy"); an older one still waiting is dropped.
+                if room_slot["waiting"] is not None:
+                    log.info("whisper busy: dropped an older room clip for a newer one")
+                room_slot["waiting"] = msg
+                if room_slot["worker"] is None or room_slot["worker"].done():
+                    room_slot["worker"] = asyncio.create_task(hear_room())
             elif msg.get("type") == "location":
                 # The user shares where they are (Settings -> Share my location); only the latest is kept.
                 with contextlib.suppress(TypeError, ValueError):

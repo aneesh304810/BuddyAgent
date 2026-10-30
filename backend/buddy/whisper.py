@@ -122,7 +122,8 @@ def _clean(segments, prompt: str = "") -> str:
     text = " ".join(s.text.strip() for s in kept).strip()
     words = [w.strip(".,!?;:\"'").lower() for w in text.split()]
     words = [w for w in words if w]
-    if len(words) >= 5 and max(words.count(w) for w in set(words)) > len(words) * 0.5:
+    if (len(words) >= 3 and len(set(words)) == 1) or (
+            len(words) >= 5 and max(words.count(w) for w in set(words)) > len(words) * 0.5):
         return ""  # one word over and over: a hallucination, not speech
     return "" if _echoes_prompt(text, prompt) or _stock_phrase(text) else text
 
@@ -265,6 +266,8 @@ async def transcribe(pcm: bytes, language: str = "", prompt: str = "", stats: di
         mix = [names.get(t.split("-")[0], t) for t in language[5:].split(",") if t]
         prompt = (prompt + " " if prompt else "") + f"Speaking {' and '.join(mix)}, often mixed in one sentence."
     allowed = [t.split("-")[0].lower() for t in language[5:].split(",") if t] if language.startswith("auto:") else None
+    if len(pcm) < SAMPLE_RATE * 2 * 1.5:
+        prompt = ""  # on a clip this short Whisper tends to read the vocabulary prompt back instead
     if mode == "talk" and groq_on():  # never Listen-in: other people's voices stay on this server
         started = time.monotonic()
         try:
