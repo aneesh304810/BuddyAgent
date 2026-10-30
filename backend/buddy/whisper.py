@@ -129,10 +129,18 @@ def _transcribe(pcm: bytes, language: str | None, prompt: str = "", stats: dict 
 GROQ_URL = "https://api.groq.com/openai/v1/audio/transcriptions"
 GROQ_USD_PER_HOUR = 0.04  # whisper-large-v3-turbo; each request is billed as at least 10 seconds
 _groq_resting_until = 0.0
+_groq_rest_reason = ""
 
 
 class GroqSkipped(Exception):
     """Groq can't or shouldn't do this clip: the local model does."""
+
+
+def groq_limit_seconds() -> int:
+    """Seconds until Groq's free limit resets, or 0 if it isn't at its limit."""
+    if _groq_rest_reason != "limit":
+        return 0
+    return max(0, int(_groq_resting_until - time.monotonic()))
 
 
 def groq_cost(audio_seconds: float) -> float:
@@ -162,11 +170,11 @@ def _wav(pcm: bytes) -> bytes:
 
 
 async def _groq(pcm: bytes, hint: str | None, prompt: str, allowed: list[str] | None, http=None) -> tuple[str, str]:
-    global _groq_resting_until
+    global _groq_resting_until, _groq_rest_reason
     import httpx
 
     if time.monotonic() < _groq_resting_until:
-        raise GroqSkipped("resting after a limit or error")
+        raise GroqSkipped(f"resting after {'its free limit' if _groq_rest_reason == 'limit' else 'an error'}")
     data = {"model": groq_model(), "response_format": "verbose_json", "temperature": "0"}
     if hint:
         data["language"] = hint
@@ -182,13 +190,15 @@ async def _groq(pcm: bytes, hint: str | None, prompt: str, allowed: list[str] | 
             if http is None:
                 await client.aclose()
     except Exception as e:  # network, timeout
-        _groq_resting_until = time.monotonic() + 30
+        _groq_resting_until, _groq_rest_reason = time.monotonic() + 30, "error"
         raise GroqSkipped(type(e).__name__) from e
     if response.status_code == 429:  # the free limit: rest a while, the local model carries on
         _groq_resting_until = time.monotonic() + float(response.headers.get("retry-after") or 60)
-        raise GroqSkipped("at its limit")
+        _groq_rest_reason = "limit"
+        raise GroqSkipped("at its free limit")
     if response.status_code >= 400:
         _groq_resting_until = time.monotonic() + (600 if response.status_code in (401, 403) else 30)
+        _groq_rest_reason = "error"
         raise GroqSkipped(f"HTTP {response.status_code}")
     body = response.json()
     name = str(body.get("language") or "").lower()

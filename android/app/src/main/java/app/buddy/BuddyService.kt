@@ -120,6 +120,10 @@ class BuddyService : Service() {
             // Automatic: Whisper on your server for continuous listening (Talk hands-free, Listen-in,
             // or the phone closed). The phone's recognizer hears one phrase per session, so it restarts
             // every few seconds and beeps each time; it's kept for single tap-to-talk questions.
+            // Groq (the server's fast recognition for Talk) is at its free limit: the phone's own
+            // recognizer (Samsung's or Google's) for Talk until it resets, not the slow server model.
+            prefs.speechEngine == "auto" && activeMode == Mode.TALK && !screenOff &&
+                android.os.SystemClock.elapsedRealtime() < phoneUntil -> phoneEars
             prefs.speechEngine == "auto" && whisperOnServer &&
                 (screenOff || activeMode == Mode.LISTEN_IN || prefs.handsFree) -> serverEars
             else -> phoneEars
@@ -360,6 +364,7 @@ class BuddyService : Service() {
             }
             ServerEvent.Thinking -> thinking(true)
             is ServerEvent.Heard -> serverEars.heard(event.text, event.lang)
+            is ServerEvent.SpeechLimit -> speechLimit(event.seconds)
             is ServerEvent.Approval -> {
                 BuddyState.update { it.copy(approval = event.question) }
                 Notes.approval(this, event.question)
@@ -448,6 +453,27 @@ class BuddyService : Service() {
     }
 
     private var whisperNoteShown = false
+    @Volatile private var phoneUntil = 0L
+    private val limitTimer = android.os.Handler(android.os.Looper.getMainLooper())
+
+    /** Groq's free limit is used up: Talk switches to the phone's recognizer, and back when it resets. */
+    private fun speechLimit(seconds: Long) {
+        if (prefs.speechEngine != "auto") return  // you chose an engine yourself: keep it
+        val wait = seconds.coerceIn(60L, 24 * 3600L) * 1000
+        val first = android.os.SystemClock.elapsedRealtime() >= phoneUntil
+        phoneUntil = android.os.SystemClock.elapsedRealtime() + wait
+        if (first) {
+            val until = java.text.DateFormat.getTimeInstance(java.text.DateFormat.SHORT)
+                .format(java.util.Date(System.currentTimeMillis() + wait))
+            BuddyState.add(Line("The fast speech recognition is at its free limit, so I'm using your phone's " +
+                "until about $until, then I'll switch back.", Speaker.ERROR))
+        }
+        if (serverEars.active && activeMode == Mode.TALK) startListening(Mode.TALK)  // swap ears now
+        limitTimer.removeCallbacksAndMessages(null)
+        limitTimer.postDelayed({
+            if (phoneEars.active && activeMode == Mode.TALK) startListening(Mode.TALK)  // back to the server
+        }, wait + 1_000)
+    }
 
     fun stopListening() {
         if (ears.active && activeMode == Mode.LISTEN_IN) {

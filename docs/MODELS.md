@@ -147,6 +147,8 @@ speech. **Listen-in (other people's voices) never goes to Groq**: it stays on yo
 own Whisper. If Groq is down, at its free limit (Buddy rests it for a minute), or hears a
 language outside "My languages", your server's Whisper does that clip instead.
 
+- At Groq's free limit, the app (speech recognition on Automatic) switches Talk to the phone's
+  own recognizer (Samsung's or Google's) until the limit resets, then back; it says so in the chat.
 - `BUDDY_WHISPER_TALK=local` keeps all speech on your server.
 - `BUDDY_GROQ_WHISPER_MODEL` (default `whisper-large-v3-turbo`).
 - `BUDDY_GROQ_PAID=1` counts the paid rate (about $0.04 an hour of audio, at least 10 s a

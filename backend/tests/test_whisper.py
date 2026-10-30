@@ -88,7 +88,8 @@ def test_groq_limit_rests_and_hands_over(monkeypatch):
             asyncio.run(whisper._groq(b"\x00\x00", None, "", None, http=http))
         except whisper.GroqSkipped as e:
             reason = str(e)
-    assert "resting" in reason
+    assert "resting after its free limit" in reason
+    assert 25 <= whisper.groq_limit_seconds() <= 30  # the phone switches to its own recognizer meanwhile
 
 
 def test_only_talk_mode_goes_to_groq_and_failures_fall_back(monkeypatch):
@@ -109,11 +110,11 @@ def test_only_talk_mode_goes_to_groq_and_failures_fall_back(monkeypatch):
     assert used == ["groq", "local"] and meta["engine"] == "local"
 
     async def busy(*a, **k):
-        raise whisper.GroqSkipped("at its limit")
+        raise whisper.GroqSkipped("at its free limit")
     monkeypatch.setattr(whisper, "_groq", busy)
     meta = {}
     assert asyncio.run(whisper.transcribe(b"\x00\x00", "en-US", mode="talk", meta=meta)) == ("hi", "en")
-    assert meta == {"groq_skipped": "at its limit", "engine": "local"}
+    assert meta == {"groq_skipped": "at its free limit", "engine": "local"}
     monkeypatch.setenv("BUDDY_WHISPER_TALK", "local")
     assert not whisper.groq_on()
 

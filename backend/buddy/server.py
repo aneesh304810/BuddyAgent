@@ -510,6 +510,8 @@ async def talk(ws: WebSocket) -> None:
             usage.count(memory, f"speech:{meta.get('engine', 'local')}")
             if meta.get("groq_skipped"):
                 usage.count(memory, "speech:groq_skipped")
+                if wait := speech_to_text.groq_limit_seconds():  # the phone uses its own recognizer meanwhile
+                    await send({"type": "speech_limit", "seconds": wait})
             if meta.get("engine") == "groq":  # in Insights with Buddy's other model calls (no text kept)
                 usage.log_call(memory, provider="groq", model=speech_to_text.groq_model(), purpose="speech",
                                seconds=meta["seconds"], cost=speech_to_text.groq_cost(meta["audio_seconds"]))
