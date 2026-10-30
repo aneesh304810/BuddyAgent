@@ -22,6 +22,7 @@ import os
 import re
 import secrets
 import subprocess
+import tempfile
 import time
 from datetime import datetime, timezone
 from pathlib import Path
@@ -32,7 +33,7 @@ from .memory import Memory
 from .tools import ToolError
 
 FILES_DIR = Path(os.getenv("BUDDY_FILES_DIR", str(Path(settings.db_path).parent / "files")
-                           if settings.db_path != ":memory:" else "/tmp/buddy-files"))
+                           if settings.db_path != ":memory:" else str(Path(tempfile.gettempdir()) / "buddy-files")))
 LINK_DAYS = 30
 MAX_FILE_BYTES = 25_000_000
 MIME = {"png": "image/png", "jpg": "image/jpeg",
@@ -141,7 +142,7 @@ PALETTE = ["#4C78DB", "#F2A93B", "#3DB389", "#D55E5E", "#8E6BD8", "#5BB8D9", "#B
 
 
 def render_chart(spec: dict) -> bytes:
-    os.environ.setdefault("MPLCONFIGDIR", "/tmp/buddy-mpl")
+    os.environ.setdefault("MPLCONFIGDIR", str(Path(tempfile.gettempdir()) / "buddy-mpl"))
     import matplotlib
 
     matplotlib.use("Agg")
