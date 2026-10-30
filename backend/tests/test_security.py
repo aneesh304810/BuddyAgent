@@ -133,3 +133,28 @@ def test_weekly_check_spots_exposed_listeners_and_funnel(maintain, monkeypatch):
     assert any("all network interfaces" in t for t in titles)
     assert "6379" in maintain.findings[0]["detail"] and ":22" not in maintain.findings[0]["detail"]
     assert any("Funnel" in t for t in titles)
+
+
+def test_secret_links_are_hidden_too():
+    for line in ['HTTP Request: POST https://mcp.zapier.com/api/mcp/s/aBcD1234eFgH5678iJkL9012mNoP/mcp "200 OK"',
+                 "GET https://user123:pa55word99@bridge.simplefin.org/simplefin/accounts",
+                 "GET https://api.example.com/v1/x?api_key=abcdef123456&q=1"]:
+        clean = redact_secrets(line)
+        assert "[secret hidden]" in clean
+        assert not any(s in clean for s in ("aBcD1234eFgH", "pa55word99", "abcdef123456"))
+    assert redact_secrets("GET /health 200 in 3 ms") == "GET /health 200 in 3 ms"
+
+
+def test_weekly_check_says_where_leaked_keys_come_from(maintain, monkeypatch):
+    journal = (
+        "2026-10-29T04:12:01+0000 buddy uvicorn[9]: 2026-10-29 04:12:01,123 httpx HTTP Request: POST "
+        "https://mcp.zapier.com/api/mcp/s/aBcD1234eFgH5678iJkL9012mNoP/mcp \"HTTP/1.1 200 OK\"\n"
+        "2026-10-29T05:00:00+0000 buddy uvicorn[9]: 2026-10-29 05:00:00,001 buddy reply took 2.1s\n"
+        "2026-10-30T01:02:03+0000 buddy uvicorn[9]: 2026-10-30 01:02:03,000 httpx GET "
+        "https://u1:pw123456@bridge.simplefin.org/accounts\n")
+    monkeypatch.setattr(maintain, "sh", lambda *a, **k: subprocess.CompletedProcess(a, 0, journal, ""))
+    maintain.check_logs()
+    f = maintain.findings[0]
+    assert f["title"].startswith("2 log lines") and "httpx (2)" in f["detail"]
+    assert "secret in a link" in f["detail"] and "link with a password" in f["detail"]
+    assert "2026-10-30 01:02" in f["detail"] and "aBcD1234" not in json.dumps(f) and "pw123456" not in json.dumps(f)

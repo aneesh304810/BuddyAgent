@@ -70,6 +70,10 @@ from .tools import ToolError, set_user_tz
 logging.basicConfig(level=logging.INFO, format="%(asctime)s %(name)s %(message)s")
 for _handler in logging.getLogger().handlers:  # keys never reach the journal
     _handler.addFilter(SecretFilter())
+# HTTP libraries log every request's full address at INFO, and some addresses carry secrets
+# (an MCP link, a bank-feed link): only their warnings and errors are worth keeping.
+for _name in ("httpx", "httpcore", "urllib3", "mcp.client.streamable_http", "mcp.client.sse"):
+    logging.getLogger(_name).setLevel(logging.WARNING)
 
 # Live trace of every message between the phone and Buddy, for troubleshooting
 # (deploy/trace.sh). Off by default: conversations don't go to the system log.
@@ -208,6 +212,7 @@ class _HideTokens(logging.Filter):
 
 for _name in ("uvicorn.access", "uvicorn.error", "uvicorn"):
     logging.getLogger(_name).addFilter(_HideTokens())
+    logging.getLogger(_name).addFilter(SecretFilter())  # uvicorn's own handlers skip the root filter
 
 
 @app.get("/health")

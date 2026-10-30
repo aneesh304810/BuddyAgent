@@ -185,21 +185,46 @@ def check_secrets(env: dict) -> None:
              "(set.sh NAME); the date starts then.")
 
 
+KINDS = ["link with a password", "secret in a link", "key in a link", "API key (sk-...)", "GitHub token",
+         "AWS key", "Google key", "Slack token", "DigitalOcean token", "Tailscale key", "private key", "JWT",
+         "Bearer token", "password or token setting"]
+
+
 def check_logs() -> None:
+    """Keys in the last week's logs: how many, from which part of Buddy, what kind, how recent.
+    Never prints a key."""
     sys.path.insert(0, str(APP / "backend"))
     try:
         from buddy.privacy import SECRET_PATTERNS
     except Exception:
         return
-    keylike = [p for p in SECRET_PATTERNS if "ts\\.net" not in p.pattern]
+    patterns = [(KINDS[i] if i < len(KINDS) else f"pattern {i}", p)
+                for i, p in enumerate(SECRET_PATTERNS) if "ts\\.net" not in p.pattern and "postgres" not in p.pattern]
     text = sh("journalctl", "-u", "buddy", "-u", "buddy-sandbox", "-u", "buddy-backup", "--since", "-7d",
-              "-o", "cat", "--no-pager", timeout=300).stdout
-    hits = sum(len(p.findall(text)) for p in keylike)
+              "-o", "short-iso", "--no-pager", timeout=300).stdout
+    sources: dict[str, int] = {}
+    kinds: dict[str, int] = {}
+    newest = ""
+    for line in text.splitlines():
+        found = [kind for kind, p in patterns if p.search(line)]
+        if not found:
+            continue
+        # short-iso: "2026-10-30T04:12:01+0000 buddy uvicorn[123]: 2026-10-30 04:12:01,123 httpx HTTP ..."
+        words = line.split()
+        logger = words[5] if len(words) > 5 and words[3][:4].isdigit() else (words[2].split("[")[0] if len(words) > 2 else "?")
+        sources[logger] = sources.get(logger, 0) + 1
+        for kind in found:
+            kinds[kind] = kinds.get(kind, 0) + 1
+        newest = words[0][:16] if words else newest
+    hits = sum(sources.values())
     if hits:
-        find("act", f"{hits} possible keys found in the last week's logs",
-             "Logs are root-only, but keys shouldn't be there at all.",
-             "Rotate the keys Buddy uses (set.sh), then clear old logs: sudo journalctl --vacuum-time=1d. "
-             "Tell me which part of Buddy logged it, so it can be fixed.")
+        top = lambda d: ", ".join(f"{k} ({v})" for k, v in sorted(d.items(), key=lambda kv: -kv[1])[:4])
+        find("act", f"{hits} log lines in the last week look like they contain keys",
+             f"From: {top(sources)}. Kind: {top(kinds)}. Newest: {newest.replace('T', ' ')} UTC. "
+             "Lines from before your last update are expected: it stops them.",
+             "1) sudo bash /opt/buddy/deploy/update.sh  2) clear the old lines: sudo journalctl --rotate && "
+             "sudo journalctl --vacuum-time=1s  3) rotate the keys of the kinds above (set.sh NAME). "
+             "If new lines appear after that, send me this finding.")
 
 
 def check_network() -> None:

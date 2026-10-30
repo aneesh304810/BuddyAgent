@@ -110,6 +110,9 @@ def mask(text: str) -> str:
 
 # Keys, tokens, passwords and private addresses: never sent to free models, never logged.
 SECRET_PATTERNS = [
+    re.compile(r"(?i)\bhttps?://[^/\s:@]+:[^/\s@]+@"),                     # a link with a user and password
+    re.compile(r"(?i)/(?:s|secret|token|key|hooks)/[A-Za-z0-9_=-]{20,}"),       # a secret in a link (Zapier MCP...)
+    re.compile(r"(?i)[?&](?:key|api_key|apikey|token|access_token|secret|sig|signature)=[^&\s\"']{8,}"),
     re.compile(r"\b(sk|rk|pk)-[A-Za-z0-9_-]{16,}"),                     # OpenAI, Anthropic, Stripe...
     re.compile(r"\b(ghp|gho|ghu|ghs|ghr)_[A-Za-z0-9]{20,}|github_pat_\w{20,}"),
     re.compile(r"\bAKIA[0-9A-Z]{16}\b"),                                # AWS

@@ -167,5 +167,5 @@ UNIT
     systemctl daemon-reload
     systemctl enable --now buddy-maintain.timer >/dev/null
     echo "Weekly patching and security check: on (Sundays around 4am)." ;;
-  *) sed -n '2,15p' "$0"; exit 1 ;;
+  *) echo "Unknown command: ${1:-}"; sed -n '2,14p' "$0"; exit 1 ;;
 esac
