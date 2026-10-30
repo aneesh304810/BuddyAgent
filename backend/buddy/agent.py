@@ -35,7 +35,7 @@ from .health import HEALTH_TOOL, run_health_tool
 from . import cards, sandbox
 from .codejob import CODE_TOOL_NAMES, CODE_TOOLS, run_code_tool
 from .makers import MAKER_TOOL_NAMES, MAKER_TOOLS, run_maker_tool
-from . import tutor, vocabulary
+from . import transcripts, tutor, vocabulary
 from .lifelog import LIFELOG_TOOL, LifeLog, run_lifelog_tool
 from .mailbrain import MAIL_TOOL_NAMES, MAIL_TOOLS, MailManager, run_mail_tool
 from .money import MONEY_TOOL_NAMES, MONEY_TOOLS, Money, run_money_tool
@@ -409,7 +409,7 @@ class Conversation:
         spending += [GENERAL_TOOL, VERDICT_TOOL] if self.free.enabled() else []
         spending += [RATE_TOOL, HEALTH_TOOL, cards.SHOW_TOOL, tutor.TUTOR_TOOL, vocabulary.LEARN_TOOL] + MAKER_TOOLS
         spending += [ROOM_TOOL] if self.room else []
-        spending += [REPLY_STYLE_TOOL]
+        spending += [REPLY_STYLE_TOOL, transcripts.TRANSCRIPT_TOOL]
         return (
             CLIENT_TOOLS + orchestration + job_tools + spending + [_expert_tool()]
             + agent_tools + web_tools()
@@ -445,6 +445,8 @@ class Conversation:
             return "Noted."
         if self.jobs and name in CODE_TOOL_NAMES:
             return await run_code_tool(self.jobs, name, args, self.thrift)
+        if name == "room_transcripts":
+            return transcripts.run_tool(self.memory, args)
         if name == "reply_style":
             if args.get("style") == "dual":
                 lang = args.get("speak") or "ml"

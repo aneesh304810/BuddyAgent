@@ -30,6 +30,7 @@ from . import usage
 from .agent import client, fallback_kwargs
 from .config import settings
 from .memory import Memory
+from . import transcripts
 from .privacy import mask
 from .thrift import Thrift
 
@@ -184,6 +185,7 @@ class AmbientListener:
         if len(self.segments) == self.segments.maxlen:
             self.seen = max(0, self.seen - 1)  # the oldest segment is about to drop
         self.segments.append((time.monotonic(), lang, mask(text)))
+        transcripts.keep(self.memory, text, lang)  # only if you switched room transcripts on (2 days)
         if self._running and not self._running.done():
             self._again = True
         else:
