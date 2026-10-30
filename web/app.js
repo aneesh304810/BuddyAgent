@@ -562,7 +562,7 @@ async function showInsights() {
   const out = sp.outcomes || {};
   stile("First words", secs(sp.first_word_median), `slowest 5%: ${secs(sp.first_word_p95)}`);
   stile("Whole reply", secs(sp.total_median), `slowest 5%: ${secs(sp.total_p95)}`);
-  stile("Replies", String(sp.replies || 0), `${(out.error || 0) + (out.too_many_steps || 0) + (out.refusal || 0)} failed · ${out.interrupted || 0} interrupted`);
+  stile("Replies", String(sp.replies || 0), `${(out.error || 0) + (out.too_many_steps || 0) + (out.refusal || 0) + (out.silent || 0)} failed · ${out.interrupted || 0} interrupted`);
   stile("Needed 'one sec'", pct(sp.filler_rate), `handed over ${pct(sp.handed_over_rate)} · ${sp.avg_rounds || 0} steps`);
   body.appendChild(speedTiles);
   if ((sp.by_route || []).length) {

@@ -63,7 +63,7 @@ def _window(memory: Memory, since: datetime, until: datetime) -> dict:
         "total_p95": s["total_p95"],
         "filler_rate": s["filler_rate"] if replies >= MIN_SAMPLE else None,
         "failed_reply_rate": _rate(sum(1 for t in turns if t["outcome"].startswith("error")
-                                       or t["outcome"] == "too_many_steps"), replies),
+                                       or t["outcome"] in ("too_many_steps", "silent")), replies),
         "handed_over_rate": s["handed_over_rate"] if replies >= MIN_SAMPLE else None,
         "slowest_tools": s["slowest_tools"][:3],
         "cost_usd": round(claude_cost, 4),
@@ -149,7 +149,8 @@ def check(memory: Memory, now: datetime | None = None, finops_report: dict | Non
         find("act", "reliability", f"{int(week['failed_reply_rate'] * 100)}% of replies failed",
              "Recent: " + ("; ".join(examples) or "–"),
              "See the server log (journalctl -u buddy) around those times; 'too_many_steps' means a tool "
-             "kept failing and Claude kept retrying it.")
+             "kept failing and Claude kept retrying it; 'silent' means a reply ended without words (the log "
+             "line 'reply ended without words' says why).")
     for name, p in week["providers"].items():
         if p["failure_rate"] and p["failure_rate"] > 0.2:
             setting = f"BUDDY_{name.upper()}_MODEL" if name != "claude" else "your Anthropic key and status page"

@@ -134,3 +134,17 @@ def test_verdict_and_voice_rating_end_the_turn_without_another_round(monkeypatch
     timed = mem.db.execute("SELECT * FROM turns WHERE turn = ?", (first_turn,)).fetchone()
     assert timed["outcome"] == "ok" and timed["first_word_seconds"] is not None
     assert "free_answer_verdict" in timed["tools"] and timed["rounds"] == 1
+
+
+def test_a_reply_without_words_is_never_silent(monkeypatch):
+    mem = Memory(":memory:")
+    convo = agent.Conversation(mem)
+    fake = Scripted([[]])  # Claude ended its turn with nothing to say
+    monkeypatch.setattr(agent.client.beta.messages, "stream", fake.stream)
+    said = []
+
+    async def say(s):
+        said.append(s)
+    asyncio.run(convo.reply("writer prime number program", say))
+    assert said and "didn't get an answer" in said[-1]
+    assert mem.db.execute("SELECT outcome FROM turns").fetchone()["outcome"] == "silent"

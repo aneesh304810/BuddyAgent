@@ -215,10 +215,12 @@ class Conversation:
                 tool_uses = [b for b in response.content if b.type == "tool_use"]
                 perf["tools"] += [b.name for b in tool_uses]
                 if response.stop_reason != "tool_use" or not tool_uses:
+                    await self._never_silent(perf, speak, response)
                     return
                 if all(b.name in DISPLAY_ONLY for b in tool_uses):
                     # Only cards to show or a review note: do it and finish, no extra round (or wait).
                     self.messages.append({"role": "user", "content": [await self._run(b) for b in tool_uses]})
+                    await self._never_silent(perf, speak, response)
                     return
                 if any(b.name == "hand_over" for b in tool_uses):
                     # The quick model passes a bigger question to the main one, same turn.
@@ -244,6 +246,15 @@ class Conversation:
                                total=time.monotonic() - perf["started"], rounds=perf["rounds"],
                                tools=perf["tools"], sentences=perf["sentences"], filler=perf["filler"],
                                outcome=perf["outcome"])
+
+    async def _never_silent(self, perf: dict, speak: Say, response) -> None:
+        """A reply that ended without a word (only a filler, or nothing): say so, and log why."""
+        if perf["sentences"]:
+            return
+        kinds = [getattr(b, "type", "?") + (f":{b.name}" if getattr(b, "name", None) else "") for b in response.content]
+        log.warning("reply ended without words: stop=%s content=%s tools=%s", response.stop_reason, kinds, perf["tools"])
+        perf["outcome"] = "silent"
+        await speak("Sorry, I didn't get an answer together on that one. Can you ask me again, maybe in other words?")
 
     async def _stream_step(self, speak: Say):
         buffer = ""

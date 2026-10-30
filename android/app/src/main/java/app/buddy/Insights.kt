@@ -226,7 +226,8 @@ fun InsightsScreen(link: ServerLink?) {
                 }
                 Row(horizontalArrangement = Arrangement.spacedBy(8.dp)) {
                     val outcomes = sp.optJSONObject("outcomes") ?: JSONObject()
-                    val bad = outcomes.optInt("error") + outcomes.optInt("too_many_steps") + outcomes.optInt("refusal")
+                    val bad = outcomes.optInt("error") + outcomes.optInt("too_many_steps") + outcomes.optInt("refusal") +
+                        outcomes.optInt("silent")
                     Tile("Replies", "${sp.optInt("replies")}", Modifier.weight(1f),
                         "$bad failed · ${outcomes.optInt("interrupted")} interrupted")
                     Tile("Needed 'one sec'", pct(sp, "filler_rate"), Modifier.weight(1f),
