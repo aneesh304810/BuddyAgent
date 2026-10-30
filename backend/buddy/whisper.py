@@ -69,11 +69,12 @@ def known_languages() -> list[str]:
     return [LANGUAGE_CODES[n] for n in names if n in LANGUAGE_CODES] or ["en"]
 
 
-def _pick_language(info, allowed: list[str] | None, sure: float = 0.6) -> str | None:
+def _pick_language(info, allowed: list[str] | None, sure: float = 0.6, fallback: bool = True) -> str | None:
     """None to keep Whisper's guess, or the language to transcribe in instead. With allowed languages
     ("auto:ml-IN,en-IN"), only those; otherwise an unsure guess falls back to the user's languages.
     (Noise and Malayalam came out as Italian; a confident guess of another language stays, for Listen-in.)"""
-    pool = allowed or (known_languages() if (info.language_probability or 0) < sure else None)
+    # fallback=False (Listen-in): keep Whisper's guess, so a foreign speaker stays foreign and gets a gist.
+    pool = allowed or (known_languages() if fallback and (info.language_probability or 0) < sure else None)
     if not pool or info.language in pool:
         return None
     probs = dict(getattr(info, "all_language_probs", None) or [])
@@ -129,7 +130,7 @@ def _clean(segments, prompt: str = "") -> str:
 
 
 def _transcribe(pcm: bytes, language: str | None, prompt: str = "", stats: dict | None = None,
-                allowed: list[str] | None = None) -> tuple[str, str]:
+                allowed: list[str] | None = None, fallback: bool = True) -> tuple[str, str]:
     import numpy as np
 
     audio = np.frombuffer(pcm[: SAMPLE_RATE * 2 * MAX_SECONDS], dtype=np.int16).astype(np.float32) / 32768.0
@@ -145,7 +146,7 @@ def _transcribe(pcm: bytes, language: str | None, prompt: str = "", stats: dict 
                                     word_timestamps=stats is not None)
 
         segments, info = run(language)
-        if language is None and (better := _pick_language(info, allowed)):
+        if language is None and (better := _pick_language(info, allowed, fallback=fallback)):
             segments, info = run(better)  # segments are lazy: the first guess was never decoded
         segments = list(segments)
         text = _clean(segments, prompt)
@@ -279,4 +280,4 @@ async def transcribe(pcm: bytes, language: str = "", prompt: str = "", stats: di
             meta["groq_skipped"] = str(e)
             log.info("Groq Whisper skipped (%s): local Whisper instead", e)
     meta["engine"] = "local"
-    return await asyncio.to_thread(_transcribe, pcm, hint, prompt, stats, allowed)
+    return await asyncio.to_thread(_transcribe, pcm, hint, prompt, stats, allowed, mode == "talk")

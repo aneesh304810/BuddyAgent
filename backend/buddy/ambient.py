@@ -49,7 +49,8 @@ transcript. It cannot tell speakers apart, may include {user}'s own words, and \
 has recognition errors. Speech may be in any language, possibly transcribed in \
 Latin script or mixed.
 
-{user} understands these languages perfectly: {known}. Never translate or \
+{user} understands these languages perfectly: {known}. (The [xx] tag on each line is speech \
+recognition's guess at the language and is often wrong: judge the language from the words.) Never translate or \
 summarise speech in those languages; {user} heard it already.
 
 Decide whether to whisper something short into {user}'s ear right now. Whisper \
@@ -85,7 +86,8 @@ TRIAGE_PROMPT = """\
 You screen a live transcript of the conversation around {user} for their AI \
 companion. Decide whether the NEW lines could possibly need a whisper to {user}. \
 Answer true if any NEW line:
-- is in a language other than these, which {user} understands: {known}
+- is in a language other than these, which {user} understands: {known} (judge the language from \
+the words themselves: the [xx] tags are speech recognition's guesses and are often wrong)
 - mentions {user} or the details below, or seems to talk about someone present
 - confidently states a technical, scientific, financial or numeric claim that \
 might be wrong
@@ -152,6 +154,15 @@ def is_think_cue(text: str) -> bool:
 
 Whisper = Callable[[str, str], Awaitable[None]]
 
+
+
+FOREIGN_BATCH_SECONDS = 5
+
+
+def whisper_languages() -> list[str]:
+    from .whisper import known_languages
+
+    return known_languages()
 
 class AmbientListener:
     def __init__(self, memory: Memory, whisper: Whisper, thrift: Thrift | None = None):
@@ -267,7 +278,12 @@ class AmbientListener:
         if settings.listen_batch_seconds <= 0 or self.seen >= len(self.segments):
             return
         oldest_new = self.segments[self.seen][0]
-        delay = settings.listen_batch_seconds - (time.monotonic() - oldest_new)
+        batch = settings.listen_batch_seconds
+        # Speech that looks foreign: the gist matters now, not in 20 seconds.
+        known = set(whisper_languages())
+        if any(lang and lang.split("-")[0] not in known for _, lang, _ in list(self.segments)[self.seen:]):
+            batch = min(batch, FOREIGN_BATCH_SECONDS)
+        delay = batch - (time.monotonic() - oldest_new)
         if delay > 0:
             await asyncio.sleep(delay)
 

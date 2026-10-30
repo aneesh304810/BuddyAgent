@@ -115,7 +115,7 @@ def test_whisper_hears_malayalam_and_english_mixed(monkeypatch):
     from buddy import whisper
 
     seen = {}
-    monkeypatch.setattr(whisper, "_transcribe", lambda pcm, hint, prompt, stats=None, allowed=None: (seen.update(hint=hint, prompt=prompt, allowed=allowed), ("ok", "ml"))[1])
+    monkeypatch.setattr(whisper, "_transcribe", lambda pcm, hint, prompt, stats=None, allowed=None, fallback=True: (seen.update(hint=hint, prompt=prompt, allowed=allowed), ("ok", "ml"))[1])
     asyncio.run(whisper.transcribe(b"\x00\x00" * 16000 * 2, "auto:ml-IN,en-IN", "Names: Priya."))  # 2 s
     assert seen["hint"] is None and "Malayalam and English" in seen["prompt"] and "Priya" in seen["prompt"]
     assert seen["allowed"] == ["ml", "en"]  # detection stays within the chosen languages

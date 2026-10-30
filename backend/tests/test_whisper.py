@@ -148,3 +148,29 @@ def test_stock_video_phrases_are_dropped():
 def test_short_repeats_are_dropped():
     assert whisper._clean([seg(" Bero, Bero, Bero.")]) == ""
     assert whisper._clean([seg(" Bla, bla, bla, bla.")]) == ""
+
+
+def test_room_speech_keeps_its_language_so_foreign_speakers_get_a_gist():
+    spanish = S(language="es", language_probability=0.45, all_language_probs=[("es", 0.45), ("en", 0.3)])
+    assert whisper._pick_language(spanish, None, fallback=False) is None  # Listen-in: stays Spanish
+    assert whisper._pick_language(spanish, None) == "en"  # Talk: an unsure guess falls back to your languages
+
+
+def test_foreign_speech_is_checked_sooner(monkeypatch):
+    import asyncio
+    import time as t
+    from buddy import ambient
+
+    waits = []
+
+    async def fake_sleep(seconds):
+        waits.append(seconds)
+    monkeypatch.setattr(ambient.asyncio, "sleep", fake_sleep)
+    from dataclasses import replace
+    monkeypatch.setattr(ambient, "settings", replace(ambient.settings, listen_batch_seconds=20))
+    listener = ambient.AmbientListener.__new__(ambient.AmbientListener)
+    listener.seen = 0
+    from collections import deque
+    listener.segments = deque([(t.monotonic(), "es", "Hola, como estás?")])
+    asyncio.run(listener._wait_for_batch())
+    assert waits and waits[0] <= ambient.FOREIGN_BATCH_SECONDS
