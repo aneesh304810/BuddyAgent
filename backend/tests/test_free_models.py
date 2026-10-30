@@ -120,3 +120,55 @@ def test_general_text_still_goes_free_when_memory_has_facts():
     mem.remember("My sister Priya Nair lives in Bangalore")
     result = asyncio.run(free(FakeHTTP(), memory=mem).run("explain", "how do ocean tides work"))
     assert result["free"]
+
+
+ENV_CODE = {**ENV, "BUDDY_OPENROUTER_KEY": "o", "BUDDY_GITHUB_MODELS_KEY": "h"}
+
+
+def test_small_code_questions_go_to_deepseek_first():
+    http = FakeHTTP()
+    f = free(http, env=ENV_CODE)
+    assert f.order("code")[0] == "deepseek"
+    result = asyncio.run(f.run("code", "a regex that matches a US zip code"))
+    assert result["model"].startswith("deepseek/") and http.calls == ["deepseek"]
+
+
+def test_hard_or_risky_code_stays_on_claude():
+    f = free(FakeHTTP(), env=ENV_CODE)
+    for text in ["refactor my codebase into modules", "fix this race condition in the worker",
+                 "write the oauth login flow", "a migration script for the production database",
+                 "add a tool to the buddy mcp server", "x = 1\n" * 200]:
+        with pytest.raises(fm.NeedsClaude):
+            asyncio.run(f.run("code", text))
+    assert f.http.calls == []
+    out = asyncio.run(fm.run_general_tool(f, {"kind": "code", "text": "refactor the whole app"}))
+    assert "needs you" in out
+
+
+def test_secrets_and_server_addresses_never_leave_claude():
+    f = free(FakeHTTP(), env=ENV_CODE)
+    for text in ['client = Anthropic(api_key="sk-ant-api03-abcdefghijklmnopqrstuv")',
+                 "export GITHUB_TOKEN=ghp_abcdefghijklmnopqrstuvwxyz0123",
+                 "password = 'hunter2hunter2'",
+                 "ssh root@buddy.tail6e32ac.ts.net",
+                 "-----BEGIN OPENSSH PRIVATE KEY-----",
+                 "postgres://admin:s3cret@db.example.com/app"]:
+        with pytest.raises(fm.PersonalData):
+            asyncio.run(f.run("code", text))
+    # Reading a key from the environment is fine, and so are big plain numbers in code.
+    assert asyncio.run(f.run("code", 'key = os.getenv("API_KEY")\nfor i in range(10000000): pass'))["free"]
+
+
+def test_broken_python_moves_on_to_the_next_model():
+    class Broken(FakeHTTP):
+        def __call__(self, url, body, headers, timeout):
+            if body["model"].startswith("deepseek"):
+                self.calls.append("deepseek")
+                return {"choices": [{"message": {"content": "```python\ndef f(:\n```"}}]}
+            return super().__call__(url, body, headers, timeout)
+    http = Broken()
+    f = free(http, env=ENV_CODE)
+    result = asyncio.run(f.run("code", "a function that reverses a string"))
+    assert http.calls[0] == "deepseek" and not result["model"].startswith("deepseek")
+    out = asyncio.run(fm.run_general_tool(free(FakeHTTP(), env=ENV_CODE), {"kind": "code", "text": "reverse a list"}))
+    assert "check it before using it" in out

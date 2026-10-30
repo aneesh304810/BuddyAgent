@@ -39,6 +39,32 @@ quick tasks go to whichever is fastest lately, quality tasks to the most capable
 provider drops back. It tries at most three, with short timeouts; a provider at its free limit
 rests until the limit resets. If all are busy, Claude Haiku does it.
 
+### Coding: DeepSeek for small questions, Claude for the real work
+
+Buddy decides in code, before anything is sent, which coding tasks a free model may take:
+
+| Goes to DeepSeek (free, through OpenRouter) | Stays on Claude |
+|---|---|
+| A snippet, a regex, a one-liner, a small function | Refactoring, design, anything across several files |
+| What an error message means | Security: auth, encryption, permissions, injection |
+| Explaining a concept or a library call | Live systems: deploys, migrations, databases, servers, `sudo`, cron |
+| Converting between languages or formats | Hard bugs: race conditions, leaks, flaky behaviour |
+| | Buddy itself, its agents, and the agent builder |
+| | More than about 120 lines or 8,000 characters of code |
+| | Anything with a key, token, password, private key, `.env` line or your server's address |
+
+Then two checks keep the final answer good:
+
+1. **Automatic check:** Python code in a free answer must parse, and refusals don't count.
+   A bad answer moves on to the next model (GitHub's GPT, then Gemini...), then Claude Haiku.
+2. **Claude reviews it:** a free answer comes back to Claude marked "check it before using it".
+   Claude fixes anything wrong, or does the task itself, before you hear it.
+
+DeepSeek is used only through OpenRouter (the `BUDDY_OPENROUTER_KEY`), never DeepSeek's own
+API, which keeps data in China. Its model is `BUDDY_DEEPSEEK_MODEL` (default
+`deepseek/deepseek-chat-v3-0324:free`); OpenRouter renames free models often, so if it stops
+answering, pick the current free DeepSeek model from openrouter.ai/models and set it.
+
 ### Turn it on (phone, Termux, SSH into the server)
 
 Get one or more free keys (each takes a minute; the more you add, the faster and more
