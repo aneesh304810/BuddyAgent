@@ -32,7 +32,8 @@ from .builder import BUILDER_TOOL_NAMES, BUILDER_TOOLS, AgentBuilder, run_builde
 from .deals import WATCH_TOOL_NAMES, WATCH_TOOLS, PriceWatcher, run_watch_tool
 from .finops import COST_TOOL, FinOps
 from .health import HEALTH_TOOL, run_health_tool
-from . import cards
+from . import cards, sandbox
+from .codejob import CODE_TOOL_NAMES, CODE_TOOLS, run_code_tool
 from .lifelog import LIFELOG_TOOL, LifeLog, run_lifelog_tool
 from .mailbrain import MAIL_TOOL_NAMES, MAIL_TOOLS, MailManager, run_mail_tool
 from .money import MONEY_TOOL_NAMES, MONEY_TOOLS, Money, run_money_tool
@@ -319,6 +320,7 @@ class Conversation:
         spending += TASK_TOOLS + MONEY_TOOLS + [BALANCES_TOOL, LIFELOG_TOOL]
         spending += WATCH_TOOLS if self.watcher else []
         spending += BUILDER_TOOLS if self.builder and self.jobs else []
+        spending += CODE_TOOLS if self.jobs and sandbox.available() else []
         spending += CONNECTOR_TOOLS if self.hub else []
         spending += social_tools(self.social) + TASTE_TOOLS + [WHERE_TOOL]
         spending += [GENERAL_TOOL, VERDICT_TOOL] if self.free.enabled() else []
@@ -352,6 +354,8 @@ class Conversation:
         if name == "free_answer_verdict":
             usage.set_verdict(self.memory, args["call_id"], args["verdict"], args.get("note", ""))
             return "Noted."
+        if self.jobs and name in CODE_TOOL_NAMES:
+            return await run_code_tool(self.jobs, name, args, self.thrift)
         if name == "show_cards":
             return self.cards.pick(args.get("cards") or [])
         if name == "health_report":

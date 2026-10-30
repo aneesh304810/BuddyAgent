@@ -44,7 +44,7 @@ from fastapi import Depends, FastAPI, Header, HTTPException, Request, WebSocket,
 from fastapi.staticfiles import StaticFiles
 
 from . import health as healthcheck
-from . import insights, proactive, research, usage
+from . import codejob, insights, proactive, research, usage
 from .agent import Conversation
 from .agents import AgentRegistry, load_specs
 from .ambient import AmbientListener, is_think_cue
@@ -118,6 +118,18 @@ async def job_finished(job: dict) -> bool:
         question = "Shall I switch it on?"
         thrift.ask_action(question, switch_on)
         return await deliver("job_done", f"{job.get('summary') or ''} {question}".strip(), job_id=job["id"])
+    if job["kind"] == "code":
+        if job["status"] != "done":
+            return await deliver("job_done", f"The coding task didn't finish: {job.get('error') or 'unknown error'}",
+                                 job_id=job["id"])
+        text = f"Coding task done. {job.get('summary') or ''}".strip()
+        if (job.get("params") or {}).get("repo") and "changed:yes" in str(job.get("findings")):
+            async def push_it() -> str:
+                return await codejob.push(job)
+            question = "Shall I push the changes to a new buddy branch on GitHub?"
+            thrift.ask_action(question, push_it)
+            text = f"{text} {question}"
+        return await deliver("job_done", text, job_id=job["id"])
     if job["status"] == "done":
         text = f"Your research on {job['title']} is ready. {job.get('summary') or ''}".strip()
         params = job.get("params") or {}
@@ -146,6 +158,7 @@ jobs = JobRunner(memory, job_finished)
 jobs.register("research", research.run_research)
 builder = AgentBuilder(memory, registry)
 jobs.register("build_agent", builder.build)
+jobs.register("code", codejob.run_code_task)
 for _spec in builder.active_specs():  # agents built or connected earlier
     registry.specs.setdefault(_spec.name, _spec)
 
