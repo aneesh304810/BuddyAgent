@@ -93,3 +93,19 @@ def test_live_tips_ride_along_with_the_question(monkeypatch):
     tutor.run_tutor_tool(mem, None, {"action": "tips_off"})
     asyncio.run(convo.reply("and what about friday", say))
     assert "English tips" not in sent[-1]
+
+
+def test_room_speech_is_never_kept():
+    from types import SimpleNamespace
+
+    from buddy import usage
+
+    mem = Memory(":memory:")
+    tutor.log_utterance(mem, "hey buddy what time is the game", "room")  # could be anyone in the room
+    assert tutor.sentences(mem, 1) == []
+    response = SimpleNamespace(content=[SimpleNamespace(type="text", text='{"translation": "where is the station"}')],
+                               stop_reason="end_turn")
+    usage.record(mem, "claude-haiku-5-5", SimpleNamespace(input_tokens=5, output_tokens=5), purpose="listen",
+                 response=response, request="room lines")
+    row = mem.db.execute("SELECT request, reply, purpose FROM model_calls").fetchone()
+    assert (row["request"], row["reply"], row["purpose"]) == ("", "", "listen")  # counted, not kept

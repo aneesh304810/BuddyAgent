@@ -61,6 +61,7 @@ def web_searches(usage) -> int:
 current_turn: ContextVar[str] = ContextVar("current_turn", default="")
 VERDICTS = ("used", "fixed", "redone")
 KEEP_CALLS_DAYS = 90
+ROOM_PURPOSES = {"listen", "think", "addressing"}
 PREVIEW_CHARS = 280
 
 
@@ -190,6 +191,8 @@ def record(memory: Memory, model: str, usage, purpose: str = "", *, response=Non
         ),
     )
     text, tools, stop = _reply_parts(response)
+    if purpose in ROOM_PURPOSES or label in ROOM_PURPOSES:
+        text, request = "", ""  # about room speech (other people's words): counted, never kept
     log_call(memory, provider="claude", model=model, purpose=label or purpose or "chat",
              input_tokens=usage.input_tokens, output_tokens=usage.output_tokens,
              cache_read=getattr(usage, "cache_read_input_tokens", 0) or 0,

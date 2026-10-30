@@ -105,8 +105,8 @@ Sentences, oldest first:
 
 
 def log_utterance(memory: Memory, text: str, via: str) -> None:
-    if not ON or len(text.split()) < 3:
-        return
+    if not ON or via != "user" or len(text.split()) < 3:
+        return  # only Talk mode: anyone in the room can say "Hey Buddy"
     now = datetime.now(timezone.utc)
     memory.db.execute(SCHEMA)
     memory.db.execute("INSERT INTO utterances (at, text, via) VALUES (?, ?, ?)", (now.isoformat(), mask(text)[:500], via))
