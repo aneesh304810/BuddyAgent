@@ -106,3 +106,43 @@ def mask(text: str) -> str:
     text = _PAN.sub("[PAN hidden]", text)
     text = _ACCOUNT.sub(lambda m: f"account ****{m.group()[-4:]}", text)
     return text
+
+
+# Keys, tokens, passwords and private addresses: never sent to free models, never logged.
+SECRET_PATTERNS = [
+    re.compile(r"\b(sk|rk|pk)-[A-Za-z0-9_-]{16,}"),                     # OpenAI, Anthropic, Stripe...
+    re.compile(r"\b(ghp|gho|ghu|ghs|ghr)_[A-Za-z0-9]{20,}|github_pat_\w{20,}"),
+    re.compile(r"\bAKIA[0-9A-Z]{16}\b"),                                # AWS
+    re.compile(r"\bAIza[0-9A-Za-z_-]{30,}"),                             # Google
+    re.compile(r"\bxox[abprs]-[A-Za-z0-9-]{10,}"),                        # Slack
+    re.compile(r"\bdop_v1_[a-f0-9]{20,}"),                               # DigitalOcean
+    re.compile(r"\btskey-\w+-\w{10,}"),                                  # Tailscale
+    re.compile(r"-----BEGIN [A-Z ]*PRIVATE KEY-----"),
+    re.compile(r"\beyJ[\w-]{10,}\.eyJ[\w-]{10,}\.[\w-]{10,}"),             # JWT
+    re.compile(r"\bBearer\s+[A-Za-z0-9._~+/=-]{16,}", re.IGNORECASE),
+    re.compile(r"(?i)\b[\w-]*(password|passwd|pwd|secret|token|api[_-]?key|access[_-]?key|private[_-]?key)[\w-]*"
+               r"[\"']?\s*[:=]\s*[\"']?(?!\s*$)(?!(os\.|getenv|env\[|process\.env|\$\{?|<|\*{3}|x{3}|\.\.\.))[^\s\"',;]{6,}"),
+    re.compile(r"(?i)\b[a-z][\w-]*\.ts\.net\b"),                         # the user's Tailscale machines
+    re.compile(r"(?i)\b(postgres|postgresql|mysql|mongodb(\+srv)?|redis|amqp)://[^\s:/]+:[^\s@/]+@"),  # URL with a password
+]
+
+
+def redact_secrets(text: str) -> str:
+    for pattern in SECRET_PATTERNS:
+        text = pattern.sub("[secret hidden]", text)
+    return text
+
+
+class SecretFilter:
+    """A logging filter: a key that ends up in a log message (an error echoing a URL or a header)
+    is hidden before it's written."""
+
+    def filter(self, record) -> bool:
+        try:
+            message = record.getMessage()
+        except Exception:
+            return True
+        clean = redact_secrets(message)
+        if clean != message:
+            record.msg, record.args = clean, None
+        return True

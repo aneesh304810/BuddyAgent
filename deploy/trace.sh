@@ -10,9 +10,11 @@
 # Tracing stops when you press Ctrl+C. While it runs, what you say is written to
 # the system log, so don't leave it on.
 set -uo pipefail
-ENV_FILE=/etc/buddy/buddy.env
 [[ $EUID -eq 0 ]] || { echo "Run as root (sudo)."; exit 1; }
-TOKEN=$(grep '^BUDDY_TOKEN=' "$ENV_FILE" | cut -d= -f2)
+source "$(dirname "$(readlink -f "$0")")/secrets-lib.sh"
+secrets_open
+TOKEN=$(secrets_get BUDDY_TOKEN)
+secrets_close
 toggle() { curl -s -X POST -H "Authorization: Bearer $TOKEN" "http://127.0.0.1:8000/admin/trace?on=$1" >/dev/null; }
 toggle true || { echo "Buddy isn't answering on this server."; exit 1; }
 trap 'toggle false; echo; echo "Tracing off."' EXIT INT TERM

@@ -24,8 +24,18 @@ PY
 chown -R buddy:buddy "$APP"
 sudo -u buddy "$APP/backend/.venv/bin/pip" install -q --upgrade pip setuptools
 sudo -u buddy "$APP/backend/.venv/bin/pip" install -q --upgrade -r "$APP/backend/requirements.txt"
-# The settings file holds every secret: root only (systemd hands Buddy what it needs).
-chown root:root /etc/buddy/buddy.env && chmod 600 /etc/buddy/buddy.env
+# The settings hold every secret: root only (systemd hands Buddy what it needs).
+for f in /etc/buddy/buddy.env /etc/buddy/buddy.env.cred /etc/buddy/key-dates; do
+  [ -f "$f" ] && chown root:root "$f" && chmod 600 "$f"
+done
+# Weekly patching and security check, auto-reboot for security updates, extra service lockdown.
+bash "$APP/deploy/security.sh" install
+HARDENED=0
+if [ ! -f /etc/systemd/system/buddy.service.d/hardening.conf ] && [ ! -f /etc/buddy/no-hardening ]; then
+  HARDENED=1
+  bash "$APP/deploy/security.sh" harden-file
+fi
+systemctl daemon-reload
 if systemctl list-unit-files buddy-sandbox.service >/dev/null 2>&1 && [ -f /etc/systemd/system/buddy-sandbox.service ]; then
   echo "  Updating the code sandbox"
   install -o root -g root -m 755 "$APP/deploy/sandbox/sandboxd.py" /usr/local/lib/buddy-sandbox/sandboxd.py
@@ -36,6 +46,18 @@ for _ in $(seq 30); do   # starting takes a few seconds (agents start too)
   if curl -fsS http://127.0.0.1:8000/health 2>/dev/null; then echo "  Buddy updated and running."; exit 0; fi
   sleep 1
 done
+if [ "$HARDENED" = 1 ]; then
+  # The new lockdown may not suit something on this server: take it off and try again.
+  rm -f /etc/systemd/system/buddy.service.d/hardening.conf && touch /etc/buddy/no-hardening
+  systemctl daemon-reload && systemctl restart buddy
+  for _ in $(seq 30); do
+    if curl -fsS http://127.0.0.1:8000/health 2>/dev/null; then
+      echo "  Buddy updated and running (without the extra lockdown, which it didn't start with; tell me the log above)."
+      journalctl -u buddy -n 15 --no-pager; exit 0
+    fi
+    sleep 1
+  done
+fi
 echo "!! Buddy didn't start. The last lines of its log:"
 journalctl -u buddy -n 25 --no-pager
 exit 1

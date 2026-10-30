@@ -53,7 +53,7 @@ from .jobs import JobRunner
 from .memory import Memory
 from .connectors import ConnectorHub
 from .connectors.phone import NotificationsConnector, PhoneCalendarConnector, should_announce
-from .privacy import mask
+from .privacy import SecretFilter, mask
 from .bankfeed import BankFeed
 from .builder import AgentBuilder
 from .deals import PriceWatcher
@@ -68,6 +68,8 @@ from .thrift import Thrift
 from .tools import ToolError, set_user_tz
 
 logging.basicConfig(level=logging.INFO, format="%(asctime)s %(name)s %(message)s")
+for _handler in logging.getLogger().handlers:  # keys never reach the journal
+    _handler.addFilter(SecretFilter())
 
 # Live trace of every message between the phone and Buddy, for troubleshooting
 # (deploy/trace.sh). Off by default: conversations don't go to the system log.

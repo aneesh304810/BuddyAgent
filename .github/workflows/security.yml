@@ -1,0 +1,45 @@
+name: Security checks
+
+# On every change and every Monday (new vulnerabilities appear in old code too):
+# the tests, known vulnerabilities in dependencies, a code scan, and leaked secrets.
+on:
+  push:
+  pull_request:
+  schedule:
+    - cron: "23 5 * * 1"
+  workflow_dispatch:
+
+permissions:
+  contents: read
+
+jobs:
+  backend:
+    runs-on: ubuntu-latest
+    timeout-minutes: 20
+    steps:
+      - uses: actions/checkout@v4
+        with:
+          fetch-depth: 0  # the secret scan looks at the whole history
+
+      - uses: actions/setup-python@v5
+        with:
+          python-version: "3.12"
+
+      - name: Install
+        run: pip install -q -r backend/requirements-dev.txt pip-audit bandit
+
+      - name: Tests
+        working-directory: backend
+        run: python -m pytest -q
+
+      - name: Known vulnerabilities in dependencies (pip-audit)
+        run: pip-audit -r backend/requirements.txt
+
+      - name: Code scan (bandit, medium and above)
+        # B608: SQL built only from column names in code, values always parameters (docs/SECURITY.md).
+        run: bandit -q -r backend/buddy deploy -ll -ii -s B608
+
+      - name: Leaked secrets in the repository (gitleaks)
+        uses: gitleaks/gitleaks-action@v2
+        env:
+          GITHUB_TOKEN: ${{ secrets.GITHUB_TOKEN }}

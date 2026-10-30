@@ -23,9 +23,10 @@ REPO_URL="${1:?usage: bootstrap.sh <git-repo-url> [age-public-key | generate] [b
 AGE_RECIPIENT="${2:-generate}"
 BRANCH="${3:-}"   # optional; default: the repo's default branch
 APP=/opt/buddy
-ENV_FILE=/etc/buddy/buddy.env
 
 [[ $EUID -eq 0 ]] || { echo "Run as root (sudo)."; exit 1; }
+source "$(dirname "$(readlink -f "$0")")/secrets-lib.sh"
+secrets_open
 [[ "$AGE_RECIPIENT" == age1* || "$AGE_RECIPIENT" == generate ]] || {
   echo "The second argument must be an age public key (age1...) or the word: generate"; exit 1; }
 
@@ -151,6 +152,7 @@ if grep -q "ANTHROPIC_API_KEY=REPLACE_ME" "$ENV_FILE"; then
   echo "    Next: put your Claude API key and your name in $ENV_FILE, then:"
   echo "          systemctl restart buddy"
 else
+  secrets_seal
   systemctl restart buddy
 fi
 echo "    Open on your phone (with Tailscale on):"

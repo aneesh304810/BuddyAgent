@@ -35,6 +35,8 @@ DIGEST_ON = os.getenv("BUDDY_HEALTH_DIGEST", "1") != "0"
 CHECK_EVERY_SECONDS = 600
 KEEP_DAYS = 365
 MIN_SAMPLE = 8           # fewer than this and a rate says nothing
+# Written weekly by the root maintenance job (deploy/maintain.py): patches applied, security findings.
+SECURITY_REPORT = os.getenv("BUDDY_SECURITY_REPORT", "/var/lib/buddy/security.json")
 
 
 def _calls(memory: Memory, since: datetime, until: datetime) -> list[dict]:
@@ -232,12 +234,46 @@ def check(memory: Memory, now: datetime | None = None, finops_report: dict | Non
              "Some code calls Claude without usage.record, or records it twice: search for "
              "client.beta.messages and check each records its usage once.")
 
+    # --- security: from the weekly root check (patches, keys, network, logs) -------------
+    security = security_report(now)
+    findings.extend(security["findings"])
+
     order = {"act": 0, "watch": 1}
     findings.sort(key=lambda f: order.get(f["severity"], 2))
     status = "act" if any(f["severity"] == "act" for f in findings) else ("watch" if findings else "good")
     return {"at": now.isoformat(), "status": status, "findings": findings,
             "metrics": {"last_day": day, "last_7_days": week, "previous_7_days": before,
-                        "reconciliation": reconciliation}}
+                        "reconciliation": reconciliation,
+                        "security": {k: security[k] for k in ("at", "status", "done")}}}
+
+
+def security_report(now: datetime, path: str | None = None) -> dict:
+    """The weekly security check's findings, or a finding that it isn't running."""
+    empty = {"at": None, "status": "unknown", "done": [], "findings": []}
+    try:
+        with open(path or SECURITY_REPORT) as f:
+            report = json.load(f)
+    except FileNotFoundError:
+        if os.path.isdir("/etc/buddy"):  # on the server, the weekly check should have written it
+            empty["findings"] = [{"severity": "watch", "area": "security",
+                                  "title": "The weekly security check hasn't run yet",
+                                  "detail": "No patching or security report found.",
+                                  "fix": "sudo bash /opt/buddy/deploy/update.sh (it switches the weekly check on), "
+                                         "or run it now: sudo bash /opt/buddy/deploy/security.sh check"}]
+        return empty
+    except (OSError, json.JSONDecodeError):
+        return empty
+    findings = [f for f in report.get("findings", []) if f.get("severity") in ("act", "watch")]
+    try:
+        age = (now - datetime.fromisoformat(report["at"])).days
+    except (KeyError, ValueError, TypeError):
+        age = 99
+    if age > 10:
+        findings.append({"severity": "act", "area": "security", "title": f"The weekly security check last ran {age} days ago",
+                         "detail": "Patches and checks may be missing.",
+                         "fix": "systemctl status buddy-maintain.timer; run it now: sudo bash /opt/buddy/deploy/security.sh check"})
+    return {"at": report.get("at"), "status": report.get("status", "unknown"), "done": report.get("done", []),
+            "findings": findings}
 
 
 def save(memory: Memory, report: dict) -> int:
@@ -305,6 +341,7 @@ def digest_facts(memory: Memory, report: dict) -> dict:
                       "cache_reuse": t["cache_hit"]},
         "week_before": {"replies": before["replies"], "first_words_s": before["first_word_median"],
                         "model_spend_usd": before["cost_usd"]},
+        "security_patches_applied_this_week": report["metrics"].get("security", {}).get("done", []),
         "biggest_costs": [{"what": g["label"], "usd": g["cost_usd"]} for g in week["by_purpose"][:3]],
         "models": [{"model": g["model"], "requests": g["requests"], "usd": g["cost_usd"], "typical_s": g["median_seconds"],
                     "right": g["accuracy"]} for g in week["by_model"][:6]],

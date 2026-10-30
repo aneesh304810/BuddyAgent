@@ -1,0 +1,7 @@
+# Secret scanning (gitleaks): the default rules, minus the obviously fake keys in tests.
+[extend]
+useDefault = true
+
+[allowlist]
+description = "Fake keys used by the tests"
+paths = ['''backend/tests/.*''']

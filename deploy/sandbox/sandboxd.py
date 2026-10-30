@@ -77,7 +77,7 @@ def docker_run(ws: Path, command: list[str], *, network: bool = True, env: dict 
     args = ["docker", "run", "--rm", "--init",
             "--user", f"{UID}:{UID}",
             "--cap-drop", "ALL", "--security-opt", "no-new-privileges",
-            "--read-only", "--tmpfs", "/tmp:rw,exec,size=1g", "--tmpfs", f"/home/dev:rw,exec,size=1g,uid={UID}",
+            "--read-only", "--tmpfs", "/tmp:rw,exec,size=1g",  # nosec B108: the container's own /tmp "--tmpfs", f"/home/dev:rw,exec,size=1g,uid={UID}",
             "--memory", memory, "--memory-swap", memory, "--cpus", cpus, "--pids-limit", "512",
             "--network", NETWORK if network else "none",
             "--mount", f"type=bind,src={ws},dst=/work",
@@ -233,7 +233,7 @@ async def serve() -> None:
     if os.path.exists(SOCKET):
         os.unlink(SOCKET)
     server = await asyncio.start_unix_server(client, path=SOCKET, limit=4_000_000)
-    os.chmod(SOCKET, 0o660)  # only this service and the buddy group (Buddy itself) can connect
+    os.chmod(SOCKET, 0o660)  # nosec B103: only this service and the buddy group (Buddy itself) can connect
     try:
         import grp
 

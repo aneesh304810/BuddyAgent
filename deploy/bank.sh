@@ -4,8 +4,9 @@
 # Paste the setup token from bridge.simplefin.org when asked. It's swapped for a
 # read-only access URL, saved in /etc/buddy/buddy.env, and Buddy restarts.
 set -euo pipefail
-ENV_FILE=/etc/buddy/buddy.env
 [[ $EUID -eq 0 ]] || { echo "Run as root (sudo)."; exit 1; }
+source "$(dirname "$(readlink -f "$0")")/secrets-lib.sh"
+secrets_open
 read -rsp "SimpleFIN setup token (hidden; paste, then Enter): " TOKEN; echo
 TOKEN="$(echo -n "$TOKEN" | tr -d '[:space:]')"
 CLAIM_URL="$(echo -n "$TOKEN" | base64 -d 2>/dev/null || true)"
@@ -24,6 +25,7 @@ else:
     text = text.rstrip("\n") + "\n" + line + "\n"
 open(path, "w").write(text)
 PY
+secrets_seal
 systemctl restart buddy
 echo "Connected. Buddy fetches your last 30 days now, then every 6 hours."
 echo "Ask it: \"What are my account balances?\" or \"How much did I spend this month?\""

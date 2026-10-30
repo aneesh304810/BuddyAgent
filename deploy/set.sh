@@ -4,8 +4,9 @@
 # It asks for the value (hidden while you type or paste), saves it in
 # /etc/buddy/buddy.env and restarts Buddy. Run with no name to list what's set.
 set -euo pipefail
-ENV_FILE=/etc/buddy/buddy.env
 [[ $EUID -eq 0 ]] || { echo "Run as root (sudo)."; exit 1; }
+source "$(dirname "$(readlink -f "$0")")/secrets-lib.sh"
+secrets_open
 if [[ $# -eq 0 ]]; then
   echo "Settings in $ENV_FILE (values hidden):"
   grep -E '^[A-Z_]+=' "$ENV_FILE" | cut -d= -f1 | sed 's/^/  /'
@@ -28,5 +29,6 @@ open(path, "w").write(text)
 shown = value if len(value) <= 12 else value[:6] + "..." + f" ({len(value)} characters)"
 print(f"Saved {name}: {shown}" if value else f"Cleared {name}")
 PY
+secrets_seal
 systemctl restart buddy
 echo "Buddy restarted."

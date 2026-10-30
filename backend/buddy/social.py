@@ -19,7 +19,8 @@ import os
 import time
 import urllib.parse
 import urllib.request
-import xml.etree.ElementTree as ET
+
+from defusedxml import ElementTree as DefusedET  # feeds are untrusted XML
 
 from . import cards
 from .privacy import mask
@@ -156,7 +157,7 @@ class Social:
     # --- Google Trends ----------------------------------------------------------
     def trending(self, country: str = "US", limit: int = 15) -> list[dict]:
         geo = _country(country)
-        root = ET.fromstring(self.http(f"https://trends.google.com/trending/rss?geo={geo}"))
+        root = DefusedET.fromstring(self.http(f"https://trends.google.com/trending/rss?geo={geo}"))
         items = []
         for item in root.iter("item"):
             entry = {"search": _text(item, "title"), "approx_searches": _text(item, "approx_traffic"),

@@ -34,7 +34,7 @@ import urllib.request
 
 from . import usage
 from .config import claude_client, settings
-from .privacy import mask
+from .privacy import SECRET_PATTERNS, mask
 from .tools import ToolError, require_https
 
 log = logging.getLogger(__name__)
@@ -96,22 +96,7 @@ MAX_TOKENS = {"code": 3000}  # others: 1500
 EMAIL = re.compile(r"[\w.+-]+@[\w-]+\.[\w.]+")
 # A + and digits, or the 3-3-4 shape: plain long numbers in code aren't phone numbers.
 PHONE = re.compile(r"\+\d[\d\s().-]{7,}\d|\(?\b\d{3}\)?[\s.-]\d{3}[\s.-]\d{4}\b")
-SECRETS = [
-    re.compile(r"\b(sk|rk|pk)-[A-Za-z0-9_-]{16,}"),                     # OpenAI, Anthropic, Stripe...
-    re.compile(r"\b(ghp|gho|ghu|ghs|ghr)_[A-Za-z0-9]{20,}|github_pat_\w{20,}"),
-    re.compile(r"\bAKIA[0-9A-Z]{16}\b"),                                # AWS
-    re.compile(r"\bAIza[0-9A-Za-z_-]{30,}"),                             # Google
-    re.compile(r"\bxox[abprs]-[A-Za-z0-9-]{10,}"),                        # Slack
-    re.compile(r"\bdop_v1_[a-f0-9]{20,}"),                               # DigitalOcean
-    re.compile(r"\btskey-\w+-\w{10,}"),                                  # Tailscale
-    re.compile(r"-----BEGIN [A-Z ]*PRIVATE KEY-----"),
-    re.compile(r"\beyJ[\w-]{10,}\.eyJ[\w-]{10,}\.[\w-]{10,}"),             # JWT
-    re.compile(r"\bBearer\s+[A-Za-z0-9._~+/=-]{16,}", re.IGNORECASE),
-    re.compile(r"(?i)\b[\w-]*(password|passwd|pwd|secret|token|api[_-]?key|access[_-]?key|private[_-]?key)[\w-]*"
-               r"[\"']?\s*[:=]\s*[\"']?(?!\s*$)(?!(os\.|getenv|env\[|process\.env|\$\{?|<|\*{3}|x{3}|\.\.\.))[^\s\"',;]{6,}"),
-    re.compile(r"(?i)\b[a-z][\w-]*\.ts\.net\b"),                         # the user's Tailscale machines
-    re.compile(r"(?i)\b(postgres|postgresql|mysql|mongodb(\+srv)?|redis|amqp)://[^\s:/]+:[^\s@/]+@"),  # URL with a password
-]
+SECRETS = SECRET_PATTERNS
 
 
 class PersonalData(ToolError):

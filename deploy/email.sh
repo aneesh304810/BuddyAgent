@@ -5,8 +5,9 @@
 # the login with the mail server, and saves it. Accounts already set up are shown
 # and kept unless you replace them. Buddy restarts once at the end.
 set -euo pipefail
-ENV_FILE=/etc/buddy/buddy.env
 [[ $EUID -eq 0 ]] || { echo "Run as root (sudo)."; exit 1; }
+source "$(dirname "$(readlink -f "$0")")/secrets-lib.sh"
+secrets_open
 
 # The Python program is passed with -c so the keyboard stays its input.
 SCRIPT=$(cat <<'PY'
@@ -109,6 +110,7 @@ PY
 status=0
 python3 -c "$SCRIPT" "$ENV_FILE" || status=$?
 if [[ $status -eq 0 ]]; then
+  secrets_seal
   systemctl restart buddy
   echo "Buddy restarted. Ask it: \"Which email accounts do you have?\""
 fi
