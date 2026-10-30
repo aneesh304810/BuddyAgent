@@ -48,7 +48,8 @@ class Settings:
     expert_daily_limit: int = int(os.getenv("BUDDY_EXPERT_DAILY_LIMIT", "20"))
     # "Let me think": when the user says one of these in Listen-in, Buddy whispers
     # an answer to the question they were just asked, straight away.
-    think_phrases: str = os.getenv("BUDDY_THINK_PHRASES", "let me think, let me see, give me a second")
+    think_phrases: str = os.getenv("BUDDY_THINK_PHRASES", "let me think, let me see, give me a second, "
+                                   "ആലോചിക്കട്ടെ, ഒന്ന് നോക്കട്ടെ, aalochikkatte, alochikkatte, onnu nokkatte")
     think_model: str = os.getenv("BUDDY_THINK_MODEL", os.getenv("BUDDY_MODEL", "claude-opus-5-5"))
     # Phone notifications read aloud as they arrive: app names or package names,
     # comma-separated (e.g. "Teams, WhatsApp"). Everything else is only stored.

@@ -33,22 +33,33 @@ private val HEADSET_TYPES = setOf(
     AudioDeviceInfo.TYPE_USB_HEADSET,
 )
 
+/** Malayalam nicknames you can call Buddy by, as speech recognition writes them in English letters. */
+private const val NICKNAMES = "aliya|aliyaa|aliyo|aliya|alia|aliyane|machaa|macha|machane|machan|machambi"
+
 /** "Hey Buddy, ...", "Buddy, ...", also as speech recognition often hears it ("hey body",
  *  "hey bud", "okay buddy"), after a filler word ("so hey buddy..."). */
 private val WAKE_PHRASE = Regex(
     "^(?:(?:so|okay|ok|um|uh|and|well|yeah)[\\s,]+)?" +
-        "(?:(?:hey|hi|hello|ok|okay|yo)[\\s,]+(?:buddy|buddie|body|bodhi|birdie|bud|baddie|bro|brother)|buddy|buddie|bro)" +
+        "(?:(?:hey|hi|hello|ok|okay|yo|eda|da)[\\s,]+(?:buddy|buddie|body|bodhi|birdie|bud|baddie|bro|brother|$NICKNAMES)" +
+        "|buddy|buddie|bro|$NICKNAMES)" +
         "\\b[\\s,.!?]*(.*)$",
     RegexOption.IGNORE_CASE,
 )
 
 /** "..., buddy?" at the end: "can you hear me buddy". */
-private val WAKE_AT_END = Regex("^(.+?)[\\s,]+(?:hey\\s+)?(?:buddy|buddie|bro)[.!?]*$", RegexOption.IGNORE_CASE)
+private val WAKE_AT_END = Regex("^(.+?)[\\s,]+(?:hey\\s+)?(?:buddy|buddie|bro|$NICKNAMES)[.!?]*$", RegexOption.IGNORE_CASE)
+
+/** The same in Malayalam script, as the recogniser writes it in Malayalam mode: ബഡി, ബ്രോ, അളിയാ, മച്ചാ.
+ *  (No \b here: Java's word boundaries don't understand Malayalam letters.) */
+private const val ML_NAMES = "ബഡി|ബഡ്ഡി|ബ്രോ|അളിയാ|അളിയ|അളിയോ|അളിയനേ|മച്ചാ|മച്ചാനെ|മച്ചാനേ|മച്ചമ്പി"
+private val WAKE_ML = Regex("^(?:(?:ഹേയ്|ഹായ്|എടാ|ഡാ)[\\s,]*)?(?:$ML_NAMES)[\\s,.!?]*(.*)$")
+private val WAKE_ML_AT_END = Regex("^(.+?)[\\s,]+(?:$ML_NAMES)[\\s.!?]*$")
 
 /** "Are you listening?", "you there?", "can you hear me?": a check-in, like calling its name. */
 private val CHECK_IN = Regex(
-    "^(?:(?:hey\\s+)?(?:buddy|bro)[\\s,]+)?(?:are you (?:listening|there|awake)(?: to me)?|you there|" +
-        "can you hear me|are you with me)(?:[\\s,]+(?:buddy|bro))?[\\s?.!]*$",
+    "^(?:(?:hey\\s+)?(?:buddy|bro|$NICKNAMES|$ML_NAMES)[\\s,]+)?(?:are you (?:listening|there|awake)(?: to me)?|you there|" +
+        "can you hear me|are you with me|കേൾക്കുന്നുണ്ടോ|കേക്കുന്നുണ്ടോ|അവിടെ ഉണ്ടോ|ഉണ്ടോ അവിടെ|" +
+        "kelkkunnundo|kekkunnundo|avide undo)(?:[\\s,]+(?:buddy|bro|$NICKNAMES|$ML_NAMES))?[\\s?.!]*$",
     RegexOption.IGNORE_CASE,
 )
 
@@ -525,6 +536,8 @@ class BuddyService : Service() {
     private fun afterWakePhrase(text: String): String? =
         WAKE_PHRASE.find(text.trim())?.groupValues?.get(1)?.trim()
             ?: WAKE_AT_END.find(text.trim())?.groupValues?.get(1)?.trim()
+            ?: WAKE_ML.find(text.trim())?.groupValues?.get(1)?.trim()
+            ?: WAKE_ML_AT_END.find(text.trim())?.groupValues?.get(1)?.trim()
 
     private fun heard(text: String, final: Boolean) {
         if (activeMode == Mode.LISTEN_IN && final) {
