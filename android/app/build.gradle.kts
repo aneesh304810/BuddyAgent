@@ -58,7 +58,7 @@ dependencies {
     implementation("androidx.compose.material3:material3")
     implementation("androidx.activity:activity-compose:1.9.3")
     implementation("androidx.core:core-ktx:1.15.0")
-    implementation("com.squareup.okhttp3:okhttp:4.12.0")
+    implementation("com.squareup.okhttp3:okhttp:5.5.1")
     implementation("io.coil-kt:coil-compose:2.7.0")  // photos and map tiles in result cards
 
     testImplementation("junit:junit:4.13.2")
