@@ -8,6 +8,9 @@ sqlcipher3-wheels>=0.5
 icalendar>=6
 recurring-ical-events>=3
 defusedxml>=0.7.1
+python-docx>=1.1
+python-pptx>=1.0
+matplotlib>=3.8
 # Not used directly, but kept at versions without known vulnerabilities:
 starlette>=0.47.2
 h11>=0.16.0

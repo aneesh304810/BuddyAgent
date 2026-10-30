@@ -23,6 +23,8 @@ if new != text:
 PY
 chown -R buddy:buddy "$APP"
 sudo -u buddy "$APP/backend/.venv/bin/pip" install -q --upgrade pip setuptools
+# Graphviz draws Buddy's diagrams.
+command -v dot >/dev/null || DEBIAN_FRONTEND=noninteractive apt-get install -y -q graphviz >/dev/null
 sudo -u buddy "$APP/backend/.venv/bin/pip" install -q --upgrade -r "$APP/backend/requirements.txt"
 # The settings hold every secret: root only (systemd hands Buddy what it needs).
 for f in /etc/buddy/buddy.env /etc/buddy/buddy.env.cred /etc/buddy/key-dates; do

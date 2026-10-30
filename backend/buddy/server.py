@@ -45,7 +45,7 @@ from fastapi import Depends, FastAPI, Header, HTTPException, Request, WebSocket,
 from fastapi.staticfiles import StaticFiles
 
 from . import health as healthcheck
-from . import codejob, insights, proactive, research, usage
+from . import codejob, insights, makers, proactive, research, usage
 from .agent import FILLERS, Conversation
 from .agents import AgentRegistry, load_specs
 from .ambient import AmbientListener, is_think_cue
@@ -214,6 +214,38 @@ class _HideTokens(logging.Filter):
 for _name in ("uvicorn.access", "uvicorn.error", "uvicorn"):
     logging.getLogger(_name).addFilter(_HideTokens())
     logging.getLogger(_name).addFilter(SecretFilter())  # uvicorn's own handlers skip the root filter
+
+
+def _absolute(items: list[dict], ws: WebSocket) -> list[dict]:
+    """Links to Buddy's own files (/api/files/...) as full addresses, so the phone can load them."""
+    host = ws.headers.get("x-forwarded-host") or ws.headers.get("host") or ""
+    scheme = "http" if host.startswith(("127.", "localhost")) else "https"
+    out = []
+    for card in items:
+        card = dict(card)
+        for key in ("url", "image"):
+            if str(card.get(key, "")).startswith("/api/files/") and host:
+                card[key] = f"{scheme}://{host}{card[key]}"
+        out.append(card)
+    return out
+
+
+@app.get("/api/files/{file_id}")
+def api_file(file_id: str, exp: str = "", sig: str = "", authorization: str | None = Header(default=None)):
+    """A diagram, chart, image or document Buddy made. The chat's links carry a signature that
+    expires in 30 days; the access token works too."""
+    from fastapi.responses import FileResponse
+
+    token = (authorization or "").removeprefix("Bearer ").strip()
+    if not (makers.link_ok(file_id, exp, sig) or authorized(token or None)):
+        raise HTTPException(status_code=401, detail="This link has expired or isn't valid.")
+    found = makers.find(memory, file_id)
+    if not found:
+        raise HTTPException(status_code=404, detail="That file is gone.")
+    path, row = found
+    return FileResponse(path, media_type=makers.MIME[row["ext"]], filename=f"{row['name']}.{row['ext']}",
+                        content_disposition_type="inline" if row["ext"] in ("png", "jpg") else "attachment",
+                        headers={"Cache-Control": "private, max-age=86400", "X-Content-Type-Options": "nosniff"})
 
 
 @app.get("/health")
@@ -458,7 +490,8 @@ async def talk(ws: WebSocket) -> None:
                 question = thrift.pending.question if new_thrift else " ".join(spoken)[-400:]
                 await send({"type": "approval", "question": question})
             if convo.cards.picked:
-                await send({"type": "cards", "turn": convo.turn_key, "cards": convo.cards.picked})
+                await send({"type": "cards", "turn": convo.turn_key,
+                            "cards": _absolute(convo.cards.picked, ws)})
             await send({"type": "done", "turn": convo.turn_key})
         except asyncio.CancelledError:
             raise

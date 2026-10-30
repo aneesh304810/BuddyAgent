@@ -34,6 +34,7 @@ from .finops import COST_TOOL, FinOps
 from .health import HEALTH_TOOL, run_health_tool
 from . import cards, sandbox
 from .codejob import CODE_TOOL_NAMES, CODE_TOOLS, run_code_tool
+from .makers import MAKER_TOOL_NAMES, MAKER_TOOLS, run_maker_tool
 from .lifelog import LIFELOG_TOOL, LifeLog, run_lifelog_tool
 from .mailbrain import MAIL_TOOL_NAMES, MAIL_TOOLS, MailManager, run_mail_tool
 from .money import MONEY_TOOL_NAMES, MONEY_TOOLS, Money, run_money_tool
@@ -369,7 +370,7 @@ class Conversation:
         spending += CONNECTOR_TOOLS if self.hub else []
         spending += social_tools(self.social) + TASTE_TOOLS + [WHERE_TOOL]
         spending += [GENERAL_TOOL, VERDICT_TOOL] if self.free.enabled() else []
-        spending += [RATE_TOOL, HEALTH_TOOL, cards.SHOW_TOOL]
+        spending += [RATE_TOOL, HEALTH_TOOL, cards.SHOW_TOOL] + MAKER_TOOLS
         return (
             CLIENT_TOOLS + orchestration + job_tools + spending + [_expert_tool()]
             + agent_tools + web_tools()
@@ -405,6 +406,8 @@ class Conversation:
             return "Noted."
         if self.jobs and name in CODE_TOOL_NAMES:
             return await run_code_tool(self.jobs, name, args, self.thrift)
+        if name in MAKER_TOOL_NAMES:
+            return await run_maker_tool(self.memory, name, args)
         if name == "show_cards":
             return self.cards.pick(args.get("cards") or [])
         if name == "health_report":

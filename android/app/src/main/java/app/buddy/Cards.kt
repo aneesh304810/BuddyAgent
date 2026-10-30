@@ -63,6 +63,8 @@ private fun kindIcon(kind: String): String = when (kind) {
     "money" -> "💰"
     "deal" -> "🏷️" // tag
     "reddit" -> "💬"
+    "image" -> "\uD83D\uDDBC\uFE0F"
+    "file" -> "\uD83D\uDCC4"
     else -> "🔗"         // link
 }
 
@@ -77,8 +79,12 @@ private fun ratingLine(c: JSONObject): String {
 fun CardsRow(json: String, onOpen: (String) -> Unit) {
     val list = runCatching { JSONArray(json) }.getOrNull() ?: return
     val cards = (0 until list.length()).map { list.getJSONObject(it) }
+    val uri = LocalUriHandler.current
     LazyRow(horizontalArrangement = Arrangement.spacedBy(8.dp), modifier = Modifier.padding(top = 6.dp)) {
-        items(cards) { c -> CardTile(c) { onOpen(c.toString()) } }
+        items(cards) { c ->
+            // A Word document or deck opens straight in its app; everything else opens its full page.
+            CardTile(c) { if (c.str("kind") == "file" && c.str("url").isNotEmpty()) uri.openUri(c.str("url")) else onOpen(c.toString()) }
+        }
     }
 }
 
@@ -90,8 +96,15 @@ private fun CardTile(c: JSONObject, onClick: () -> Unit) {
         val image = c.str("image")
         when {
             image.isNotEmpty() -> AsyncImage(model = image, contentDescription = c.str("title"),
-                contentScale = ContentScale.Crop, modifier = Modifier.fillMaxWidth().height(120.dp))
+                contentScale = if (c.str("kind") == "image") ContentScale.Fit else ContentScale.Crop,
+                modifier = Modifier.fillMaxWidth().height(if (c.str("kind") == "image") 180.dp else 120.dp)
+                    .background(if (c.str("kind") == "image") Color.White else Color.Transparent))
             !c.isNull("lat") && c.has("lat") -> MapTile(c.optDouble("lat"), c.optDouble("lng"), Modifier.height(120.dp))
+            c.str("kind") == "file" -> Box(Modifier.fillMaxWidth().height(90.dp).background(
+                if (c.str("ext") == "pptx") Color(0xFF7A3B1E) else Color(0xFF1E3A7A)), contentAlignment = Alignment.Center) {
+                Text(if (c.str("ext") == "pptx") "\uD83D\uDCCA  PowerPoint" else "\uD83D\uDCDD  Word",
+                    color = Color.White, fontSize = 18.sp, fontWeight = FontWeight.SemiBold)
+            }
             else -> Box(Modifier.fillMaxWidth().height(56.dp).background(Color(0xFF1E2747)),
                 contentAlignment = Alignment.CenterStart) {
                 Text("  ${kindIcon(c.str("kind"))}  ${c.str("subtitle").ifEmpty { c.str("kind") }}",
@@ -103,6 +116,7 @@ private fun CardTile(c: JSONObject, onClick: () -> Unit) {
                 maxLines = 2, overflow = TextOverflow.Ellipsis)
             val meta = listOf(ratingLine(c), c.str("price")).filter { it.isNotEmpty() }.joinToString("  ·  ")
             if (meta.isNotEmpty()) Text(meta, color = Star, fontSize = 13.sp)
+            if (c.str("kind") == "file") Text(c.str("subtitle") + "  \u00B7  tap to open", color = CardDim, fontSize = 12.sp)
             if (image.isNotEmpty() || c.has("lat")) {
                 if (c.str("subtitle").isNotEmpty()) Text(c.str("subtitle"), color = CardDim, fontSize = 12.sp, maxLines = 1,
                     overflow = TextOverflow.Ellipsis)
@@ -154,8 +168,11 @@ fun CardScreen(json: String) {
     val uri = LocalUriHandler.current
     Column(Modifier.fillMaxSize().verticalScroll(rememberScrollState()), verticalArrangement = Arrangement.spacedBy(10.dp)) {
         if (c.str("image").isNotEmpty()) {
-            AsyncImage(model = c.str("image"), contentDescription = c.str("title"), contentScale = ContentScale.Crop,
-                modifier = Modifier.fillMaxWidth().height(200.dp).clip(RoundedCornerShape(14.dp)))
+            val picture = c.str("kind") == "image"
+            AsyncImage(model = c.str("image"), contentDescription = c.str("title"),
+                contentScale = if (picture) ContentScale.Fit else ContentScale.Crop,
+                modifier = Modifier.fillMaxWidth().then(if (picture) Modifier else Modifier.height(200.dp))
+                    .clip(RoundedCornerShape(14.dp)).background(if (picture) Color.White else Color.Transparent))
         }
         Text("${kindIcon(c.str("kind"))}  ${c.str("title")}", color = Color.White, fontSize = 20.sp,
             fontWeight = FontWeight.SemiBold)
@@ -165,7 +182,8 @@ fun CardScreen(json: String) {
 
         Row(horizontalArrangement = Arrangement.spacedBy(8.dp)) {
             if (c.str("maps_url").isNotEmpty()) Action("Open in Google Maps") { uri.openUri(c.str("maps_url")) }
-            if (c.str("url").isNotEmpty()) Action(if (c.str("kind") == "place") "Website" else "Open") {
+            if (c.str("url").isNotEmpty()) Action(when (c.str("kind")) {
+                "place" -> "Website"; "image" -> "Open full size"; else -> "Open" }) {
                 uri.openUri(c.str("url"))
             }
         }

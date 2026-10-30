@@ -112,3 +112,4 @@ table.costs th { color: var(--muted); font-weight: 500; }
 .card .warn { color: #ff8a80; }
 .card-links { display: flex; gap: 10px; margin-top: 6px; }
 .card-links a { color: var(--accent); text-decoration: none; font-weight: 600; }
+.card img.picture { height: 180px; object-fit: contain; background: #fff; cursor: zoom-in; }

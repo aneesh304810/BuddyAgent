@@ -27,7 +27,7 @@ function addLine(text, cls) {
 let buddyLine = null; // current reply bubble, extended sentence by sentence
 
 // Result cards under a reply: photo, rating, why, the catches, and links to open.
-const KIND_ICON = { place: "📍", stay: "🏠", flight: "✈️", travel: "🧳", news: "📰", finance: "📈", money: "💰", deal: "🏷️", reddit: "💬", link: "🔗" };
+const KIND_ICON = { place: "📍", stay: "🏠", flight: "✈️", travel: "🧳", news: "📰", finance: "📈", money: "💰", deal: "🏷️", reddit: "💬", link: "🔗", image: "🖼️", file: "📄" };
 
 function showCards(cards) {
   const row = document.createElement("div");
@@ -39,6 +39,7 @@ function showCards(cards) {
       const img = document.createElement("img");
       img.src = c.image; img.alt = c.title || ""; img.loading = "lazy"; img.referrerPolicy = "no-referrer";
       img.onerror = () => img.remove();
+      if (c.kind === "image") { img.className = "picture"; img.onclick = () => window.open(c.url, "_blank", "noopener"); }
       card.appendChild(img);
     }
     const body = document.createElement("div");
@@ -77,7 +78,7 @@ function showCards(cards) {
       links.appendChild(a);
     };
     link("Map", c.maps_url);
-    link(c.kind === "place" ? "Website" : "Open", c.url);
+    link({ place: "Website", image: "Full size", file: c.ext === "pptx" ? "Open in PowerPoint" : "Open in Word" }[c.kind] || "Open", c.url);
     body.appendChild(links);
     card.appendChild(body);
     row.appendChild(card);
