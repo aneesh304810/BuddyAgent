@@ -836,7 +836,17 @@ private fun SpeechTuning(prefs: BuddyPrefs) {
     var rate by remember { mutableStateOf(prefs.voiceRate) }
     var pauses by remember { mutableStateOf(prefs.pauses) }
     var talkLanguage by remember { mutableStateOf(prefs.talkLanguage) }
+    var muteBeep by remember { mutableStateOf(prefs.muteListenBeep) }
     Column(Modifier.fillMaxWidth().padding(top = 12.dp)) {
+        Row(verticalAlignment = Alignment.CenterVertically, modifier = Modifier.padding(bottom = 8.dp)) {
+            Column(Modifier.weight(1f)) {
+                Text("Silence the listening beep", color = Color.White)
+                Text("The phone's speech recognition beeps each time it starts listening again. Buddy mutes " +
+                    "media for that moment (not while it talks or music plays). The Server speech engine " +
+                    "never beeps.", color = Muted, fontSize = 12.sp)
+            }
+            Switch(checked = muteBeep, onCheckedChange = { muteBeep = it; prefs.muteListenBeep = it })
+        }
         Text("My languages (Talk mode)", color = Color.White)
         Text("Buddy listens for these and replies in the one you use.", color = Muted, fontSize = 12.sp)
         Column(Modifier.padding(vertical = 4.dp)) {

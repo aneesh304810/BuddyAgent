@@ -3,6 +3,7 @@ package app.buddy
 import android.content.Context
 import android.content.Intent
 import android.media.AudioAttributes
+import android.media.AudioManager
 import android.os.Build
 import android.os.Bundle
 import android.os.Handler
@@ -46,8 +47,15 @@ class Ears(
     private val onHeard: (text: String, final: Boolean) -> Unit,
     private val onActive: (Boolean) -> Unit,
     private val onProblem: (String) -> Unit,
+    private val speaking: () -> Boolean = { false },
 ) : Hearing {
     private val main = Handler(Looper.getMainLooper())
+    // Google's recogniser beeps each time a session starts, and Buddy starts one after every
+    // phrase and every few seconds of silence: mute media for that instant, never while Buddy
+    // talks or other audio (music, a podcast) is playing.
+    private val audio = context.getSystemService(AudioManager::class.java)
+    private val unmuter = Handler(Looper.getMainLooper())
+    private var beepMuted = false
     private var recognizer: SpeechRecognizer? = null
     private var language = "en-US"
     private var autoLanguage = false
@@ -91,6 +99,7 @@ class Ears(
     override fun stop() {
         main.removeCallbacksAndMessages(null)
         recognizer?.cancel()
+        muteBeep(false)
         if (active) {
             active = false
             onActive(false)
@@ -125,7 +134,21 @@ class Ears(
                 putStringArrayListExtra(RecognizerIntent.EXTRA_BIASING_STRINGS, ArrayList(Vocabulary.words.take(50)))
             }
         }
+        muteBeep(true)
+        unmuter.removeCallbacksAndMessages(null)
+        unmuter.postDelayed({ muteBeep(false) }, 1_500)  // in case the recogniser never gets ready
         runCatching { recognizer?.startListening(intent) }.onFailure { restartSoon() }
+    }
+
+    private fun muteBeep(on: Boolean) {
+        if (on == beepMuted) return
+        if (on && (!BuddyPrefs(context).muteListenBeep || speaking() || audio.isMusicActive)) return
+        beepMuted = on
+        BuddyPrefs(context).beepMuted = on  // undone at the next start if the app dies mid-mute
+        runCatching {
+            audio.adjustStreamVolume(AudioManager.STREAM_MUSIC,
+                if (on) AudioManager.ADJUST_MUTE else AudioManager.ADJUST_UNMUTE, 0)
+        }
     }
 
     /** Silence and timeouts end a session; start the next one, backing off if errors repeat. */
@@ -137,7 +160,10 @@ class Ears(
     }
 
     private val listener = object : RecognitionListener {
-        override fun onReadyForSpeech(params: Bundle?) {}
+        override fun onReadyForSpeech(params: Bundle?) {
+            unmuter.removeCallbacksAndMessages(null)
+            unmuter.postDelayed({ muteBeep(false) }, 400)  // the start beep plays as it gets ready
+        }
         override fun onBeginningOfSpeech() {}
         override fun onRmsChanged(rmsdB: Float) {}
         override fun onBufferReceived(buffer: ByteArray?) {}
@@ -179,6 +205,11 @@ class Ears(
                     } else if (failures == 6) {
                         onProblem("Speech recognition keeps failing (error $error). Try Settings → Speech engine → " +
                             "Server, or restart Buddy.")
+                    } else if (failures >= 12) {
+                        onProblem("Stopped listening: speech recognition kept failing (error $error), and each retry " +
+                            "beeps. Settings → Speech engine → Server works without it; tap Talk to try again.")
+                        stop()
+                        return
                     }
                     restartSoon()
                 }

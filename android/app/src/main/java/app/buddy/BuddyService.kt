@@ -146,7 +146,13 @@ class BuddyService : Service() {
         Notes.createChannels(this)
         val onActive = { on: Boolean -> BuddyState.update { it.copy(listening = on) }; refreshNotification() }
         val onProblem = { problem: String -> BuddyState.add(Line(problem, Speaker.ERROR)) }
-        phoneEars = Ears(this, onHeard = ::heard, onActive = onActive, onProblem = onProblem)
+        if (prefs.beepMuted) {  // the app stopped while the listening beep was muted: give media its sound back
+            runCatching { getSystemService(AudioManager::class.java).adjustStreamVolume(
+                AudioManager.STREAM_MUSIC, AudioManager.ADJUST_UNMUTE, 0) }
+            prefs.beepMuted = false
+        }
+        phoneEars = Ears(this, onHeard = ::heard, onActive = onActive, onProblem = onProblem,
+            speaking = { this::mouth.isInitialized && mouth.speaking })
         serverEars = ServerEars(
             earbudMic = { earbudMicOn },
             send = { message -> client?.send(message) ?: false },

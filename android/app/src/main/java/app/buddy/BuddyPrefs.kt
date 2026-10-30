@@ -89,6 +89,16 @@ class BuddyPrefs(context: Context) {
         get() = prefs.getString("pauses", "normal") ?: "normal"
         set(value) = prefs.edit().putString("pauses", value).apply()
 
+    /** Silence the beep the phone's speech recognition makes each time it starts listening again. */
+    var muteListenBeep: Boolean
+        get() = prefs.getBoolean("muteListenBeep", true)
+        set(value) = prefs.edit().putBoolean("muteListenBeep", value).apply()
+
+    /** True while Buddy has media muted for that beep (so a crash mid-mute is undone next start). */
+    var beepMuted: Boolean
+        get() = prefs.getBoolean("beepMuted", false)
+        set(value) = prefs.edit().putBoolean("beepMuted", value).apply()
+
     /** Silence, in ms, that ends what you're saying (from [pauses]). */
     val endSilenceMs: Long
         get() = when (pauses) { "short" -> 600L; "long" -> 1600L; else -> 1000L }
