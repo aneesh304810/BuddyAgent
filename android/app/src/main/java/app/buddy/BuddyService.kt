@@ -302,6 +302,7 @@ class BuddyService : Service() {
                 replyOpen = true
                 mouth.speak(event.text)
             }
+            is ServerEvent.Cards -> BuddyState.attachCards(event.json)
             is ServerEvent.Done -> {
                 replyOpen = false
                 BuddyState.replyDone(event.turn)

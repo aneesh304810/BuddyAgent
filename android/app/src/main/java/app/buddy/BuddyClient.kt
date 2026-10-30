@@ -15,6 +15,7 @@ import java.util.concurrent.TimeUnit
 sealed interface ServerEvent {
     data class Say(val text: String) : ServerEvent
     data class Done(val turn: String) : ServerEvent  // turn: lets you rate the reply
+    data class Cards(val json: String) : ServerEvent  // results to show under the reply
     data object Thinking : ServerEvent
     data class Nudge(val kind: String, val text: String, val jobId: Int? = null) : ServerEvent
     data class Whisper(val kind: String, val text: String) : ServerEvent
@@ -28,6 +29,7 @@ sealed interface ServerEvent {
             when (msg.optString("type")) {
                 "say" -> Say(msg.getString("text"))
                 "done" -> Done(msg.optString("turn"))
+                "cards" -> Cards(msg.getJSONArray("cards").toString())
                 "thinking" -> Thinking
                 "nudge" -> Nudge(
                     msg.optString("kind"),

@@ -26,6 +26,67 @@ function addLine(text, cls) {
 }
 let buddyLine = null; // current reply bubble, extended sentence by sentence
 
+// Result cards under a reply: photo, rating, why, the catches, and links to open.
+const KIND_ICON = { place: "📍", stay: "🏠", flight: "✈️", travel: "🧳", news: "📰", finance: "📈", money: "💰", deal: "🏷️", reddit: "💬", link: "🔗" };
+
+function showCards(cards) {
+  const row = document.createElement("div");
+  row.className = "cards";
+  cards.forEach((c) => {
+    const card = document.createElement("div");
+    card.className = "card";
+    if (c.image) {
+      const img = document.createElement("img");
+      img.src = c.image; img.alt = c.title || ""; img.loading = "lazy"; img.referrerPolicy = "no-referrer";
+      img.onerror = () => img.remove();
+      card.appendChild(img);
+    }
+    const body = document.createElement("div");
+    body.className = "card-body";
+    const add = (tag, cls, text) => { if (!text) return null; const e = document.createElement(tag); e.className = cls; e.textContent = text; body.appendChild(e); return e; };
+    add("div", "card-title", `${KIND_ICON[c.kind] || "🔗"} ${c.title || ""}`);
+    const rating = c.rating ? `★ ${c.rating}${c.reviews_count ? ` (${Number(c.reviews_count).toLocaleString()})` : ""}` : "";
+    add("div", "card-meta", [rating, c.price].filter(Boolean).join(" · "));
+    add("div", "card-sub", c.subtitle);
+    add("div", "card-note", c.note);
+    (c.rows || []).slice(0, 6).forEach((r) => add("div", "card-sub", `${r.label}: ${r.value}`));
+    add("div", "card-sub", c.address);
+    add("div", "card-text", c.text);
+    const details = [...(c.catches || []).map((q) => ({ ...q, warn: true })), ...(c.reviews || [])];
+    if (c.caution || details.length) {
+      const more = document.createElement("details");
+      const sum = document.createElement("summary");
+      sum.textContent = (c.caution || (c.catches || []).length) ? "⚠️ Catches and reviews" : "Reviews";
+      more.appendChild(sum);
+      if (c.caution) { const p = document.createElement("p"); p.className = "warn"; p.textContent = c.caution; more.appendChild(p); }
+      details.forEach((q) => {
+        const p = document.createElement(q.url ? "a" : "p");
+        if (q.url) { p.href = q.url; p.target = "_blank"; p.rel = "noopener noreferrer"; }
+        p.className = q.warn ? "quote warn" : "quote";
+        p.textContent = `“${q.says}” — ${q.from}`;
+        more.appendChild(p);
+      });
+      body.appendChild(more);
+    }
+    const links = document.createElement("div");
+    links.className = "card-links";
+    const link = (label, url) => {
+      if (!url || !url.startsWith("https://")) return;
+      const a = document.createElement("a");
+      a.href = url; a.target = "_blank"; a.rel = "noopener noreferrer"; a.textContent = label;
+      links.appendChild(a);
+    };
+    link("Map", c.maps_url);
+    link(c.kind === "place" ? "Website" : "Open", c.url);
+    body.appendChild(links);
+    card.appendChild(body);
+    row.appendChild(card);
+  });
+  const anchor = buddyLine || logEl.lastElementChild;
+  if (anchor) anchor.after(row); else logEl.appendChild(row);
+  logEl.scrollTop = logEl.scrollHeight;
+}
+
 // Thumbs on a reply: shown per model and purpose in Insights. Tap again to take it back.
 function addThumbs(line, turn) {
   const row = document.createElement("div");
@@ -162,6 +223,8 @@ function connect() {
       if (!buddyLine) buddyLine = addLine("", "buddy");
       buddyLine.textContent += (buddyLine.textContent ? " " : "") + msg.text;
       speak(msg.text);
+    } else if (msg.type === "cards") {
+      showCards(msg.cards || []);
     } else if (msg.type === "done") {
       if (buddyLine && msg.turn) addThumbs(buddyLine, msg.turn);
       buddyLine = null;

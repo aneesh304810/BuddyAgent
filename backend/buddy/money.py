@@ -12,6 +12,7 @@ category warn at 80% and again at 100%. Amounts stay in their own currency
 import json
 from datetime import date, datetime, timedelta, timezone
 
+from . import cards
 from .memory import Memory
 from .tools import ToolError, local_now
 
@@ -341,7 +342,14 @@ def run_money_tool(money: Money, name: str, args: dict) -> str:
     if name == "spending":
         if args.get("recent"):
             return json.dumps(money.recent()) if money.recent() else "No transactions yet."
-        return json.dumps(money.summary(args.get("period", "this_month"), args.get("category", "")))
+        summary = money.summary(args.get("period", "this_month"), args.get("category", ""))
+        by_currency = summary.get("by_currency", {})
+        rows = [(f"{cat} ({cur})", f"{amount:,.2f}") for cur, t in by_currency.items()
+                for cat, amount in list(t.get("by_category", {}).items())[:8]]
+        card_id = cards.offer(cards.money_card(
+            f"Spending · {summary.get('period', 'this_month').replace('_', ' ')}", rows,
+            " · ".join(f"{cur} {t['total']:,.2f} total" for cur, t in by_currency.items()))) if rows else None
+        return json.dumps({**summary, "card": card_id} if card_id else summary)
     if name == "add_expense":
         day = args.get("date") or None
         warnings = money.add_transaction(float(args["amount"]), args.get("currency", "USD"), args["what"],

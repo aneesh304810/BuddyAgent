@@ -91,8 +91,9 @@ def test_places_parsing():
         return json.dumps({"places": [{"title": "Aire Ancient Baths", "rating": 4.8, "ratingCount": 900,
                                        "priceLevel": "$$$", "address": "Miami", "cid": "123", "latitude": 1}]}).encode()
     found = Social(env={"BUDDY_SERPER_KEY": "k"}, http=web).places("spa in Miami")
+    # The map fields are kept for the chat card; find_places strips them before Claude sees them.
     assert found == [{"title": "Aire Ancient Baths", "rating": 4.8, "ratingCount": 900, "priceLevel": "$$$",
-                      "address": "Miami"}]
+                      "address": "Miami", "cid": "123", "latitude": 1}]
 
 
 def test_location_near_me_and_staleness(monkeypatch):

@@ -32,6 +32,7 @@ from .builder import BUILDER_TOOL_NAMES, BUILDER_TOOLS, AgentBuilder, run_builde
 from .deals import WATCH_TOOL_NAMES, WATCH_TOOLS, PriceWatcher, run_watch_tool
 from .finops import COST_TOOL, FinOps
 from .health import HEALTH_TOOL, run_health_tool
+from . import cards
 from .lifelog import LIFELOG_TOOL, LifeLog, run_lifelog_tool
 from .mailbrain import MAIL_TOOL_NAMES, MAIL_TOOLS, MailManager, run_mail_tool
 from .money import MONEY_TOOL_NAMES, MONEY_TOOLS, Money, run_money_tool
@@ -49,6 +50,8 @@ MAX_TOOL_ROUNDS = 8
 SENTENCE_END = re.compile(r"(?<=[.!?])\s+")
 FILLER_AFTER_SECONDS = 2.5
 # Loaded on every request; everything else is found with tool search when needed.
+# Tools that only show or note something: when a response calls nothing else, the turn ends there.
+DISPLAY_ONLY = {"free_answer_verdict", "show_cards"}
 ALWAYS_LOADED = {"remember_fact", "recall_memory", "set_reminder", "confirm_action", "add_task"}
 MAX_HISTORY = 40      # messages; above this, older turns are dropped
 KEEP_HISTORY = 24
@@ -126,6 +129,7 @@ class Conversation:
         self.turn = 0  # counts user messages; approvals need a newer one
         self.turn_key = ""  # tags this turn's model calls, for your thumbs rating
         self.previous_turn = ""
+        self.cards = cards.CardBox()  # what this reply can show in the chat
         self.via = "user"
         # Frozen for the whole session so the cached prompt prefix stays valid.
         self.system = build_system_prompt(memory.recall(""), memory.open_goals())
@@ -142,6 +146,8 @@ class Conversation:
         self.via = via
         self.previous_turn, self.turn_key = self.turn_key, secrets.token_hex(6)
         usage.current_turn.set(self.turn_key)
+        self.cards = cards.CardBox()
+        cards.current.set(self.cards)
         if self.thrift:
             # Money questions are answered in code, at no cost: Claude never approves spending.
             said, resume = await self.thrift.resolve(user_text, trusted=via != "room")
@@ -192,6 +198,7 @@ class Conversation:
             for _ in range(MAX_TOOL_ROUNDS):
                 response = await self._stream_step(speak)
                 perf["rounds"] += 1
+                self.cards.seen_web_results(response.content)
                 if response.stop_reason == "refusal":
                     perf["outcome"] = "refusal"
                     await speak("Hmm, that's one I can't help with. Anything else?")
@@ -205,8 +212,8 @@ class Conversation:
                 perf["tools"] += [b.name for b in tool_uses]
                 if response.stop_reason != "tool_use" or not tool_uses:
                     return
-                if all(b.name == "free_answer_verdict" for b in tool_uses):
-                    # Only the review note: record it and finish, no extra round (and no extra wait).
+                if all(b.name in DISPLAY_ONLY for b in tool_uses):
+                    # Only cards to show or a review note: do it and finish, no extra round (or wait).
                     self.messages.append({"role": "user", "content": [await self._run(b) for b in tool_uses]})
                     return
                 if any(b.name == "hand_over" for b in tool_uses):
@@ -296,7 +303,7 @@ class Conversation:
         if self.model == settings.fast_model and self.model != settings.chat_model:
             everything = [HAND_OVER_TOOL] + everything
         for tool in everything:
-            if tool.get("type", "custom") != "custom" or tool["name"] in ALWAYS_LOADED | {"hand_over", "free_answer_verdict"}:
+            if tool.get("type", "custom") != "custom" or tool["name"] in ALWAYS_LOADED | {"hand_over"} | DISPLAY_ONLY:
                 tools.append(tool)  # server tools (web search) and the everyday ones stay loaded
             else:
                 tools.append({**tool, "defer_loading": True})
@@ -315,7 +322,7 @@ class Conversation:
         spending += CONNECTOR_TOOLS if self.hub else []
         spending += social_tools(self.social) + TASTE_TOOLS + [WHERE_TOOL]
         spending += [GENERAL_TOOL, VERDICT_TOOL] if self.free.enabled() else []
-        spending += [RATE_TOOL, HEALTH_TOOL]
+        spending += [RATE_TOOL, HEALTH_TOOL, cards.SHOW_TOOL]
         return (
             CLIENT_TOOLS + orchestration + job_tools + spending + [_expert_tool()]
             + agent_tools + web_tools()
@@ -345,6 +352,8 @@ class Conversation:
         if name == "free_answer_verdict":
             usage.set_verdict(self.memory, args["call_id"], args["verdict"], args.get("note", ""))
             return "Noted."
+        if name == "show_cards":
+            return self.cards.pick(args.get("cards") or [])
         if name == "health_report":
             return run_health_tool(self.memory)
         if name == "rate_answer":

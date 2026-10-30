@@ -14,6 +14,7 @@ import re
 from collections.abc import Awaitable, Callable
 from datetime import datetime, timedelta, timezone
 
+from . import cards
 from . import usage
 from .config import claude_client, settings
 from .memory import Memory
@@ -225,7 +226,7 @@ async def run_watch_tool(watcher: PriceWatcher, name: str, args: dict, thrift=No
         keys = ("id", "what", "target", "currency", "every_hours", "until", "last_price", "best_price",
                 "last_where", "last_url", "last_checked")
         watches = [{k: w[k] for k in keys} for w in watcher.active()]
-        return json.dumps(watches) if watches else "No price watches."
+        return json.dumps(cards.tag(watches, cards.watch_card)) if watches else "No price watches."
     if name == "watch_price":
         every = max(6, min(int(args.get("every_hours") or 24), 168))
         target = args.get("target")

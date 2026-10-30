@@ -21,6 +21,7 @@ import urllib.parse
 import urllib.request
 import xml.etree.ElementTree as ET
 
+from . import cards
 from .privacy import mask
 from .tools import ToolError, require_https
 
@@ -129,7 +130,7 @@ class Social:
                                     {"X-API-KEY": self.setting("BUDDY_SERPER_KEY"),
                                      "Content-Type": "application/json"}))
         if news:
-            return {"news": [{k: n.get(k) for k in ("title", "source", "date", "snippet", "link")}
+            return {"news": [{k: n.get(k) for k in ("title", "source", "date", "snippet", "link", "imageUrl")}
                              for n in data.get("news", [])]}
         out = {"results": [{k: r.get(k) for k in ("title", "snippet", "date", "link")}
                            for r in data.get("organic", [])]}
@@ -148,7 +149,8 @@ class Social:
                                     {"X-API-KEY": self.setting("BUDDY_SERPER_KEY"),
                                      "Content-Type": "application/json"}))
         keep = ("title", "category", "rating", "ratingCount", "priceLevel", "address", "openingHours",
-                "website", "phoneNumber", "description")
+                "website", "phoneNumber", "description",
+                "thumbnailUrl", "latitude", "longitude", "cid")  # for the chat card only; Claude doesn't get these
         return [{k: p[k] for k in keep if p.get(k) not in (None, "", [])} for p in data.get("places", [])][:num]
 
     # --- Google Trends ----------------------------------------------------------
@@ -238,13 +240,31 @@ async def run_social_tool(social: Social, name: str, args: dict) -> str:
     key = name + json.dumps(args, sort_keys=True)
     hit = _cache.get(key)
     if hit and hit[0] > time.time():
-        return hit[1]
-    text = await _run(social, name, args)
-    _cache[key] = (time.time() + CACHE_SECONDS.get(name, 600), text)
-    if len(_cache) > 500:  # keep memory small: drop the oldest half
-        for old in sorted(_cache, key=lambda k: _cache[k][0])[:250]:
-            _cache.pop(old, None)
-    return text
+        result = hit[1]
+    else:
+        result = await _run(social, name, args)
+        _cache[key] = (time.time() + CACHE_SECONDS.get(name, 600), result)
+        if len(_cache) > 500:  # keep memory small: drop the oldest half
+            for old in sorted(_cache, key=lambda k: _cache[k][0])[:250]:
+                _cache.pop(old, None)
+    if not result:
+        return "Nothing found."
+    return UNTRUSTED + json.dumps(_with_cards(name, result), ensure_ascii=False)
+
+
+def _with_cards(name: str, result):
+    """Results offered as chat cards (fresh ids each reply, even from the cache); Claude gets the ids."""
+    if name == "reddit" and isinstance(result, list):
+        return cards.tag(result, cards.reddit_card)
+    if name == "google_search" and isinstance(result, dict):
+        out = dict(result)
+        if "news" in out:
+            out["news"] = cards.tag(out["news"], cards.news_card, strip=("imageUrl",))
+        for key in ("results", "top_stories"):
+            if key in out:
+                out[key] = cards.tag(out[key], cards.link_card)
+        return out
+    return result
 
 
 async def _run(social: Social, name: str, args: dict) -> str:
@@ -268,4 +288,4 @@ async def _run(social: Social, name: str, args: dict) -> str:
         raise
     except Exception as e:
         raise ToolError(f"{name} didn't answer ({type(e).__name__}). Try web_search instead.") from e
-    return UNTRUSTED + json.dumps(result, ensure_ascii=False) if result else "Nothing found."
+    return result

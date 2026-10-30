@@ -106,6 +106,7 @@ sealed interface Screen {
     data object Settings : Screen
     data object Reports : Screen
     data object Insights : Screen
+    data class Card(val json: String) : Screen
     data class Report(val id: Int) : Screen
 }
 
@@ -136,6 +137,18 @@ class MainActivity : ComponentActivity() {
 
     override fun onCreate(savedInstanceState: Bundle?) {
         super.onCreate(savedInstanceState)
+        // Photos and map tiles in cards; OpenStreetMap asks apps to say who they are.
+        coil.Coil.setImageLoader(
+            coil.ImageLoader.Builder(this)
+                .okHttpClient {
+                    okhttp3.OkHttpClient.Builder().addInterceptor { chain ->
+                        chain.proceed(chain.request().newBuilder()
+                            .header("User-Agent", "Buddy/1.0 (personal assistant app)").build())
+                    }.build()
+                }
+                .crossfade(true)
+                .build()
+        )
         prefs = BuddyPrefs(this)
         if (prefs.link == null) screen.value = Screen.Settings
         openJobFrom(intent)
@@ -242,6 +255,10 @@ private fun BuddyScreen(
                 InsightsScreen(prefs.link)
                 return@Column
             }
+            is Screen.Card -> {
+                CardScreen(screen.json)
+                return@Column
+            }
             is Screen.Report -> {
                 ReportScreen(prefs.link, screen.id)
                 return@Column
@@ -253,7 +270,9 @@ private fun BuddyScreen(
             Button(onClick = onStart, modifier = Modifier.fillMaxWidth()) { Text("Start Buddy") }
         }
 
-        Transcript(ui.lines, Modifier.weight(1f), { onNavigate(Screen.Insights) }) { onNavigate(Screen.Report(it)) }
+        Transcript(ui.lines, Modifier.weight(1f), { onNavigate(Screen.Insights) }, { onNavigate(Screen.Card(it)) }) {
+            onNavigate(Screen.Report(it))
+        }
         ui.approval?.let { question -> ApprovalCard(question) }
         Controls(ui, prefs)
     }
@@ -279,7 +298,13 @@ private fun ApprovalCard(question: String) {
 }
 
 @Composable
-private fun Transcript(lines: List<Line>, modifier: Modifier, onOpenInsights: () -> Unit, onOpenReport: (Int) -> Unit) {
+private fun Transcript(
+    lines: List<Line>,
+    modifier: Modifier,
+    onOpenInsights: () -> Unit,
+    onOpenCard: (String) -> Unit,
+    onOpenReport: (Int) -> Unit,
+) {
     val state = rememberLazyListState()
     LaunchedEffect(lines.size, lines.lastOrNull()?.text) {
         if (lines.isNotEmpty()) state.animateScrollToItem(lines.lastIndex)
@@ -288,7 +313,7 @@ private fun Transcript(lines: List<Line>, modifier: Modifier, onOpenInsights: ()
         items(lines) { line ->
             val mine = line.from == Speaker.YOU
             Column(Modifier.fillMaxWidth()) {
-            Row(Modifier.fillMaxWidth(), horizontalArrangement = if (mine) Arrangement.End else Arrangement.Start) {
+            if (line.text.isNotEmpty()) Row(Modifier.fillMaxWidth(), horizontalArrangement = if (mine) Arrangement.End else Arrangement.Start) {
                 Text(
                     when {
                         line.jobId != null -> line.text + "\n\nTap to open the report."
@@ -316,6 +341,7 @@ private fun Transcript(lines: List<Line>, modifier: Modifier, onOpenInsights: ()
                         .padding(horizontal = 12.dp, vertical = 8.dp),
                 )
             }
+            line.cards?.let { CardsRow(it, onOpenCard) }
             if (line.from == Speaker.BUDDY && line.turn != null) Thumbs(line.turn, line.rating)
             }
         }

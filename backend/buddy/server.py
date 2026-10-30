@@ -19,6 +19,7 @@ Protocol (JSON messages):
                    {"type": "phone_calendar", "device", "events": [{id, title, start,
                     end, calendar, location, all_day, busy_only}]}  the phone's next week
   server -> phone  {"type": "say", "text": "..."}    one sentence to speak
+                   {"type": "cards", "turn": "a1b2c3", "cards": [...]}  results to show under the reply
                    {"type": "done", "turn": "a1b2c3"} reply finished (turn: for a thumbs rating)
                    {"type": "nudge", "kind": "...", "text": "...", "job_id": 3}
                                                       Buddy speaking up (job_id: a finished
@@ -434,6 +435,8 @@ async def talk(ws: WebSocket) -> None:
             if new_thrift or set(registry.pending) - agent_asks:
                 question = thrift.pending.question if new_thrift else " ".join(spoken)[-400:]
                 await send({"type": "approval", "question": question})
+            if convo.cards.picked:
+                await send({"type": "cards", "turn": convo.turn_key, "cards": convo.cards.picked})
             await send({"type": "done", "turn": convo.turn_key})
         except asyncio.CancelledError:
             raise

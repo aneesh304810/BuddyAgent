@@ -17,6 +17,7 @@ import json
 import math
 from datetime import datetime, timedelta, timezone
 
+from . import cards
 from .memory import Memory
 from .privacy import mask
 from .tools import ToolError, local_now
@@ -151,6 +152,20 @@ def review_score(place: dict, prior: float = 4.2, weight: int = 50) -> float:
     return round((rating * count + prior * weight) / (count + weight) + 0.02 * math.log10(count + 1), 3)
 
 
+CARD_ONLY = ("thumbnailUrl", "latitude", "longitude", "cid")
+
+
+def _for_claude(place: dict, card_id: str | None) -> dict:
+    """The place without what only the chat card needs (photo, map, links): fewer tokens."""
+    slim = {k: v for k, v in place.items() if k not in CARD_ONLY}
+    if "other_reviews" in slim:
+        slim["other_reviews"] = {k: [{x: y for x, y in r.items() if x != "link"} for r in v] if isinstance(v, list)
+                                 else v for k, v in slim["other_reviews"].items()}
+    if card_id:
+        slim["card"] = card_id
+    return slim
+
+
 def _review_check(social, place: dict, where: str, country: str) -> dict:
     """What other channels say about one place, including the catches. Compact."""
     name = place.get("title", "")
@@ -162,7 +177,7 @@ def _review_check(social, place: dict, where: str, country: str) -> dict:
             mentions = [p for p in posts if name.split()[0].lower() in (p["title"] + p["text"]).lower()]
             if mentions:
                 found["reddit"] = [{"title": p["title"], "subreddit": p.get("subreddit"), "score": p.get("score"),
-                                    "says": p["text"][:240]} for p in mentions[:3]]
+                                    "says": p["text"][:240], "link": p.get("link", "")} for p in mentions[:3]]
         except Exception:
             pass
     if social.has_google():
@@ -171,7 +186,8 @@ def _review_check(social, place: dict, where: str, country: str) -> dict:
             sites = [r for r in results if any(s in (r.get("link") or "") for s in REVIEW_SITES)]
             if sites:
                 found["review_sites"] = [{"site": (r.get("link") or "").split("/")[2].removeprefix("www."),
-                                          "says": (r.get("snippet") or "")[:240]} for r in sites[:4]]
+                                          "says": (r.get("snippet") or "")[:240], "link": r.get("link", "")}
+                                         for r in sites[:4]]
             # The catches: complaints, fees and warnings that listings leave out.
             catches = social.google(f'"{name}" {city} {CATCH_WORDS}', country=country, num=6).get("results", [])
             catches = [r for r in catches if name.split()[0].lower() in
@@ -179,7 +195,7 @@ def _review_check(social, place: dict, where: str, country: str) -> dict:
             if catches:
                 found["complaints_and_catches"] = [
                     {"from": (r.get("link") or "").split("/")[2].removeprefix("www.") if r.get("link") else "",
-                     "says": (r.get("snippet") or "")[:240]} for r in catches[:3]]
+                     "says": (r.get("snippet") or "")[:240], "link": r.get("link", "")} for r in catches[:3]]
         except Exception:
             pass
     rating, count = float(place.get("rating") or 0), int(place.get("ratingCount") or 0)
@@ -280,7 +296,7 @@ async def run_taste_tool(taste: Taste, social, name: str, args: dict, location=N
             for p, other in zip(places, checks):
                 if other:
                     p["other_reviews"] = other
-            result["places"] = places
+            result["places"] = [_for_claude(p, cards.offer(cards.place_card(p))) for p in places]
         else:
             result["places_note"] = ("Google Maps search isn't connected (BUDDY_SERPER_KEY), so use web_search "
                                      "or google_search for listings.")

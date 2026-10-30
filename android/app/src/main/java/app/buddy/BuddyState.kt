@@ -17,6 +17,7 @@ data class Line(
     val turn: String? = null,
     val rating: Int? = null,
     val opensInsights: Boolean = false,  // the daily health digest: tap for the dashboard
+    val cards: String? = null,           // JSON array: places, stays, flights, news... under the reply
 )
 
 data class UiState(
@@ -47,6 +48,16 @@ object BuddyState {
         val last = it.lines.lastOrNull()
         if (turn.isEmpty() || last?.from != Speaker.BUDDY || last.turn != null) it
         else it.copy(lines = it.lines.dropLast(1) + last.copy(turn = turn))
+    }
+
+    /** Cards arrive just before the reply ends: they go under its bubble. */
+    fun attachCards(json: String) = update {
+        val last = it.lines.lastOrNull()
+        if (last?.from == Speaker.BUDDY && last.turn == null) {
+            it.copy(lines = it.lines.dropLast(1) + last.copy(cards = json))
+        } else {
+            it.copy(lines = (it.lines + Line("", Speaker.BUDDY, cards = json)).takeLast(200))
+        }
     }
 
     fun rated(turn: String, rating: Int?) = update {
