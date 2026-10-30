@@ -52,6 +52,9 @@ class Ears(
     private var language = "en-US"
     private var autoLanguage = false
     private var allowed: List<String> = DETECTABLE_LANGUAGES
+    // After repeated errors, listen without language switching and vocabulary hints: some phones'
+    // recognisers reject them (they need on-device recognition) and would otherwise fail silently.
+    private var simple = false
     private var detected: String? = null
     private var failures = 0
 
@@ -74,6 +77,7 @@ class Ears(
         language = if (!autoLanguage) lang else if (lang.contains(":")) allowed.first() else Locale.getDefault().toLanguageTag()
         detected = null
         failures = 0
+        simple = false
         if (recognizer == null) {
             recognizer = SpeechRecognizer.createSpeechRecognizer(context).also {
                 it.setRecognitionListener(listener)
@@ -105,7 +109,7 @@ class Ears(
             putExtra(RecognizerIntent.EXTRA_LANGUAGE_MODEL, RecognizerIntent.LANGUAGE_MODEL_FREE_FORM)
             putExtra(RecognizerIntent.EXTRA_LANGUAGE, currentLanguage)
             putExtra(RecognizerIntent.EXTRA_PARTIAL_RESULTS, true)
-            if (autoLanguage && Build.VERSION.SDK_INT >= Build.VERSION_CODES.UPSIDE_DOWN_CAKE) {
+            if (autoLanguage && !simple && Build.VERSION.SDK_INT >= Build.VERSION_CODES.UPSIDE_DOWN_CAKE) {
                 // Android 14+: the recognizer works out the language and follows switches.
                 val languages = ArrayList(allowed)
                 putExtra(RecognizerIntent.EXTRA_ENABLE_LANGUAGE_DETECTION, true)
@@ -117,7 +121,7 @@ class Ears(
             val silence = BuddyPrefs(context).endSilenceMs
             putExtra(RecognizerIntent.EXTRA_SPEECH_INPUT_COMPLETE_SILENCE_LENGTH_MILLIS, silence + 500)
             putExtra(RecognizerIntent.EXTRA_SPEECH_INPUT_POSSIBLY_COMPLETE_SILENCE_LENGTH_MILLIS, silence)
-            if (Build.VERSION.SDK_INT >= Build.VERSION_CODES.TIRAMISU && Vocabulary.words.isNotEmpty()) {
+            if (!simple && Build.VERSION.SDK_INT >= Build.VERSION_CODES.TIRAMISU && Vocabulary.words.isNotEmpty()) {
                 putStringArrayListExtra(RecognizerIntent.EXTRA_BIASING_STRINGS, ArrayList(Vocabulary.words.take(50)))
             }
         }
@@ -150,8 +154,17 @@ class Ears(
                 SpeechRecognizer.ERROR_LANGUAGE_UNAVAILABLE -> if (autoLanguage && detected != null) {
                     detected = null // a detected language this phone can't transcribe: back to the default
                     restartSoon()
+                } else if (allowed.size > 1 && allowed.indexOf(language) < allowed.lastIndex) {
+                    // e.g. Malayalam isn't available for recognition here: carry on in the next language.
+                    val missing = Locale.forLanguageTag(language).displayLanguage
+                    language = allowed[allowed.indexOf(language) + 1]
+                    onProblem("Speech recognition can't do $missing on this phone yet, so I'm listening in " +
+                        "${Locale.forLanguageTag(language).displayLanguage}. To add it: Google app → Settings → " +
+                        "Voice → Offline speech recognition → $missing.")
+                    restartSoon()
                 } else {
-                    onProblem("Speech recognition doesn't support $language on this phone yet.")
+                    onProblem("Speech recognition doesn't support $language on this phone yet. " +
+                        "Settings → My languages, or try Speech engine → Server.")
                     stop()
                 }
                 SpeechRecognizer.ERROR_NO_MATCH,
@@ -159,6 +172,14 @@ class Ears(
                 else -> {
                     failures++
                     recognizer?.cancel()
+                    if (failures == 2 && !simple) {
+                        simple = true  // drop language switching and vocabulary hints, then retry
+                        onProblem("Speech recognition didn't accept language switching here, so I'm listening " +
+                            "in ${Locale.forLanguageTag(language).displayLanguage} only for now.")
+                    } else if (failures == 6) {
+                        onProblem("Speech recognition keeps failing (error $error). Try Settings → Speech engine → " +
+                            "Server, or restart Buddy.")
+                    }
                     restartSoon()
                 }
             }
