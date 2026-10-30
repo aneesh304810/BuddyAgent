@@ -74,6 +74,11 @@ class BuddyPrefs(context: Context) {
         get() = prefs.getString("voiceName", "") ?: ""
         set(value) = prefs.edit().putString("voiceName", value).apply()
 
+    /** The language(s) you talk to Buddy in: a tag ("en-US"), or "auto:ml-IN,en-IN" to switch between them. */
+    var talkLanguage: String
+        get() = prefs.getString("talkLanguage", "") ?: ""
+        set(value) = prefs.edit().putString("talkLanguage", value).apply()
+
     /** How fast Buddy speaks: 0.7 (slow) to 1.4 (fast); 1.0 is normal. */
     var voiceRate: Float
         get() = prefs.getFloat("voiceRate", 1.0f)

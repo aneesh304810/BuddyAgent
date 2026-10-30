@@ -73,5 +73,11 @@ def _transcribe(pcm: bytes, language: str | None, prompt: str = "", stats: dict 
 async def transcribe(pcm: bytes, language: str = "", prompt: str = "", stats: dict | None = None) -> tuple[str, str]:
     """(text, detected language code). language: a hint like "es" or "es-419", or "" to detect.
     prompt: names and words to spell right (vocabulary.whisper_prompt)."""
-    hint = language.split("-")[0].lower() if language and language != "auto" else None
+    # "auto" or "auto:ml-IN,en-IN" (switching between languages): let Whisper detect each time.
+    hint = language.split("-")[0].lower() if language and not language.startswith("auto") else None
+    if language.startswith("auto:"):
+        names = {"ml": "Malayalam", "en": "English", "hi": "Hindi", "ta": "Tamil", "te": "Telugu", "kn": "Kannada",
+                 "es": "Spanish", "pt": "Portuguese"}
+        mix = [names.get(t.split("-")[0], t) for t in language[5:].split(",") if t]
+        prompt = (prompt + " " if prompt else "") + f"Speaking {' and '.join(mix)}, often mixed in one sentence."
     return await asyncio.to_thread(_transcribe, pcm, hint, prompt, stats)

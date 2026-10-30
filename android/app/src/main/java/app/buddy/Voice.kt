@@ -51,6 +51,7 @@ class Ears(
     private var recognizer: SpeechRecognizer? = null
     private var language = "en-US"
     private var autoLanguage = false
+    private var allowed: List<String> = DETECTABLE_LANGUAGES
     private var detected: String? = null
     private var failures = 0
 
@@ -66,8 +67,11 @@ class Ears(
             onProblem("This phone has no speech recognition service. Install or update the Google app.")
             return
         }
-        autoLanguage = lang == AUTO_LANGUAGE
-        language = if (autoLanguage) Locale.getDefault().toLanguageTag() else lang
+        // "auto" = any of DETECTABLE_LANGUAGES; "auto:ml-IN,en-IN" = switch between just these.
+        autoLanguage = lang == AUTO_LANGUAGE || lang.startsWith("$AUTO_LANGUAGE:")
+        allowed = lang.substringAfter(":", "").split(",").map { it.trim() }.filter { it.isNotEmpty() }
+            .ifEmpty { DETECTABLE_LANGUAGES }
+        language = if (!autoLanguage) lang else if (lang.contains(":")) allowed.first() else Locale.getDefault().toLanguageTag()
         detected = null
         failures = 0
         if (recognizer == null) {
@@ -103,7 +107,7 @@ class Ears(
             putExtra(RecognizerIntent.EXTRA_PARTIAL_RESULTS, true)
             if (autoLanguage && Build.VERSION.SDK_INT >= Build.VERSION_CODES.UPSIDE_DOWN_CAKE) {
                 // Android 14+: the recognizer works out the language and follows switches.
-                val languages = ArrayList(DETECTABLE_LANGUAGES)
+                val languages = ArrayList(allowed)
                 putExtra(RecognizerIntent.EXTRA_ENABLE_LANGUAGE_DETECTION, true)
                 putStringArrayListExtra(RecognizerIntent.EXTRA_LANGUAGE_DETECTION_ALLOWED_LANGUAGES, languages)
                 putExtra(RecognizerIntent.EXTRA_ENABLE_LANGUAGE_SWITCH, RecognizerIntent.LANGUAGE_SWITCH_BALANCED)
@@ -190,7 +194,22 @@ class Ears(
 /** One voice Buddy can speak with, as shown in Settings. */
 data class VoiceChoice(val name: String, val label: String)
 
-class Mouth(context: Context, private val onSpeaking: (Boolean) -> Unit) : TextToSpeech.OnInitListener {
+/** Unicode blocks of Indian scripts, and the voice language for each. */
+private val SCRIPTS = mapOf(
+    '\u0D00'..'\u0D7F' to "ml-IN",  // Malayalam
+    '\u0900'..'\u097F' to "hi-IN",  // Devanagari (Hindi, Marathi)
+    '\u0B80'..'\u0BFF' to "ta-IN",  // Tamil
+    '\u0C00'..'\u0C7F' to "te-IN",  // Telugu
+    '\u0C80'..'\u0CFF' to "kn-IN",  // Kannada
+    '\u0980'..'\u09FF' to "bn-IN",  // Bengali
+    '\u0A80'..'\u0AFF' to "gu-IN",  // Gujarati
+)
+
+class Mouth(
+    context: Context,
+    private val onMissingVoice: (String) -> Unit = {},
+    private val onSpeaking: (Boolean) -> Unit,
+) : TextToSpeech.OnInitListener {
     private val prefs = BuddyPrefs(context)
     private val main = Handler(Looper.getMainLooper())
     private val tts = TextToSpeech(context.applicationContext, this)
@@ -260,6 +279,25 @@ class Mouth(context: Context, private val onSpeaking: (Boolean) -> Unit) : TextT
         preview?.let { stop(); speak(it) }
     }
 
+    private var speakingScript = ""
+    private var warnedMissing = mutableSetOf<String>()
+
+    /** Pick the voice for a sentence by its script: mixed-language replies sound right. */
+    private fun speakIn(text: String) {
+        val script = SCRIPTS.entries.firstOrNull { (range, _) -> text.any { it in range } }?.value ?: ""
+        if (script == speakingScript) return
+        speakingScript = script
+        if (script.isEmpty()) {
+            applyVoice(prefs.voiceName)
+            return
+        }
+        val result = tts.setLanguage(Locale.forLanguageTag(script))
+        if ((result == TextToSpeech.LANG_MISSING_DATA || result == TextToSpeech.LANG_NOT_SUPPORTED) &&
+            warnedMissing.add(script)) {
+            onMissingVoice(Locale.forLanguageTag(script).displayLanguage)
+        }
+    }
+
     private fun applyVoice(name: String) {
         val voice = runCatching { tts.voices }.getOrNull()?.firstOrNull { it.name == name }
         if (voice != null) tts.voice = voice else tts.language = Locale.US
@@ -277,6 +315,7 @@ class Mouth(context: Context, private val onSpeaking: (Boolean) -> Unit) : TextT
         val params = Bundle().apply {
             putFloat(TextToSpeech.Engine.KEY_PARAM_VOLUME, if (quiet) 0.6f else 1f)
         }
+        speakIn(text)  // a Malayalam sentence in a Malayalam voice, an English one in yours
         val rate = prefs.voiceRate  // Settings → Voice speed
         tts.setSpeechRate(if (quiet) rate * 1.1f else rate)
         tts.speak(text, TextToSpeech.QUEUE_ADD, params, id)

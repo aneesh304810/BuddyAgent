@@ -144,7 +144,10 @@ class BuddyService : Service() {
             paused = { mouth.speaking && activeMode == Mode.TALK && !headsetConnected() },
             endSilenceMs = { BuddyPrefs(this).endSilenceMs - 200 },
         )
-        mouth = Mouth(this) { on ->
+        mouth = Mouth(this, onMissingVoice = { name ->
+            BuddyState.add(Line("To hear me in $name, add its voice: phone Settings → Text-to-speech → " +
+                "Google → Install voice data → $name.", Speaker.ERROR))
+        }) { on ->
             BuddyState.update { it.copy(speaking = on) }
             // Buddy's voice plays through the speech engine, which Android counts as another
             // app: claim the earbud button back after every reply.
@@ -401,7 +404,8 @@ class BuddyService : Service() {
         activeMode = mode
         BuddyState.update { it.copy(mode = mode) }
         if (mode == Mode.TALK) useEarbudMic(prefs.earbudMic) else startListenMic()
-        val language = if (mode == Mode.LISTEN_IN) prefs.roomLanguage else Locale.getDefault().toLanguageTag()
+        val language = if (mode == Mode.LISTEN_IN) prefs.roomLanguage
+            else prefs.talkLanguage.ifEmpty { Locale.getDefault().toLanguageTag() }
         ears.start(language)
     }
 

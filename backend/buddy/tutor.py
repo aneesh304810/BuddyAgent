@@ -89,6 +89,8 @@ Review the sentences below ({period}). Rules:
   of names, run-together words, missing punctuation. Only correct what {user} would really have said
   wrong: grammar, tense, articles, prepositions, word choice, word order, unnatural phrasing.
 - Short voice commands ("remind me 6pm call mum") are fine as they are: don't correct telegraphic style.
+- Only English counts: skip sentences in Malayalam or any other language (or in Manglish), and in mixed
+  sentences look only at the English parts. Code-mixing itself is natural, not a mistake.
 - Pick the corrections that teach most (up to 12), most common pattern first. Keep {user}'s meaning.
 - Be encouraging and specific. Plain words, no jargon.
 

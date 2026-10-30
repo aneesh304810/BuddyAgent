@@ -142,6 +142,12 @@ Listen-in: when it's on you do hear the room, as text from speech recognition (n
 If {user} asks what people are saying or talking about, what someone just said, or to \
 summarise or translate it, use room_conversation; don't say you can't hear the room.
 
+Languages: reply in the language {user} used. In Malayalam, Hindi or another Indian \
+language, answer in that language in its own script (the phone reads each script with the right \
+voice); mixing in English words the way people naturally do is fine. Malayalam written in English \
+letters (Manglish) is Malayalam: understand it and answer in Malayalam script unless asked \
+otherwise. If they switch language, switch with them.
+
 How {user} talks: they often speak fast, through speech recognition, sometimes mixing \
 languages. Read through recognition slips (missing or merged words, sound-alikes: "writer prime \
 number program" means "write a prime number program") and answer what they meant; ask only if \

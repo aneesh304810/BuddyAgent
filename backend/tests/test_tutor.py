@@ -109,3 +109,14 @@ def test_room_speech_is_never_kept():
                  response=response, request="room lines")
     row = mem.db.execute("SELECT request, reply, purpose FROM model_calls").fetchone()
     assert (row["request"], row["reply"], row["purpose"]) == ("", "", "listen")  # counted, not kept
+
+
+def test_whisper_hears_malayalam_and_english_mixed(monkeypatch):
+    from buddy import whisper
+
+    seen = {}
+    monkeypatch.setattr(whisper, "_transcribe", lambda pcm, hint, prompt, stats=None: (seen.update(hint=hint, prompt=prompt), ("ok", "ml"))[1])
+    asyncio.run(whisper.transcribe(b"\x00\x00", "auto:ml-IN,en-IN", "Names: Priya."))
+    assert seen["hint"] is None and "Malayalam and English" in seen["prompt"] and "Priya" in seen["prompt"]
+    asyncio.run(whisper.transcribe(b"\x00\x00", "ml-IN"))
+    assert seen["hint"] == "ml"

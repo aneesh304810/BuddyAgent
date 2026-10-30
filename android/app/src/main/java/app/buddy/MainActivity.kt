@@ -821,12 +821,37 @@ private fun SettingsPanel(
 
 
 /** Pick Buddy's voice: tap one to hear it. The list is this phone's English voices. */
+private val TALK_LANGUAGES = listOf(
+    "" to "The phone's language",
+    "auto:ml-IN,en-IN" to "Malayalam + English (switches between them)",
+    "ml-IN" to "Malayalam only",
+    "auto:hi-IN,en-IN" to "Hindi + English",
+    "auto:ta-IN,en-IN" to "Tamil + English",
+    "auto" to "Any language (Buddy works it out)",
+)
+
 /** Voice speed, and how long a pause means you've finished (fast talkers: short). */
 @Composable
 private fun SpeechTuning(prefs: BuddyPrefs) {
     var rate by remember { mutableStateOf(prefs.voiceRate) }
     var pauses by remember { mutableStateOf(prefs.pauses) }
+    var talkLanguage by remember { mutableStateOf(prefs.talkLanguage) }
     Column(Modifier.fillMaxWidth().padding(top = 12.dp)) {
+        Text("My languages (Talk mode)", color = Color.White)
+        Text("Buddy listens for these and replies in the one you use.", color = Muted, fontSize = 12.sp)
+        Column(Modifier.padding(vertical = 4.dp)) {
+            TALK_LANGUAGES.forEach { (value, label) ->
+                Row(verticalAlignment = Alignment.CenterVertically,
+                    modifier = Modifier.fillMaxWidth().clickable {
+                        talkLanguage = value
+                        prefs.talkLanguage = value
+                        BuddyService.instance?.let { if (BuddyState.ui.value.listening) it.startListening(BuddyState.ui.value.mode) }
+                    }.padding(vertical = 2.dp)) {
+                    RadioButton(selected = talkLanguage == value, onClick = null)
+                    Text(label, color = Color.White, modifier = Modifier.padding(start = 8.dp))
+                }
+            }
+        }
         Text("Buddy's voice speed: ${String.format(java.util.Locale.US, "%.1f", rate)}×", color = Color.White)
         Slider(value = rate, onValueChange = { rate = it }, valueRange = 0.7f..1.4f, steps = 6,
             onValueChangeFinished = {
