@@ -116,6 +116,10 @@ class Memory:
         self._add_columns("model_calls", {"turn": "TEXT NOT NULL DEFAULT ''",
                                           "verdict": "TEXT NOT NULL DEFAULT ''", "rating": "INTEGER"})
         self.db.execute("CREATE INDEX IF NOT EXISTS model_calls_turn ON model_calls (turn)")
+        # Room speech is never kept: clear previews older versions logged for Listen-in calls.
+        self.db.execute("UPDATE model_calls SET request = '', reply = '' WHERE purpose IN ('listen', 'think', "
+                        "'addressing') AND (request != '' OR reply != '')")
+        self.db.commit()
 
     def _add_columns(self, table: str, columns: dict[str, str]) -> None:
         """Columns added after a table first shipped (CREATE TABLE IF NOT EXISTS won't add them)."""
