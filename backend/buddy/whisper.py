@@ -113,6 +113,34 @@ def _wrong_script(text: str, language: str | None) -> bool:
     return len(letters) >= 6 and sum(not c.isascii() for c in letters) > len(letters) * 0.08
 
 
+# How sure Whisper was of a clip: the average log-probability of its words. Clear speech near the mic
+# is around -0.1 to -0.5; TV, music, far-off or overlapping voices and languages it barely knows fall
+# well below. Talk drops what's very unsure; Listen-in marks it so nothing is whispered from it alone.
+UNSURE_LOGPROB = float(os.getenv("BUDDY_UNSURE_LOGPROB", "-0.8"))
+TALK_DROP_LOGPROB = float(os.getenv("BUDDY_TALK_DROP_LOGPROB", "-1.0"))
+TALK_LONG_SECONDS, TALK_LONG_DROP_LOGPROB = 8.0, -0.7  # a long, unsure "question" is usually the room
+
+
+def _confidence(segments) -> float | None:
+    """The clip's average log-probability (by segment length), or None if Whisper gave none."""
+    scored = [(max(0.1, getattr(s, "end", 1.0) - getattr(s, "start", 0.0)), s.avg_logprob) for s in segments
+              if getattr(s, "avg_logprob", None) is not None and s.text.strip()]
+    if not scored:
+        return None
+    return sum(w * p for w, p in scored) / sum(w for w, _ in scored)
+
+
+def judge(mode: str, confidence: float | None, audio_seconds: float) -> str:
+    """'keep', 'unsure' (Listen-in: kept, marked) or 'drop' for a transcribed clip."""
+    if confidence is None:
+        return "keep"
+    if mode == "talk":
+        if confidence < TALK_DROP_LOGPROB or (audio_seconds >= TALK_LONG_SECONDS and confidence < TALK_LONG_DROP_LOGPROB):
+            return "drop"
+        return "keep"
+    return "unsure" if confidence < UNSURE_LOGPROB else "keep"
+
+
 def _clean(segments, prompt: str = "") -> str:
     """The text, without Whisper's made-up parts: segments it thinks are silence, garbled
     repetitive ones, runs of one word ("Bro, Bro, Bro…") and its own prompt read back.
@@ -130,7 +158,7 @@ def _clean(segments, prompt: str = "") -> str:
 
 
 def _transcribe(pcm: bytes, language: str | None, prompt: str = "", stats: dict | None = None,
-                allowed: list[str] | None = None, fallback: bool = True) -> tuple[str, str]:
+                allowed: list[str] | None = None, fallback: bool = True, meta: dict | None = None) -> tuple[str, str]:
     import numpy as np
 
     audio = np.frombuffer(pcm[: SAMPLE_RATE * 2 * MAX_SECONDS], dtype=np.int16).astype(np.float32) / 32768.0
@@ -150,6 +178,8 @@ def _transcribe(pcm: bytes, language: str | None, prompt: str = "", stats: dict 
             segments, info = run(better)  # segments are lazy: the first guess was never decoded
         segments = list(segments)
         text = _clean(segments, prompt)
+        if meta is not None:
+            meta["confidence"] = _confidence(segments)
         if _wrong_script(text, language):
             text = ""
         if stats is not None:
@@ -207,7 +237,8 @@ def _wav(pcm: bytes) -> bytes:
     return out.getvalue()
 
 
-async def _groq(pcm: bytes, hint: str | None, prompt: str, allowed: list[str] | None, http=None) -> tuple[str, str]:
+async def _groq(pcm: bytes, hint: str | None, prompt: str, allowed: list[str] | None, http=None,
+                meta: dict | None = None) -> tuple[str, str]:
     global _groq_resting_until, _groq_rest_reason
     import httpx
 
@@ -244,12 +275,15 @@ async def _groq(pcm: bytes, hint: str | None, prompt: str, allowed: list[str] | 
     if allowed and not hint and lang and lang not in allowed:
         raise GroqSkipped(f"heard {name}, outside My languages")  # the local model picks among them
     segments = [SimpleNamespace(text=sg.get("text", ""), no_speech_prob=sg.get("no_speech_prob", 0.0),
+                                start=sg.get("start", 0.0), end=sg.get("end", 1.0),
                                 avg_logprob=sg.get("avg_logprob", 0.0), compression_ratio=sg.get("compression_ratio", 1.0))
                 for sg in body.get("segments") or []]
     text = _clean(segments, prompt) if segments else _clean([SimpleNamespace(
         text=body.get("text", ""), no_speech_prob=0.0, avg_logprob=0.0, compression_ratio=1.0)], prompt)
     if _wrong_script(text, hint):
         text = ""
+    if meta is not None:
+        meta["confidence"] = _confidence(segments) if segments else None
     return text, (lang if text else "")
 
 
@@ -272,7 +306,7 @@ async def transcribe(pcm: bytes, language: str = "", prompt: str = "", stats: di
     if mode == "talk" and groq_on():  # never Listen-in: other people's voices stay on this server
         started = time.monotonic()
         try:
-            text, lang = await _groq(pcm, hint, prompt, allowed)
+            text, lang = await _groq(pcm, hint, prompt, allowed, meta=meta)
             meta.update(engine="groq", seconds=time.monotonic() - started,
                         audio_seconds=len(pcm) / (SAMPLE_RATE * 2))
             return text, lang
@@ -280,4 +314,4 @@ async def transcribe(pcm: bytes, language: str = "", prompt: str = "", stats: di
             meta["groq_skipped"] = str(e)
             log.info("Groq Whisper skipped (%s): local Whisper instead", e)
     meta["engine"] = "local"
-    return await asyncio.to_thread(_transcribe, pcm, hint, prompt, stats, allowed, mode == "talk")
+    return await asyncio.to_thread(_transcribe, pcm, hint, prompt, stats, allowed, mode == "talk", meta)

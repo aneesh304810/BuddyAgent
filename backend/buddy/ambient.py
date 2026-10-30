@@ -50,7 +50,8 @@ has recognition errors. Speech may be in any language, possibly transcribed in \
 Latin script or mixed.
 
 {user} understands these languages perfectly: {known}. (The [xx] tag on each line is speech \
-recognition's guess at the language and is often wrong: judge the language from the words.) Never translate or \
+recognition's guess at the language and is often wrong: judge the language from the words. A tag \
+ending in "?" means recognition was unsure of that line: its words may be garbled or invented.) Never translate or \
 summarise speech in those languages; {user} heard it already.
 
 Decide whether to whisper something short into {user}'s ear right now. Whisper \
@@ -60,7 +61,10 @@ only when it is genuinely useful; staying quiet is the normal case. Reasons:
 Give the gist of the conversation in English: what it's about and the main \
 point, in one or two short sentences, naming the language ("In Spanish: they're \
 planning dinner; they want to go at eight and are asking if you're coming."). \
-Use the earlier lines for context. Skip bare greetings and small talk.
+Use the earlier lines for context. Skip bare greetings and small talk. Be honest: \
+never build a gist from unsure [xx?] lines or text that reads as garbled; if foreign \
+talk is going on but the words are unclear, either stay quiet or whisper only that \
+("People nearby are talking in Spanish; I couldn't make out what.") once, not repeatedly.
 - "about_you": in a language {user} does NOT understand, people are talking \
 about {user}, making fun of them, insulting them, or planning something that \
 affects them. Say plainly what was said and the tone, without exaggerating. \
@@ -191,11 +195,12 @@ class AmbientListener:
         self._running: asyncio.Task | None = None
         self._again = False
 
-    def hear(self, text: str, lang: str) -> None:
-        """Add a transcribed segment and analyse it (coalescing bursts of speech)."""
+    def hear(self, text: str, lang: str, unclear: bool = False) -> None:
+        """Add a transcribed segment and analyse it (coalescing bursts of speech). unclear: speech
+        recognition wasn't sure (TV, distance, a language it barely knows): tagged [xx?]."""
         if len(self.segments) == self.segments.maxlen:
             self.seen = max(0, self.seen - 1)  # the oldest segment is about to drop
-        self.segments.append((time.monotonic(), lang, mask(text)))
+        self.segments.append((time.monotonic(), f"{lang or '??'}?" if unclear else lang, mask(text)))
         transcripts.keep(self.memory, text, lang)  # only if you switched room transcripts on (2 days)
         if self._running and not self._running.done():
             self._again = True

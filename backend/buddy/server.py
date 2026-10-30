@@ -516,6 +516,7 @@ async def talk(ws: WebSocket) -> None:
 
     pending: dict = {"text": "", "task": None}  # a sentence cut off by a pause, waiting for its end
     last_heard = [-1e9]  # when Whisper last sent text back
+    unsure_heard: dict[str, float] = {}  # room lines Whisper wasn't sure of (text -> when)
 
     async def start_answer(text: str, via: str) -> None:
         nonlocal current
@@ -560,8 +561,15 @@ async def talk(ws: WebSocket) -> None:
             if meta.get("engine") == "groq":  # in Insights with Buddy's other model calls (no text kept)
                 usage.log_call(memory, provider="groq", model=speech_to_text.groq_model(), purpose="speech",
                                seconds=meta["seconds"], cost=speech_to_text.groq_cost(meta["audio_seconds"]))
+            mode = "talk" if msg.get("mode") == "talk" else "room"
+            verdict = speech_to_text.judge(mode, meta.get("confidence"), len(base64.b64decode(msg["pcm"])) / 32000)
+            if heard and verdict == "drop":  # Talk: TV or other people, not you; not answered
+                log.info("whisper: dropped an unsure %s clip (%.2f)", mode, meta.get("confidence") or 0)
+                heard = ""
             if heard:
                 last_heard[0] = time.monotonic()
+                if verdict == "unsure":
+                    unsure_heard[heard] = time.monotonic()  # Listen-in: kept, but marked as unclear
                 await send({"type": "heard", "text": heard, "lang": lang, "id": msg.get("id")})
         except speech_to_text.WhisperUnavailable as e:
             await send({"type": "error", "text": str(e)})
@@ -646,6 +654,9 @@ async def talk(ws: WebSocket) -> None:
                 await start_answer(text, via)
             elif msg.get("type") == "ambient" and msg.get("text", "").strip():
                 text = msg["text"].strip()
+                for old_line in [k for k, t in unsure_heard.items() if time.monotonic() - t > 120]:
+                    unsure_heard.pop(old_line, None)
+                unclear = unsure_heard.pop(text, None) is not None
                 command = addressed_to_buddy(text)
                 if command:  # "Buddy, what did he just say?" is a command, not ambient talk
                     await stop_current()
@@ -654,6 +665,8 @@ async def talk(ws: WebSocket) -> None:
                 elif is_think_cue(text):  # "let me think": whisper them an answer now
                     listener.hear(text, str(msg.get("lang", "")))
                     listener.think()
+                elif unclear:  # Whisper wasn't sure: room talk, marked, never taken as said to Buddy
+                    listener.hear(text, str(msg.get("lang", "")), unclear=True)
                 else:
                     asyncio.create_task(room_or_buddy(text, str(msg.get("lang", ""))))
             elif msg.get("type") == "notification":

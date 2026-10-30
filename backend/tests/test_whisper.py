@@ -98,7 +98,7 @@ def test_only_talk_mode_goes_to_groq_and_failures_fall_back(monkeypatch):
     groq_env(monkeypatch)
     used = []
 
-    async def fake_groq(pcm, hint, prompt, allowed, http=None):
+    async def fake_groq(pcm, hint, prompt, allowed, http=None, meta=None):
         used.append("groq")
         return "hello", "en"
     monkeypatch.setattr(whisper, "_groq", fake_groq)
@@ -174,3 +174,29 @@ def test_foreign_speech_is_checked_sooner(monkeypatch):
     listener.segments = deque([(t.monotonic(), "es", "Hola, como estás?")])
     asyncio.run(listener._wait_for_batch())
     assert waits and waits[0] <= ambient.FOREIGN_BATCH_SECONDS
+
+
+def test_clip_confidence_and_what_happens_to_unsure_clips():
+    clear = [S(text=" What's the weather?", avg_logprob=-0.25, start=0.0, end=2.0)]
+    tv = [S(text=" It's a good idea. It's an equity.", avg_logprob=-0.95, start=0.0, end=12.0)]
+    assert -0.3 < whisper._confidence(clear) < -0.2
+    assert whisper.judge("talk", whisper._confidence(clear), 2) == "keep"
+    assert whisper.judge("talk", whisper._confidence(tv), 15) == "drop"  # long and unsure: the room, not you
+    assert whisper.judge("talk", -1.2, 2) == "drop"
+    assert whisper.judge("talk", -0.75, 3) == "keep"  # short and a bit unsure: still you
+    assert whisper.judge("room", -0.95, 12) == "unsure"  # Listen-in keeps it, marked
+    assert whisper.judge("room", -0.3, 12) == "keep"
+    assert whisper.judge("talk", None, 20) == "keep"  # no score: nothing to judge by
+
+
+def test_unsure_room_lines_are_tagged(monkeypatch):
+    from collections import deque
+    from buddy import ambient
+
+    monkeypatch.setattr(ambient.transcripts, "keep", lambda *a, **k: None)
+    monkeypatch.setattr(ambient.asyncio, "create_task", lambda coro: coro.close())
+    listener = ambient.AmbientListener.__new__(ambient.AmbientListener)
+    listener.segments, listener.seen, listener._running, listener.memory = deque(maxlen=10), 0, None, None
+    listener.hear("Hola, como estás?", "es", unclear=True)
+    listener.hear("We're leaving at eight.", "en")
+    assert [lang for _, lang, _ in listener.segments] == ["es?", "en"]

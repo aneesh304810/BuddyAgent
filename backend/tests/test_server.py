@@ -322,3 +322,23 @@ def test_sleep_until_hey_buddy_switches_the_app_to_listen_in(monkeypatch):
             got.append(ws.receive_json())
     assert {"type": "mode", "mode": "listen"} in got
     assert any(m["type"] == "say" and m["text"] == "Going quiet." for m in got)
+
+
+def test_unsure_talk_clips_are_not_answered(monkeypatch):
+    import base64
+    from buddy import whisper
+
+    clips = iter([("It's a good idea. It's an equity.", -1.1), ("What's the weather?", -0.2)])
+
+    async def fake_transcribe(pcm, language="", prompt="", meta=None, **kwargs):
+        text, score = next(clips)
+        meta["confidence"] = score
+        return text, "en"
+
+    monkeypatch.setattr(whisper, "transcribe", fake_transcribe)
+    audio = base64.b64encode(b"\x01\x00" * 16000).decode()
+    with TestClient(server.app) as c, c.websocket_connect("/ws") as ws:
+        ws.send_json({"type": "audio", "pcm": audio, "lang": "en-US", "mode": "talk"})
+        ws.send_json({"type": "audio", "pcm": audio, "lang": "en-US", "mode": "talk"})
+        got = ws.receive_json()
+    assert got["type"] == "heard" and got["text"] == "What's the weather?"  # the TV line never came back
