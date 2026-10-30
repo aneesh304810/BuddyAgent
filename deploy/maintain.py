@@ -279,6 +279,9 @@ def check_system() -> None:
     if not backups or time.time() - backups[-1].stat().st_mtime > 2 * 86400:
         find("act", "No backup in the last 2 days", backups[-1].name if backups else "none found",
              "systemctl status buddy-backup.timer; run one now: sudo systemctl start buddy-backup")
+    if not shutil.which("dot"):
+        find("watch", "Graphviz isn't installed, so diagrams don't work", "The dot command is missing.",
+             "sudo apt-get update && sudo apt-get install -y graphviz")
     usage = shutil.disk_usage("/")
     if usage.used / usage.total > 0.85:
         find("watch", f"The disk is {int(usage.used / usage.total * 100)}% full", f"{usage.free // 2**30} GB free",

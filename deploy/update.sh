@@ -6,7 +6,13 @@
 set -euo pipefail
 APP=/opt/buddy
 [[ $EUID -eq 0 ]] || { echo "Run as root (sudo)."; exit 1; }
+BEFORE=$(sha256sum "$APP/deploy/update.sh" | cut -d' ' -f1)
 git -c safe.directory="$APP" -C "$APP" pull --ff-only
+# If this script itself changed, run the new version (bash would keep running the old one).
+if [ "${BUDDY_UPDATE_REEXEC:-}" != 1 ] && [ "$BEFORE" != "$(sha256sum "$APP/deploy/update.sh" | cut -d' ' -f1)" ]; then
+  echo "  The update script changed: running the new version"
+  BUDDY_UPDATE_REEXEC=1 exec bash "$APP/deploy/update.sh" "$@"
+fi
 # Settings files written by older versions: bring the gmail agent up to date (all accounts).
 python3 - "$APP/backend/agents.yaml" <<'PY'
 import re, sys
@@ -24,7 +30,11 @@ PY
 chown -R buddy:buddy "$APP"
 sudo -u buddy "$APP/backend/.venv/bin/pip" install -q --upgrade pip setuptools
 # Graphviz draws Buddy's diagrams.
-command -v dot >/dev/null || DEBIAN_FRONTEND=noninteractive apt-get install -y -q graphviz >/dev/null
+if ! command -v dot >/dev/null; then
+  echo "  Installing Graphviz (for diagrams)"
+  { apt-get update -q >/dev/null && DEBIAN_FRONTEND=noninteractive apt-get install -y -q graphviz >/dev/null; } \
+    || echo "  !! Graphviz didn't install; diagrams won't work until: sudo apt-get update && sudo apt-get install -y graphviz"
+fi
 sudo -u buddy "$APP/backend/.venv/bin/pip" install -q --upgrade -r "$APP/backend/requirements.txt"
 # The settings hold every secret: root only (systemd hands Buddy what it needs).
 for f in /etc/buddy/buddy.env /etc/buddy/buddy.env.cred /etc/buddy/key-dates; do
