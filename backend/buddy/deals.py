@@ -170,6 +170,7 @@ class PriceWatcher:
                 tools=[{"type": "web_search_20260209", "name": "web_search", "max_uses": 3},
                        web_fetch(3)],
                 output_config={"effort": "low"},
+                cache_control={"type": "ephemeral"},  # a resumed search re-sends what it found: read it from cache
                 **fallback_kwargs(model),
             )
             if hasattr(response, "usage"):

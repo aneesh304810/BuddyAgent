@@ -279,7 +279,8 @@ class AgentBuilder:
                     model=settings.model, max_tokens=32_000, messages=messages,
                     tools=[{"type": "web_search_20260209", "name": "web_search", "max_uses": 5},
                            web_fetch(8)],
-                    output_config={"effort": "high"}, **fallback_kwargs(settings.model),
+                    output_config={"effort": "high"}, cache_control={"type": "ephemeral"},  # resumed steps read from cache
+                    **fallback_kwargs(settings.model),
                 ) as stream:
                     response = await stream.get_final_message()
                 ctx.record(response)
