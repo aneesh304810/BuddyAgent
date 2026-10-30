@@ -837,6 +837,7 @@ private fun SpeechTuning(prefs: BuddyPrefs) {
     var pauses by remember { mutableStateOf(prefs.pauses) }
     var talkLanguage by remember { mutableStateOf(prefs.talkLanguage) }
     var muteBeep by remember { mutableStateOf(prefs.muteListenBeep) }
+    var advanced by remember { mutableStateOf(!prefs.simpleRecognition) }
     Column(Modifier.fillMaxWidth().padding(top = 12.dp)) {
         Row(verticalAlignment = Alignment.CenterVertically, modifier = Modifier.padding(bottom = 8.dp)) {
             Column(Modifier.weight(1f)) {
@@ -847,6 +848,15 @@ private fun SpeechTuning(prefs: BuddyPrefs) {
             }
             Switch(checked = muteBeep, onCheckedChange = { muteBeep = it; prefs.muteListenBeep = it })
         }
+        Row(verticalAlignment = Alignment.CenterVertically, modifier = Modifier.padding(bottom = 8.dp)) {
+            Column(Modifier.weight(1f)) {
+                Text("Advanced phone recognition", color = Color.White)
+                Text("Lets the phone's recognizer switch between your languages and favour names Buddy knows. " +
+                    "Some phones reject it and keep retrying (and beeping); Whisper on your server does both " +
+                    "anyway.", color = Muted, fontSize = 12.sp)
+            }
+            Switch(checked = advanced, onCheckedChange = { advanced = it; prefs.simpleRecognition = !it })
+        }
         Text("My languages (Talk mode)", color = Color.White)
         Text("Buddy listens for these and replies in the one you use.", color = Muted, fontSize = 12.sp)
         Column(Modifier.padding(vertical = 4.dp)) {
@@ -855,7 +865,6 @@ private fun SpeechTuning(prefs: BuddyPrefs) {
                     modifier = Modifier.fillMaxWidth().clickable {
                         talkLanguage = value
                         prefs.talkLanguage = value
-                        prefs.simpleRecognition = false  // a new choice gets a fresh try
                         BuddyService.instance?.let { if (BuddyState.ui.value.listening) it.startListening(BuddyState.ui.value.mode) }
                     }.padding(vertical = 2.dp)) {
                     RadioButton(selected = talkLanguage == value, onClick = null)

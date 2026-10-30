@@ -142,7 +142,7 @@ class Ears(
             // "Pauses when I talk" (Settings): how long a silence means you've finished.
             val silence = BuddyPrefs(context).endSilenceMs
             putExtra(RecognizerIntent.EXTRA_SPEECH_INPUT_COMPLETE_SILENCE_LENGTH_MILLIS, silence + 500)
-            putExtra(RecognizerIntent.EXTRA_SPEECH_INPUT_POSSIBLY_COMPLETE_SILENCE_LENGTH_MILLIS, silence)
+            if (!simple) putExtra(RecognizerIntent.EXTRA_SPEECH_INPUT_POSSIBLY_COMPLETE_SILENCE_LENGTH_MILLIS, silence)
             if (!simple && Build.VERSION.SDK_INT >= Build.VERSION_CODES.TIRAMISU && Vocabulary.words.isNotEmpty()) {
                 putStringArrayListExtra(RecognizerIntent.EXTRA_BIASING_STRINGS, ArrayList(Vocabulary.words.take(50)))
             }
@@ -251,9 +251,10 @@ class Ears(
                     if (error in JAMMED) fresh()  // a stuck or disconnected recogniser: start over with a new one
                     if (failures == 2 && !simple && error !in JAMMED) {
                         simple = true  // drop language switching and vocabulary hints, then retry
-                        BuddyPrefs(context).simpleRecognition = true
+                        BuddyPrefs(context).simpleRecognition = true  // and don't try them again
                         onProblem("Speech recognition didn't accept language switching here (${errorName(error)}), " +
-                            "so I'm listening in ${Locale.forLanguageTag(language).displayLanguage} only for now.")
+                            "so I'm listening in ${Locale.forLanguageTag(language).displayLanguage} only. (Settings → " +
+                            "Advanced phone recognition turned off.)")
                     } else if (failures == 6) {
                         onProblem("Speech recognition keeps failing (${errorName(error)}). Try Settings → Speech " +
                             "engine → Server, or restart Buddy.")
