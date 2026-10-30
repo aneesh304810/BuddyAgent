@@ -117,9 +117,11 @@ class BuddyService : Service() {
             serverEars.active -> serverEars
             phoneEars.active -> phoneEars
             prefs.speechEngine == "server" -> serverEars
-            // Automatic: Google's recognizer while the screen is on; with the phone closed or
-            // locked it often stops, so Whisper on your server takes over (if it's installed).
-            prefs.speechEngine == "auto" && screenOff && whisperOnServer -> serverEars
+            // Automatic: Whisper on your server for continuous listening (Talk hands-free, Listen-in,
+            // or the phone closed). The phone's recognizer hears one phrase per session, so it restarts
+            // every few seconds and beeps each time; it's kept for single tap-to-talk questions.
+            prefs.speechEngine == "auto" && whisperOnServer &&
+                (screenOff || activeMode == Mode.LISTEN_IN || prefs.handsFree) -> serverEars
             else -> phoneEars
         }
     private lateinit var mouth: Mouth
@@ -434,7 +436,18 @@ class BuddyService : Service() {
         val language = if (mode == Mode.LISTEN_IN) prefs.roomLanguage
             else prefs.talkLanguage.ifEmpty { Locale.getDefault().toLanguageTag() }
         ears.start(language)
+        if (ears === phoneEars && (prefs.handsFree || mode == Mode.LISTEN_IN) && !whisperNoteShown) {
+            whisperNoteShown = true
+            BuddyState.add(Line(
+                if (whisperOnServer) "Listening with the phone's speech recognition, which beeps each time it " +
+                    "restarts. Settings → Speech recognition → Automatic or Server uses your server and never beeps."
+                else "Listening with the phone's speech recognition, which beeps each time it restarts. To stop " +
+                    "that, install Whisper on your server (sudo bash /opt/buddy/deploy/whisper.sh); Automatic " +
+                    "then uses it.", Speaker.ERROR))
+        }
     }
+
+    private var whisperNoteShown = false
 
     fun stopListening() {
         if (ears.active && activeMode == Mode.LISTEN_IN) {
