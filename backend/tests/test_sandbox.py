@@ -1,6 +1,7 @@
 """The code sandbox: what the sandbox service allows, and the coding agent driving it."""
 
 import asyncio
+import base64
 import importlib.util
 import os
 from pathlib import Path
@@ -99,6 +100,10 @@ def test_coding_agent_works_through_the_sandbox_and_reports(monkeypatch):
             return {"exit_code": 0, "output": "" if len([c for c in calls if c[0] == "list"]) == 1 else "app.py"}
         if op == "diff":
             return {"exit_code": 0, "output": " M app.py\n---\n app.py | 2 +-\n-bug\n+fix"}
+        if op == "outputs":
+            return {"files": [{"path": "report.pdf", "size": 9}, {"path": "page.html", "size": 5}]}
+        if op == "fetch":
+            return {"base64": base64.b64encode(b"%PDF-1.4\n").decode()}
         return {"exit_code": 0, "output": "1 passed"}
     monkeypatch.setattr(sandbox, "call", fake_call)
     script = [
@@ -129,8 +134,14 @@ def test_coding_agent_works_through_the_sandbox_and_reports(monkeypatch):
                                                        "workspace": "app"}}
     result = asyncio.run(codejob.run_code_task(job, JobContext(mem, job)))
     ops = [c[0] for c in calls]
-    assert ops[:3] == ["create", "list", "clone"] and "run" in ops and ops[-1] == "diff"
-    assert result.summary == "Fixed the bug." and result.findings == ["changed:yes"]
+    assert ops[:3] == ["create", "list", "clone"] and "run" in ops and "diff" in ops
+    assert "delete" not in ops  # a repo workspace is kept
+    assert result.summary == "Fixed the bug." and result.findings[0] == "changed:yes"
+    outputs = [f.split(":", 1)[1] for f in result.findings if f.startswith("output:")]
+    assert len(outputs) == 1  # the PDF; the .html isn't a deliverable type
+    from buddy import makers
+    card = makers.card_for(mem, outputs[0])
+    assert card["kind"] == "file" and card["subtitle"].startswith("PDF")
     assert "```diff" in result.report and "pytest -q" in result.report
 
 
@@ -154,3 +165,57 @@ def test_buddy_talks_to_the_service_over_its_socket(sbx, tmp_path, monkeypatch):
     asyncio.run(body())
     with pytest.raises(sandbox.SandboxError, match="isn't running"):
         asyncio.run(sandbox.call("status", socket_path=str(tmp_path / "missing.sock")))
+
+
+def test_one_off_tasks_start_without_asking_and_tidy_up(monkeypatch):
+    calls = []
+
+    async def fake_call(op, socket_path=None, timeout=1900, **args):
+        calls.append((op, args))
+        return {"files": []} if op == "outputs" else {"exit_code": 0, "output": ""}
+    monkeypatch.setattr(sandbox, "call", fake_call)
+    monkeypatch.setattr(sandbox, "available", lambda path=None: True)
+    submitted = []
+
+    class Runner:
+        def started_today(self, kind):
+            return 0
+
+        def submit(self, kind, title, params):
+            submitted.append((kind, params))
+
+    class Thrift:
+        def ask_action(self, question, action):
+            raise AssertionError("one-off tasks shouldn't ask")
+    out = asyncio.run(codejob.run_code_tool(Runner(), "start_task",
+                                            {"task": "analyse this CSV of expenses and make a chart"}, Thrift()))
+    assert "background" in out and submitted[0][0] == "code"
+    params = submitted[0][1]
+    assert params["repo"] == "" and not params["keep"] and params["workspace"].startswith("analyse-this-csv")
+    asked = []
+
+    class AskingThrift:
+        def ask_action(self, question, action):
+            asked.append(question)
+            return question
+    asyncio.run(codejob.run_code_tool(Runner(), "start_task", {"task": "fix tests",
+                                                               "repo": "github.com/me/app"}, AskingThrift()))
+    assert asked and "repo" in asked[0]
+
+
+def test_finished_task_arrives_in_the_chat_with_its_files(monkeypatch):
+    from buddy import makers, server
+
+    file = makers.save(server.memory, b"%PDF-1.4\n", "Expenses report", "pdf", "task result")
+    sent = []
+
+    async def deliver(kind, text, **extra):
+        sent.append((kind, text, extra))
+        return True
+    monkeypatch.setattr(server, "deliver", deliver)
+    job = {"id": 7, "kind": "code", "status": "done", "title": "Analyse expenses", "summary": "Food is 40%.",
+           "params": {"task": "x", "repo": ""}, "findings": ["changed:no", f"output:{file['id']}"]}
+    asyncio.run(server.job_finished(job))
+    kind, text, extra = sent[0]
+    assert text.startswith("Done: Analyse expenses. Food is 40%.")
+    assert extra["cards"][0]["title"] == "Expenses report.pdf" and extra["job_id"] == 7

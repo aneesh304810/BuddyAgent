@@ -32,7 +32,7 @@ def workspace_name(text: str) -> str:
 async def call(op: str, socket_path: str | None = None, timeout: float = 1900, **args) -> dict:
     """One request to the sandbox; raises SandboxError with its refusal."""
     try:
-        reader, writer = await asyncio.wait_for(asyncio.open_unix_connection(socket_path or SOCKET, limit=8_000_000),
+        reader, writer = await asyncio.wait_for(asyncio.open_unix_connection(socket_path or SOCKET, limit=32_000_000),
                                                 timeout=10)
     except (OSError, asyncio.TimeoutError) as e:
         raise SandboxError("The code sandbox isn't running (set it up with deploy/sandbox.sh).") from e

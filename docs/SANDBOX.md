@@ -1,17 +1,28 @@
-# The code sandbox: Buddy does coding work for you on your server
+# The sandbox: Buddy's computer for getting things done
 
-Ask Buddy things like:
+The sandbox is a workspace on your server where Buddy does real work for you in the
+background, then tells you it's done, with the results in the chat. Ask for anything that
+needs a computer rather than a quick answer:
 
+- *"Analyse my bank export and tell me where the money goes, with a chart."*
+- *"Compare the prices on these three pages and give me a spreadsheet."*
+- *"Convert this data to Excel and add totals per month."*
+- *"Write a script that renames my photos by date and test it on samples."*
+- *"Make a PDF report about rent prices in Miraflores from the latest listings."*
 - *"Clone github.com/me/app, run the tests and fix whatever fails."*
-- *"In my app repo, add a /health endpoint with a test."*
-- *"Write a script that renames my photos by date and test it on some samples."*
 
-A coding agent (Claude Sonnet by default) works on it in the background, in a workspace on
-your DigitalOcean server. It reads the code, runs commands, edits files and runs the tests,
-then tells you what it did. The full report (steps, how it checked, the diff) is in
-**Reports**. If it changed a GitHub repo, Buddy asks **"Shall I push the changes to a new buddy
-branch?"** and pushes only after your yes, to a branch named `buddy/...`, never to `main`.
-You open the pull request yourself.
+Buddy starts it (small tasks start straight away; repo work asks first), keeps talking with
+you, and when it's finished you get **"Done: ..."** in the chat with the answer and the
+**files it made** as cards (PDF, Excel, CSV, Word, PowerPoint, charts) to tap and open. The
+full report (steps, how it checked, any code changes) is in **Reports**. If it changed a
+GitHub repo, Buddy asks **"Shall I push the changes to a new buddy branch?"** and pushes only
+after your yes, to a branch named `buddy/...`, never to `main`.
+
+The workspace has Python with pandas, Excel, matplotlib, Word, PowerPoint, PDF and
+web-scraping libraries, Node and git, and internet access. One-off tasks get their own
+workspace, deleted once the results are delivered; repo workspaces (or ones you name, *"in the
+trip workspace..."*) are kept for next time. Limits: $3 and 40 steps per task, 10 tasks a day
+(`BUDDY_TASKS_DAILY_LIMIT`).
 
 ## Set it up (once, about 5 minutes)
 

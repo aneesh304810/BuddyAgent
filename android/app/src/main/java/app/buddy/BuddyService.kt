@@ -319,7 +319,7 @@ class BuddyService : Service() {
             }
             is ServerEvent.Nudge -> {
                 BuddyState.add(Line(event.text, Speaker.NUDGE, event.jobId, opensInsights = event.kind == "health",
-                    kind = event.kind))
+                    kind = event.kind, cards = event.cards))
                 Notes.nudge(this, event.text, event.jobId)
                 if (!BuddyState.ui.value.onCall) mouth.speak(event.text)
             }

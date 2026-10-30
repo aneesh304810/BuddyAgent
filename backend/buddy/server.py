@@ -109,7 +109,10 @@ async def deliver(kind: str, text: str, **extra) -> bool:
     for ws, convo in list(connections.items()):
         with contextlib.suppress(Exception):
             trace("→", {"type": "nudge", "kind": kind, "text": text})
-            await ws.send_json({"type": "nudge", "kind": kind, "text": text, **extra})
+            message = {"type": "nudge", "kind": kind, "text": text, **extra}
+            if extra.get("cards"):
+                message["cards"] = _absolute(extra["cards"], ws)  # full links for this phone
+            await ws.send_json(message)
             convo.note_proactive(text)
     return True
 
@@ -127,16 +130,18 @@ async def job_finished(job: dict) -> bool:
         return await deliver("job_done", f"{job.get('summary') or ''} {question}".strip(), job_id=job["id"])
     if job["kind"] == "code":
         if job["status"] != "done":
-            return await deliver("job_done", f"The coding task didn't finish: {job.get('error') or 'unknown error'}",
+            return await deliver("job_done", f"The task didn't finish: {job.get('error') or 'unknown error'}",
                                  job_id=job["id"])
-        text = f"Coding task done. {job.get('summary') or ''}".strip()
+        text = f"Done: {job['title']}. {job.get('summary') or ''}".strip()
+        found = [str(f).split(":", 1)[1] for f in (job.get("findings") or []) if str(f).startswith("output:")]
+        results = [c for c in (makers.card_for(memory, fid) for fid in found) if c]
         if (job.get("params") or {}).get("repo") and "changed:yes" in str(job.get("findings")):
             async def push_it() -> str:
                 return await codejob.push(job)
             question = "Shall I push the changes to a new buddy branch on GitHub?"
             thrift.ask_action(question, push_it)
             text = f"{text} {question}"
-        return await deliver("job_done", text, job_id=job["id"])
+        return await deliver("job_done", text, job_id=job["id"], cards=results)
     if job["status"] == "done":
         text = f"Your research on {job['title']} is ready. {job.get('summary') or ''}".strip()
         params = job.get("params") or {}

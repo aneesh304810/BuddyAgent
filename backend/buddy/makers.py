@@ -36,7 +36,9 @@ FILES_DIR = Path(os.getenv("BUDDY_FILES_DIR", str(Path(settings.db_path).parent 
                            if settings.db_path != ":memory:" else str(Path(tempfile.gettempdir()) / "buddy-files")))
 LINK_DAYS = 30
 MAX_FILE_BYTES = 25_000_000
-MIME = {"png": "image/png", "jpg": "image/jpeg",
+MIME = {"png": "image/png", "jpg": "image/jpeg", "pdf": "application/pdf", "csv": "text/csv",
+        "txt": "text/plain", "md": "text/markdown", "json": "application/json", "zip": "application/zip",
+        "xlsx": "application/vnd.openxmlformats-officedocument.spreadsheetml.sheet",
         "docx": "application/vnd.openxmlformats-officedocument.wordprocessingml.document",
         "pptx": "application/vnd.openxmlformats-officedocument.presentationml.presentation"}
 SCHEMA = """CREATE TABLE IF NOT EXISTS files (
@@ -97,9 +99,22 @@ def _card(file: dict, title: str, note: str = "") -> dict:
         return {"kind": "image", "title": title, "subtitle": file["kind"], "image": url, "url": url, "note": note,
                 "file_id": file["id"]}
     size = f"{file['size'] / 1024:.0f} KB" if file["size"] < 1_000_000 else f"{file['size'] / 1e6:.1f} MB"
-    label = {"docx": "Word document", "pptx": "PowerPoint deck"}.get(file["ext"], file["ext"])
+    label = {"docx": "Word document", "pptx": "PowerPoint deck", "xlsx": "Excel spreadsheet", "pdf": "PDF",
+             "csv": "CSV data", "txt": "Text", "md": "Text", "json": "JSON data", "zip": "Zip archive"
+             }.get(file["ext"], file["ext"])
     return {"kind": "file", "title": file["name"], "subtitle": f"{label} · {size}", "url": url, "note": note,
             "file_id": file["id"], "ext": file["ext"]}
+
+
+def card_for(memory: Memory, file_id: str, note: str = "") -> dict | None:
+    """The chat card for a file Buddy keeps (for results delivered later, like a finished task)."""
+    found = find(memory, file_id)
+    if not found:
+        return None
+    row = found[1]
+    file = {"id": row["id"], "name": f"{row['name']}.{row['ext']}", "ext": row["ext"], "size": row["size"],
+            "kind": row["kind"]}
+    return _card(file, row["name"] if row["ext"] in ("png", "jpg") else file["name"], note)
 
 
 def _show(card: dict) -> str:

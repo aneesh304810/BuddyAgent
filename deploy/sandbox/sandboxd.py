@@ -12,6 +12,8 @@ connection, and can ask for only these things:
   read    {workspace, path}                   read a file (first 200 KB)
   list    {workspace, path?}                  list files
   diff    {workspace}                         what changed since the clone
+  outputs {workspace}                         files the task left in output/ (names and sizes)
+  fetch   {workspace, path}                   one of those files, base64 (at most 20 MB)
   push    {workspace, branch}                 push to a buddy/... branch (Buddy asks the user first)
   delete  {workspace}
   status  {}                                  workspaces and disk use
@@ -161,6 +163,26 @@ def handle(req: dict) -> dict:
         return _run(docker_run(ws, ["sh", "-c", 'cd "$1" && git ls-files 2>/dev/null | head -500 || '
                                      'find . -maxdepth 3 -not -path "*/.git*" | head -500', "sh", path],
                                network=False), 60)
+    if op == "outputs":
+        r = _run(docker_run(ws, ["sh", "-c", "find /work/output -maxdepth 2 -type f -printf '%P\\t%s\\n' 2>/dev/null "
+                                     "| head -50"], network=False), 60)
+        files = []
+        for line in r["output"].splitlines():
+            name, _, size = line.partition("\t")
+            if name and size.isdigit():
+                files.append({"path": name, "size": int(size)})
+        return {"files": files}
+    if op == "fetch":
+        path = safe_path("output/" + str(req.get("path", "")))
+        script = 'test -f "$1" && [ "$(stat -c %s "$1")" -le 20000000 ] && base64 -w0 "$1"'
+        try:
+            done = subprocess.run(docker_run(ws, ["sh", "-c", script, "sh", path], network=False),
+                                  capture_output=True, timeout=120)
+        except subprocess.TimeoutExpired as e:
+            raise Refused("reading that file took too long") from e
+        if done.returncode != 0:
+            raise Refused("no such file in output/, or it's over 20 MB")
+        return {"base64": done.stdout.decode("ascii", "replace")}
     if op == "diff":
         return _run(docker_run(ws, ["sh", "-c", "git -c core.hooksPath=/dev/null add -A --intent-to-add >/dev/null 2>&1; "
                                      "git status --short && echo --- && git -c core.pager=cat diff HEAD --stat "

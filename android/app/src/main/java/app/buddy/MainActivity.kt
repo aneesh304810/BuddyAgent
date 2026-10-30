@@ -389,6 +389,7 @@ private fun SystemNote(text: String) {
 private fun nudgeLabel(line: Line): String = when {
     line.from == Speaker.WHISPER -> "🤫 Whisper"
     line.opensInsights -> "🩺 Daily check · tap for Insights"
+    line.jobId != null && line.kind == "job_done" && line.text.startsWith("Done:") -> "\u2705 Task done \u00B7 tap for the report"
     line.jobId != null -> "📄 Report ready · tap to open"
     line.kind.contains("remind") -> "⏰ Reminder"
     line.kind.contains("brief") || line.kind.contains("morning") -> "☀️ Briefing"

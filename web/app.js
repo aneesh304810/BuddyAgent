@@ -232,6 +232,7 @@ function connect() {
     } else if (msg.type === "nudge") {
       const line = addLine(msg.text, "buddy nudge");
       if (msg.job_id) addReportButton(line, msg.job_id);
+      if ((msg.cards || []).length) showCards(msg.cards);
       if (msg.kind === "health") {
         const btn = document.createElement("button");
         btn.className = "link";

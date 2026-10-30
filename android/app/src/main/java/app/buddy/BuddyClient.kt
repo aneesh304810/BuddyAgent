@@ -17,7 +17,7 @@ sealed interface ServerEvent {
     data class Done(val turn: String) : ServerEvent  // turn: lets you rate the reply
     data class Cards(val json: String) : ServerEvent  // results to show under the reply
     data object Thinking : ServerEvent
-    data class Nudge(val kind: String, val text: String, val jobId: Int? = null) : ServerEvent
+    data class Nudge(val kind: String, val text: String, val jobId: Int? = null, val cards: String? = null) : ServerEvent
     data class Whisper(val kind: String, val text: String) : ServerEvent
     data class Error(val text: String) : ServerEvent
     data class Approval(val question: String) : ServerEvent
@@ -35,6 +35,7 @@ sealed interface ServerEvent {
                     msg.optString("kind"),
                     msg.getString("text"),
                     if (msg.has("job_id")) msg.getInt("job_id") else null,
+                    msg.optJSONArray("cards")?.takeIf { it.length() > 0 }?.toString(),
                 )
                 "whisper" -> Whisper(msg.optString("kind"), msg.getString("text"))
                 "error" -> Error(msg.getString("text"))
