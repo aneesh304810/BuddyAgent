@@ -73,7 +73,7 @@ secrets_seal() {
       cp "$_SECRETS_TMP" "$_SECRETS_BEFORE"
     fi
   elif [[ -f $PLAIN_ENV ]]; then
-    chown root:root "$PLAIN_ENV" && chmod 600 "$PLAIN_ENV"
+    chmod 600 "$PLAIN_ENV"; chown root:root "$PLAIN_ENV" 2>/dev/null || true
   fi
 }
 
