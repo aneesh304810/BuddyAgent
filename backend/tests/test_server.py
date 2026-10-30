@@ -125,7 +125,7 @@ def test_whisper_on_the_server(monkeypatch):
     import base64
     from buddy import whisper
 
-    async def fake_transcribe(pcm, language="", prompt=""):
+    async def fake_transcribe(pcm, language="", prompt="", **kwargs):
         assert pcm == b"\x01\x00" * 8000 and language == "auto"
         return "hola, ¿dónde está la estación?", "es"
 
@@ -141,7 +141,7 @@ def test_whisper_not_installed_says_how(monkeypatch):
     import base64
     from buddy import whisper
 
-    async def missing(pcm, language="", prompt=""):
+    async def missing(pcm, language="", prompt="", **kwargs):
         raise whisper.WhisperUnavailable("Whisper isn't installed on the server yet: run deploy/whisper.sh")
 
     monkeypatch.setattr(whisper, "transcribe", missing)

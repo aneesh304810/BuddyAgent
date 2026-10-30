@@ -35,3 +35,91 @@ def test_unsure_guess_falls_back_to_known_languages_but_a_confident_one_stays():
     assert whisper._pick_language(unsure, None) == "en"
     sure = S(language="fr", language_probability=0.95, all_language_probs=[("fr", 0.95)])
     assert whisper._pick_language(sure, None) is None  # a French speaker in the room: Listen-in's gist
+
+
+class FakeResponse:
+    def __init__(self, status=200, body=None, headers=None):
+        self.status_code, self._body, self.headers = status, body or {}, headers or {}
+
+    def json(self):
+        return self._body
+
+
+class FakeHTTP:
+    def __init__(self, response):
+        self.response, self.sent = response, {}
+
+    async def post(self, url, data, headers, files):
+        self.sent = {"url": url, "data": data, "file": files["file"]}
+        return self.response
+
+
+def groq_env(monkeypatch):
+    monkeypatch.setenv("BUDDY_GROQ_KEY", "gsk_test")
+    monkeypatch.delenv("BUDDY_WHISPER_TALK", raising=False)
+    whisper._groq_resting_until = 0.0
+
+
+def test_groq_hears_talk_mode_and_keeps_to_my_languages(monkeypatch):
+    import asyncio
+
+    groq_env(monkeypatch)
+    http = FakeHTTP(FakeResponse(body={"language": "malayalam", "text": " എന്താ വിശേഷം?", "segments": [
+        {"text": " എന്താ വിശേഷം?", "no_speech_prob": 0.05, "avg_logprob": -0.2, "compression_ratio": 1.1}]}))
+    text, lang = asyncio.run(whisper._groq(b"\x00\x00" * 16000, None, "Names: Priya.", ["ml", "en"], http=http))
+    assert (text, lang) == ("എന്താ വിശേഷം?", "ml")
+    assert http.sent["url"] == whisper.GROQ_URL and http.sent["data"]["model"] == "whisper-large-v3-turbo"
+    assert http.sent["file"][1][:4] == b"RIFF"  # a real WAV file
+    italian = FakeHTTP(FakeResponse(body={"language": "italian", "text": " L'entremio è una vera."}))
+    try:
+        asyncio.run(whisper._groq(b"\x00\x00", None, "", ["ml", "en"], http=italian))
+        raise AssertionError("should hand over to the local model")
+    except whisper.GroqSkipped:
+        pass
+
+
+def test_groq_limit_rests_and_hands_over(monkeypatch):
+    import asyncio
+
+    groq_env(monkeypatch)
+    http = FakeHTTP(FakeResponse(429, headers={"retry-after": "30"}))
+    for _ in range(2):  # the second time it doesn't even ask
+        try:
+            asyncio.run(whisper._groq(b"\x00\x00", None, "", None, http=http))
+        except whisper.GroqSkipped as e:
+            reason = str(e)
+    assert "resting" in reason
+
+
+def test_only_talk_mode_goes_to_groq_and_failures_fall_back(monkeypatch):
+    import asyncio
+
+    groq_env(monkeypatch)
+    used = []
+
+    async def fake_groq(pcm, hint, prompt, allowed, http=None):
+        used.append("groq")
+        return "hello", "en"
+    monkeypatch.setattr(whisper, "_groq", fake_groq)
+    monkeypatch.setattr(whisper, "_transcribe", lambda *a: (used.append("local"), ("hi", "en"))[1])
+    meta = {}
+    assert asyncio.run(whisper.transcribe(b"\x00\x00", "en-US", mode="talk", meta=meta)) == ("hello", "en")
+    assert meta["engine"] == "groq"
+    asyncio.run(whisper.transcribe(b"\x00\x00", "auto", mode="listen", meta=meta))  # room talk: never Groq
+    assert used == ["groq", "local"] and meta["engine"] == "local"
+
+    async def busy(*a, **k):
+        raise whisper.GroqSkipped("at its limit")
+    monkeypatch.setattr(whisper, "_groq", busy)
+    meta = {}
+    assert asyncio.run(whisper.transcribe(b"\x00\x00", "en-US", mode="talk", meta=meta)) == ("hi", "en")
+    assert meta == {"groq_skipped": "at its limit", "engine": "local"}
+    monkeypatch.setenv("BUDDY_WHISPER_TALK", "local")
+    assert not whisper.groq_on()
+
+
+def test_groq_is_free_unless_paid(monkeypatch):
+    monkeypatch.delenv("BUDDY_GROQ_PAID", raising=False)
+    assert whisper.groq_cost(3) == 0.0
+    monkeypatch.setenv("BUDDY_GROQ_PAID", "1")
+    assert abs(whisper.groq_cost(3) - 10 / 3600 * 0.04) < 1e-9  # billed as 10 s at least

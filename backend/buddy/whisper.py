@@ -1,4 +1,9 @@
-"""Speech-to-text on the user's own server, with Whisper (faster-whisper).
+"""Speech-to-text: Whisper on the user's own server (faster-whisper), and for Talk mode,
+Groq's hosted Whisper large-v3-turbo when BUDDY_GROQ_KEY is set: about 0.3-0.6 s instead of
+1.5-3 s on a small server, and far better with Malayalam. Only what the user says to Buddy in
+Talk mode goes to Groq; Listen-in (other people's speech) always stays on this server.
+BUDDY_WHISPER_TALK=local keeps everything here. If Groq is down, slow, over its free limit or
+hears a language outside "My languages", the local model does it instead.
 
 The phone records short utterances and sends the raw audio (16 kHz, mono,
 16-bit); this turns them into text and detects the language, so nothing is sent
@@ -8,6 +13,10 @@ accurate but needs about 4 GB and is slower).
 """
 
 import asyncio
+import io
+import time
+import wave
+from types import SimpleNamespace
 import logging
 import os
 import threading
@@ -117,9 +126,89 @@ def _transcribe(pcm: bytes, language: str | None, prompt: str = "", stats: dict 
     return text, (info.language or "") if text else ""
 
 
-async def transcribe(pcm: bytes, language: str = "", prompt: str = "", stats: dict | None = None) -> tuple[str, str]:
+GROQ_URL = "https://api.groq.com/openai/v1/audio/transcriptions"
+GROQ_USD_PER_HOUR = 0.04  # whisper-large-v3-turbo; each request is billed as at least 10 seconds
+_groq_resting_until = 0.0
+
+
+class GroqSkipped(Exception):
+    """Groq can't or shouldn't do this clip: the local model does."""
+
+
+def groq_cost(audio_seconds: float) -> float:
+    """$0 on Groq's free tier; with BUDDY_GROQ_PAID=1, the paid rate (at least 10 s a request)."""
+    if os.getenv("BUDDY_GROQ_PAID", "") != "1":
+        return 0.0
+    return max(10.0, audio_seconds) / 3600 * GROQ_USD_PER_HOUR
+
+
+def groq_model() -> str:
+    return os.getenv("BUDDY_GROQ_WHISPER_MODEL", "whisper-large-v3-turbo")
+
+
+def groq_on() -> bool:
+    return (os.getenv("BUDDY_WHISPER_TALK", "groq").strip().lower() != "local"
+            and bool((os.getenv("BUDDY_GROQ_KEY") or "").strip()))
+
+
+def _wav(pcm: bytes) -> bytes:
+    out = io.BytesIO()
+    with wave.open(out, "wb") as w:
+        w.setnchannels(1)
+        w.setsampwidth(2)
+        w.setframerate(SAMPLE_RATE)
+        w.writeframes(pcm[: SAMPLE_RATE * 2 * MAX_SECONDS])
+    return out.getvalue()
+
+
+async def _groq(pcm: bytes, hint: str | None, prompt: str, allowed: list[str] | None, http=None) -> tuple[str, str]:
+    global _groq_resting_until
+    import httpx
+
+    if time.monotonic() < _groq_resting_until:
+        raise GroqSkipped("resting after a limit or error")
+    data = {"model": groq_model(), "response_format": "verbose_json", "temperature": "0"}
+    if hint:
+        data["language"] = hint
+    if prompt:
+        data["prompt"] = prompt[:600]  # Whisper reads at most ~224 tokens of prompt
+    headers = {"Authorization": f"Bearer {os.environ['BUDDY_GROQ_KEY'].strip()}"}
+    try:
+        client = http or httpx.AsyncClient(timeout=8)
+        try:
+            response = await client.post(GROQ_URL, data=data, headers=headers,
+                                         files={"file": ("speech.wav", _wav(pcm), "audio/wav")})
+        finally:
+            if http is None:
+                await client.aclose()
+    except Exception as e:  # network, timeout
+        _groq_resting_until = time.monotonic() + 30
+        raise GroqSkipped(type(e).__name__) from e
+    if response.status_code == 429:  # the free limit: rest a while, the local model carries on
+        _groq_resting_until = time.monotonic() + float(response.headers.get("retry-after") or 60)
+        raise GroqSkipped("at its limit")
+    if response.status_code >= 400:
+        _groq_resting_until = time.monotonic() + (600 if response.status_code in (401, 403) else 30)
+        raise GroqSkipped(f"HTTP {response.status_code}")
+    body = response.json()
+    name = str(body.get("language") or "").lower()
+    lang = LANGUAGE_CODES.get(name, name[:2])
+    if allowed and not hint and lang and lang not in allowed:
+        raise GroqSkipped(f"heard {name}, outside My languages")  # the local model picks among them
+    segments = [SimpleNamespace(text=sg.get("text", ""), no_speech_prob=sg.get("no_speech_prob", 0.0),
+                                avg_logprob=sg.get("avg_logprob", 0.0), compression_ratio=sg.get("compression_ratio", 1.0))
+                for sg in body.get("segments") or []]
+    text = _clean(segments) if segments else _clean([SimpleNamespace(
+        text=body.get("text", ""), no_speech_prob=0.0, avg_logprob=0.0, compression_ratio=1.0)])
+    return text, (lang if text else "")
+
+
+async def transcribe(pcm: bytes, language: str = "", prompt: str = "", stats: dict | None = None,
+                     mode: str = "", meta: dict | None = None) -> tuple[str, str]:
     """(text, detected language code). language: a hint like "es" or "es-419", or "" to detect.
-    prompt: names and words to spell right (vocabulary.whisper_prompt)."""
+    prompt: names and words to spell right (vocabulary.whisper_prompt). mode "talk" may use Groq;
+    meta gets which engine did it ("groq" or "local") and why Groq didn't, if it didn't."""
+    meta = meta if meta is not None else {}
     # "auto" or "auto:ml-IN,en-IN" (switching between languages): let Whisper detect each time.
     hint = language.split("-")[0].lower() if language and not language.startswith("auto") else None
     if language.startswith("auto:"):
@@ -128,4 +217,15 @@ async def transcribe(pcm: bytes, language: str = "", prompt: str = "", stats: di
         mix = [names.get(t.split("-")[0], t) for t in language[5:].split(",") if t]
         prompt = (prompt + " " if prompt else "") + f"Speaking {' and '.join(mix)}, often mixed in one sentence."
     allowed = [t.split("-")[0].lower() for t in language[5:].split(",") if t] if language.startswith("auto:") else None
+    if mode == "talk" and groq_on():  # never Listen-in: other people's voices stay on this server
+        started = time.monotonic()
+        try:
+            text, lang = await _groq(pcm, hint, prompt, allowed)
+            meta.update(engine="groq", seconds=time.monotonic() - started,
+                        audio_seconds=len(pcm) / (SAMPLE_RATE * 2))
+            return text, lang
+        except GroqSkipped as e:
+            meta["groq_skipped"] = str(e)
+            log.info("Groq Whisper skipped (%s): local Whisper instead", e)
+    meta["engine"] = "local"
     return await asyncio.to_thread(_transcribe, pcm, hint, prompt, stats, allowed)

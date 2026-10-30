@@ -15,6 +15,7 @@ PURPOSE_NAMES = {
     "chat": "Talking with you",
     "chat_free": "Talking with you (free model)",
     "web_digest": "Reading web pages (free model)",
+    "speech": "Hearing you (Groq Whisper)",
     "listen": "Listen-in",
     "addressing": "Was that for me?",
     "think": "Let me think",
@@ -170,6 +171,17 @@ def free_models_overview(memory: Memory, by_model: list[dict]) -> dict:
             "providers": sorted(rows, key=lambda r: (not r["on"], -r["requests"]))}
 
 
+def speech_overview(memory: Memory) -> dict:
+    """This month: clips heard by Groq (Talk mode) and by the server's own Whisper, and Groq's misses."""
+    from . import whisper
+
+    month = local_now().strftime("%Y-%m")
+    counts = {r["key"].split(":")[2]: int(float(r["value"])) for r in memory.db.execute(
+        "SELECT key, value FROM kv WHERE key LIKE 'count:speech:%' AND key LIKE ?", (f"%:{month}",))}
+    return {"groq_on": whisper.groq_on(), "groq": counts.get("groq", 0), "local": counts.get("local", 0),
+            "groq_skipped": counts.get("groq_skipped", 0)}
+
+
 def tools_overview(memory: Memory, since: str, rows: list[dict]) -> list[dict]:
     """Tools and agents used for replies: Buddy's own, agents (Zapier, Gmail, built ones) and
     Claude's server tools (web search, page fetching, code). Calls, failures, time, extra cost."""
@@ -276,6 +288,7 @@ def report(memory: Memory, days: int = 7, recent: int = 60, model: str = "", pur
         "free_models": free_models_overview(memory, by_model),
         "tools": tools_overview(memory, since, rows),
         "web": webread.web_overview(memory),
+        "speech": speech_overview(memory),
         "by_model": by_model,
         "by_purpose": by_purpose,
         "by_day": list(per_day.values()),

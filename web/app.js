@@ -657,6 +657,13 @@ async function showInsights() {
         `${web.raw} given to Claude trimmed · ${web.failed} couldn't open · ${tok(web.tokens_saved)} tokens ` +
         `Claude didn't have to read (about ${money(web.saved_usd)} saved)` : "No pages read by Buddy yet.")));
   }
+  const heard = r.speech;
+  if (heard && (heard.groq_on || heard.groq || heard.local)) {
+    h("Hearing you (this month)");
+    body.appendChild(el("p", "", (heard.groq_on ? "Talk mode uses Groq's Whisper (fast, better Malayalam); Listen-in stays on your server. "
+      : "Everything is heard by your server's Whisper (add BUDDY_GROQ_KEY for faster Talk mode). ") +
+      `${heard.groq} clips by Groq · ${heard.local} by your server` + (heard.groq_skipped ? ` · ${heard.groq_skipped} times Groq was skipped (limit, error or other language)` : "")));
+  }
   h("Tools and agents");
   if (!(r.tools || []).length) body.appendChild(el("p", "", "No tools used in this period."));
   else body.appendChild(costTable(r.tools.map((t) => [

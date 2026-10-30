@@ -320,6 +320,22 @@ fun InsightsScreen(link: ServerLink?) {
             }
         }
 
+        val speech = d.optJSONObject("speech")
+        if (speech != null && (speech.optBoolean("groq_on") || speech.optInt("groq") + speech.optInt("local") > 0)) {
+            item { Heading("Hearing you (this month)") }
+            item {
+                val skipped = speech.optInt("groq_skipped")
+                Text(
+                    (if (speech.optBoolean("groq_on")) "Talk mode uses Groq's Whisper (fast, better Malayalam); " +
+                        "Listen-in stays on your server. " else "Everything is heard by your server's Whisper " +
+                        "(add BUDDY_GROQ_KEY for faster Talk mode). ") +
+                        "${speech.optInt("groq")} clips by Groq · ${speech.optInt("local")} by your server" +
+                        (if (skipped > 0) " · $skipped times Groq was skipped (limit, error or other language)" else ""),
+                    color = Dim, fontSize = 13.sp,
+                )
+            }
+        }
+
         val tools = d.optJSONArray("tools")?.objects() ?: emptyList()
         item { Heading("Tools and agents") }
         if (tools.isEmpty()) item { Text("No tools used in this period.", color = Dim, fontSize = 13.sp) }

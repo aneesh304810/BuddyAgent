@@ -500,12 +500,19 @@ async def talk(ws: WebSocket) -> None:
         try:
             started = time.monotonic()
             stats: dict | None = {} if msg.get("mode") == "talk" and tutor.ON else None
+            meta: dict = {}
             heard, lang = await speech_to_text.transcribe(
                 base64.b64decode(msg["pcm"]), str(msg.get("lang", "")), vocabulary.whisper_prompt(memory),
-                **({"stats": stats} if stats is not None else {}))
+                **({"stats": stats} if stats is not None else {}), mode=str(msg.get("mode") or ""), meta=meta)
             if stats:
                 tutor.log_speech(memory, stats, lang)
-            log.info("whisper took %.1fs", time.monotonic() - started)
+            log.info("whisper (%s) took %.1fs", meta.get("engine", "local"), time.monotonic() - started)
+            usage.count(memory, f"speech:{meta.get('engine', 'local')}")
+            if meta.get("groq_skipped"):
+                usage.count(memory, "speech:groq_skipped")
+            if meta.get("engine") == "groq":  # in Insights with Buddy's other model calls (no text kept)
+                usage.log_call(memory, provider="groq", model=speech_to_text.groq_model(), purpose="speech",
+                               seconds=meta["seconds"], cost=speech_to_text.groq_cost(meta["audio_seconds"]))
             if heard:
                 await send({"type": "heard", "text": heard, "lang": lang, "id": msg.get("id")})
         except speech_to_text.WhisperUnavailable as e:

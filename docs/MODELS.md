@@ -138,6 +138,22 @@ Settings: `BUDDY_WEB_DIGEST=0` turns the free-model digest off (Claude gets trim
 `BUDDY_PAGE_RAW_CHARS` (default 8000) is how much of a page Claude gets without a digest;
 `BUDDY_FETCH_MAX_TOKENS` (default 12000) caps Claude's own web_fetch.
 
+## 4. Hearing you: Groq's Whisper for Talk mode
+
+With `BUDDY_GROQ_KEY` set (the same free key as the Groq free model), what you say in
+**Talk mode** is turned into text by Groq's hosted Whisper large-v3-turbo: about 0.3 to 0.6
+seconds instead of 1.5 to 3 on a small server, and far better with Malayalam and mixed
+speech. **Listen-in (other people's voices) never goes to Groq**: it stays on your server's
+own Whisper. If Groq is down, at its free limit (Buddy rests it for a minute), or hears a
+language outside "My languages", your server's Whisper does that clip instead.
+
+- `BUDDY_WHISPER_TALK=local` keeps all speech on your server.
+- `BUDDY_GROQ_WHISPER_MODEL` (default `whisper-large-v3-turbo`).
+- `BUDDY_GROQ_PAID=1` counts the paid rate (about $0.04 an hour of audio, at least 10 s a
+  request) in Insights; on the free tier it shows $0.
+- Insights → **Hearing you** shows clips by Groq and by your server. The English tutor's
+  pronunciation scores come from your server's Whisper only, so they're rarer with Groq on.
+
 ## See it working
 
 **Insights** (in the Android app's header, and on the web page) shows every model request:
