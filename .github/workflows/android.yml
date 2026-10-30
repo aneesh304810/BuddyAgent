@@ -24,7 +24,7 @@ jobs:
           distribution: temurin
           java-version: "17"
 
-      - uses: gradle/actions/setup-gradle@v4
+      - uses: gradle/actions/setup-gradle@v5
 
       # Keep the same debug key between builds so updates install over the old app.
       # (Evicted after a week without builds; then one uninstall is needed.)
