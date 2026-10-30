@@ -105,3 +105,9 @@ def summary(memory: Memory) -> list[dict]:
         "ROUND(SUM(cost_usd), 4) AS cost_usd FROM usage GROUP BY month, model ORDER BY month DESC"
     )
     return [dict(r) for r in rows]
+
+
+def count(memory: Memory, name: str, n: int = 1) -> None:
+    """A monthly counter (router choices, free-model calls...) for the cost report."""
+    month = local_now().strftime("%Y-%m")
+    _add(memory, f"count:{name}:{month}", n)

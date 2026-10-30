@@ -198,6 +198,17 @@ class FinOps:
                                       "total": _money(invoices[1].get("amount"))}
         return result
 
+    def routing(self) -> dict:
+        """This month: turns answered by the quick or main Claude model, and free-model calls."""
+        month = local_now().strftime("%Y-%m")
+        counts = {}
+        for r in self.memory.db.execute("SELECT key, value FROM kv WHERE key LIKE 'count:%' AND key LIKE ?",
+                                        (f"%:{month}",)):
+            _, group, name, _ = r["key"].split(":", 3) if r["key"].count(":") >= 3 else (None, "", "", "")
+            if group in ("router", "free"):
+                counts.setdefault(group, {})[name] = int(float(r["value"]))
+        return {"claude_turns": counts.get("router", {}), "free_model_calls": counts.get("free", {})}
+
     def zapier(self) -> CostLine | None:
         plan = float(self.setting("BUDDY_ZAPIER_PLAN_USD", "0"))
         allowance = int(self.setting("BUDDY_ZAPIER_TASKS_PER_MONTH", "100"))
@@ -242,6 +253,7 @@ class FinOps:
             "claude_by_purpose": self.claude_by_purpose(),
             "agents": self.by_agent(),
             "digitalocean_invoices": await self.digitalocean_invoices(),
+            "routing": self.routing(),
             "generated_at": datetime.now(timezone.utc).isoformat(),
         }
         self._cache = (time.time(), report)

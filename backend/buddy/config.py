@@ -33,6 +33,9 @@ class Settings:
     # Set BUDDY_CHAT_MODEL=claude-opus-5-5 to use Opus for everything.
     model: str = os.getenv("BUDDY_MODEL", "claude-opus-5-5")
     chat_model: str = os.getenv("BUDDY_CHAT_MODEL", "claude-sonnet-5-5")
+    # The router sends simple turns (small talk, reminders, tasks) to this cheaper model.
+    fast_model: str = os.getenv("BUDDY_FAST_MODEL", "claude-haiku-5-5")
+    router_enabled: bool = os.getenv("BUDDY_ROUTER", "1") != "0"
     # Listen-in: a cheap first pass decides whether anything needs attention;
     # only then does the listen model read it. Empty triage = no first pass.
     listen_model: str = os.getenv("BUDDY_LISTEN_MODEL", os.getenv("BUDDY_MODEL", "claude-opus-5-5"))

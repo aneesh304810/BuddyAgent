@@ -19,6 +19,8 @@ from .config import claude_client, settings
 from .jobs import JOB_TOOL_NAMES, JOB_TOOLS, JobRunner, run_job_tool
 from .connectors import CONNECTOR_TOOL_NAMES, CONNECTOR_TOOLS, ConnectorHub, run_connector_tool
 from .bankfeed import BALANCES_TOOL, BankFeed, run_balances_tool
+from .free_models import GENERAL_TOOL, FreeModels, run_general_tool
+from .router import HAND_OVER_TOOL, Router
 from .social import SOCIAL_TOOL_NAMES, Social, run_social_tool, social_tools
 from .location import Location
 from .taste import TASTE_TOOL_NAMES, TASTE_TOOLS, WHERE_TOOL, Taste, run_taste_tool
@@ -63,15 +65,16 @@ def fallback_kwargs(model: str) -> dict:
     return {"betas": [FALLBACK_BETA], "fallbacks": "default"}
 
 
-def _request_kwargs(system: str) -> dict:
+def _request_kwargs(system: str, model: str | None = None) -> dict:
+    model = model or settings.chat_model
     return dict(
-        model=settings.chat_model,
+        model=model,
         max_tokens=4096,
         system=[{"type": "text", "text": system, "cache_control": {"type": "ephemeral"}}],
         # Also cache the conversation so far: earlier turns are read back at a tenth of the price.
         cache_control={"type": "ephemeral"},
         output_config={"effort": settings.effort},
-        **fallback_kwargs(settings.chat_model),
+        **fallback_kwargs(model),
     )
 
 
@@ -111,6 +114,9 @@ class Conversation:
         self.social = Social()
         self.taste = Taste(memory)
         self.location = Location(memory)
+        self.router = Router()
+        self.free = FreeModels(memory)
+        self.model = settings.chat_model  # this turn's model, picked by the router
         self.messages: list[dict] = []
         self.turn = 0  # counts user messages; approvals need a newer one
         self.via = "user"
@@ -147,6 +153,8 @@ class Conversation:
 
         stamp = local_now().strftime("%A %d %B %Y, %I:%M %p")
         self._trim_history()
+        self.model = self.router.pick(user_text)
+        usage.count(self.memory, "router:quick" if self.model == settings.fast_model else "router:main")
         # Sensitive numbers never leave the server.
         self.messages.append({"role": "user", "content": f"({stamp}) {mask(user_text)}"})
         spoken: list[str] = []
@@ -178,6 +186,10 @@ class Conversation:
                 tool_uses = [b for b in response.content if b.type == "tool_use"]
                 if response.stop_reason != "tool_use" or not tool_uses:
                     return
+                if any(b.name == "hand_over" for b in tool_uses):
+                    # The quick model passes a bigger question to the main one, same turn.
+                    self.model = self.router.handed_over()
+                    usage.count(self.memory, "router:handed_over")
                 results = [await self._run(b) for b in tool_uses]
                 self.messages.append({"role": "user", "content": results})
             await speak("Sorry, I got a bit tangled up there. Can you say that again?")
@@ -194,7 +206,7 @@ class Conversation:
     async def _stream_step(self, speak: Say):
         buffer = ""
         async with client.beta.messages.stream(
-            **_request_kwargs(self.system), tools=self.tools(), messages=self.messages
+            **_request_kwargs(self.system, self.model), tools=self.tools(), messages=self.messages
         ) as stream:
             async for event in stream:
                 if event.type != "text":
@@ -230,8 +242,11 @@ class Conversation:
         """Every tool, but only a few load up front: Claude finds the rest with tool search
         when a question needs them, so each request carries a short prefix, not ~60 tools."""
         tools = [{"type": "tool_search_tool_bm25_20251119", "name": "tool_search_tool_bm25"}]
-        for tool in self._all_tools():
-            if tool.get("type", "custom") != "custom" or tool["name"] in ALWAYS_LOADED:
+        everything = self._all_tools()
+        if self.model == settings.fast_model and self.model != settings.chat_model:
+            everything = [HAND_OVER_TOOL] + everything
+        for tool in everything:
+            if tool.get("type", "custom") != "custom" or tool["name"] in ALWAYS_LOADED | {"hand_over"}:
                 tools.append(tool)  # server tools (web search) and the everyday ones stay loaded
             else:
                 tools.append({**tool, "defer_loading": True})
@@ -249,6 +264,7 @@ class Conversation:
         spending += BUILDER_TOOLS if self.builder and self.jobs else []
         spending += CONNECTOR_TOOLS if self.hub else []
         spending += social_tools(self.social) + TASTE_TOOLS + [WHERE_TOOL]
+        spending += [GENERAL_TOOL] if self.free.enabled() else []
         return (
             CLIENT_TOOLS + orchestration + job_tools + spending + [_expert_tool()]
             + agent_tools + web_tools()
@@ -271,6 +287,10 @@ class Conversation:
         }
 
     async def _dispatch(self, name: str, args: dict) -> str:
+        if name == "hand_over":
+            return "Handed over to the main model: answer the user's question now."
+        if name == "general_task":
+            return await run_general_tool(self.free, args)
         if self.jobs and name in JOB_TOOL_NAMES:
             return run_job_tool(self.jobs, name, args, self.thrift)
         if self.hub and name in CONNECTOR_TOOL_NAMES:

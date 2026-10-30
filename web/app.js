@@ -352,6 +352,16 @@ $("costsBtn").onclick = async () => {
       body.appendChild(costTable(r.agents.map((a) => [a.agent, String(a.calls_this_month), usd(a.external_cost_usd), a.note]),
         ["", "Calls", "Extra cost", ""]));
     }
+    const route = r.routing || {};
+    const turns = route.claude_turns || {};
+    const free = route.free_model_calls || {};
+    if (Object.keys(turns).length || Object.keys(free).length) {
+      h("Which model answered");
+      const turnNames = { quick: "Claude quick (Haiku)", main: "Claude main (Sonnet)", handed_over: "Quick handed to main" };
+      const rows = Object.entries(turns).map(([k, n]) => [turnNames[k] || k, String(n)]);
+      Object.entries(free).forEach(([k, n]) => rows.push([k === "fallback_claude" ? "Free busy, Claude did it" : `Free: ${k}`, String(n)]));
+      body.appendChild(costTable(rows, ["", "This month"]));
+    }
     if (!reportDlg.open) reportDlg.showModal();
   } catch (e) { addLine(`Couldn't load costs (${e.message}).`, "error"); }
 };
