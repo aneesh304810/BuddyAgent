@@ -154,7 +154,8 @@ class BuddyService : Service() {
             prefs.beepMuted = false
         }
         phoneEars = Ears(this, onHeard = ::heard, onActive = onActive, onProblem = onProblem,
-            speaking = { this::mouth.isInitialized && mouth.speaking })
+            speaking = { this::mouth.isInitialized && mouth.speaking },
+            paused = { this::mouth.isInitialized && mouth.speaking && !headsetConnected() })
         serverEars = ServerEars(
             earbudMic = { earbudMicOn },
             send = { message -> client?.send(message) ?: false },
@@ -167,7 +168,12 @@ class BuddyService : Service() {
             BuddyState.add(Line("To hear me in $name, add its voice: phone Settings → Text-to-speech → " +
                 "Google → Install voice data → $name.", Speaker.ERROR))
         }) { on ->
-            if (on) phoneEars.releaseMute()  // before the first word plays
+            if (on) {
+                phoneEars.releaseMute()  // before the first word plays
+                if (!headsetConnected()) phoneEars.hold()  // on the loudspeaker it would hear itself
+            } else {
+                speechEndedAt = android.os.SystemClock.elapsedRealtime()
+            }
             BuddyState.update { it.copy(speaking = on) }
             // Buddy's voice plays through the speech engine, which Android counts as another
             // app: claim the earbud button back after every reply.
@@ -549,7 +555,24 @@ class BuddyService : Service() {
             ?: WAKE_ML.find(text.trim())?.groupValues?.get(1)?.trim()
             ?: WAKE_ML_AT_END.find(text.trim())?.groupValues?.get(1)?.trim()
 
+    private var speechEndedAt = 0L
+
+    /** Buddy's own voice coming back through the mic (loudspeaker): what it just said, heard again. */
+    private fun ownEcho(text: String): Boolean {
+        if (headsetConnected()) return false
+        if (mouth.speaking) return true
+        if (android.os.SystemClock.elapsedRealtime() - speechEndedAt > 2_500) return false
+        val heardWords = words(text)
+        if (heardWords.isEmpty()) return false
+        val said = mouth.recentlySaid.flatMap { words(it) }.toSet()
+        return heardWords.count { it in said } >= heardWords.size * 0.6
+    }
+
+    private fun words(text: String): List<String> =
+        text.lowercase().split(Regex("[^\\p{L}\\p{N}']+")).filter { it.length > 1 }
+
     private fun heard(text: String, final: Boolean) {
+        if (ownEcho(text)) return
         if (activeMode == Mode.LISTEN_IN && final) {
             val followUp = android.os.SystemClock.elapsedRealtime() < followUpUntil
             if (CHECK_IN.matches(text.trim())) {

@@ -52,6 +52,8 @@ class Ears(
     private val onActive: (Boolean) -> Unit,
     private val onProblem: (String) -> Unit,
     private val speaking: () -> Boolean = { false },
+    // On the loudspeaker Buddy would hear itself: no listening while it talks.
+    private val paused: () -> Boolean = { false },
 ) : Hearing {
     private val main = Handler(Looper.getMainLooper())
     // The recogniser beeps when a session starts and ends, and Buddy starts one after every phrase
@@ -118,6 +120,11 @@ class Ears(
 
     private fun listen() {
         if (!active) return
+        if (paused()) {  // Buddy is talking on the loudspeaker: try again shortly, without starting (or beeping)
+            main.removeCallbacksAndMessages(null)
+            main.postDelayed({ listen() }, 300)
+            return
+        }
         val intent = Intent(RecognizerIntent.ACTION_RECOGNIZE_SPEECH).apply {
             putExtra(RecognizerIntent.EXTRA_LANGUAGE_MODEL, RecognizerIntent.LANGUAGE_MODEL_FREE_FORM)
             putExtra(RecognizerIntent.EXTRA_LANGUAGE, currentLanguage)
@@ -141,6 +148,14 @@ class Ears(
         // Someone else's audio (music, a video) gets its sound back; otherwise stay quiet.
         muteBeep(!audio.isMusicActive)
         runCatching { recognizer?.startListening(intent) }.onFailure { restartSoon() }
+    }
+
+    /** Buddy starts talking on the loudspeaker: drop the current session; [listen] waits until it's done. */
+    fun hold() {
+        if (!active) return
+        recognizer?.cancel()
+        main.removeCallbacksAndMessages(null)
+        main.postDelayed({ listen() }, 300)
     }
 
     /** Buddy is about to talk (or play its "got it" tone): give media its sound back. */
@@ -390,7 +405,12 @@ class Mouth(
     }
 
     /** Queue one sentence. Quiet = a Listen-in whisper: softer and a little faster. */
+    /** The last few things Buddy said, to recognise its own voice coming back through the mic. */
+    val recentlySaid = ArrayDeque<String>()
+
     fun speak(text: String, quiet: Boolean = false) {
+        recentlySaid.addLast(text)
+        while (recentlySaid.size > 4) recentlySaid.removeFirst()
         if (!ready) {
             waiting += text to quiet
             return
