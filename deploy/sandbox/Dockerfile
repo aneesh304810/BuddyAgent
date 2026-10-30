@@ -7,7 +7,7 @@
 # sandbox's isolation is the safety net for those.)
 FROM python:3.12-slim
 RUN apt-get update && apt-get install -y --no-install-recommends \
-        git curl ca-certificates build-essential nodejs npm jq unzip ripgrep \
+        git curl ca-certificates build-essential nodejs npm jq unzip ripgrep graphviz \
     && rm -rf /var/lib/apt/lists/* \
     && pip install --no-cache-dir pandas openpyxl matplotlib python-docx python-pptx pypdf reportlab \
         requests beautifulsoup4 lxml pillow tabulate httpx pyyaml \

@@ -43,6 +43,9 @@ tools:
      extract: pandoc-3.5/bin/pandoc, usage: "pandoc in.md -o out.docx"}
 
   # --- charts, images, maps ----------------------------------------------------------
+  - {name: graphviz, kind: builtin, tags: [diagram, flowchart, graph, architecture, org chart, mind map],
+     purpose: "Draw diagrams from text (the dot command), as PNG, SVG or PDF.",
+     usage: "dot -Tpng flow.dot -o output/flow.png"}
   - {name: matplotlib, kind: builtin, tags: [chart, plot, graph], purpose: "Charts as PNG (see the chart skill)."}
   - {name: seaborn, kind: pip, package: seaborn, version: "0.13.2", tags: [chart, statistics, heatmap],
      purpose: "Statistical charts: heatmaps, distributions.", usage: "import seaborn as sns"}
