@@ -24,7 +24,7 @@ DigitalOcean and Anthropic are cached for 30 minutes.
    `sudo bash /opt/buddy/deploy/set.sh BUDDY_DO_TOKEN` (paste at the hidden prompt).
 2. **Anthropic Admin key (only for an organization account).** **console.anthropic.com →
    Settings → Admin keys → Create**. Skip this on an individual account.
-3. In Termux, `ssh root@buddy`, then `nano /etc/buddy/buddy.env` and add what applies:
+3. In Termux, `ssh root@buddy`, then `sudo bash /opt/buddy/deploy/security.sh edit` and add what applies:
    ```
    # BUDDY_DO_TOKEN=dop_v1_...                    # only on DigitalOcean
    # BUDDY_SERVER_PROVIDER=Oracle Cloud            # any other host: its name...

@@ -2,7 +2,7 @@
 # Connect your banks and cards to Buddy through SimpleFIN Bridge (read-only):
 #   sudo bash /opt/buddy/deploy/bank.sh
 # Paste the setup token from bridge.simplefin.org when asked. It's swapped for a
-# read-only access URL, saved in /etc/buddy/buddy.env, and Buddy restarts.
+# read-only access URL, saved in Buddy's settings (sealed or not), and Buddy restarts.
 set -euo pipefail
 [[ $EUID -eq 0 ]] || { echo "Run as root (sudo)."; exit 1; }
 source "$(dirname "$(readlink -f "$0")")/secrets-lib.sh"

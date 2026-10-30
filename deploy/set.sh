@@ -2,7 +2,7 @@
 # Add or change one of Buddy's settings without editing files by hand:
 #   sudo bash /opt/buddy/deploy/set.sh BUDDY_EMAIL_ADDRESS
 # It asks for the value (hidden while you type or paste), saves it in
-# /etc/buddy/buddy.env and restarts Buddy. Run with no name to list what's set.
+# Buddy's settings (encrypted if sealed) and restarts Buddy. Run with no name to list what's set.
 set -euo pipefail
 [[ $EUID -eq 0 ]] || { echo "Run as root (sudo)."; exit 1; }
 source "$(dirname "$(readlink -f "$0")")/secrets-lib.sh"

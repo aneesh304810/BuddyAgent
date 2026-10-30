@@ -9,6 +9,9 @@
 #   sudo bash /opt/buddy/deploy/security.sh harden         extra service lockdown (update.sh applies it)
 #   sudo bash /opt/buddy/deploy/security.sh soften         remove that lockdown, if something needs it
 #   sudo bash /opt/buddy/deploy/security.sh install        weekly timer and auto-reboot for updates (update.sh runs it)
+#   sudo bash /opt/buddy/deploy/security.sh link           the app link (server address + access token)
+#   sudo bash /opt/buddy/deploy/security.sh edit           edit all settings in nano (sealed or not), then restart
+#   sudo bash /opt/buddy/deploy/security.sh get NAME       print one setting's value
 set -euo pipefail
 [[ $EUID -eq 0 ]] || { echo "Run as root (sudo)."; exit 1; }
 HERE="$(dirname "$(readlink -f "$0")")"
@@ -102,6 +105,19 @@ PY
     if wait_healthy; then echo "Hardened."; systemd-analyze security buddy.service --no-pager | tail -1
     else rm -f /etc/systemd/system/buddy.service.d/hardening.conf; systemctl daemon-reload; systemctl restart buddy
       echo "Buddy didn't start with the extra lockdown, so it was removed again."; exit 1; fi ;;
+  link)
+    secrets_open
+    HOST=$(tailscale status --json 2>/dev/null | python3 -c 'import json,sys; print(json.load(sys.stdin)["Self"]["DNSName"].rstrip("."))' || echo "your-server")
+    echo "https://$HOST/?token=$(secrets_get BUDDY_TOKEN)" ;;
+  get)
+    [[ -n ${2:-} ]] || { echo "Use: security.sh get NAME"; exit 1; }
+    secrets_open
+    secrets_get "$2" ;;
+  edit)
+    secrets_open
+    "${EDITOR:-nano}" "$ENV_FILE"
+    secrets_seal
+    systemctl restart buddy && echo "Saved$(secrets_sealed && echo ' (still encrypted)') and Buddy restarted." ;;
   harden-file)  # only write the lockdown file (update.sh restarts and checks)
     install_hardening ;;
   soften)
@@ -151,5 +167,5 @@ UNIT
     systemctl daemon-reload
     systemctl enable --now buddy-maintain.timer >/dev/null
     echo "Weekly patching and security check: on (Sundays around 4am)." ;;
-  *) sed -n '2,12p' "$0"; exit 1 ;;
+  *) sed -n '2,15p' "$0"; exit 1 ;;
 esac

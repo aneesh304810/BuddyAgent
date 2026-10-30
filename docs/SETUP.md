@@ -220,7 +220,7 @@ curl -s http://127.0.0.1:8000/health
 **Check:** the log ends with `Uvicorn running on http://127.0.0.1:8000`, there's no
 `BUDDY_DB_KEY is not set` warning, and the second line prints `{"ok":true}`.
 
-**Changing settings later** (optional): `sudo nano /etc/buddy/buddy.env`, edit, save with
+**Changing settings later** (optional): `sudo bash /opt/buddy/deploy/security.sh edit` (works whether your keys are sealed or not), edit, save with
 **Ctrl+O, Enter** (Termux shows Ctrl in the extra-keys row above the keyboard), exit with
 **Ctrl+X**, then `sudo systemctl restart buddy`.
 
@@ -409,11 +409,11 @@ In Termux on your phone (Tailscale on):
 
 **Also save your database key.** A backup opened with the backup key is still locked with
 `BUDDY_DB_KEY`, and that key lives only on the server. To restore onto a new server, you
-need both. Once, after setup, run `grep BUDDY_DB_KEY /etc/buddy/buddy.env` on the server
+need both. Once, after setup, run `sudo bash /opt/buddy/deploy/security.sh get BUDDY_DB_KEY` on the server
 and save the value in your password manager as "Buddy database key".
 
 For a copy off the server, install `rclone`, configure a remote (for example
-Backblaze B2), and add `BUDDY_BACKUP_REMOTE=b2:my-bucket/buddy` to `/etc/buddy/buddy.env`.
+Backblaze B2), and save `BUDDY_BACKUP_REMOTE=b2:my-bucket/buddy` with `sudo bash /opt/buddy/deploy/set.sh BUDDY_BACKUP_REMOTE`.
 
 ### If you lose your phone
 
@@ -426,8 +426,8 @@ Backblaze B2), and add `BUDDY_BACKUP_REMOTE=b2:my-bucket/buddy` to `/etc/buddy/b
    echo "<paste the new phone's ssh-ed25519 line>" >> /root/.ssh/authorized_keys
    sed -i '/<old key comment, e.g. u0_a123@localhost>/d' /root/.ssh/authorized_keys
    ```
-3. Give Buddy a new token: `nano /etc/buddy/buddy.env`, replace `BUDDY_TOKEN` with the
-   output of `openssl rand -hex 24`, save, `systemctl restart buddy`.
+3. Give Buddy a new token: `sudo bash /opt/buddy/deploy/security.sh rotate-token` (it prints
+   the new link).
 4. In the Buddy app on the new phone, paste the server link with the new token.
 
 ---
@@ -460,7 +460,7 @@ Backblaze B2), and add `BUDDY_BACKUP_REMOTE=b2:my-bucket/buddy` to `/etc/buddy/b
 | Backups | Encrypted again with your `age` key, which never touches the server. |
 | Claude | Card, account and routing numbers; US SSN/ITIN; South American IDs (CPF, CNPJ, RUT, CUIT, DNI, cédula); Aadhaar and PAN; passports; one-time codes, CVVs and passwords are masked before any text leaves the server. Research questions and data are masked the same way. |
 | Phone | The server token is encrypted with an Android Keystore key; no cloud backup; no access to contacts, calls, SMS or location. |
-| Secrets | In `/etc/buddy/buddy.env`, readable only by root and the Buddy service. |
+| Secrets | Root-only settings, encrypted at rest once sealed (`security.sh seal`). |
 | Service | Runs as an unprivileged user that can write only its own data and backup folders. |
 | Agents | Least access, approvals, daily limits, audit log, kill switch. |
 | Spending | Buddy's monthly budget, a per-job research cap, a daily research limit, and Anthropic's own spend limit. |

@@ -12,7 +12,7 @@ Buddy treats Zapier like any other agent:
 | **Lookups don't ask** | Actions named find / search / lookup / get / list / retrieve run straight away. |
 | **Limits** | 20 calls a day and 45 a month by default (the free plan's 100 tasks ≈ 50 calls, since each call costs Zapier about 2 tasks). |
 | **Audit and kill switch** | Every call is logged with arguments masked; *"Buddy, pause Zapier"* switches it off. |
-| **Secrets stay on the server** | The Zapier link lives in `/etc/buddy/buddy.env`, never in code or chat. |
+| **Secrets stay on the server** | The Zapier link lives in Buddy's root-only settings (encrypted once sealed), never in code or chat. |
 
 **Keep sensitive apps off Zapier.** Bank, Gmail, calendars, phone notifications and
 health stay on Buddy's own connectors (`docs/CONNECTORS.md`) so they never pass
@@ -29,7 +29,7 @@ through a third company. Use Zapier for everyday, low-sensitivity apps.
 4. Open the server's **Connect** tab and copy the **server URL**. If Zapier shows a
    separate **API key** for it, copy that too. Both are secrets: anyone with them can
    use those actions.
-5. In Termux: `ssh root@buddy`, then `nano /etc/buddy/buddy.env` and add:
+5. In Termux: `ssh root@buddy`, then `sudo bash /opt/buddy/deploy/security.sh edit` and add:
    ```
    ZAPIER_MCP_URL=https://mcp.zapier.com/api/mcp/...      (the URL you copied)
    ZAPIER_MCP_TOKEN=...                                   (only if Zapier gave an API key)

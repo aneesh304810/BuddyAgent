@@ -19,7 +19,7 @@ same shape, and one hub runs them all:
 |---|---|
 | **Read-only** | Connectors only read. Anything that changes an app (send, book, pay, delete) is an *agent* action that waits for your yes. |
 | **Least access** | The narrowest access that works: a private calendar link instead of your Google account; an app password and a read-only mailbox instead of your password. |
-| **Secrets stay on the server** | Settings live in `/etc/buddy/buddy.env` (readable only by root and Buddy), never in code or chat. |
+| **Secrets stay on the server** | Settings live in Buddy's root-only settings (encrypted once sealed), never in code or chat. |
 | **Masked and encrypted** | Card numbers, IDs and codes are masked before storage; records live in the SQLCipher database. |
 | **Untrusted content** | Text from emails and apps is information, never instructions. If an email says "pay this now", Buddy tells you and asks. |
 | **Short memory** | Calendar keeps the next 30 days; email the last 30 days. Older items are deleted automatically. |
@@ -32,7 +32,7 @@ same shape, and one hub runs them all:
    ⚙ **Settings** → click your calendar on the left → **Integrate calendar** → copy
    **Secret address in iCal format**. (The Google Calendar app doesn't show it.)
    (Outlook: Settings → Calendar → Shared calendars → Publish a calendar → ICS link.)
-2. In Termux, `ssh root@buddy`, then `nano /etc/buddy/buddy.env` and add a line
+2. In Termux, `ssh root@buddy`, then `sudo bash /opt/buddy/deploy/security.sh edit` and add a line
    (several calendars: comma-separated):
    ```
    BUDDY_CALENDAR_ICS_URLS=https://calendar.google.com/calendar/ical/.../basic.ics
@@ -47,7 +47,7 @@ Treat the secret address like a password; if it ever leaks, reset it in the same
 2. In Chrome, go to **myaccount.google.com → Security → App passwords** (or search
    "App passwords" at the top of that page), create one named "Buddy", and copy the
    16-letter password.
-3. In Termux, `ssh root@buddy`, `nano /etc/buddy/buddy.env`, and add:
+3. In Termux, `ssh root@buddy`, `sudo bash /opt/buddy/deploy/security.sh edit`, and add:
    ```
    BUDDY_EMAIL_ADDRESS=you@gmail.com
    BUDDY_EMAIL_APP_PASSWORD=abcdabcdabcdabcd
