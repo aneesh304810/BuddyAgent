@@ -253,3 +253,35 @@ def test_tools_load_on_demand_and_history_is_trimmed():
     assert len(convo.messages) <= agent.KEEP_HISTORY
     assert convo.messages[0]["role"] == "user" and isinstance(convo.messages[0]["content"], str)
     assert agent._request_kwargs("x")["cache_control"] == {"type": "ephemeral"}
+
+
+def test_a_sentence_cut_off_by_a_pause_is_put_back_together(monkeypatch):
+    import base64
+    from buddy import whisper
+
+    heard = iter(["Why can't we use...", "the free model for the news?"])
+
+    async def fake_transcribe(pcm, language="", prompt="", **kwargs):
+        return next(heard), "en"
+
+    asked = []
+
+    def fake_stream(**kw):
+        asked.append(kw["messages"][-1]["content"])
+        return FakeStream("Because the news is live.")
+
+    monkeypatch.setattr(whisper, "transcribe", fake_transcribe)
+    monkeypatch.setattr(agent.client.beta.messages, "stream", fake_stream)
+    monkeypatch.setattr(server, "FRAGMENT_WAIT_SECONDS", 30)
+    audio = base64.b64encode(b"\x01\x00" * 800).decode()
+    with TestClient(server.app) as c, c.websocket_connect("/ws") as ws:
+        ws.send_json({"type": "audio", "pcm": audio, "lang": "en-US", "mode": "talk"})
+        first = ws.receive_json()["text"]
+        ws.send_json({"type": "user", "text": first})  # the phone sends what it heard: no answer yet
+        ws.send_json({"type": "audio", "pcm": audio, "lang": "en-US", "mode": "talk"})
+        rest = ws.receive_json()
+        assert rest["type"] == "heard"  # not "thinking": the half sentence wasn't answered
+        ws.send_json({"type": "user", "text": rest["text"]})
+        got = [ws.receive_json() for _ in range(3)]
+    assert [m["type"] for m in got] == ["thinking", "say", "done"]
+    assert "Why can't we use the free model for the news?" in str(asked[-1])

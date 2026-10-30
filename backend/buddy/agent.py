@@ -256,11 +256,11 @@ class Conversation:
                 if response.stop_reason != "tool_use" or not tool_uses:
                     await self._never_silent(perf, speak, response)
                     return
-                if all(b.name in DISPLAY_ONLY for b in tool_uses):
-                    # Only cards to show or a review note: do it and finish, no extra round (or wait).
+                if all(b.name in DISPLAY_ONLY for b in tool_uses) and perf["sentences"]:
+                    # Only cards to show or a review note, after the answer: do it and finish, no extra round.
                     self.messages.append({"role": "user", "content": [await self._run(b) for b in tool_uses]})
-                    await self._never_silent(perf, speak, response)
                     return
+                # Cards shown before a word was said: run them and go round once more for the answer.
                 if any(b.name == "hand_over" for b in tool_uses):
                     # The quick model passes a bigger question to the main one, same turn.
                     self.model = self.router.handed_over()

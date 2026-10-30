@@ -19,6 +19,7 @@ import wave
 from types import SimpleNamespace
 import logging
 import os
+import re
 import threading
 
 log = logging.getLogger(__name__)
@@ -79,9 +80,31 @@ def _pick_language(info, allowed: list[str] | None, sure: float = 0.6) -> str | 
     return max(pool, key=lambda code: probs.get(code, 0.0))
 
 
-def _clean(segments) -> str:
+def _echoes_prompt(text: str, prompt: str) -> bool:
+    """Whisper reading its own prompt back on a near-silent clip ("Names, Bro's, Gmail, Kochi, India.")."""
+    if not prompt:
+        return False
+    def words(t):
+        return [w.removesuffix("'s").removesuffix("’s") for w in re.findall(r"[\w'’]+", t.lower())]
+    said, hint = words(text), set(words(prompt))
+    if not said:
+        return False
+    return said[0] == "names" or (len(said) >= 3 and sum(w in hint for w in said) >= len(said) * 0.8)
+
+
+def _wrong_script(text: str, language: str | None) -> bool:
+    """English expected, but the text is mostly other letters ("Enný, sannig að eftir að sína"):
+    speech in another language forced through English. Better dropped than answered."""
+    if language != "en":
+        return False
+    letters = [c for c in text if c.isalpha()]
+    return len(letters) >= 6 and sum(not c.isascii() for c in letters) > len(letters) * 0.08
+
+
+def _clean(segments, prompt: str = "") -> str:
     """The text, without Whisper's made-up parts: segments it thinks are silence, garbled
-    repetitive ones, and runs of one word ("Bro, Bro, Bro…"). '' when nothing real is left."""
+    repetitive ones, runs of one word ("Bro, Bro, Bro…") and its own prompt read back.
+    '' when nothing real is left."""
     kept = [s for s in segments
             if not (s.no_speech_prob > 0.6 and s.avg_logprob < -1.0) and s.compression_ratio <= 2.4
             and s.avg_logprob > -1.5]
@@ -90,7 +113,7 @@ def _clean(segments) -> str:
     words = [w for w in words if w]
     if len(words) >= 5 and max(words.count(w) for w in set(words)) > len(words) * 0.5:
         return ""  # one word over and over: a hallucination, not speech
-    return text
+    return "" if _echoes_prompt(text, prompt) else text
 
 
 def _transcribe(pcm: bytes, language: str | None, prompt: str = "", stats: dict | None = None,
@@ -113,7 +136,9 @@ def _transcribe(pcm: bytes, language: str | None, prompt: str = "", stats: dict 
         if language is None and (better := _pick_language(info, allowed)):
             segments, info = run(better)  # segments are lazy: the first guess was never decoded
         segments = list(segments)
-        text = _clean(segments)
+        text = _clean(segments, prompt)
+        if _wrong_script(text, language):
+            text = ""
         if stats is not None:
             # How sure Whisper was of each word, and how fast: for the English tutor (no audio is kept).
             words = [w for s in segments for w in (getattr(s, "words", None) or [])]
@@ -208,8 +233,10 @@ async def _groq(pcm: bytes, hint: str | None, prompt: str, allowed: list[str] | 
     segments = [SimpleNamespace(text=sg.get("text", ""), no_speech_prob=sg.get("no_speech_prob", 0.0),
                                 avg_logprob=sg.get("avg_logprob", 0.0), compression_ratio=sg.get("compression_ratio", 1.0))
                 for sg in body.get("segments") or []]
-    text = _clean(segments) if segments else _clean([SimpleNamespace(
-        text=body.get("text", ""), no_speech_prob=0.0, avg_logprob=0.0, compression_ratio=1.0)])
+    text = _clean(segments, prompt) if segments else _clean([SimpleNamespace(
+        text=body.get("text", ""), no_speech_prob=0.0, avg_logprob=0.0, compression_ratio=1.0)], prompt)
+    if _wrong_script(text, hint):
+        text = ""
     return text, (lang if text else "")
 
 

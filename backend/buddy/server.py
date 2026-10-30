@@ -96,6 +96,9 @@ def trace(direction: str, msg: dict) -> None:
         text = "location update"
     trace_log.info("%s %-12s %-8s %s", direction, kind, extra, mask(str(text))[:160])
 log = logging.getLogger("buddy")
+# Whisper ends a sentence cut off by a pause with "..."; wait this long for the rest before answering.
+UNFINISHED = re.compile(r"(\.\.\.|…)\s*$")
+FRAGMENT_WAIT_SECONDS = float(os.getenv("BUDDY_FRAGMENT_WAIT", "4"))
 
 memory = Memory(settings.db_path)
 registry = AgentRegistry(memory, load_specs(settings.agents_file))
@@ -491,6 +494,23 @@ async def talk(ws: WebSocket) -> None:
     listener = AmbientListener(memory, whisper, thrift)
     convo.room = listener.recent  # "what are they talking about?" in Listen-in
 
+    pending: dict = {"text": "", "task": None}  # a sentence cut off by a pause, waiting for its end
+    last_heard = [-1e9]  # when Whisper last sent text back
+
+    async def start_answer(text: str, via: str) -> None:
+        nonlocal current
+        await stop_current()  # new speech always wins over an old reply
+        await send({"type": "thinking"})  # "got it": the phone plays a soft tone
+        current = asyncio.create_task(answer(text, via))
+
+    async def answer_unfinished(via: str) -> None:
+        """No rest of the sentence came: answer what there is."""
+        await asyncio.sleep(FRAGMENT_WAIT_SECONDS)
+        text = pending["text"]
+        pending.update(text="", task=None)
+        if text:
+            await start_answer(text, via)
+
     audio_backlog = [0]  # audio clips waiting for Whisper or being transcribed
     audio_tasks: set[asyncio.Task] = set()
 
@@ -516,6 +536,7 @@ async def talk(ws: WebSocket) -> None:
                 usage.log_call(memory, provider="groq", model=speech_to_text.groq_model(), purpose="speech",
                                seconds=meta["seconds"], cost=speech_to_text.groq_cost(meta["audio_seconds"]))
             if heard:
+                last_heard[0] = time.monotonic()
                 await send({"type": "heard", "text": heard, "lang": lang, "id": msg.get("id")})
         except speech_to_text.WhisperUnavailable as e:
             await send({"type": "error", "text": str(e)})
@@ -587,10 +608,19 @@ async def talk(ws: WebSocket) -> None:
             elif msg.get("type") == "interrupt":
                 await stop_current()
             elif msg.get("type") == "user" and msg.get("text", "").strip():
-                await stop_current()  # new speech always wins over an old reply
                 via = "room" if msg.get("via") == "room" else "user"  # "Hey Buddy" heard in Listen-in
-                await send({"type": "thinking"})  # "got it": the phone plays a soft tone
-                current = asyncio.create_task(answer(msg["text"].strip(), via))
+                text = msg["text"].strip()
+                if pending["task"]:  # the rest of a sentence cut off by a pause: put it back together
+                    pending["task"].cancel()
+                    text = f"{pending['text']} {text}"
+                    pending.update(text="", task=None)
+                spoken = time.monotonic() - last_heard[0] < 3  # just heard by Whisper, not typed
+                if via == "user" and spoken and UNFINISHED.search(text) and len(text) < 400:
+                    # "Why can't we use..." then a pause to think: wait a moment for the rest.
+                    pending["text"] = UNFINISHED.sub("", text).strip()
+                    pending["task"] = asyncio.create_task(answer_unfinished(via))
+                    continue
+                await start_answer(text, via)
             elif msg.get("type") == "ambient" and msg.get("text", "").strip():
                 text = msg["text"].strip()
                 command = addressed_to_buddy(text)

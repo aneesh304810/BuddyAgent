@@ -124,3 +124,16 @@ def test_groq_is_free_unless_paid(monkeypatch):
     assert whisper.groq_cost(3) == 0.0
     monkeypatch.setenv("BUDDY_GROQ_PAID", "1")
     assert abs(whisper.groq_cost(3) - 10 / 3600 * 0.04) < 1e-9  # billed as 10 s at least
+
+
+def test_its_own_prompt_read_back_is_dropped():
+    prompt = "Aneesh talking to Buddy. Names: Bro, Gmail, Kochi, India."
+    assert whisper._clean([seg(" Names, Bro's, Gmail, Kochi, India.")], prompt) == ""
+    assert whisper._clean([seg(" Can you check Gmail for my Kochi flight?")], prompt) != ""
+
+
+def test_other_languages_forced_through_english_are_dropped():
+    assert whisper._wrong_script("Enný, sannig að eftir að sína.", "en")
+    assert not whisper._wrong_script("What are the latest news in New York?", "en")
+    assert not whisper._wrong_script("Café near Kochi?", "en")
+    assert not whisper._wrong_script("എന്താ വിശേഷം?", "ml")
