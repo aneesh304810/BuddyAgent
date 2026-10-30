@@ -137,3 +137,9 @@ def test_other_languages_forced_through_english_are_dropped():
     assert not whisper._wrong_script("What are the latest news in New York?", "en")
     assert not whisper._wrong_script("Café near Kochi?", "en")
     assert not whisper._wrong_script("എന്താ വിശേഷം?", "ml")
+
+
+def test_stock_video_phrases_are_dropped():
+    assert whisper._clean([seg(" Thank you for watching.")]) == ""
+    assert whisper._clean([seg(" Please subscribe to my channel!")]) == ""
+    assert whisper._clean([seg(" Thank you.")]) == "Thank you."  # people do say that

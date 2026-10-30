@@ -213,7 +213,9 @@ class Conversation:
         usage.count(self.memory, "router:quick" if self.model == settings.fast_model else "router:main")
         # Sensitive numbers never leave the server.
         self.dual = self.memory.get(DUAL_KEY) or ""  # e.g. "ml": speak Malayalam, show English
-        self._add_user_text(f"({stamp}) {mask(user_text)}" + (tutor.LIVE_NOTE if tutor.live(self.memory) else "")
+        room_note = (" (Said in Listen-in mode: Listen-in is ON and you hear the room as text; check "
+                     "room_conversation before saying you've heard nothing.)") if via == "room" else ""
+        self._add_user_text(f"({stamp}) {mask(user_text)}" + room_note + (tutor.LIVE_NOTE if tutor.live(self.memory) else "")
                             + (DUAL_NOTE.format(language=DUAL_LANGUAGES.get(self.dual, self.dual)) if self.dual else ""))
         spoken: list[str] = []
         said_anything = asyncio.Event()

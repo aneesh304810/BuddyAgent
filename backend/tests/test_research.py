@@ -148,3 +148,16 @@ def test_sources_fallback_extracts_links():
         {"title": "Numbeo Lima", "url": "https://www.numbeo.com/lima"},
         {"title": "Lima guide", "url": "https://example.org/lima"},
     ]
+
+
+def test_out_of_rounds_still_writes_the_report_from_what_was_found(monkeypatch):
+    steps = research.depths()["quick"].max_steps
+    fake = FakeClaude([msg("tool_use", tool_use("recall_memory", {"query": "budget"}, f"t{i}")) for i in range(steps)]
+                      + [msg("end_turn", text(REPORT))])
+    result, _, _ = run(fake, {"question": "Cheapest flight Kochi to New York", "depth": "quick", "mode": "web"},
+                       monkeypatch)
+    wrap = fake.stream_calls[-1]
+    assert wrap["tool_choice"] == {"type": "none"}
+    last = wrap["messages"][-1]["content"]
+    assert last[0]["type"] == "tool_result" and last[0]["is_error"] and "write the final report" in last[-1]["text"]
+    assert "maximum number of research rounds" in result.report and "Miraflores" in result.report

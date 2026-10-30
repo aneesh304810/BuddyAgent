@@ -80,6 +80,17 @@ def _pick_language(info, allowed: list[str] | None, sure: float = 0.6) -> str | 
     return max(pool, key=lambda code: probs.get(code, 0.0))
 
 
+# Lines Whisper invents from silence or TV sound (it learned them from video subtitles).
+STOCK_PHRASES = ("thank you for watching", "thanks for watching", "please subscribe", "subscribe to my channel",
+                 "like and subscribe", "subtitles by", "amara.org", "see you in the next video",
+                 "thank you for listening", "i'm going to show you the music")
+
+
+def _stock_phrase(text: str) -> bool:
+    t = re.sub(r"[^\w\s.']", " ", text.lower()).strip()
+    return any(p in t for p in STOCK_PHRASES) and len(t.split()) <= 12
+
+
 def _echoes_prompt(text: str, prompt: str) -> bool:
     """Whisper reading its own prompt back on a near-silent clip ("Names, Bro's, Gmail, Kochi, India.")."""
     if not prompt:
@@ -113,7 +124,7 @@ def _clean(segments, prompt: str = "") -> str:
     words = [w for w in words if w]
     if len(words) >= 5 and max(words.count(w) for w in set(words)) > len(words) * 0.5:
         return ""  # one word over and over: a hallucination, not speech
-    return "" if _echoes_prompt(text, prompt) else text
+    return "" if _echoes_prompt(text, prompt) or _stock_phrase(text) else text
 
 
 def _transcribe(pcm: bytes, language: str | None, prompt: str = "", stats: dict | None = None,

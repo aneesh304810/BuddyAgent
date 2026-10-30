@@ -36,16 +36,16 @@ class Depth:
     max_tokens: int
     searches: int
     fetches: int
-    max_steps: int  # API round trips: pauses of the server-side loop plus memory lookups
+    max_steps: int  # API round trips: server-side search pauses, plus each Google search, page read and lookup
 
 
 def depths() -> dict[str, Depth]:
     caps = search_caps()  # BUDDY_SEARCH_LEVEL: thrifty, generous or max
     return {
         "quick": Depth(effort="medium", max_tokens=32_000, searches=caps["quick_search"],
-                       fetches=caps["quick_fetch"], max_steps=8 + caps["quick_search"] // 5),
+                       fetches=caps["quick_fetch"], max_steps=14 + caps["quick_search"] // 5),
         "deep": Depth(effort="high", max_tokens=64_000, searches=caps["deep_search"],
-                      fetches=caps["deep_fetch"], max_steps=20 + caps["deep_search"] // 10),
+                      fetches=caps["deep_fetch"], max_steps=30 + caps["deep_search"] // 10),
     }
 
 
@@ -236,11 +236,38 @@ async def run_research(job: dict, ctx: JobContext) -> JobResult:
         stopped_early = "Stopped after the maximum number of research rounds."
 
     report = _final_text(response)
+    if not report and stopped_early and response is not None and response.stop_reason in ("tool_use", "pause_turn"):
+        report = await _wrap_up(ctx, mode, params, depth, messages, response)  # what was found so far
     if not report:
         raise JobFailed(stopped_early or "The research finished without a report.")
     if stopped_early:
         report = f"_{stopped_early}_\n\n{report}"
     return await _summarize(ctx, params["question"], report)
+
+
+async def _wrap_up(ctx: JobContext, mode: str, params: dict, depth: Depth, messages: list, response) -> str:
+    """Out of rounds or budget mid-search: one last call, no more tools, for the report so far."""
+    note = ("Stop searching now: write the final report from what you've found so far, in the usual format, "
+            "and say plainly what's still unconfirmed.")
+    if response.stop_reason == "tool_use":
+        skipped = [{"type": "tool_result", "tool_use_id": b.id, "content": "Not run: out of research rounds.",
+                    "is_error": True} for b in response.content if b.type == "tool_use"]
+        messages.append({"role": "user", "content": skipped + [{"type": "text", "text": note}]})
+    else:
+        messages.append({"role": "user", "content": note})
+    try:
+        async with client.beta.messages.stream(
+            model=settings.model, max_tokens=depth.max_tokens, system=_system(mode, params.get("category", "")),
+            tools=_tools(mode, depth), tool_choice={"type": "none"}, messages=messages,
+            output_config={"effort": depth.effort}, cache_control={"type": "ephemeral"},
+            **fallback_kwargs(settings.model),
+        ) as stream:
+            final = await stream.get_final_message()
+        ctx.record(final)
+        return _final_text(final)
+    except Exception:
+        log.exception("research wrap-up failed")
+        return ""
 
 
 async def _run_tools(ctx: JobContext, content) -> list[dict]:
