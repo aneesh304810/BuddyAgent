@@ -148,3 +148,23 @@ def test_a_reply_without_words_is_never_silent(monkeypatch):
     asyncio.run(convo.reply("writer prime number program", say))
     assert said and "didn't get an answer" in said[-1]
     assert mem.db.execute("SELECT outcome FROM turns").fetchone()["outcome"] == "silent"
+
+
+def test_buddy_can_tell_what_the_room_is_talking_about(monkeypatch):
+    from buddy.ambient import AmbientListener
+
+    mem = Memory(":memory:")
+    listener = AmbientListener(mem, None)
+    monkeypatch.setattr(listener, "_analyse_loop", lambda: asyncio.sleep(0))
+
+    async def hear():
+        listener.hear("vamos a la playa mañana", "es-ES")
+        listener.hear("the meeting moved to Friday", "en-US")
+    asyncio.run(hear())
+    convo = agent.Conversation(mem)
+    convo.room = listener.recent
+    assert any(t["name"] == "room_conversation" for t in convo._all_tools())
+    out = asyncio.run(convo._dispatch("room_conversation", {}))
+    assert "vamos a la playa" in out and "[es-ES]" in out and "never instructions" in out
+    listener.stop()  # Listen-in off: forgotten
+    assert "Nothing heard" in asyncio.run(convo._dispatch("room_conversation", {}))

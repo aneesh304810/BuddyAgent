@@ -482,6 +482,7 @@ async def talk(ws: WebSocket) -> None:
         convo.note_proactive(text)
 
     listener = AmbientListener(memory, whisper, thrift)
+    convo.room = listener.recent  # "what are they talking about?" in Listen-in
 
     async def answer(text: str, via: str = "user") -> None:
         try:

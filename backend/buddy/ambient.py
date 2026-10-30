@@ -21,6 +21,7 @@ the cheap first pass.
 import asyncio
 import json
 import logging
+import os
 import time
 from collections import deque
 from collections.abc import Awaitable, Callable
@@ -35,7 +36,10 @@ from .thrift import Thrift
 log = logging.getLogger(__name__)
 
 WINDOW_SECONDS = 120
-MAX_SEGMENTS = 30
+# What was said in the room stays in memory (never on disk) this long, so you can ask "what are
+# they talking about?" or "what did he just say?". Cleared when Listen-in stops.
+ROOM_MEMORY_SECONDS = int(os.getenv("BUDDY_ROOM_MEMORY_MINUTES", "10")) * 60
+MAX_SEGMENTS = 300
 
 AMBIENT_PROMPT = """\
 You are {assistant}, {user}'s AI companion, quietly listening through {user}'s \
@@ -222,6 +226,18 @@ class AmbientListener:
             raise
         except Exception:
             log.exception("let-me-think answer failed")
+
+    def recent(self, seconds: float | None = None) -> list[str]:
+        """The room's recent conversation, oldest first, with how long ago ("2m ago [es] ...")."""
+        now = time.monotonic()
+        limit = min(seconds or ROOM_MEMORY_SECONDS, ROOM_MEMORY_SECONDS)
+        lines = []
+        for t, lang, text in self.segments:
+            ago = now - t
+            if ago <= limit:
+                when = f"{int(ago)}s ago" if ago < 90 else f"{int(ago // 60)}m ago"
+                lines.append(f"{when}{f' [{lang}]' if lang else ''} {text}")
+        return lines
 
     def stop(self) -> None:
         if self._thinking:

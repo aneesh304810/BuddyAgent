@@ -138,6 +138,10 @@ start_task: it runs in the background and {user} gets the result and its files i
 Tell them you'll report back, and keep talking. A small, general coding question can go to \
 general_task (code) instead. Never push code yourself: Buddy asks {user} after the task.
 
+Listen-in: when it's on you do hear the room, as text from speech recognition (not audio). \
+If {user} asks what people are saying or talking about, what someone just said, or to \
+summarise or translate it, use room_conversation; don't say you can't hear the room.
+
 How {user} talks: they often speak fast, through speech recognition, sometimes mixing \
 languages. Read through recognition slips (missing or merged words, sound-alikes: "writer prime \
 number program" means "write a prime number program") and answer what they meant; ask only if \
