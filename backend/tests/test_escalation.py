@@ -52,7 +52,7 @@ def test_expert_answers_with_opus_thinking_harder(monkeypatch):
     assert answer.startswith("Pay it in full") and "Confidence: high" in answer and "cost $" in answer
     call = fake.calls[0]
     assert call["model"] == "claude-opus-5-5" and call["output_config"] == {"effort": "high"}
-    assert {t["name"] for t in call["tools"]} == {"web_search", "web_fetch"}
+    assert {t["name"] for t in call["tools"]} - {"google_search"} == {"web_search", "web_fetch", "read_pages"}
     assert "4111 1111" not in call["messages"][0]["content"]  # masked
     assert len(fake.calls) == 2  # resumed after the pause
     assert Thrift(mem).status()["today_usd"] > 0  # counted against the allowance

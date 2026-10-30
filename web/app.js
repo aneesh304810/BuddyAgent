@@ -648,6 +648,15 @@ async function showInsights() {
       p.accuracy == null ? "–" : `${Math.round(p.accuracy * 100)}%`]),
       ["", "Model", "", "First choice for", "Requests", "Typical", "Right"]));
   }
+  const web = r.web;
+  if (web) {
+    h("Web reading (this month)");
+    body.appendChild(el("p", "", (web.serper ? "Google search (Serper) is on. "
+      : "Google search isn't connected (BUDDY_SERPER_KEY), so searches use Claude's. ") +
+      (web.pages_read ? `${web.pages_read} pages read by Buddy · ${web.digested} digested by a free model · ` +
+        `${web.raw} given to Claude trimmed · ${web.failed} couldn't open · ${tok(web.tokens_saved)} tokens ` +
+        `Claude didn't have to read (about ${money(web.saved_usd)} saved)` : "No pages read by Buddy yet.")));
+  }
   h("Tools and agents");
   if (!(r.tools || []).length) body.appendChild(el("p", "", "No tools used in this period."));
   else body.appendChild(costTable(r.tools.map((t) => [

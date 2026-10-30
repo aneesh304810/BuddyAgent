@@ -19,7 +19,9 @@ from .agent import fallback_kwargs
 from .config import claude_client, search_caps, settings
 from .memory import Memory
 from .privacy import mask
+from .social import Social, run_social_tool, social_tools
 from .tools import ToolError, local_now, web_fetch
+from .webread import READ_TOOL, PageReader, google_and_read, run_read_tool
 
 log = logging.getLogger(__name__)
 
@@ -57,7 +59,8 @@ quick answer. {assistant} is {user}'s personal voice assistant and will say your
 answer aloud in its own words. Today is {today}.
 
 - Get it right. Think it through; do calculations step by step; check current \
-facts with web search and read the pages that matter.
+facts (google_search first when you have it, then read_pages to read the pages that \
+matter; web_search and web_fetch when those come back thin or a page won't open).
 - Answer in a few short paragraphs of plain text, no Markdown tables: the answer \
 first, then the key numbers or reasons, then any important caveat.
 - End with one line: "Confidence: high", "Confidence: medium" or "Confidence: low", \
@@ -90,7 +93,11 @@ async def ask_expert(memory: Memory, args: dict) -> str:
     tools = [
         {"type": "web_search_20260209", "name": "web_search", "max_uses": search_caps()["expert_search"]},
         web_fetch(search_caps()["expert_fetch"]),
+        READ_TOOL,  # pages digested by a free model: read more sources for less
     ]
+    social = Social()
+    tools += [t for t in social_tools(social) if t["name"] == "google_search"]
+    reader = PageReader(memory)
     cost = 0.0
     response = None
     for _ in range(MAX_STEPS):
@@ -110,6 +117,9 @@ async def ask_expert(memory: Memory, args: dict) -> str:
         if response.stop_reason == "refusal":
             raise ToolError("The expert declined this question.")
         messages.append({"role": "assistant", "content": response.content})
+        if response.stop_reason == "tool_use":
+            messages.append({"role": "user", "content": await _run_tools(social, reader, response.content)})
+            continue
         if response.stop_reason != "pause_turn":
             break
     answer = "\n".join(b.text for b in response.content if b.type == "text").strip()
@@ -117,3 +127,24 @@ async def ask_expert(memory: Memory, args: dict) -> str:
         raise ToolError("The expert couldn't finish an answer.")
     log.info("expert answer cost $%.3f", cost)
     return f"{answer}\n\n(Expert answer, cost ${cost:.2f}.)"
+
+
+async def _run_tools(social: Social, reader: PageReader, content) -> list[dict]:
+    """The expert's own tools: Google search and Buddy's page reader."""
+    results = []
+    for block in content:
+        if block.type != "tool_use":
+            continue
+        args = dict(block.input) if isinstance(block.input, dict) else {}
+        try:
+            if block.name == "read_pages":
+                text = await run_read_tool(reader, args)
+            elif block.name == "google_search":
+                text = await google_and_read(social, reader, args, run_social_tool)
+            else:
+                raise ToolError(f"Unknown tool {block.name}.")
+            is_error = False
+        except ToolError as e:
+            text, is_error = str(e), True
+        results.append({"type": "tool_result", "tool_use_id": block.id, "content": text, "is_error": is_error})
+    return results

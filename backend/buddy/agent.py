@@ -26,6 +26,7 @@ from .free_models import GENERAL_TOOL, UNSURE, VERDICT_TOOL, FreeModels, run_gen
 from .insights import RATE_TOOL
 from .router import HAND_OVER_TOOL, Router, free_kind
 from .social import SOCIAL_TOOL_NAMES, Social, run_social_tool, social_tools
+from .webread import READ_TOOL, PageReader, google_and_read, run_read_tool
 from .location import Location
 from .taste import TASTE_TOOL_NAMES, TASTE_TOOLS, WHERE_TOOL, Taste, run_taste_tool
 from .builder import BUILDER_TOOL_NAMES, BUILDER_TOOLS, AgentBuilder, run_builder_tool
@@ -158,6 +159,7 @@ class Conversation:
         self.location = Location(memory)
         self.router = Router()
         self.free = FreeModels(memory)
+        self.reader = PageReader(memory, self.free)
         self.model = settings.chat_model  # this turn's model, picked by the router
         self.messages: list[dict] = []
         self.turn = 0  # counts user messages; approvals need a newer one
@@ -387,11 +389,15 @@ class Conversation:
         if self.model == settings.fast_model and self.model != settings.chat_model:
             everything = [HAND_OVER_TOOL] + everything
         for tool in everything:
-            if tool.get("type", "custom") != "custom" or tool["name"] in ALWAYS_LOADED | {"hand_over", "general_task"} | DISPLAY_ONLY:
+            if tool.get("type", "custom") != "custom" or tool["name"] in ALWAYS_LOADED | {"hand_over", "general_task"} | DISPLAY_ONLY | self._search_tools():
                 tools.append(tool)  # server tools (web search) and the everyday ones stay loaded
             else:
                 tools.append({**tool, "defer_loading": True})
         return tools
+
+    def _search_tools(self) -> set[str]:
+        """With Serper, Google search and Buddy's page reader are the default way to the web: always loaded."""
+        return {"google_search", "read_pages"} if self.social.has_google() else {"read_pages"}
 
     def _all_tools(self) -> list[dict]:
         agent_tools = self.registry.tool_definitions() if self.registry else []
@@ -409,7 +415,7 @@ class Conversation:
         spending += [GENERAL_TOOL, VERDICT_TOOL] if self.free.enabled() else []
         spending += [RATE_TOOL, HEALTH_TOOL, cards.SHOW_TOOL, tutor.TUTOR_TOOL, vocabulary.LEARN_TOOL] + MAKER_TOOLS
         spending += [ROOM_TOOL] if self.room else []
-        spending += [REPLY_STYLE_TOOL, transcripts.TRANSCRIPT_TOOL]
+        spending += [REPLY_STYLE_TOOL, transcripts.TRANSCRIPT_TOOL, READ_TOOL]
         return (
             CLIENT_TOOLS + orchestration + job_tools + spending + [_expert_tool()]
             + agent_tools + web_tools()
@@ -491,8 +497,12 @@ class Conversation:
             here = self.location.current()
             return json.dumps(here) if here else ("Not shared right now. The user can turn on Share my location "
                                                   "in the Buddy app's settings, or just tell you.")
+        if name == "google_search":
+            return await google_and_read(self.social, self.reader, args, run_social_tool)
         if name in SOCIAL_TOOL_NAMES:
             return await run_social_tool(self.social, name, args)
+        if name == "read_pages":
+            return await run_read_tool(self.reader, args)
         if name == "account_balances":
             return await run_balances_tool(self.bank, args)
         if name == "life_log":

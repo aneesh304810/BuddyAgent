@@ -23,6 +23,7 @@ from .jobs import JobContext, JobFailed, JobResult
 from .privacy import mask
 from .social import SOCIAL_TOOL_NAMES, Social, run_social_tool, social_tools
 from .tools import ToolError, local_now, web_fetch
+from .webread import READ_TOOL, PageReader, google_and_read, run_read_tool
 
 log = logging.getLogger(__name__)
 
@@ -86,8 +87,10 @@ Plain words, no filler, as short as the question allows."""
 
 WEB_METHOD = """\
 - Break the question into a few sub-questions before searching.
-- Search, then open and read the most relevant pages with web_fetch. Don't take \
-facts or numbers from search snippets alone.
+- Search (google_search first when you have it: cheaper, Google's ranking), then read \
+the most relevant pages with read_pages: a free model pulls out the facts, so you can \
+read more sources for less. Use web_fetch only for pages read_pages can't open, PDFs, \
+or when you need a page's exact wording. Don't take facts or numbers from snippets alone.
 - Every key claim needs two independent sources. Prefer primary sources: official \
 sites, the vendor's own pricing page, government data, filings.
 - When sources disagree, say so and which one you trust and why."""
@@ -116,7 +119,8 @@ dates or airports, and whether booking direct is cheaper.
 - Check the catches: seller and shop trust, reviews, warranty, stopovers and layover times.
 - Look for price history (for example Google Flights' price insights, camelcamelcamel, \
 Keepa) and say whether to buy now or wait, and why.
-- Read the actual offer pages with web_fetch; prices in snippets are often stale.
+- Read the actual offer pages (read_pages with full=true keeps every price and fee; \
+web_fetch when it can't open one); prices in snippets are often stale.
 - In the report: a table of the best options with columns what, headline price, hidden \
 fees, TRUE total, cancellation (refundable? until when?), where, link; then "Best value", \
 "Cheapest true total" and, if different, "Best quality"; then "Watch out for" (the catches \
@@ -164,6 +168,7 @@ def _tools(mode: str, depth: Depth) -> list[dict]:
             web_fetch(depth.fetches),
         ]
         tools += social_tools(Social())  # Reddit, Google and trends, when connected
+        tools.append(READ_TOOL)  # pages read by Buddy and digested by a free model: far fewer tokens
     return tools + [RECALL_TOOL]
 
 
@@ -247,9 +252,15 @@ async def _run_tools(ctx: JobContext, content) -> list[dict]:
         if block.name == "recall_memory":
             facts = ctx.memory.recall(str(args.get("query", "")))
             text, is_error = mask("\n".join(facts)) or "Nothing remembered about that.", False
-        elif block.name in SOCIAL_TOOL_NAMES:
+        elif block.name in SOCIAL_TOOL_NAMES | {"read_pages"}:
             try:
-                text, is_error = await run_social_tool(Social(), block.name, args), False
+                if block.name == "read_pages":
+                    text = await run_read_tool(PageReader(ctx.memory), args)
+                elif block.name == "google_search":
+                    text = await google_and_read(Social(), PageReader(ctx.memory), args, run_social_tool)
+                else:
+                    text = await run_social_tool(Social(), block.name, args)
+                is_error = False
             except ToolError as e:
                 text, is_error = str(e), True
         else:

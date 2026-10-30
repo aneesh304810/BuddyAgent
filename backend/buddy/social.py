@@ -216,9 +216,10 @@ def social_tools(social: Social) -> list[dict]:
     if social.has_google():
         tools.append({
             "name": "google_search",
-            "description": "Google's own results (with its answer box and top stories), or Google News with "
-            "news=true, for a country. Use when Google's ranking matters, for local results, or alongside "
-            "web_search for a second opinion. About a tenth of a cent each.",
+            "description": "Search the web: Google's own results (with its answer box and top stories), or "
+            "Google News with news=true, for a country. The first choice for anything current: about a tenth "
+            "of a cent, a tenth of web_search. read_top 1-3 also reads the best results in the same step "
+            "(a free model pulls out the facts that answer the query), for when snippets aren't enough.",
             "input_schema": {
                 "type": "object",
                 "properties": {
@@ -226,6 +227,7 @@ def social_tools(social: Social) -> list[dict]:
                     "news": {"type": "boolean"},
                     "country": {"type": "string"},
                     "num": {"type": "integer"},
+                    "read_top": {"type": "integer", "description": "Also read this many top results (0-3)"},
                 },
                 "required": ["query"],
                 "additionalProperties": False,

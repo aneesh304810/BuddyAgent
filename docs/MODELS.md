@@ -114,6 +114,30 @@ Defaults: `gemini-flash-latest`, `llama-3.3-70b-versatile` (Groq), `mistral-smal
 working, set its current name, e.g. `set.sh BUDDY_GROQ_MODEL`. The other settings are
 `BUDDY_GEMINI_MODEL`, `BUDDY_GITHUB_MODEL`, `BUDDY_MISTRAL_MODEL`, `BUDDY_CEREBRAS_MODEL`, `BUDDY_OPENROUTER_MODEL`.
 
+## 3. Web search and reading pages (Serper + free models + Claude)
+
+With the Serper key (docs/KEYS.md), Buddy searches and reads the web itself instead of
+letting Claude pull whole pages into its context:
+
+1. **google_search** (Serper): Google's ranking, answer box, News and Maps, about $1 per
+   1,000 searches, against $10 per 1,000 for Claude's web_search.
+2. **read_pages**: Buddy downloads up to 3 pages (https, public addresses only, 3 MB and
+   12 seconds each), drops menus, ads and scripts, keeps tables.
+3. A free model pulls out only the facts that answer the question (exact figures copied),
+   a few hundred tokens instead of 5,000 to 50,000.
+4. Claude writes the answer. `google_search` with `read_top` does steps 1 to 3 in one go.
+
+Claude reads the trimmed page itself (no digest) when the question has anything personal
+in it, the free model is unsure or busy, the page is mostly a table of numbers, or it
+asks for `full`. Claude's own web_search and web_fetch stay as the fallback: pages Buddy
+can't open (blocked, PDFs, JavaScript-only) and when Serper isn't set up. Chat, research
+jobs and the expert all work this way. Insights → **Web reading** shows pages read,
+digested, failed, and the tokens and dollars saved.
+
+Settings: `BUDDY_WEB_DIGEST=0` turns the free-model digest off (Claude gets trimmed pages);
+`BUDDY_PAGE_RAW_CHARS` (default 8000) is how much of a page Claude gets without a digest;
+`BUDDY_FETCH_MAX_TOKENS` (default 12000) caps Claude's own web_fetch.
+
 ## See it working
 
 **Insights** (in the Android app's header, and on the web page) shows every model request:

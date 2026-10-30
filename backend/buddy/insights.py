@@ -6,7 +6,7 @@ and masked; the log keeps 90 days.
 
 from datetime import datetime, timedelta, timezone
 
-from . import usage
+from . import usage, webread
 from .config import settings
 from .memory import Memory
 from .tools import local_now
@@ -14,6 +14,7 @@ from .tools import local_now
 PURPOSE_NAMES = {
     "chat": "Talking with you",
     "chat_free": "Talking with you (free model)",
+    "web_digest": "Reading web pages (free model)",
     "listen": "Listen-in",
     "addressing": "Was that for me?",
     "think": "Let me think",
@@ -274,6 +275,7 @@ def report(memory: Memory, days: int = 7, recent: int = 60, model: str = "", pur
         "speed": speed(turns),
         "free_models": free_models_overview(memory, by_model),
         "tools": tools_overview(memory, since, rows),
+        "web": webread.web_overview(memory),
         "by_model": by_model,
         "by_purpose": by_purpose,
         "by_day": list(per_day.values()),

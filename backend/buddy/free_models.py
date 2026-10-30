@@ -262,13 +262,15 @@ class FreeModels:
         return (self.env.get(p["model_setting"]) or p["model"]).strip()
 
     async def run(self, kind: str, text: str, instruction: str = "", target: str = "English",
-                  system: str | None = None, purpose: str = "", claude_fallback: bool = True) -> dict:
+                  system: str | None = None, purpose: str = "", claude_fallback: bool = True,
+                  check_text: bool = True) -> dict:
         import asyncio
 
         if kind not in BEST_FOR:
             raise ToolError(f"Kinds: {', '.join(BEST_FOR)}.")
         text = text[:MAX_CHARS]
-        check_general(text + " " + instruction, self.memory)
+        # check_text=False: the text is public (a web page); only the instruction can carry the user's details.
+        check_general((text + " " if check_text else "") + instruction, self.memory)
         if kind == "code" and (why := code_route(instruction + "\n" + text)):
             usage.count(self.memory, "free:code_to_claude")
             raise NeedsClaude(f"This coding task needs you, not a free model ({why}): do it yourself, carefully (hand_over first if you have that tool).")

@@ -302,6 +302,24 @@ fun InsightsScreen(link: ServerLink?) {
             items(freeInfo.optJSONArray("providers")?.objects() ?: emptyList()) { p -> FreeModelRow(p) }
         }
 
+        val web = d.optJSONObject("web")
+        if (web != null) {
+            item { Heading("Web reading (this month)") }
+            item {
+                val pages = web.optInt("pages_read")
+                Text(
+                    (if (web.optBoolean("serper")) "Google search (Serper) is on. " else
+                        "Google search isn't connected (BUDDY_SERPER_KEY), so searches use Claude's. ") +
+                        if (pages == 0) "No pages read by Buddy yet." else
+                        "$pages pages read by Buddy · ${web.optInt("digested")} digested by a free model · " +
+                        "${web.optInt("raw")} given to Claude trimmed · ${web.optInt("failed")} couldn't open · " +
+                        "${tokens(web.optLong("tokens_saved"))} tokens Claude didn't have to read " +
+                        "(about ${"$"}${"%.2f".format(web.optDouble("saved_usd"))} saved)",
+                    color = Dim, fontSize = 13.sp,
+                )
+            }
+        }
+
         val tools = d.optJSONArray("tools")?.objects() ?: emptyList()
         item { Heading("Tools and agents") }
         if (tools.isEmpty()) item { Text("No tools used in this period.", color = Dim, fontSize = 13.sp) }
