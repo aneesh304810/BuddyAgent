@@ -36,6 +36,11 @@ interface Hearing {
  * Buddy's ears: Android speech recognition, restarted after every phrase so it
  * keeps listening. Partial results allow barge-in (talking over Buddy).
  */
+/** Names and words from Buddy (your memory, words you corrected): the recogniser leans towards them. */
+object Vocabulary {
+    @Volatile var words: List<String> = emptyList()
+}
+
 class Ears(
     private val context: Context,
     private val onHeard: (text: String, final: Boolean) -> Unit,
@@ -104,7 +109,13 @@ class Ears(
                 putExtra(RecognizerIntent.EXTRA_ENABLE_LANGUAGE_SWITCH, RecognizerIntent.LANGUAGE_SWITCH_BALANCED)
                 putStringArrayListExtra(RecognizerIntent.EXTRA_LANGUAGE_SWITCH_ALLOWED_LANGUAGES, languages)
             }
-            putExtra(RecognizerIntent.EXTRA_SPEECH_INPUT_COMPLETE_SILENCE_LENGTH_MILLIS, 1_500L)
+            // "Pauses when I talk" (Settings): how long a silence means you've finished.
+            val silence = BuddyPrefs(context).endSilenceMs
+            putExtra(RecognizerIntent.EXTRA_SPEECH_INPUT_COMPLETE_SILENCE_LENGTH_MILLIS, silence + 500)
+            putExtra(RecognizerIntent.EXTRA_SPEECH_INPUT_POSSIBLY_COMPLETE_SILENCE_LENGTH_MILLIS, silence)
+            if (Build.VERSION.SDK_INT >= Build.VERSION_CODES.TIRAMISU && Vocabulary.words.isNotEmpty()) {
+                putStringArrayListExtra(RecognizerIntent.EXTRA_BIASING_STRINGS, ArrayList(Vocabulary.words.take(50)))
+            }
         }
         runCatching { recognizer?.startListening(intent) }.onFailure { restartSoon() }
     }
@@ -266,7 +277,8 @@ class Mouth(context: Context, private val onSpeaking: (Boolean) -> Unit) : TextT
         val params = Bundle().apply {
             putFloat(TextToSpeech.Engine.KEY_PARAM_VOLUME, if (quiet) 0.6f else 1f)
         }
-        tts.setSpeechRate(if (quiet) 1.15f else 1.05f)
+        val rate = prefs.voiceRate  // Settings → Voice speed
+        tts.setSpeechRate(if (quiet) rate * 1.1f else rate)
         tts.speak(text, TextToSpeech.QUEUE_ADD, params, id)
     }
 

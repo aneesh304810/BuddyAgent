@@ -5,10 +5,11 @@ Protocol (JSON messages):
                    {"type": "user", "text": "..."}   something the user said
                    {"type": "interrupt"}              user started talking over Buddy
                    {"type": "ambient", "text": "...", "lang": "hi-IN"}
-  phone -> server  {"type": "audio", "pcm": "<base64 16 kHz mono 16-bit>", "lang": "auto"}
+  phone -> server  {"type": "audio", "pcm": "<base64 16 kHz mono 16-bit>", "lang": "auto", "mode": "talk"}
   server -> phone  {"type": "heard", "text": "...", "lang": "es"}  (Whisper on the server)
   phone -> server  {"type": "rate", "turn": "a1b2c3", "up": true}  thumbs on a reply (null clears)
   phone -> server  {"type": "location", "lat": -12.12, "lng": -77.03, "accuracy": 50}  (when shared)
+  server -> phone  {"type": "vocabulary", "words": [...]}  names and words to recognise (after hello)
   server -> phone  {"type": "thinking"}  the question arrived and Buddy is working on it
   server -> phone  {"type": "approval", "question": "..."}  Buddy is waiting for a yes:
                    show Approve / Decline; they send a user message "Yes, go ahead." / "No."
@@ -45,7 +46,7 @@ from fastapi import Depends, FastAPI, Header, HTTPException, Request, WebSocket,
 from fastapi.staticfiles import StaticFiles
 
 from . import health as healthcheck
-from . import codejob, insights, makers, proactive, research, usage
+from . import codejob, insights, makers, proactive, research, tutor, usage, vocabulary
 from .agent import FILLERS, Conversation
 from .agents import AgentRegistry, load_specs
 from .ambient import AmbientListener, is_think_cue
@@ -128,6 +129,11 @@ async def job_finished(job: dict) -> bool:
         question = "Shall I switch it on?"
         thrift.ask_action(question, switch_on)
         return await deliver("job_done", f"{job.get('summary') or ''} {question}".strip(), job_id=job["id"])
+    if job["kind"] == "tutor":
+        if job["status"] != "done":
+            return await deliver("job_done", job.get("error") or "The English review didn't finish.", job_id=job["id"])
+        return await deliver("job_done", f"Your English review is ready. {job.get('summary') or ''}".strip(),
+                             job_id=job["id"])
     if job["kind"] == "code":
         if job["status"] != "done":
             return await deliver("job_done", f"The task didn't finish: {job.get('error') or 'unknown error'}",
@@ -171,6 +177,7 @@ jobs.register("research", research.run_research)
 builder = AgentBuilder(memory, registry)
 jobs.register("build_agent", builder.build)
 jobs.register("code", codejob.run_code_task)
+jobs.register("tutor", tutor.run_review)
 for _spec in builder.active_specs():  # agents built or connected earlier
     registry.specs.setdefault(_spec.name, _spec)
 
@@ -185,6 +192,7 @@ async def lifespan(app: FastAPI):
     watch_loop = asyncio.create_task(watcher.run())
     bank_loop = asyncio.create_task(bank.run())
     health_loop = asyncio.create_task(healthcheck.run(memory, finops, deliver))
+    tutor_loop = asyncio.create_task(tutor.run(memory, jobs))
     try:
         yield
     finally:
@@ -196,6 +204,7 @@ async def lifespan(app: FastAPI):
         watch_loop.cancel()
         bank_loop.cancel()
         health_loop.cancel()
+        tutor_loop.cancel()
         await registry.close()
 
 
@@ -532,6 +541,8 @@ async def talk(ws: WebSocket) -> None:
                 tz = str(msg.get("timezone", ""))
                 if tz and set_user_tz(tz):
                     memory.set("timezone", tz)
+                # Names and words to recognise: the phone's recogniser biases towards them.
+                await send({"type": "vocabulary", "words": vocabulary.words(memory)})
             elif msg.get("type") == "interrupt":
                 await stop_current()
             elif msg.get("type") == "user" and msg.get("text", "").strip():
@@ -571,8 +582,12 @@ async def talk(ws: WebSocket) -> None:
                 # routes it like its own recognizer's (talk, Listen-in, "Hey Buddy").
                 try:
                     started = time.monotonic()
+                    stats: dict | None = {} if msg.get("mode") == "talk" and tutor.ON else None
                     heard, lang = await speech_to_text.transcribe(
-                        base64.b64decode(msg["pcm"]), str(msg.get("lang", "")))
+                        base64.b64decode(msg["pcm"]), str(msg.get("lang", "")), vocabulary.whisper_prompt(memory),
+                        **({"stats": stats} if stats is not None else {}))
+                    if stats:
+                        tutor.log_speech(memory, stats, lang)
                     log.info("whisper took %.1fs", time.monotonic() - started)
                     if heard:
                         await send({"type": "heard", "text": heard, "lang": lang, "id": msg.get("id")})

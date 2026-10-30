@@ -37,13 +37,20 @@ private val HEADSET_TYPES = setOf(
  *  "hey bud", "okay buddy"), after a filler word ("so hey buddy..."). */
 private val WAKE_PHRASE = Regex(
     "^(?:(?:so|okay|ok|um|uh|and|well|yeah)[\\s,]+)?" +
-        "(?:(?:hey|hi|hello|ok|okay|yo)[\\s,]+(?:buddy|buddie|body|bodhi|birdie|bud|baddie)|buddy|buddie)" +
+        "(?:(?:hey|hi|hello|ok|okay|yo)[\\s,]+(?:buddy|buddie|body|bodhi|birdie|bud|baddie|bro|brother)|buddy|buddie|bro)" +
         "\\b[\\s,.!?]*(.*)$",
     RegexOption.IGNORE_CASE,
 )
 
 /** "..., buddy?" at the end: "can you hear me buddy". */
-private val WAKE_AT_END = Regex("^(.+?)[\\s,]+(?:hey\\s+)?(?:buddy|buddie)[.!?]*$", RegexOption.IGNORE_CASE)
+private val WAKE_AT_END = Regex("^(.+?)[\\s,]+(?:hey\\s+)?(?:buddy|buddie|bro)[.!?]*$", RegexOption.IGNORE_CASE)
+
+/** "Are you listening?", "you there?", "can you hear me?": a check-in, like calling its name. */
+private val CHECK_IN = Regex(
+    "^(?:(?:hey\\s+)?(?:buddy|bro)[\\s,]+)?(?:are you (?:listening|there|awake)(?: to me)?|you there|" +
+        "can you hear me|are you with me)(?:[\\s,]+(?:buddy|bro))?[\\s?.!]*$",
+    RegexOption.IGNORE_CASE,
+)
 
 class BuddyService : Service() {
 
@@ -135,6 +142,7 @@ class BuddyService : Service() {
             onHeard = ::heard, onActive = onActive, onProblem = onProblem,
             // On the loudspeaker Buddy would hear itself; with earbuds that's no problem.
             paused = { mouth.speaking && activeMode == Mode.TALK && !headsetConnected() },
+            endSilenceMs = { BuddyPrefs(this).endSilenceMs - 200 },
         )
         mouth = Mouth(this) { on ->
             BuddyState.update { it.copy(speaking = on) }
@@ -235,6 +243,12 @@ class BuddyService : Service() {
     /** For the phone bridge: send without telling the user if offline. */
     fun sendQuietly(message: JSONObject): Boolean = client?.send(message) ?: false
 
+    /** Settings → voice speed: hear the new speed straight away. */
+    fun previewVoice() {
+        mouth.stop()
+        mouth.speak("This is how fast I'll talk.")
+    }
+
     /** Thumbs on a reply (null clears): shown per model and purpose in Insights. */
     fun rate(turn: String, rating: Int?) {
         val message = JSONObject().put("type", "rate").put("turn", turn)
@@ -307,6 +321,7 @@ class BuddyService : Service() {
                 mouth.speak(event.text)
             }
             is ServerEvent.Cards -> BuddyState.attachCards(event.json)
+            is ServerEvent.Words -> Vocabulary.words = event.words
             is ServerEvent.Done -> {
                 replyOpen = false
                 BuddyState.replyDone(event.turn)
@@ -510,6 +525,11 @@ class BuddyService : Service() {
     private fun heard(text: String, final: Boolean) {
         if (activeMode == Mode.LISTEN_IN && final) {
             val followUp = android.os.SystemClock.elapsedRealtime() < followUpUntil
+            if (CHECK_IN.matches(text.trim())) {
+                wakeArmed = true
+                mouth.speak("Yes, I'm listening.", quiet = true)
+                return
+            }
             val request = if (wakeArmed || followUp) afterWakePhrase(text) ?: text else afterWakePhrase(text)
             when {
                 request == null -> Unit

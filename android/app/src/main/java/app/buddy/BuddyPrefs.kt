@@ -74,6 +74,20 @@ class BuddyPrefs(context: Context) {
         get() = prefs.getString("voiceName", "") ?: ""
         set(value) = prefs.edit().putString("voiceName", value).apply()
 
+    /** How fast Buddy speaks: 0.7 (slow) to 1.4 (fast); 1.0 is normal. */
+    var voiceRate: Float
+        get() = prefs.getFloat("voiceRate", 1.0f)
+        set(value) = prefs.edit().putFloat("voiceRate", value.coerceIn(0.6f, 1.6f)).apply()
+
+    /** How long a pause means "I've finished": short (fast talkers), normal, long (for thinking pauses). */
+    var pauses: String
+        get() = prefs.getString("pauses", "normal") ?: "normal"
+        set(value) = prefs.edit().putString("pauses", value).apply()
+
+    /** Silence, in ms, that ends what you're saying (from [pauses]). */
+    val endSilenceMs: Long
+        get() = when (pauses) { "short" -> 600L; "long" -> 1600L; else -> 1000L }
+
     /** Send this phone's calendars to Buddy. */
     var shareCalendar: Boolean
         get() = prefs.getBoolean("shareCalendar", false)

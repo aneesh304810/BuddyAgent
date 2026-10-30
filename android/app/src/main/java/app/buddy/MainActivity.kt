@@ -65,6 +65,7 @@ import androidx.compose.material3.MaterialTheme
 import androidx.compose.material3.OutlinedButton
 import androidx.compose.material3.OutlinedTextField
 import androidx.compose.material3.RadioButton
+import androidx.compose.material3.Slider
 import androidx.compose.material3.Switch
 import androidx.compose.material3.Text
 import androidx.compose.material3.TextButton
@@ -731,6 +732,7 @@ private fun SettingsPanel(
 
         Spacer(Modifier.height(8.dp))
         VoicePicker(prefs)
+        SpeechTuning(prefs)
 
         Spacer(Modifier.height(8.dp))
         Text("This phone", color = Color.White, fontSize = 18.sp)
@@ -819,6 +821,30 @@ private fun SettingsPanel(
 
 
 /** Pick Buddy's voice: tap one to hear it. The list is this phone's English voices. */
+/** Voice speed, and how long a pause means you've finished (fast talkers: short). */
+@Composable
+private fun SpeechTuning(prefs: BuddyPrefs) {
+    var rate by remember { mutableStateOf(prefs.voiceRate) }
+    var pauses by remember { mutableStateOf(prefs.pauses) }
+    Column(Modifier.fillMaxWidth().padding(top = 12.dp)) {
+        Text("Buddy's voice speed: ${String.format(java.util.Locale.US, "%.1f", rate)}×", color = Color.White)
+        Slider(value = rate, onValueChange = { rate = it }, valueRange = 0.7f..1.4f, steps = 6,
+            onValueChangeFinished = {
+                prefs.voiceRate = rate
+                BuddyService.instance?.previewVoice()
+            })
+        Text("Pauses when I talk", color = Color.White, modifier = Modifier.padding(top = 8.dp))
+        Text("Short if you talk fast and Buddy waits too long; long if it cuts you off mid-thought.",
+            color = Muted, fontSize = 12.sp)
+        Row(horizontalArrangement = Arrangement.spacedBy(8.dp), modifier = Modifier.padding(top = 4.dp)) {
+            listOf("short" to "Short", "normal" to "Normal", "long" to "Long").forEach { (value, label) ->
+                FilterChip(selected = pauses == value, onClick = { pauses = value; prefs.pauses = value },
+                    label = { Text(label) })
+            }
+        }
+    }
+}
+
 @Composable
 private fun VoicePicker(prefs: BuddyPrefs) {
     var chosen by remember { mutableStateOf(prefs.voiceName) }

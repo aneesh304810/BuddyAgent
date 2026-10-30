@@ -16,6 +16,7 @@ sealed interface ServerEvent {
     data class Say(val text: String, val filler: Boolean = false) : ServerEvent
     data class Done(val turn: String) : ServerEvent  // turn: lets you rate the reply
     data class Cards(val json: String) : ServerEvent  // results to show under the reply
+    data class Words(val words: List<String>) : ServerEvent  // names and words to recognise
     data object Thinking : ServerEvent
     data class Nudge(val kind: String, val text: String, val jobId: Int? = null, val cards: String? = null) : ServerEvent
     data class Whisper(val kind: String, val text: String) : ServerEvent
@@ -30,6 +31,7 @@ sealed interface ServerEvent {
                 "say" -> Say(msg.getString("text"), msg.optBoolean("filler"))
                 "done" -> Done(msg.optString("turn"))
                 "cards" -> Cards(msg.getJSONArray("cards").toString())
+                "vocabulary" -> msg.getJSONArray("words").let { a -> Words((0 until a.length()).map { a.getString(it) }) }
                 "thinking" -> Thinking
                 "nudge" -> Nudge(
                     msg.optString("kind"),

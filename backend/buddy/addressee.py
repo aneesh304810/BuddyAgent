@@ -23,7 +23,7 @@ client = claude_client()
 RECENT_SECONDS = 180  # after Buddy spoke, replies are worth checking for this long
 # Sounds like something said to an assistant: worth a check even out of the blue.
 CUES = re.compile(
-    r"\b(you|your|hey|remind|tell me|what'?s|what is|how (do|much|many|far|long)|where|when|who|why|can you|"
+    r"\b(you|your|hey|bro|buddy|are you listening|you there|remind|tell me|what'?s|what is|how (do|much|many|far|long)|where|when|who|why|can you|"
     r"could you|would you|will you|please|find|search|look up|check|add|set|call|book|translate|play|"
     r"weather|time is it)\b|\?$",
     re.IGNORECASE,

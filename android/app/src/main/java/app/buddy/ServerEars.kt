@@ -29,6 +29,7 @@ class ServerEars(
     private val onActive: (Boolean) -> Unit,
     private val onProblem: (String) -> Unit,
     private val paused: () -> Boolean,   // e.g. while Buddy talks on the loudspeaker
+    private val endSilenceMs: () -> Long = { 800L },  // "Pauses when I talk" in Settings
 ) : Hearing {
     private val main = Handler(Looper.getMainLooper())
     private var thread: Thread? = null
@@ -121,7 +122,7 @@ class ServerEars(
                 utterance.write(bytes)
                 speechMs += FRAME_MS
                 silentMs = if (loud) 0 else silentMs + FRAME_MS
-                if (silentMs >= END_SILENCE_MS || speechMs >= MAX_UTTERANCE_MS) {
+                if (silentMs >= endSilenceMs() || speechMs >= MAX_UTTERANCE_MS) {
                     if (speechMs - silentMs >= MIN_SPEECH_MS) sendUtterance(utterance.toByteArray())
                     utterance.reset()
                     speaking = false
@@ -138,6 +139,8 @@ class ServerEars(
             .put("type", "audio")
             .put("pcm", Base64.encodeToString(pcm, Base64.NO_WRAP))
             .put("lang", language)
+            // Talk mode is you talking to Buddy: the English tutor may learn from it (room speech isn't).
+            .put("mode", if (BuddyState.ui.value.mode == Mode.TALK) "talk" else "listen")
         if (!send(message)) main.post { onProblem("Not connected to your server yet.") }
     }
 
@@ -152,7 +155,6 @@ class ServerEars(
         const val FRAME_MS = 30
         const val FRAME = RATE * FRAME_MS / 1000
         const val PRE_ROLL_FRAMES = 10        // 300 ms before the first loud frame
-        const val END_SILENCE_MS = 800
         const val MIN_SPEECH_MS = 400
         const val MAX_UTTERANCE_MS = 15_000
     }
