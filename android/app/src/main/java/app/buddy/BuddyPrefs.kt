@@ -94,6 +94,11 @@ class BuddyPrefs(context: Context) {
         get() = prefs.getBoolean("muteListenBeep", true)
         set(value) = prefs.edit().putBoolean("muteListenBeep", value).apply()
 
+    /** This phone's recogniser rejected language switching and name hints: don't send them again. */
+    var simpleRecognition: Boolean
+        get() = prefs.getBoolean("simpleRecognition", false)
+        set(value) = prefs.edit().putBoolean("simpleRecognition", value).apply()
+
     /** True while Buddy has media muted for that beep (so a crash mid-mute is undone next start). */
     var beepMuted: Boolean
         get() = prefs.getBoolean("beepMuted", false)

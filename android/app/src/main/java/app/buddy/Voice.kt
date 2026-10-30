@@ -91,7 +91,9 @@ class Ears(
         language = if (!autoLanguage) lang else if (lang.contains(":")) allowed.first() else Locale.getDefault().toLanguageTag()
         detected = null
         failures = 0
-        simple = false
+        // Once this phone's recogniser has rejected language switching and name hints, don't try
+        // them again on every start (each failed try is an error, a retry and a beep).
+        simple = BuddyPrefs(context).simpleRecognition
         if (recognizer == null) {
             recognizer = SpeechRecognizer.createSpeechRecognizer(context).also {
                 it.setRecognitionListener(listener)
@@ -249,6 +251,7 @@ class Ears(
                     if (error in JAMMED) fresh()  // a stuck or disconnected recogniser: start over with a new one
                     if (failures == 2 && !simple && error !in JAMMED) {
                         simple = true  // drop language switching and vocabulary hints, then retry
+                        BuddyPrefs(context).simpleRecognition = true
                         onProblem("Speech recognition didn't accept language switching here (${errorName(error)}), " +
                             "so I'm listening in ${Locale.forLanguageTag(language).displayLanguage} only for now.")
                     } else if (failures == 6) {

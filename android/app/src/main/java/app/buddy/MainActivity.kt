@@ -855,6 +855,7 @@ private fun SpeechTuning(prefs: BuddyPrefs) {
                     modifier = Modifier.fillMaxWidth().clickable {
                         talkLanguage = value
                         prefs.talkLanguage = value
+                        prefs.simpleRecognition = false  // a new choice gets a fresh try
                         BuddyService.instance?.let { if (BuddyState.ui.value.listening) it.startListening(BuddyState.ui.value.mode) }
                     }.padding(vertical = 2.dp)) {
                     RadioButton(selected = talkLanguage == value, onClick = null)
