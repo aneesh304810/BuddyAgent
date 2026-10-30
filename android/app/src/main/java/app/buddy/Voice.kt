@@ -50,12 +50,12 @@ class Ears(
     private val speaking: () -> Boolean = { false },
 ) : Hearing {
     private val main = Handler(Looper.getMainLooper())
-    // Google's recogniser beeps each time a session starts, and Buddy starts one after every
-    // phrase and every few seconds of silence: mute media for that instant, never while Buddy
-    // talks or other audio (music, a podcast) is playing.
+    // The recogniser beeps when a session starts and ends, and Buddy starts one after every phrase
+    // and every few seconds of silence. While Buddy listens quietly, media and system sounds stay
+    // muted; the mute lifts the moment Buddy speaks ([releaseMute]) or another app plays audio.
     private val audio = context.getSystemService(AudioManager::class.java)
-    private val unmuter = Handler(Looper.getMainLooper())
     private var beepMuted = false
+    private var systemStreamSafe = true  // false if muting system sounds turned the ringer off
     private var recognizer: SpeechRecognizer? = null
     private var language = "en-US"
     private var autoLanguage = false
@@ -134,20 +134,31 @@ class Ears(
                 putStringArrayListExtra(RecognizerIntent.EXTRA_BIASING_STRINGS, ArrayList(Vocabulary.words.take(50)))
             }
         }
-        muteBeep(true)
-        unmuter.removeCallbacksAndMessages(null)
-        unmuter.postDelayed({ muteBeep(false) }, 1_500)  // in case the recogniser never gets ready
+        // Someone else's audio (music, a video) gets its sound back; otherwise stay quiet.
+        muteBeep(!audio.isMusicActive)
         runCatching { recognizer?.startListening(intent) }.onFailure { restartSoon() }
     }
 
+    /** Buddy is about to talk (or play its "got it" tone): give media its sound back. */
+    fun releaseMute() = muteBeep(false)
+
     private fun muteBeep(on: Boolean) {
         if (on == beepMuted) return
-        if (on && (!BuddyPrefs(context).muteListenBeep || speaking() || audio.isMusicActive)) return
+        if (on && (!BuddyPrefs(context).muteListenBeep || speaking())) return
         beepMuted = on
         BuddyPrefs(context).beepMuted = on  // undone at the next start if the app dies mid-mute
-        runCatching {
-            audio.adjustStreamVolume(AudioManager.STREAM_MUSIC,
-                if (on) AudioManager.ADJUST_MUTE else AudioManager.ADJUST_UNMUTE, 0)
+        val direction = if (on) AudioManager.ADJUST_MUTE else AudioManager.ADJUST_UNMUTE
+        runCatching { audio.adjustStreamVolume(AudioManager.STREAM_MUSIC, direction, 0) }
+        if (systemStreamSafe) {
+            // On some phones system sounds share the ringer's volume: if muting them silenced the
+            // ringer, undo it and leave system sounds alone from then on.
+            val ringer = audio.ringerMode
+            runCatching { audio.adjustStreamVolume(AudioManager.STREAM_SYSTEM, direction, 0) }
+            if (on && audio.ringerMode != ringer) {
+                runCatching { audio.adjustStreamVolume(AudioManager.STREAM_SYSTEM, AudioManager.ADJUST_UNMUTE, 0) }
+                runCatching { audio.ringerMode = ringer }
+                systemStreamSafe = false
+            }
         }
     }
 
@@ -160,10 +171,7 @@ class Ears(
     }
 
     private val listener = object : RecognitionListener {
-        override fun onReadyForSpeech(params: Bundle?) {
-            unmuter.removeCallbacksAndMessages(null)
-            unmuter.postDelayed({ muteBeep(false) }, 400)  // the start beep plays as it gets ready
-        }
+        override fun onReadyForSpeech(params: Bundle?) {}
         override fun onBeginningOfSpeech() {}
         override fun onRmsChanged(rmsdB: Float) {}
         override fun onBufferReceived(buffer: ByteArray?) {}

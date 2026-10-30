@@ -146,9 +146,11 @@ class BuddyService : Service() {
         Notes.createChannels(this)
         val onActive = { on: Boolean -> BuddyState.update { it.copy(listening = on) }; refreshNotification() }
         val onProblem = { problem: String -> BuddyState.add(Line(problem, Speaker.ERROR)) }
-        if (prefs.beepMuted) {  // the app stopped while the listening beep was muted: give media its sound back
-            runCatching { getSystemService(AudioManager::class.java).adjustStreamVolume(
-                AudioManager.STREAM_MUSIC, AudioManager.ADJUST_UNMUTE, 0) }
+        if (prefs.beepMuted) {  // the app stopped while the listening beep was muted: give sound back
+            val audio = getSystemService(AudioManager::class.java)
+            for (stream in intArrayOf(AudioManager.STREAM_MUSIC, AudioManager.STREAM_SYSTEM)) {
+                runCatching { audio.adjustStreamVolume(stream, AudioManager.ADJUST_UNMUTE, 0) }
+            }
             prefs.beepMuted = false
         }
         phoneEars = Ears(this, onHeard = ::heard, onActive = onActive, onProblem = onProblem,
@@ -165,6 +167,7 @@ class BuddyService : Service() {
             BuddyState.add(Line("To hear me in $name, add its voice: phone Settings → Text-to-speech → " +
                 "Google → Install voice data → $name.", Speaker.ERROR))
         }) { on ->
+            if (on) phoneEars.releaseMute()  // before the first word plays
             BuddyState.update { it.copy(speaking = on) }
             // Buddy's voice plays through the speech engine, which Android counts as another
             // app: claim the earbud button back after every reply.
@@ -318,6 +321,7 @@ class BuddyService : Service() {
         watchdog.removeCallbacksAndMessages(null)
         BuddyState.update { it.copy(thinking = on) }
         if (!on) return
+        phoneEars.releaseMute()
         tone?.startTone(android.media.ToneGenerator.TONE_PROP_ACK, 120)
         watchdog.postDelayed({ mouth.speak("Still working on it.", quiet = true) }, 20_000)
         watchdog.postDelayed({

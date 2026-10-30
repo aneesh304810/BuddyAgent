@@ -841,9 +841,9 @@ private fun SpeechTuning(prefs: BuddyPrefs) {
         Row(verticalAlignment = Alignment.CenterVertically, modifier = Modifier.padding(bottom = 8.dp)) {
             Column(Modifier.weight(1f)) {
                 Text("Silence the listening beep", color = Color.White)
-                Text("The phone's speech recognition beeps each time it starts listening again. Buddy mutes " +
-                    "media for that moment (not while it talks or music plays). The Server speech engine " +
-                    "never beeps.", color = Muted, fontSize = 12.sp)
+                Text("The phone's speech recognition beeps each time it starts listening again. While Buddy " +
+                    "listens quietly, media and system sounds stay muted; they come back when Buddy talks or " +
+                    "another app plays audio. The Server speech engine never beeps.", color = Muted, fontSize = 12.sp)
             }
             Switch(checked = muteBeep, onCheckedChange = { muteBeep = it; prefs.muteListenBeep = it })
         }
