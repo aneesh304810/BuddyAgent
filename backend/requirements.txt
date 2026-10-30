@@ -1,5 +1,5 @@
 anthropic>=1.8.0
-fastapi>=0.110
+fastapi>=0.162.0
 uvicorn[standard]>=0.29
 python-dotenv>=1.0
 mcp>=2.3,<3
