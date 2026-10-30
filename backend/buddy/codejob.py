@@ -19,7 +19,7 @@ import os
 import re
 import secrets
 
-from . import sandbox
+from . import registry, sandbox
 from .config import claude_client, settings
 from .jobs import JobContext, JobFailed, JobResult
 from .privacy import mask
@@ -48,6 +48,13 @@ Work like this: understand the task, make a short plan, do it step by step, and 
 (run it, open the file, look at the numbers). If something fails, read the error and fix the
 cause. For code in a repo: look around first, keep changes small and focused, run its tests.
 
+Tools: Buddy keeps a registry of vetted tools and ready-made skills (tested scripts with a guide,
+in /buddy/skills). Check find_tools before building something from scratch, and install_tool to
+add registry tools. You may pip or npm install other established packages if really needed: an
+install guard refuses brand-new packages, lookalike names and installs from links, and piping a
+download into a shell is refused; don't try to get around these. Installed tools last for the
+whole task.
+
 Put everything {user} should receive in /work/output/ (create it): reports, spreadsheets (xlsx or
 csv), PDFs, Word or PowerPoint files, charts (png), cleaned data. Give files clear names. These
 are sent to {user}'s chat when you finish; nothing else in the workspace is.
@@ -73,6 +80,15 @@ TOOLS = [
                       "required": ["path"], "additionalProperties": False}},
     {"name": "list_files", "description": "List the files in the workspace (or a folder in it).",
      "input_schema": {"type": "object", "properties": {"path": {"type": "string"}}, "additionalProperties": False}},
+    {"name": "find_tools", "description": "Search Buddy's registry for vetted tools and ready-made skills (tested "
+     "scripts with a guide) that fit a job, e.g. 'excel report with chart', 'extract tables from pdf'. Use it "
+     "before writing something from scratch.",
+     "input_schema": {"type": "object", "properties": {"query": {"type": "string"}},
+                      "required": ["query"], "additionalProperties": False}},
+    {"name": "install_tool", "description": "Install tools from Buddy's registry into this workspace (pinned, "
+     "checked versions). They stay installed for the rest of the task.",
+     "input_schema": {"type": "object", "properties": {"names": {"type": "array", "items": {"type": "string"}}},
+                      "required": ["names"], "additionalProperties": False}},
     {"name": "finish", "description": "Done (or stuck): your summary for the user.",
      "input_schema": {"type": "object", "properties": {
          "summary": {"type": "string", "description": "What you did and found, in plain words"},
@@ -100,6 +116,15 @@ async def _tool(ws: str, name: str, args: dict, log_lines: list[str]) -> str:
             return _cut((await sandbox.call("read", workspace=ws, path=args["path"]))["output"], 40_000)
         if name == "list_files":
             return _cut((await sandbox.call("list", workspace=ws, path=args.get("path", ".")))["output"])
+        if name == "find_tools":
+            return json.dumps(registry.search(str(args.get("query", ""))), ensure_ascii=False)
+        if name == "install_tool":
+            names = [n for n in (args.get("names") or []) if re.fullmatch(r"[A-Za-z0-9_.-]{1,60}", str(n))]
+            if not names:
+                return "Give tool names from find_tools."
+            r = await sandbox.call("run", workspace=ws, command="install-tool " + " ".join(names), timeout=600)
+            log_lines.append(f"installed {', '.join(names)} → exit {r['exit_code']}")
+            return _cut(r["output"])
     except sandbox.SandboxError as e:
         return f"Refused: {e}"
     return f"Unknown tool {name}"
@@ -123,7 +148,8 @@ async def run_code_task(job: dict, ctx: JobContext) -> JobResult:
 
     system = SYSTEM.format(user=settings.user_name,
                            repo_note=f", a clone of {repo}" if repo else " (empty to start with)")
-    messages = [{"role": "user", "content": f"The task:\n{params['task']}"}]
+    messages = [{"role": "user", "content": f"The task:\n{params['task']}\n\nWhat Buddy's registry has (find_tools for "
+                                             f"details): {registry.catalogue()}"}]
     log_lines: list[str] = []
     finished: dict | None = None
     note = ""
@@ -164,6 +190,7 @@ async def run_code_task(job: dict, ctx: JobContext) -> JobResult:
     except sandbox.SandboxError:
         pass
     outputs = await _collect_outputs(ctx.memory, ws, job["title"])
+    installs = await _record_installs(ctx.memory, ws, job["title"])
     if not repo and not params.get("keep"):
         try:  # a one-off workspace: its results are delivered, so tidy it away
             await sandbox.call("delete", workspace=ws)
@@ -183,10 +210,47 @@ async def run_code_task(job: dict, ctx: JobContext) -> JobResult:
         report += ["## Steps", *[f"- `{line}`" for line in log_lines[-40:]], ""]
     if outputs:
         report += ["## Files", *[f"- {name}" for _, name in outputs], ""]
+    if installs:
+        report += ["## Tools installed", *[f"- {i['package']} ({'from the registry' if i['vetted'] else 'not in the registry yet'})"
+                                          for i in installs], ""]
     if diff.strip():
         report += ["## Changes", "```diff", _cut(diff, 30_000), "```"]
     return JobResult(summary=(note + " " if note else "") + summary[:600], report="\n".join(report),
                      findings=[f"changed:{'yes' if changed else 'no'}"] + [f"output:{fid}" for fid, _ in outputs])
+
+
+INSTALLS = """CREATE TABLE IF NOT EXISTS sandbox_installs (
+    package TEXT NOT NULL, kind TEXT NOT NULL, vetted INTEGER NOT NULL, uses INTEGER NOT NULL DEFAULT 1,
+    last_at TEXT NOT NULL, last_task TEXT NOT NULL DEFAULT '', PRIMARY KEY (package, kind))"""
+
+
+async def _record_installs(memory, ws: str, title: str) -> list[dict]:
+    """What the task installed (the guard's log), kept so tools that keep being needed can join the registry."""
+    try:
+        r = await sandbox.call("run", workspace=ws, command="cat /work/.tools/installs.log 2>/dev/null || true",
+                               timeout=30, network=False)
+    except sandbox.SandboxError:
+        return []
+    found = []
+    for line in r.get("output", "").splitlines():
+        try:
+            entry = json.loads(line)
+        except json.JSONDecodeError:
+            continue
+        package = re.split(r"[<>=!~@ ]", str(entry.get("package", "")).lstrip("@"), maxsplit=1)[0][:80]
+        if package:
+            found.append({"package": package, "kind": str(entry.get("kind", ""))[:10], "vetted": bool(entry.get("vetted"))})
+    memory.db.execute(INSTALLS)
+    from datetime import datetime, timezone
+
+    for i in found:
+        memory.db.execute(
+            "INSERT INTO sandbox_installs (package, kind, vetted, last_at, last_task) VALUES (?, ?, ?, ?, ?) "
+            "ON CONFLICT(package, kind) DO UPDATE SET uses = uses + 1, last_at = excluded.last_at, "
+            "last_task = excluded.last_task", (i["package"], i["kind"], int(i["vetted"]),
+                                                datetime.now(timezone.utc).isoformat(), title[:120]))
+    memory.db.commit()
+    return found
 
 
 async def _collect_outputs(memory, ws: str, title: str) -> list[tuple[str, str]]:

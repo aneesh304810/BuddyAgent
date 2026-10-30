@@ -24,6 +24,44 @@ workspace, deleted once the results are delivered; repo workspaces (or ones you 
 trip workspace..."*) are kept for next time. Limits: $3 and 40 steps per task, 10 tasks a day
 (`BUDDY_TASKS_DAILY_LIMIT`).
 
+## Tools and skills: the registry
+
+Buddy keeps a **registry of vetted tools** and **ready-made skills** in the git repo
+(`deploy/sandbox/registry/tools.yaml`, `deploy/sandbox/skills/`), so tasks don't start from
+scratch:
+
+- **Built in** (always there): pandas, numpy, openpyxl, matplotlib, Word, PowerPoint, PDF (pypdf,
+  reportlab), requests, httpx, BeautifulSoup, lxml, Pillow.
+- **Installed on demand** at pinned versions: scipy, statsmodels, scikit-learn, DuckDB, Polars,
+  SymPy, XlsxWriter, pdfplumber, seaborn, Plotly, QR codes, maps (folium, geopy), networkx, RSS,
+  stock prices (yfinance), pandoc (document conversion, download checked by fingerprint),
+  TypeScript, Prettier and more.
+- **Skills**: an Excel report with totals and a chart, a PDF report from Markdown, tables from a
+  web page to CSV, and charts from CSV.
+
+The agent searches the registry first (`find_tools`) and installs what it needs (`install_tool`).
+Installed tools last for the whole task.
+
+### Guardrails for downloads
+
+- **Registry tools** install at their pinned version; downloaded programs must match their
+  SHA-256 fingerprint.
+- **Other packages** (`pip install`, `npm install`) go through an install guard. It allows them
+  only if they exist on PyPI or npm and were first published **at least 90 days ago**. It refuses
+  **lookalike names** of popular packages (typosquatting), and installs from links, archives or
+  other package indexes.
+- **Piping a download into a shell** (`curl … | sh`) is refused.
+- **Everything is logged:** every command (`/var/lib/buddy-sandbox/commands.log`) and every
+  install. Tools that keep being installed but aren't vetted yet show in the task report and the
+  weekly health check, ready to add to the registry.
+- **The isolation is the real safety net.** Each command runs in a throwaway container: no keys,
+  no access to Buddy, your server, your tailnet or private networks, not root, and limited CPU,
+  memory and time. `python -m pip` and `npx` aren't checked by the guard; for those, the
+  isolation is what protects you.
+
+To add a tool or skill permanently: `deploy/sandbox/registry/README.md` (or ask Buddy's
+developer, me, to add the ones the health check suggests).
+
 ## Set it up (once, about 5 minutes)
 
 In Termux, SSH into the server:

@@ -93,6 +93,10 @@ echo "== The sandbox service"
 # code Buddy itself could change (it's the one allowed to use Docker).
 install -d -o root -g root -m 755 /usr/local/lib/buddy-sandbox
 install -o root -g root -m 755 "$HERE/sandbox/sandboxd.py" /usr/local/lib/buddy-sandbox/sandboxd.py
+# The tool registry, install guard and skills, mounted read-only into every container.
+rm -rf /usr/local/lib/buddy-sandbox/library && install -d -o root -g root -m 755 /usr/local/lib/buddy-sandbox/library
+cp -r "$HERE/sandbox/registry" "$HERE/sandbox/guard" "$HERE/sandbox/skills" /usr/local/lib/buddy-sandbox/library/
+chown -R root:root /usr/local/lib/buddy-sandbox/library && chmod -R a+rX,go-w /usr/local/lib/buddy-sandbox/library
 cat > /etc/systemd/system/buddy-sandbox.service <<UNIT
 [Unit]
 Description=Buddy's code sandbox

@@ -1,0 +1,84 @@
+# Buddy's tool registry: vetted tools the sandbox's task agent can install and use.
+#
+# Each tool: what it's for (the agent searches these words), how it's installed (pinned
+# versions; downloads checked by SHA-256), and a usage hint. "builtin" tools are already in the
+# sandbox image. Add a tool with a pull request: see README.md next to this file.
+#
+# kind: builtin | pip | npm | binary        risk: low | medium (medium: reviewed, use with care)
+
+tools:
+  # --- data and numbers ------------------------------------------------------------
+  - {name: pandas, kind: builtin, tags: [data, csv, excel, table, analysis, statistics],
+     purpose: "Load, clean, group and summarise tables (CSV, Excel, JSON).",
+     usage: "import pandas as pd; df = pd.read_csv('x.csv'); df.groupby('cat')['amount'].sum()"}
+  - {name: numpy, kind: builtin, tags: [math, arrays, numbers], purpose: "Fast numeric arrays and maths."}
+  - {name: scipy, kind: pip, package: scipy, version: "1.14.1", tags: [statistics, optimisation, science],
+     purpose: "Statistics, optimisation, signal processing.", usage: "from scipy import stats"}
+  - {name: statsmodels, kind: pip, package: statsmodels, version: "0.14.4", tags: [regression, forecast, time series],
+     purpose: "Regression and time-series forecasting.", usage: "import statsmodels.api as sm"}
+  - {name: scikit-learn, kind: pip, package: scikit-learn, version: "1.5.2", tags: [machine learning, clustering, prediction],
+     purpose: "Classic machine learning: clustering, classification, regression.", usage: "from sklearn.cluster import KMeans"}
+  - {name: duckdb, kind: pip, package: duckdb, version: "1.1.3", tags: [sql, data, csv, parquet, fast],
+     purpose: "SQL on CSV/Parquet files, very fast.", usage: "import duckdb; duckdb.sql(\"select * from 'x.csv'\").df()"}
+  - {name: polars, kind: pip, package: polars, version: "1.14.0", tags: [data, fast, dataframe],
+     purpose: "Very fast dataframes for big files.", usage: "import polars as pl"}
+  - {name: sympy, kind: pip, package: sympy, version: "1.13.3", tags: [algebra, equations, math],
+     purpose: "Symbolic maths: solve equations, simplify.", usage: "import sympy as sp"}
+
+  # --- spreadsheets, documents, PDFs ---------------------------------------------------
+  - {name: openpyxl, kind: builtin, tags: [excel, xlsx, spreadsheet], purpose: "Read and write Excel files, formulas, styles, charts."}
+  - {name: xlsxwriter, kind: pip, package: XlsxWriter, version: "3.2.0", tags: [excel, xlsx, charts, formatting],
+     purpose: "Polished Excel files with native charts and formatting.", usage: "pd.ExcelWriter('out.xlsx', engine='xlsxwriter')"}
+  - {name: python-docx, kind: builtin, tags: [word, docx, document, report], purpose: "Write Word documents."}
+  - {name: python-pptx, kind: builtin, tags: [powerpoint, pptx, slides, deck], purpose: "Write PowerPoint decks."}
+  - {name: reportlab, kind: builtin, tags: [pdf, report], purpose: "Build PDFs (see the pdf-report skill)."}
+  - {name: pypdf, kind: builtin, tags: [pdf, merge, split, extract], purpose: "Merge, split, rotate PDFs; extract text."}
+  - {name: pdfplumber, kind: pip, package: pdfplumber, version: "0.11.4", tags: [pdf, tables, extract, statements],
+     purpose: "Pull tables and text out of PDFs (statements, invoices).", usage: "import pdfplumber"}
+  - {name: markdown, kind: pip, package: Markdown, version: "3.7", tags: [markdown, html], purpose: "Markdown to HTML."}
+  - {name: pandoc, kind: binary, tags: [convert, markdown, word, docx, epub, html, document],
+     purpose: "Convert documents between formats (Markdown, Word, HTML, EPUB...).",
+     url: "https://github.com/jgm/pandoc/releases/download/3.5/pandoc-3.5-linux-amd64.tar.gz",
+     sha256: a46b448ad9e7e5bd898a0606a2a67acbf4bc7714b24dc68931e9a47d7b807015,
+     extract: pandoc-3.5/bin/pandoc, usage: "pandoc in.md -o out.docx"}
+
+  # --- charts, images, maps ----------------------------------------------------------
+  - {name: matplotlib, kind: builtin, tags: [chart, plot, graph], purpose: "Charts as PNG (see the chart skill)."}
+  - {name: seaborn, kind: pip, package: seaborn, version: "0.13.2", tags: [chart, statistics, heatmap],
+     purpose: "Statistical charts: heatmaps, distributions.", usage: "import seaborn as sns"}
+  - {name: plotly, kind: pip, package: plotly, version: "5.24.1", tags: [chart, interactive, html],
+     purpose: "Interactive charts saved as HTML.", usage: "import plotly.express as px"}
+  - {name: pillow, kind: builtin, tags: [image, resize, convert, photo], purpose: "Resize, crop, convert images."}
+  - {name: qrcode, kind: pip, package: qrcode, version: "8.0", tags: [qr, code, image], purpose: "Make QR codes.",
+     usage: "import qrcode; qrcode.make('text').save('output/qr.png')"}
+  - {name: folium, kind: pip, package: folium, version: "0.18.0", tags: [map, location, places], purpose: "Maps as HTML."}
+  - {name: geopy, kind: pip, package: geopy, version: "2.4.1", tags: [distance, geocode, location],
+     purpose: "Distances between coordinates; geocoding.", usage: "from geopy.distance import geodesic"}
+  - {name: networkx, kind: pip, package: networkx, version: "3.4.2", tags: [graph, network, relationships],
+     purpose: "Graphs and networks (routes, relationships)."}
+
+  # --- web and data sources ------------------------------------------------------------
+  - {name: requests, kind: builtin, tags: [web, http, api, download], purpose: "Call web APIs and download pages."}
+  - {name: beautifulsoup4, kind: builtin, tags: [web, scrape, html, parse], purpose: "Pull data out of web pages (see web-table)."}
+  - {name: feedparser, kind: pip, package: feedparser, version: "6.0.11", tags: [rss, news, feed], purpose: "Read RSS and Atom feeds."}
+  - {name: yfinance, kind: pip, package: yfinance, version: "0.2.50", risk: medium, tags: [stocks, finance, prices, markets],
+     purpose: "Stock and currency prices from Yahoo Finance (unofficial; for personal use).",
+     usage: "import yfinance as yf; yf.Ticker('AAPL').history(period='1mo')"}
+  - {name: httpx, kind: builtin, tags: [web, http, async], purpose: "Modern HTTP client."}
+
+  # --- Node ----------------------------------------------------------------------------
+  - {name: typescript, kind: npm, package: typescript, version: "5.6.3", tags: [typescript, node, compile],
+     purpose: "Compile TypeScript.", usage: "npx tsc --init"}
+  - {name: prettier, kind: npm, package: prettier, version: "3.3.3", tags: [format, javascript, code], purpose: "Format code."}
+  - {name: marked, kind: npm, package: marked, version: "14.1.3", tags: [markdown, html, node], purpose: "Markdown to HTML in Node."}
+
+# Well-known names: an unlisted package that's one or two letters away from these is refused
+# (typosquatting: lookalike names that carry malware).
+popular:
+  pip: [requests, numpy, pandas, urllib3, setuptools, boto3, botocore, certifi, idna, charset-normalizer,
+        python-dateutil, six, pyyaml, cryptography, pip, wheel, typing-extensions, matplotlib, scipy,
+        pillow, jinja2, click, flask, django, fastapi, pydantic, httpx, beautifulsoup4, lxml, openpyxl,
+        pytest, selenium, scrapy, tensorflow, torch, colorama, tqdm, rich, sqlalchemy, psycopg2, pymysql,
+        redis, paramiko, docutils, markupsafe, attrs, aiohttp, websockets, openai, anthropic]
+  npm: [react, lodash, express, axios, chalk, commander, typescript, webpack, vue, moment, request,
+        debug, uuid, dotenv, prettier, eslint, jest, next, rxjs, async, yargs, inquirer, node-fetch]

@@ -235,6 +235,18 @@ def check(memory: Memory, now: datetime | None = None, finops_report: dict | Non
              "Some code calls Claude without usage.record, or records it twice: search for "
              "client.beta.messages and check each records its usage once.")
 
+    # --- sandbox: tools used that aren't in the registry yet ---------------------------------
+    try:
+        unvetted = [dict(r) for r in memory.db.execute(
+            "SELECT package, kind, uses FROM sandbox_installs WHERE vetted = 0 AND uses >= 2 ORDER BY uses DESC LIMIT 8")]
+    except Exception:  # no tasks yet
+        unvetted = []
+    if unvetted:
+        find("watch", f"{len(unvetted)} tools keep being installed that aren't in Buddy's registry",
+             ", ".join(f"{u['package']} ({u['kind']}, {u['uses']}x)" for u in unvetted),
+             "Review them and add the good ones to deploy/sandbox/registry/tools.yaml with a pinned version "
+             "(ask me to do it), so tasks get them vetted and faster.")
+
     # --- security: from the weekly root check (patches, keys, network, logs) -------------
     security = security_report(now)
     findings.extend(security["findings"])

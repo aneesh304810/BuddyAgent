@@ -51,6 +51,10 @@ systemctl daemon-reload
 if systemctl list-unit-files buddy-sandbox.service >/dev/null 2>&1 && [ -f /etc/systemd/system/buddy-sandbox.service ]; then
   echo "  Updating the code sandbox"
   install -o root -g root -m 755 "$APP/deploy/sandbox/sandboxd.py" /usr/local/lib/buddy-sandbox/sandboxd.py
+  rm -rf /usr/local/lib/buddy-sandbox/library && install -d -m 755 /usr/local/lib/buddy-sandbox/library
+  cp -r "$APP/deploy/sandbox/registry" "$APP/deploy/sandbox/guard" "$APP/deploy/sandbox/skills" \
+    /usr/local/lib/buddy-sandbox/library/ && chown -R root:root /usr/local/lib/buddy-sandbox/library \
+    && chmod -R a+rX,go-w /usr/local/lib/buddy-sandbox/library
   docker build -q -t buddy-sandbox:latest "$APP/deploy/sandbox" >/dev/null && systemctl restart buddy-sandbox
 fi
 systemctl restart buddy

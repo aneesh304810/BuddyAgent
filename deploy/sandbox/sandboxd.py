@@ -48,6 +48,13 @@ MAX_OUTPUT = 60_000
 MAX_READ = 200_000
 # Containers run as this service's own user, so it can tidy the files they make.
 UID = os.getuid()
+LIBRARY = Path(os.getenv("SANDBOX_LIBRARY", "/usr/local/lib/buddy-sandbox/library"))
+TOOL_ENV = {"PYTHONUSERBASE": "/work/.tools/py", "PIP_USER": "1", "NPM_CONFIG_PREFIX": "/work/.tools/npm",
+            "PATH": "/work/.tools/bin:/work/.tools/py/bin:/work/.tools/npm/bin:/usr/local/bin:/usr/bin:/bin",
+            "PIP_DISABLE_PIP_VERSION_CHECK": "1", "BUDDY_LIBRARY": "/buddy"}
+AUDIT = Path(os.getenv("SANDBOX_AUDIT", "/var/lib/buddy-sandbox/commands.log"))
+# Downloads piped straight into a shell run unknown code unseen; installs go through the registry.
+PIPE_TO_SHELL = re.compile(r"(curl|wget)\b[^|;&]*\|\s*(sudo\s+)?(ba|z|da)?sh\b|\bbash\s+<\s*\(\s*(curl|wget)")
 CLIENT_GROUP = os.getenv("SANDBOX_CLIENT_GROUP", "buddy")
 
 NAME = re.compile(r"^[a-z0-9][a-z0-9-]{0,40}$")
@@ -79,14 +86,20 @@ def docker_run(ws: Path, command: list[str], *, network: bool = True, env: dict 
     args = ["docker", "run", "--rm", "--init",
             "--user", f"{UID}:{UID}",
             "--cap-drop", "ALL", "--security-opt", "no-new-privileges",
-            "--read-only", "--tmpfs", "/tmp:rw,exec,size=1g",  # nosec B108: the container's own /tmp "--tmpfs", f"/home/dev:rw,exec,size=1g,uid={UID}",
+            "--read-only",
+            "--tmpfs", "/tmp:rw,exec,size=1g",  # nosec B108: the container's own /tmp
+            "--tmpfs", f"/home/dev:rw,exec,size=1g,uid={UID}",
             "--memory", memory, "--memory-swap", memory, "--cpus", cpus, "--pids-limit", "512",
             "--network", NETWORK if network else "none",
             "--mount", f"type=bind,src={ws},dst=/work",
             "--workdir", "/work"]
+    if LIBRARY.is_dir():  # Buddy's tool registry, install guard and skills, read-only
+        args += ["--mount", f"type=bind,src={LIBRARY},dst=/buddy,readonly"]
+    # Tools installed during a task live in the workspace, so they last for the whole task.
+    env = {**TOOL_ENV, **(env or {})}
     if stdin:
         args.append("-i")
-    for key, value in (env or {}).items():
+    for key, value in env.items():
         args += ["--env", f"{key}={value}"]
     return args + [IMAGE] + command
 
@@ -115,6 +128,16 @@ def _clean_git_config(ws: Path, owner: str, repo: str) -> None:
         raise Refused("the workspace's .git folder isn't a normal folder")
     config.write_text("[core]\n\trepositoryformatversion = 0\n\tbare = false\n"
                       f'[remote "origin"]\n\turl = https://github.com/{owner}/{repo}.git\n')
+
+
+def _audit(workspace: str, command: str) -> None:
+    """Every command run, for review (the service's own folder, not visible to containers)."""
+    try:
+        with AUDIT.open("a") as f:
+            f.write(json.dumps({"at": __import__("datetime").datetime.now().isoformat(timespec="seconds"),
+                                "workspace": workspace, "command": command[:500]}) + "\n")
+    except OSError:
+        pass
 
 
 def handle(req: dict) -> dict:
@@ -146,6 +169,10 @@ def handle(req: dict) -> dict:
         if not command.strip() or len(command) > 20_000:
             raise Refused("the command is empty or too long")
         timeout = max(5, min(int(req.get("timeout") or 600), MAX_TIMEOUT))
+        if PIPE_TO_SHELL.search(command):
+            raise Refused("piping a download into a shell isn't allowed: install tools with install_tool "
+                          "(Buddy's registry) or pip / npm (checked by the install guard)")
+        _audit(ws.name, command)
         return _run(docker_run(ws, ["timeout", "--kill-after=10", str(timeout), "bash", "-lc", command],
                                network=req.get("network", True) is not False), timeout)
     if op == "write":
