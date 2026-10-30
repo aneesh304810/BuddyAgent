@@ -19,7 +19,8 @@ Protocol (JSON messages):
                     "posted_at", "key"}               a notification on that phone
                    {"type": "phone_calendar", "device", "events": [{id, title, start,
                     end, calendar, location, all_day, busy_only}]}  the phone's next week
-  server -> phone  {"type": "say", "text": "...", "filler": true?}  one sentence to speak
+  server -> phone  {"type": "say", "text": "...", "filler": true?, "display": "..."?}  one sentence to speak
+                                                      (display: what to show instead, e.g. English)
                                                       (filler: "hang on, checking" while tools run)
                    {"type": "cards", "turn": "a1b2c3", "cards": [...]}  results to show under the reply
                    {"type": "done", "turn": "a1b2c3"} reply finished (turn: for a thumbs rating)
@@ -475,7 +476,13 @@ async def talk(ws: WebSocket) -> None:
 
     async def say(text: str) -> None:
         # "Hang on, checking" while a tool works: spoken, but shown as a status line, not an answer.
-        await send({"type": "say", "text": text, **({"filler": True} if text in FILLERS else {})})
+        if text in FILLERS:
+            return await send({"type": "say", "text": text, "filler": True})
+        # Two-language replies: "spoken || shown" (e.g. Malayalam spoken, English on screen).
+        spoken, sep, shown = text.partition("||")
+        if sep and spoken.strip() and shown.strip():
+            return await send({"type": "say", "text": spoken.strip(), "display": shown.strip()})
+        await send({"type": "say", "text": text.replace("||", " ").strip()})
 
     async def whisper(kind: str, text: str) -> None:
         await send({"type": "whisper", "kind": kind, "text": text})

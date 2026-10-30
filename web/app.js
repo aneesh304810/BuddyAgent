@@ -222,7 +222,7 @@ function connect() {
     const msg = JSON.parse(e.data);
     if (msg.type === "say" && !muted) {
       if (!buddyLine) buddyLine = addLine("", "buddy");
-      buddyLine.textContent += (buddyLine.textContent ? " " : "") + msg.text;
+      buddyLine.textContent += (buddyLine.textContent ? " " : "") + (msg.display || msg.text);
       speak(msg.text);
     } else if (msg.type === "cards") {
       showCards(msg.cards || []);

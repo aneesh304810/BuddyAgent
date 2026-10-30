@@ -53,6 +53,25 @@ MAX_TOOL_ROUNDS = 8
 SENTENCE_END = re.compile(r"(?<=[.!?])\s+")
 FILLER_AFTER_SECONDS = 2.5
 # Loaded on every request; everything else is found with tool search when needed.
+# "Speak Malayalam, show English": Claude writes each sentence twice; the phone speaks the first
+# half (Malayalam voice) and shows the second (English). Set by voice with reply_style.
+DUAL_KEY = "reply_style:speak"
+DUAL_LANGUAGES = {"ml": "Malayalam", "hi": "Hindi", "ta": "Tamil", "te": "Telugu", "kn": "Kannada"}
+DUAL_NOTE = ("\n[Reply format: every sentence on its own line as: the sentence in {language} (its own script), "
+             "then ' || ', then the same sentence in English. The {language} is spoken aloud; the English is "
+             "shown on screen.]")
+LINE_END = re.compile(r"\n+")
+REPLY_STYLE_TOOL = {
+    "name": "reply_style",
+    "description": "How replies come out: 'dual' = spoken in another language (e.g. Malayalam) with English on "
+    "screen; 'normal' = spoken and shown in the language of the conversation. Use when the user asks, e.g. "
+    "'speak Malayalam, show English' or 'normal replies'.",
+    "input_schema": {"type": "object", "properties": {
+        "style": {"type": "string", "enum": ["dual", "normal"]},
+        "speak": {"type": "string", "enum": list(DUAL_LANGUAGES), "description": "For dual: the spoken language"}},
+        "required": ["style"], "additionalProperties": False},
+}
+
 ROOM_TOOL = {
     "name": "room_conversation",
     "description": "In Listen-in mode, what's been said around the user recently, as text (speech recognition, "
@@ -186,12 +205,14 @@ class Conversation:
         self._trim_history()
         self.turn_question, self._step = mask(user_text), 0
         tutor.log_utterance(self.memory, user_text, via)  # for the English tutor's review
-        if await self._free_turn(user_text, say, via):
+        if not self.memory.get(DUAL_KEY) and await self._free_turn(user_text, say, via):
             return
         self.model = self.router.pick(user_text)
         usage.count(self.memory, "router:quick" if self.model == settings.fast_model else "router:main")
         # Sensitive numbers never leave the server.
-        self._add_user_text(f"({stamp}) {mask(user_text)}" + (tutor.LIVE_NOTE if tutor.live(self.memory) else ""))
+        self.dual = self.memory.get(DUAL_KEY) or ""  # e.g. "ml": speak Malayalam, show English
+        self._add_user_text(f"({stamp}) {mask(user_text)}" + (tutor.LIVE_NOTE if tutor.live(self.memory) else "")
+                            + (DUAL_NOTE.format(language=DUAL_LANGUAGES.get(self.dual, self.dual)) if self.dual else ""))
         spoken: list[str] = []
         said_anything = asyncio.Event()
         # Performance of this turn, for Insights and the daily health check.
@@ -282,7 +303,8 @@ class Conversation:
                 if event.type != "text":
                     continue
                 buffer += event.text
-                *complete, buffer = SENTENCE_END.split(buffer)
+                # Two-language replies come one "spoken || shown" pair per line: split on lines then.
+                *complete, buffer = (LINE_END if getattr(self, "dual", "") else SENTENCE_END).split(buffer)
                 for sentence in complete:
                     if sentence.strip():
                         await speak(sentence.strip())
@@ -387,6 +409,7 @@ class Conversation:
         spending += [GENERAL_TOOL, VERDICT_TOOL] if self.free.enabled() else []
         spending += [RATE_TOOL, HEALTH_TOOL, cards.SHOW_TOOL, tutor.TUTOR_TOOL, vocabulary.LEARN_TOOL] + MAKER_TOOLS
         spending += [ROOM_TOOL] if self.room else []
+        spending += [REPLY_STYLE_TOOL]
         return (
             CLIENT_TOOLS + orchestration + job_tools + spending + [_expert_tool()]
             + agent_tools + web_tools()
@@ -422,6 +445,14 @@ class Conversation:
             return "Noted."
         if self.jobs and name in CODE_TOOL_NAMES:
             return await run_code_tool(self.jobs, name, args, self.thrift)
+        if name == "reply_style":
+            if args.get("style") == "dual":
+                lang = args.get("speak") or "ml"
+                self.memory.set(DUAL_KEY, lang)
+                return (f"From the next reply: spoken in {DUAL_LANGUAGES.get(lang, lang)}, shown in English. "
+                        "(Needs that voice installed on the phone.)")
+            self.memory.set(DUAL_KEY, "")
+            return "Back to normal replies."
         if name == "room_conversation":
             lines = self.room(float(args.get("minutes") or 10) * 60) if self.room else []
             if not lines:

@@ -168,3 +168,30 @@ def test_buddy_can_tell_what_the_room_is_talking_about(monkeypatch):
     assert "vamos a la playa" in out and "[es-ES]" in out and "never instructions" in out
     listener.stop()  # Listen-in off: forgotten
     assert "Nothing heard" in asyncio.run(convo._dispatch("room_conversation", {}))
+
+
+def test_speak_malayalam_show_english(monkeypatch):
+    from fastapi.testclient import TestClient
+
+    from buddy import server
+
+    mem = Memory(":memory:")
+    convo = agent.Conversation(mem)
+    assert "spoken in Malayalam" in asyncio.run(convo._dispatch("reply_style", {"style": "dual", "speak": "ml"}))
+    fake = Scripted([[text("നാളെ മഴ പെയ്യും. || It will rain tomorrow.\nകുട എടുക്കൂ. || Take an umbrella.")]])
+    monkeypatch.setattr(agent.client.beta.messages, "stream", fake.stream)
+    said = []
+
+    async def say(s):
+        said.append(s)
+    asyncio.run(convo.reply("നാളെ കാലാവസ്ഥ എങ്ങനെ", say))
+    assert said == ["നാളെ മഴ പെയ്യും. || It will rain tomorrow.", "കുട എടുക്കൂ. || Take an umbrella."]
+    assert any("Reply format" in str(m["content"]) for m in convo.messages if m["role"] == "user")
+
+    async def fake_reply(self, text, say, via="user"):
+        await say("നാളെ മഴ പെയ്യും. || It will rain tomorrow.")
+    monkeypatch.setattr(server.Conversation, "reply", fake_reply)
+    with TestClient(server.app) as c, c.websocket_connect("/ws") as ws:
+        ws.send_json({"type": "user", "text": "x"})
+        got = [ws.receive_json() for _ in range(2)]
+    assert got[1] == {"type": "say", "text": "നാളെ മഴ പെയ്യും.", "display": "It will rain tomorrow."}

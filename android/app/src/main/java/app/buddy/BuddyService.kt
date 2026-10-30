@@ -329,7 +329,7 @@ class BuddyService : Service() {
                 if (event.filler) {
                     BuddyState.status(event.text)
                 } else {
-                    BuddyState.buddySentence(event.text, newReply = !replyOpen)
+                    BuddyState.buddySentence(event.display ?: event.text, newReply = !replyOpen)
                     replyOpen = true
                 }
                 mouth.speak(event.text)

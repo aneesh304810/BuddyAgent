@@ -13,7 +13,8 @@ import java.util.concurrent.TimeUnit
 
 /** A message from Buddy's brain (see the protocol at the top of backend/buddy/server.py). */
 sealed interface ServerEvent {
-    data class Say(val text: String, val filler: Boolean = false) : ServerEvent
+    /** text is spoken; display (if any) is shown instead, e.g. Malayalam spoken, English on screen. */
+    data class Say(val text: String, val filler: Boolean = false, val display: String? = null) : ServerEvent
     data class Done(val turn: String) : ServerEvent  // turn: lets you rate the reply
     data class Cards(val json: String) : ServerEvent  // results to show under the reply
     data class Words(val words: List<String>) : ServerEvent  // names and words to recognise
@@ -28,7 +29,8 @@ sealed interface ServerEvent {
         fun parse(raw: String): ServerEvent? = runCatching {
             val msg = JSONObject(raw)
             when (msg.optString("type")) {
-                "say" -> Say(msg.getString("text"), msg.optBoolean("filler"))
+                "say" -> Say(msg.getString("text"), msg.optBoolean("filler"),
+                    msg.optString("display").takeIf { it.isNotBlank() })
                 "done" -> Done(msg.optString("turn"))
                 "cards" -> Cards(msg.getJSONArray("cards").toString())
                 "vocabulary" -> msg.getJSONArray("words").let { a -> Words((0 until a.length()).map { a.getString(it) }) }
