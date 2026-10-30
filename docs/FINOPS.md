@@ -40,6 +40,13 @@ DigitalOcean and Anthropic are cached for 30 minutes.
 The tokens only read billing figures: they can't create servers or spend money. They stay in
 the server's settings file, like your other keys. To revoke one, delete it on the same page.
 
+## DigitalOcean invoices
+With the token, Buddy also reads your invoices: last month's total (and the month before),
+and both last month and this month so far by product (droplets, backups, bandwidth...),
+with credits and taxes. Ask *"What was last month's server bill?"* or *"What am I paying for
+on DigitalOcean?"*. Endpoints used, all read-only: `/v2/customers/my/balance`,
+`/v2/customers/my/invoices` and `/v2/customers/my/invoices/{uuid}/summary`.
+
 ## See it all on one page
 
 Open your Buddy link in Chrome and tap **Costs** at the top: the month so far and the

@@ -30,6 +30,18 @@ class FakeAPIs:
             raise OSError("down")
         if "digitalocean" in url:
             assert headers["Authorization"] == "Bearer do-token"
+            if url.endswith("/invoices"):
+                return {"invoices": [{"invoice_uuid": "sep", "amount": "12.00", "invoice_period": "2026-09"},
+                                     {"invoice_uuid": "aug", "amount": "6.20", "invoice_period": "2026-08"}],
+                        "invoice_preview": {"invoice_uuid": "oct", "amount": "7.50", "invoice_period": "2026-10"}}
+            if url.endswith("/sep/summary"):
+                return {"amount": "12.00", "product_charges": {"amount": "14.40", "items": [
+                    {"name": "Droplets", "amount": "12.00", "count": "1"},
+                    {"name": "Backups", "amount": "2.40", "count": "1"},
+                    {"name": "Bandwidth", "amount": "0.00", "count": "1"}]},
+                    "credits_and_adjustments": {"amount": "-2.40"}}
+            if url.endswith("/oct/summary"):
+                return {"product_charges": {"items": [{"name": "Droplets", "amount": "7.50"}]}}
             return {"month_to_date_usage": "7.50", "account_balance": "-4.70"}
         assert headers["x-api-key"] == "admin-key"
         if "page=p2" in url:
@@ -61,6 +73,12 @@ def test_live_bills_from_digitalocean_and_anthropic():
     lines = {l["provider"]: l for l in report["lines"]}
     assert lines["DigitalOcean"] == {**lines["DigitalOcean"], "month_to_date": 7.5, "source": "live"}
     assert "$4.70 of credit left" in lines["DigitalOcean"]["note"]
+    inv = report["digitalocean_invoices"]
+    assert inv["last_month"] == {"period": "2026-09", "total": 12.0, "credits": -2.4, "by_product": [
+        {"product": "Droplets", "amount": 12.0}, {"product": "Backups", "amount": 2.4}]}
+    assert inv["this_month_so_far"]["by_product"] == [{"product": "Droplets", "amount": 7.5}]
+    assert inv["month_before"] == {"period": "2026-08", "total": 6.2}
+    assert "Last month's server invoice was $12.00." in fo.FinOps(Memory(":memory:"), env={}).spoken_summary(report)
     assert lines["Claude"]["month_to_date"] == 13.0 and lines["Claude"]["source"] == "live"  # 1300 cents
     assert sum("anthropic" in url for url, _ in apis.calls) == 2  # followed the next page
 

@@ -328,6 +328,25 @@ $("costsBtn").onclick = async () => {
       note.textContent = `Includes ${p.web_searches.count} web searches (${usd(p.web_searches.usd_included_above)}).`;
       body.appendChild(note);
     }
+    const inv = r.digitalocean_invoices;
+    if (inv && (inv.last_month || inv.this_month_so_far)) {
+      h("DigitalOcean invoices");
+      const months = [["This month so far", inv.this_month_so_far], ["Last month", inv.last_month]].filter(([, m]) => m);
+      body.appendChild(costTable(months.map(([label, m]) => [`${label} (${m.period})`, usd(m.total)]), ["", "Total"]));
+      for (const [label, m] of months) {
+        if (!(m.by_product || []).length) continue;
+        const rows = m.by_product.map((p) => [p.product, usd(p.amount)]);
+        if (m.credits) rows.push(["Credits", usd(m.credits)]);
+        if (m.taxes) rows.push(["Taxes", usd(m.taxes)]);
+        h(`${label}: by product`);
+        body.appendChild(costTable(rows, ["", "Amount"]));
+      }
+      if (inv.month_before) {
+        const note = document.createElement("p");
+        note.textContent = `The month before (${inv.month_before.period}): ${usd(inv.month_before.total)}.`;
+        body.appendChild(note);
+      }
+    }
     if ((r.agents || []).length) {
       h("Agents");
       body.appendChild(costTable(r.agents.map((a) => [a.agent, String(a.calls_this_month), usd(a.external_cost_usd), a.note]),

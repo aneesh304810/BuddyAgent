@@ -77,6 +77,13 @@ def _get_json(url: str, headers: dict[str, str]) -> dict:
         return json.loads(response.read())
 
 
+def _money(value) -> float:
+    try:
+        return round(float(value), 2)
+    except (TypeError, ValueError):
+        return 0.0
+
+
 class FinOps:
     def __init__(self, memory: Memory, env: Mapping[str, str] | None = None, fetch=_get_json):
         self.memory = memory
@@ -153,6 +160,44 @@ class FinOps:
         fraction, _ = _month_progress()
         return CostLine(name, round(plan * fraction, 2), plan, "plan price", note)
 
+    async def digitalocean_invoices(self) -> dict | None:
+        """Last month's invoice total and both months by product (droplets, backups...)."""
+        token = self.setting("BUDDY_DO_TOKEN")
+        if not token:
+            return None
+        headers = {"Authorization": f"Bearer {token}"}
+        base = "https://api.digitalocean.com/v2/customers/my/invoices"
+        try:
+            listing = await asyncio.to_thread(self.fetch, base, headers)
+        except Exception as e:
+            log.warning("DigitalOcean invoices failed: %s", e)
+            return {"error": f"invoices unavailable ({type(e).__name__})"}
+
+        async def month(invoice: dict | None) -> dict | None:
+            if not invoice or not invoice.get("invoice_uuid"):
+                return None
+            out = {"period": invoice.get("invoice_period", ""), "total": _money(invoice.get("amount"))}
+            try:
+                summary = await asyncio.to_thread(self.fetch, f"{base}/{invoice['invoice_uuid']}/summary", headers)
+            except Exception:
+                return out  # the total alone still helps
+            items = (summary.get("product_charges") or {}).get("items") or []
+            out["by_product"] = [{"product": i.get("name", ""), "amount": _money(i.get("amount"))}
+                                 for i in items if _money(i.get("amount"))]
+            for key, label in (("taxes", "taxes"), ("credits_and_adjustments", "credits")):
+                amount = _money((summary.get(key) or {}).get("amount"))
+                if amount:
+                    out[label] = amount
+            return out
+
+        invoices = sorted(listing.get("invoices") or [], key=lambda i: i.get("invoice_period", ""), reverse=True)
+        result = {"last_month": await month(invoices[0] if invoices else None),
+                  "this_month_so_far": await month(listing.get("invoice_preview"))}
+        if len(invoices) > 1:
+            result["month_before"] = {"period": invoices[1].get("invoice_period", ""),
+                                      "total": _money(invoices[1].get("amount"))}
+        return result
+
     def zapier(self) -> CostLine | None:
         plan = float(self.setting("BUDDY_ZAPIER_PLAN_USD", "0"))
         allowance = int(self.setting("BUDDY_ZAPIER_TASKS_PER_MONTH", "100"))
@@ -196,6 +241,7 @@ class FinOps:
             "lines": [asdict(l) for l in lines],
             "claude_by_purpose": self.claude_by_purpose(),
             "agents": self.by_agent(),
+            "digitalocean_invoices": await self.digitalocean_invoices(),
             "generated_at": datetime.now(timezone.utc).isoformat(),
         }
         self._cache = (time.time(), report)
@@ -254,17 +300,22 @@ class FinOps:
     def spoken_summary(self, report: dict) -> str:
         line = f"Buddy has cost ${report['month_to_date_usd']:.2f} so far this month, heading for about ${report['forecast_usd']:.0f}"
         if report["all_in_budget_usd"]:
-            line += (", over your all-in budget." if report["over_budget"]
-                     else f", within your ${report['all_in_budget_usd']:.0f} budget.")
-        return line + "."
+            line += (", over your all-in budget" if report["over_budget"]
+                     else f", within your ${report['all_in_budget_usd']:.0f} budget")
+        line += "."
+        last = (report.get("digitalocean_invoices") or {}).get("last_month")
+        if last and last.get("total"):
+            line += f" Last month's server invoice was ${last['total']:.2f}."
+        return line
 
 
 COST_TOOL = {
     "name": "cost_report",
     "description": "What running Buddy costs this month, all in: Claude, the server (if any), "
     "Zapier and fixed costs, each with month-to-date, end-of-month forecast and where the number "
-    "comes from, plus where Claude money went (chat, Listen-in, expert, research). Use for 'how much "
-    "do you cost?', 'what's my bill?'. spending_status is only today's Claude allowances.",
+    "comes from, plus where Claude money went (chat, Listen-in, expert, research), and DigitalOcean's "
+    "invoices: last month's total and both months by product (droplets, backups...). Use for 'how much "
+    "do you cost?', 'what's my bill?', 'what was last month's server bill?'. spending_status is only today's Claude allowances.",
     "input_schema": {
         "type": "object",
         "properties": {"fresh": {"type": "boolean", "description": "Skip the 30-minute cache"}},
