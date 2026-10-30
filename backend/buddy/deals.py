@@ -18,7 +18,7 @@ from . import cards
 from . import usage
 from .config import claude_client, settings
 from .memory import Memory
-from .tools import ToolError, local_now
+from .tools import ToolError, local_now, web_fetch
 
 log = logging.getLogger(__name__)
 client = claude_client()
@@ -168,7 +168,7 @@ class PriceWatcher:
             response = await client.beta.messages.create(
                 model=model, max_tokens=2_000, messages=messages,
                 tools=[{"type": "web_search_20260209", "name": "web_search", "max_uses": 3},
-                       {"type": "web_fetch_20260209", "name": "web_fetch", "max_uses": 3}],
+                       web_fetch(3)],
                 output_config={"effort": "low"},
                 **fallback_kwargs(model),
             )

@@ -19,7 +19,7 @@ from .agent import fallback_kwargs
 from .config import claude_client, search_caps, settings
 from .memory import Memory
 from .privacy import mask
-from .tools import ToolError, local_now
+from .tools import ToolError, local_now, web_fetch
 
 log = logging.getLogger(__name__)
 
@@ -89,7 +89,7 @@ async def ask_expert(memory: Memory, args: dict) -> str:
     )
     tools = [
         {"type": "web_search_20260209", "name": "web_search", "max_uses": search_caps()["expert_search"]},
-        {"type": "web_fetch_20260209", "name": "web_fetch", "max_uses": search_caps()["expert_fetch"]},
+        web_fetch(search_caps()["expert_fetch"]),
     ]
     cost = 0.0
     response = None
@@ -102,6 +102,7 @@ async def ask_expert(memory: Memory, args: dict) -> str:
             tools=tools,
             messages=messages,
             output_config={"effort": settings.expert_effort},
+            cache_control={"type": "ephemeral"},  # each step re-sends the pages found so far: read them from cache
             **fallback_kwargs(settings.expert_model),
         ) as stream:
             response = await stream.get_final_message()

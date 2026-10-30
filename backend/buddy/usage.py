@@ -7,7 +7,8 @@ from datetime import datetime, timedelta, timezone
 from .memory import Memory
 from .tools import local_now
 
-# USD per million tokens: (input, output). Cache reads cost 0.1x input, cache writes 1.25x.
+# USD per million tokens: (input, output). Cache reads cost 0.1x input (unless CACHE_READ says
+# otherwise), cache writes 1.25x.
 # Longer names first: prices are matched by prefix.
 PRICES = {
     "claude-opus-5-5": (4.00, 20.00),
@@ -18,6 +19,7 @@ PRICES = {
     "claude-haiku-5-5": (0.10, 0.50),  # prompts up to 100K tokens; Buddy's are far smaller
     "claude-haiku-4-5": (1.00, 5.00),
 }
+CACHE_READ = {"claude-opus-5-5": 0.20}  # USD per million: Opus 5.5 reads cache at $0.20, not 0.1x input
 FALLBACK_PRICE = PRICES["claude-opus-5"]  # unknown model: assume the dearest current one
 WEB_SEARCH_USD = 0.01  # per search ($10 per 1,000); web fetch is not metered
 
@@ -31,7 +33,7 @@ def cost_usd(model: str, usage) -> float:
     searches = web_searches(usage)
     return (
         usage.input_tokens * price_in
-        + cache_read * price_in * 0.1
+        + cache_read * next((p for name, p in CACHE_READ.items() if model.startswith(name)), price_in * 0.1)
         + cache_write * price_in * 1.25
         + usage.output_tokens * price_out
     ) / 1_000_000 + searches * WEB_SEARCH_USD

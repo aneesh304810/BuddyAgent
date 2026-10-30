@@ -7,6 +7,15 @@ from .config import settings
 from .memory import Memory
 
 # Anthropic-hosted web search: runs server-side, no local code needed.
+def web_fetch(max_uses: int) -> dict:
+    """The web fetch tool, with fetched pages capped: an uncapped page can add 50K+ tokens to every
+    later step of the conversation (BUDDY_FETCH_MAX_TOKENS, default 12,000)."""
+    from .config import settings
+
+    return {"type": "web_fetch_20260209", "name": "web_fetch", "max_uses": max_uses,
+            "max_content_tokens": settings.fetch_max_tokens}
+
+
 def web_tools() -> list[dict]:
     """Chat's web tools; how many uses per answer follows BUDDY_SEARCH_LEVEL."""
     from .config import search_caps
@@ -14,7 +23,7 @@ def web_tools() -> list[dict]:
     caps = search_caps()
     tools = [{"type": "web_search_20260209", "name": "web_search", "max_uses": caps["chat_search"]}]
     if caps["chat_fetch"]:
-        tools.append({"type": "web_fetch_20260209", "name": "web_fetch", "max_uses": caps["chat_fetch"]})
+        tools.append(web_fetch(caps["chat_fetch"]))
     return tools
 
 

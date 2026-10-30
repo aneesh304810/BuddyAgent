@@ -28,7 +28,7 @@ from .config import claude_client, settings
 from .jobs import JobContext, JobFailed, JobResult
 from .memory import Memory
 from .privacy import mask
-from .tools import ToolError
+from .tools import ToolError, web_fetch
 
 log = logging.getLogger(__name__)
 client = claude_client()
@@ -278,7 +278,7 @@ class AgentBuilder:
                 async with client.beta.messages.stream(
                     model=settings.model, max_tokens=32_000, messages=messages,
                     tools=[{"type": "web_search_20260209", "name": "web_search", "max_uses": 5},
-                           {"type": "web_fetch_20260209", "name": "web_fetch", "max_uses": 8}],
+                           web_fetch(8)],
                     output_config={"effort": "high"}, **fallback_kwargs(settings.model),
                 ) as stream:
                     response = await stream.get_final_message()

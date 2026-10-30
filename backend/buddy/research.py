@@ -22,7 +22,7 @@ from .config import claude_client, search_caps, settings
 from .jobs import JobContext, JobFailed, JobResult
 from .privacy import mask
 from .social import SOCIAL_TOOL_NAMES, Social, run_social_tool, social_tools
-from .tools import ToolError, local_now
+from .tools import ToolError, local_now, web_fetch
 
 log = logging.getLogger(__name__)
 
@@ -161,7 +161,7 @@ def _tools(mode: str, depth: Depth) -> list[dict]:
         # separate code execution tool alongside them.
         tools = [
             {"type": "web_search_20260209", "name": "web_search", "max_uses": depth.searches},
-            {"type": "web_fetch_20260209", "name": "web_fetch", "max_uses": depth.fetches},
+            web_fetch(depth.fetches),
         ]
         tools += social_tools(Social())  # Reddit, Google and trends, when connected
     return tools + [RECALL_TOOL]
@@ -206,6 +206,7 @@ async def run_research(job: dict, ctx: JobContext) -> JobResult:
             tools=_tools(mode, depth),
             messages=messages,
             output_config={"effort": depth.effort},
+            cache_control={"type": "ephemeral"},  # each step re-sends the pages found so far: read them from cache
             **fallback_kwargs(settings.model),
         ) as stream:
             response = await stream.get_final_message()

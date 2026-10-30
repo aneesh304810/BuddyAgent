@@ -23,6 +23,7 @@ class Settings:
     smart_addressing: bool = os.getenv("BUDDY_SMART_ADDRESSING", "1") != "0"
     # How freely Buddy searches the web: thrifty (default), generous or max.
     search_level: str = os.getenv("BUDDY_SEARCH_LEVEL", "thrifty").strip().lower()
+    fetch_max_tokens: int = int(os.getenv("BUDDY_FETCH_MAX_TOKENS", "12000"))  # cap per fetched page
     # Languages the user understands; Listen-in only translates everything else.
     known_languages: str = os.getenv(
         "BUDDY_KNOWN_LANGUAGES", "English, Hindi, Malayalam, Marathi, Tamil"
