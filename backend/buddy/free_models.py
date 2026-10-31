@@ -74,6 +74,7 @@ BEST_FOR = {
     "quick_answer": ["groq", "cerebras", "github", "gemini", "mistral", "openrouter"],
     "classify": ["groq", "cerebras", "github", "gemini", "mistral", "openrouter"],
     "code": ["deepseek", "github", "gemini", "mistral", "groq", "cerebras", "openrouter"],
+    "small_talk": ["groq", "cerebras", "github", "gemini", "mistral", "openrouter"],
 }
 INSTRUCTIONS = {
     "translate": "Translate the text into {target}. Keep the meaning and tone; output only the translation.",
@@ -83,14 +84,15 @@ INSTRUCTIONS = {
     "explain": "Explain clearly and simply, in a short paragraph.",
     "quick_answer": "Answer briefly and accurately. If you're not sure, say so.",
     "classify": "Answer with only the label that fits best.",
+    "small_talk": "Reply like a warm, casual friend, in one short sentence.",
     "code": "You are an expert programmer. Answer with correct, minimal, working code and a short "
     "explanation. Use only real libraries and functions; if you're not sure something exists, say so. "
     "Point out anything risky (deleting files, security).",
 }
 MAX_CHARS = 30_000
 # Speed first for these; for the rest, the best-suited model first unless it keeps failing.
-SPEED_FIRST = {"quick_answer", "classify", "rewrite"}
-TIMEOUT = {"quick_answer": 12, "classify": 10, "rewrite": 15, "brainstorm": 20, "explain": 20,
+SPEED_FIRST = {"quick_answer", "classify", "rewrite", "small_talk"}
+TIMEOUT = {"small_talk": 8, "quick_answer": 12, "classify": 10, "rewrite": 15, "brainstorm": 20, "explain": 20,
            "translate": 25, "summarize": 40, "code": 40}
 MAX_TOKENS = {"code": 3000}  # others: 1500
 EMAIL = re.compile(r"[\w.+-]+@[\w-]+\.[\w.]+")
@@ -338,6 +340,10 @@ class FreeModels:
                   f"answer depends on recent events, the person's own life or where they are, reply only: {UNSURE}")
         if kind == "translate":
             system += " For a translation, give the translation and, if useful, how to say it."
+        if kind == "small_talk":
+            system += (" This is small talk (a greeting, thanks, goodbye, a joke): reply warmly and casually in one "
+                       "short sentence, like a friend. Don't ask about their plans or life, and don't offer help "
+                       f"with tasks. If it's really a request or question, reply only: {UNSURE}")
         return await self.run(kind, question, system=system, purpose="chat_free", claude_fallback=False)
 
     def _call(self, name: str, system: str, prompt: str, timeout: float = 30,

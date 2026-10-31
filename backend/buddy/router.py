@@ -1,6 +1,7 @@
 """Which Claude model answers each turn: the cheapest one that does it well.
 
-  Haiku 5.5   small talk, reminders, tasks, quick facts (about 20x cheaper than Sonnet)
+  (free)      small talk on its own ("thanks", "good night", "tell me a joke"), with free models on
+  Haiku 5.5   short chat, closers even mid-topic, reminders, tasks, quick facts (about 20x cheaper)
   Sonnet 5.5  everything else: email, money, places, planning, follow-ups to those
   Opus 5.5    hard questions, through the ask_expert step-up (unchanged)
 
@@ -45,9 +46,26 @@ NOT_FOR_FREE = re.compile(
     r"search|google|reddit|code|script|bug|health|doctor|medical|legal|lawyer|tax|invest)\b")
 
 
+# The whole message is small talk: a free model can reply ("thanks Buddy", "good night", "tell me a joke").
+# Not "yes", "ok", "no" or "sure": those usually answer something Buddy asked, so Claude takes them.
+SMALL_TALK = re.compile(
+    r"(?i)^(?:(?:hey|hi|hello|yo)(?:\s+there)?|good (?:morning|afternoon|evening|night)|thanks?(?: a lot| so much)?|"
+    r"thank you(?: so much| very much)?|cheers|bye(?: bye)?|see you(?: later| soon| tomorrow)?|talk (?:to you )?later|"
+    r"take care|how are you(?: doing)?(?: today)?|how'?s it going|what'?s up|tell me a joke|another (?:one|joke)|"
+    r"lol|haha+|ha ha|nice one|awesome|cool|great|perfect|love it|you'?re (?:the best|awesome|funny))"
+    r"(?:[\s,]+(?:buddy|bro|machaa|aliya|man|mate))?[\s.!?]*$")
+# Closers never need the bigger model, even right after a big question.
+CLOSER = re.compile(
+    r"(?i)^(?:ok(?:ay)?[\s,]+)?(?:thanks?(?: a lot| so much)?|thank you(?: so much| very much)?|cheers|bye(?: bye)?|"
+    r"good night|see you(?: later| soon| tomorrow)?|talk (?:to you )?later|take care|got it|perfect|great|cool|nice|"
+    r"awesome)(?:[\s,]+(?:buddy|bro|machaa|aliya|man))?[\s.!?]*$")
+
+
 def free_kind(text: str) -> str:
-    """'translate', 'explain' or 'quick_answer' when a free model can take the whole turn, else ''."""
+    """'small_talk', 'translate' or 'explain' when a free model can take the whole turn, else ''."""
     text = text.strip()
+    if SMALL_TALK.match(text):
+        return "small_talk"
     if len(text.split()) > 25:
         return ""
     if FREE_TRANSLATE.search(text):
@@ -72,7 +90,8 @@ class Router:
 
     def pick(self, text: str) -> str:
         model = self._pick(text)
-        self.last_model, self.last_at = model, time.monotonic()
+        if not CLOSER.match(text.strip()):  # a "thanks" mid-topic doesn't end the topic for what follows
+            self.last_model, self.last_at = model, time.monotonic()
         return model
 
     def _pick(self, text: str) -> str:
@@ -81,6 +100,8 @@ class Router:
         words = len(text.split())
         recent_sonnet = (self.last_model == settings.chat_model
                          and time.monotonic() - self.last_at < FOLLOW_UP_SECONDS)
+        if CLOSER.match(text.strip()):
+            return settings.fast_model  # "thanks", "bye", "got it": no need for the big model, even mid-topic
         if NEEDS_SONNET.search(text) or words > 18:
             return settings.chat_model
         if recent_sonnet and words <= 8:
