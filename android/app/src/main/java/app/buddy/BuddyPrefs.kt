@@ -89,6 +89,11 @@ class BuddyPrefs(context: Context) {
         get() = prefs.getString("pauses", "normal") ?: "normal"
         set(value) = prefs.edit().putString("pauses", value).apply()
 
+    /** Closing the phone with a headset on switches Talk to Listen-in (and back when opened). */
+    var closedListenIn: Boolean
+        get() = prefs.getBoolean("closedListenIn", true)
+        set(value) = prefs.edit().putBoolean("closedListenIn", value).apply()
+
     /** Silence the beep the phone's speech recognition makes each time it starts listening again. */
     var muteListenBeep: Boolean
         get() = prefs.getBoolean("muteListenBeep", true)

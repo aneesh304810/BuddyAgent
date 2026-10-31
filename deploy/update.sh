@@ -36,6 +36,8 @@ if ! command -v dot >/dev/null; then
     || echo "  !! Graphviz didn't install; diagrams won't work until: sudo apt-get update && sudo apt-get install -y graphviz"
 fi
 sudo -u buddy "$APP/backend/.venv/bin/pip" install -q --upgrade -r "$APP/backend/requirements.txt"
+# Voice match (Talk mode answers only your voice): small, so always installed.
+bash "$APP/deploy/voice.sh" >/dev/null || echo "  !! Voice match didn't install; try: sudo bash $APP/deploy/voice.sh"
 # The settings hold every secret: root only (systemd hands Buddy what it needs).
 for f in /etc/buddy/buddy.env /etc/buddy/buddy.env.cred /etc/buddy/key-dates; do
   [ -f "$f" ] && chown root:root "$f" && chmod 600 "$f"

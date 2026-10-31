@@ -28,6 +28,10 @@ sealed interface ServerEvent {
     data class SpeechLimit(val seconds: Long) : ServerEvent
     /** Buddy switches the app's mode ("sleep until I say Hey Buddy"): "listen" or "talk". */
     data class SwitchMode(val mode: String) : ServerEvent
+    /** Voice match status: installed on the server, a voiceprint made, switched on; the sentences to read. */
+    data class VoiceStatus(val installed: Boolean, val enrolled: Boolean, val on: Boolean,
+                           val sentences: List<String>) : ServerEvent
+    data class VoiceEnrolled(val ok: Boolean, val text: String) : ServerEvent
 
     companion object {
         fun parse(raw: String): ServerEvent? = runCatching {
@@ -51,6 +55,16 @@ sealed interface ServerEvent {
                 "heard" -> Heard(msg.getString("text"), msg.optString("lang"))
                 "speech_limit" -> SpeechLimit(msg.optLong("seconds", 600L))
                 "mode" -> SwitchMode(msg.optString("mode"))
+                "voice" -> VoiceStatus(
+                    msg.optBoolean("installed"), msg.optBoolean("enrolled"), msg.optBoolean("on"),
+                    msg.optJSONArray("sentences")?.let { a -> (0 until a.length()).map { a.getString(it) } } ?: emptyList(),
+                )
+                "voice_enrolled" -> VoiceEnrolled(
+                    msg.optBoolean("ok"),
+                    if (msg.optBoolean("ok")) "Done: Talk mode now answers only your voice (learned from " +
+                        "${msg.optInt("used")} of ${msg.optInt("of")} sentences)."
+                    else msg.optString("why", "That didn't work. Try again somewhere quiet."),
+                )
                 else -> null
             }
         }.getOrNull()

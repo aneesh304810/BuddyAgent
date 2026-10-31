@@ -87,11 +87,26 @@ class BuddyService : Service() {
     private lateinit var prefs: BuddyPrefs
     @Volatile private var screenOff = false
     @Volatile private var whisperOnServer = false
+    private var switchedOnClose = false  // Listen-in because the phone was closed: Talk again when opened
 
     /** Screen off (phone closed or locked) or on: Automatic speech switches ears. */
     private val screenWatch = object : android.content.BroadcastReceiver() {
         override fun onReceive(context: Context, intent: Intent) {
             screenOff = intent.action == Intent.ACTION_SCREEN_OFF
+            // Phone closed with a headset on: Listen-in (and back to Talk when you open it again).
+            if (prefs.closedListenIn && headsetConnected()) {
+                if (screenOff && ears.active && activeMode == Mode.TALK) {
+                    switchedOnClose = true
+                    startListening(Mode.LISTEN_IN)
+                    return
+                }
+                if (!screenOff && switchedOnClose && ears.active && activeMode == Mode.LISTEN_IN) {
+                    switchedOnClose = false
+                    startListening(Mode.TALK)
+                    return
+                }
+            }
+            if (!screenOff) switchedOnClose = false
             if (prefs.speechEngine == "auto" && whisperOnServer && (phoneEars.active || serverEars.active)) {
                 startListening(activeMode)  // stops the current ears and starts the right ones
             }
@@ -367,6 +382,15 @@ class BuddyService : Service() {
             ServerEvent.Thinking -> thinking(true)
             is ServerEvent.Heard -> serverEars.heard(event.text, event.lang)
             is ServerEvent.SpeechLimit -> speechLimit(event.seconds)
+            is ServerEvent.VoiceStatus -> BuddyState.update {
+                it.copy(voiceInstalled = event.installed, voiceEnrolled = event.enrolled, voiceOn = event.on,
+                        voiceSentences = event.sentences)
+            }
+            is ServerEvent.VoiceEnrolled -> {
+                BuddyState.update { it.copy(enrollStep = -1, enrollResult = event.text) }
+                resumeAfterEnrol?.let { startListening(it) }
+                resumeAfterEnrol = null
+            }
             is ServerEvent.SwitchMode -> {
                 // After Buddy has finished saying it (Talk would otherwise hear its own reply).
                 pendingMode = if (event.mode == "listen") Mode.LISTEN_IN else Mode.TALK
@@ -460,6 +484,63 @@ class BuddyService : Service() {
     }
 
     private var whisperNoteShown = false
+    private var resumeAfterEnrol: Mode? = null
+
+    /** Settings -> Teach Buddy my voice: record each sentence (5 s) and send it; the server makes the voiceprint. */
+    fun teachVoice() {
+        val sentences = BuddyState.ui.value.voiceSentences
+        if (sentences.isEmpty() || BuddyState.ui.value.enrollStep >= 0) return
+        resumeAfterEnrol = if (ears.active) activeMode else null
+        stopListening()
+        if (activeMode == Mode.TALK || resumeAfterEnrol == null) useEarbudMic(prefs.earbudMic)  // the mic Talk uses
+        BuddyState.update { it.copy(enrollStep = 0, enrollResult = null) }
+        send(JSONObject().put("type", "voice_enroll_start"))
+        Thread {
+            for ((i, _) in sentences.withIndex()) {
+                BuddyState.update { it.copy(enrollStep = i) }
+                Thread.sleep(1_200)  // time to read the sentence before speaking
+                val pcm = recordSeconds(5)
+                if (pcm == null) {
+                    BuddyState.update { it.copy(enrollStep = -1, enrollResult = "Couldn't open the microphone.") }
+                    return@Thread
+                }
+                client?.send(JSONObject().put("type", "voice_enroll").put("index", i).put("total", sentences.size)
+                    .put("pcm", android.util.Base64.encodeToString(pcm, android.util.Base64.NO_WRAP)))
+            }
+            BuddyState.update { it.copy(enrollStep = sentences.size) }  // the server answers with voice_enrolled
+            main.post { useEarbudMic(false) }
+        }.start()
+    }
+
+    @android.annotation.SuppressLint("MissingPermission") // the app only runs with the microphone allowed
+    private fun recordSeconds(seconds: Int): ByteArray? {
+        val rate = 16_000
+        val source = if (earbudMicOn) android.media.MediaRecorder.AudioSource.VOICE_COMMUNICATION
+            else android.media.MediaRecorder.AudioSource.VOICE_RECOGNITION
+        val recorder = runCatching {
+            android.media.AudioRecord(source, rate, android.media.AudioFormat.CHANNEL_IN_MONO,
+                android.media.AudioFormat.ENCODING_PCM_16BIT, rate * 2)
+        }.getOrNull() ?: return null
+        if (recorder.state != android.media.AudioRecord.STATE_INITIALIZED) return null
+        val out = ByteArray(rate * 2 * seconds)
+        recorder.startRecording()
+        var read = 0
+        while (read < out.size) {
+            val n = recorder.read(out, read, out.size - read)
+            if (n <= 0) break
+            read += n
+        }
+        recorder.stop()
+        recorder.release()
+        return out.copyOf(read)
+    }
+
+    fun setVoice(on: Boolean? = null, forget: Boolean = false) {
+        val msg = JSONObject().put("type", "voice_set")
+        if (forget) msg.put("forget", true) else msg.put("on", on == true)
+        send(msg)
+    }
+
     private var pendingMode: Mode? = null
 
     private fun applyPendingMode() {
@@ -475,6 +556,7 @@ class BuddyService : Service() {
     /** Groq's free limit is used up: Talk switches to the phone's recognizer, and back when it resets. */
     private fun speechLimit(seconds: Long) {
         if (prefs.speechEngine != "auto") return  // you chose an engine yourself: keep it
+        if (BuddyState.ui.value.voiceOn) return  // voice match needs the audio on the server: stay there
         val wait = seconds.coerceIn(60L, 24 * 3600L) * 1000
         val first = android.os.SystemClock.elapsedRealtime() >= phoneUntil
         phoneUntil = android.os.SystemClock.elapsedRealtime() + wait

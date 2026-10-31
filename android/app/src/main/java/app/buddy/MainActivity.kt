@@ -733,6 +733,7 @@ private fun SettingsPanel(
         Spacer(Modifier.height(8.dp))
         VoicePicker(prefs)
         SpeechTuning(prefs)
+        VoiceMatch(prefs)
 
         Spacer(Modifier.height(8.dp))
         Text("This phone", color = Color.White, fontSize = 18.sp)
@@ -887,6 +888,65 @@ private fun SpeechTuning(prefs: BuddyPrefs) {
                     label = { Text(label) })
             }
         }
+    }
+}
+
+@Composable
+private fun VoiceMatch(prefs: BuddyPrefs) {
+    val ui by BuddyState.ui.collectAsState()
+    var closed by remember { mutableStateOf(prefs.closedListenIn) }
+    Column(Modifier.fillMaxWidth().padding(top = 16.dp)) {
+        Text("Voice match (Talk mode)", color = Color.White, fontSize = 18.sp)
+        Text(
+            when {
+                !ui.voiceInstalled -> "Not installed on your server yet: run sudo bash /opt/buddy/deploy/update.sh."
+                !ui.voiceEnrolled -> "Teach Buddy your voice and Talk mode answers only you: the TV and people " +
+                    "around you are ignored. When it isn't sure it was you, it stays quiet."
+                ui.voiceOn -> "On: Talk mode answers only your voice. Ignored you? Say \"Buddy, that was me\"."
+                else -> "Off: Talk mode answers any voice."
+            },
+            color = Muted, fontSize = 13.sp,
+        )
+        ui.enrollResult?.let { Text(it, color = Color.White, fontSize = 13.sp, modifier = Modifier.padding(top = 4.dp)) }
+        Row(horizontalArrangement = Arrangement.spacedBy(8.dp), verticalAlignment = Alignment.CenterVertically,
+            modifier = Modifier.padding(top = 6.dp)) {
+            Button(onClick = { BuddyService.instance?.teachVoice() },
+                enabled = ui.voiceInstalled && ui.voiceSentences.isNotEmpty() && ui.enrollStep < 0) {
+                Text(if (ui.voiceEnrolled) "Teach it again" else "Teach Buddy my voice")
+            }
+            if (ui.voiceEnrolled) {
+                Switch(checked = ui.voiceOn, onCheckedChange = { BuddyService.instance?.setVoice(on = it) })
+                TextButton(onClick = { BuddyService.instance?.setVoice(forget = true) }) { Text("Forget my voice") }
+            }
+        }
+        Row(verticalAlignment = Alignment.CenterVertically, modifier = Modifier.padding(top = 10.dp)) {
+            Column(Modifier.weight(1f)) {
+                Text("Phone closed → Listen-in", color = Color.White)
+                Text("With your headset on, closing or locking the phone switches Talk to Listen-in; opening it " +
+                    "switches back. Or just say \"Talk mode\" / \"Listen-in mode\".", color = Muted, fontSize = 12.sp)
+            }
+            Switch(checked = closed, onCheckedChange = { closed = it; prefs.closedListenIn = it })
+        }
+    }
+    if (ui.enrollStep >= 0) {
+        androidx.compose.material3.AlertDialog(
+            onDismissRequest = {},
+            confirmButton = {},
+            title = { Text("Teach Buddy your voice") },
+            text = {
+                Column {
+                    if (ui.enrollStep < ui.voiceSentences.size) {
+                        Text("Sentence ${ui.enrollStep + 1} of ${ui.voiceSentences.size}: read it aloud in your " +
+                            "normal voice", fontSize = 13.sp)
+                        Text(ui.voiceSentences[ui.enrollStep], fontSize = 20.sp, fontWeight = FontWeight.SemiBold,
+                            modifier = Modifier.padding(top = 10.dp))
+                        Text("Listening for 5 seconds…", fontSize = 12.sp, modifier = Modifier.padding(top = 10.dp))
+                    } else {
+                        Text("Making your voiceprint…")
+                    }
+                }
+            },
+        )
     }
 }
 

@@ -34,6 +34,13 @@ data class UiState(
     val mode: Mode = Mode.TALK,
     val lines: List<Line> = emptyList(),
     val approval: String? = null,     // Buddy is waiting for a yes: show Approve / Decline
+    // Voice match (Talk mode answers only your voice), from the server.
+    val voiceInstalled: Boolean = false,
+    val voiceEnrolled: Boolean = false,
+    val voiceOn: Boolean = false,
+    val voiceSentences: List<String> = emptyList(),
+    val enrollStep: Int = -1,         // -1 idle; 0..n-1 recording sentence; n: making the voiceprint
+    val enrollResult: String? = null,
 )
 
 /** What the screen shows. The service writes it; the activity only reads it. */

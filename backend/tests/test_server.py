@@ -316,7 +316,7 @@ def test_sleep_until_hey_buddy_switches_the_app_to_listen_in(monkeypatch):
 
     monkeypatch.setattr(agent.client.beta.messages, "stream", lambda **kw: Step())
     with TestClient(server.app) as c, c.websocket_connect("/ws") as ws:
-        ws.send_json({"type": "user", "text": "You can sleep now, until I say hey Buddy."})
+        ws.send_json({"type": "user", "text": "My friends are here, only answer when I call you."})
         got = []
         while not got or got[-1]["type"] != "done":
             got.append(ws.receive_json())
@@ -342,3 +342,35 @@ def test_unsure_talk_clips_are_not_answered(monkeypatch):
         ws.send_json({"type": "audio", "pcm": audio, "lang": "en-US", "mode": "talk"})
         got = ws.receive_json()
     assert got["type"] == "heard" and got["text"] == "What's the weather?"  # the TV line never came back
+
+
+def test_mode_commands_switch_without_claude():
+    assert server.mode_command("Listen-in mode") == "listen"
+    assert server.mode_command("Hey Buddy, talk mode.") == "talk"
+    assert server.mode_command("Buddy, go to sleep until I call you") == "listen"
+    assert server.mode_command("wake up, buddy") == "talk"
+    assert server.mode_command("switch to listening mode please") == "listen"
+    assert server.mode_command("I want to talk about the room we booked") is None
+    with TestClient(server.app) as c, c.websocket_connect("/ws") as ws:
+        ws.send_json({"type": "user", "text": "Listen-in mode"})
+        got = [ws.receive_json() for _ in range(3)]
+    assert got[0] == {"type": "say", "text": "Listen-in mode."} and got[1] == {"type": "mode", "mode": "listen"}
+
+
+def test_voice_match_ignores_other_voices_in_talk(monkeypatch):
+    import base64
+    from buddy import voiceprint, whisper
+
+    async def fake_transcribe(pcm, language="", prompt="", **kwargs):
+        return "What's on TV?", "en"
+
+    monkeypatch.setattr(whisper, "transcribe", fake_transcribe)
+    monkeypatch.setattr(voiceprint, "on", lambda memory: True)
+    verdicts = iter([("not_you", 0.12), ("you", 0.8)])
+    monkeypatch.setattr(voiceprint, "check", lambda memory, pcm, since: next(verdicts))
+    audio = base64.b64encode(b"\x01\x00" * 32000).decode()
+    with TestClient(server.app) as c, c.websocket_connect("/ws") as ws:
+        ws.send_json({"type": "audio", "pcm": audio, "lang": "en-US", "mode": "talk"})
+        ws.send_json({"type": "audio", "pcm": audio, "lang": "en-US", "mode": "talk"})
+        got = ws.receive_json()
+    assert got["type"] == "heard"  # only the second clip (the user's voice) was transcribed and came back

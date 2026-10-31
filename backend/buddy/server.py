@@ -47,7 +47,7 @@ from fastapi import Depends, FastAPI, Header, HTTPException, Request, WebSocket,
 from fastapi.staticfiles import StaticFiles
 
 from . import health as healthcheck
-from . import codejob, insights, makers, proactive, research, tutor, usage, vocabulary
+from . import codejob, insights, makers, proactive, research, tutor, usage, vocabulary, voiceprint
 from .agent import FILLERS, Conversation
 from .agents import AgentRegistry, load_specs
 from .ambient import AmbientListener, is_think_cue
@@ -96,6 +96,31 @@ def trace(direction: str, msg: dict) -> None:
         text = "location update"
     trace_log.info("%s %-12s %-8s %s", direction, kind, extra, mask(str(text))[:160])
 log = logging.getLogger("buddy")
+# "Talk mode" / "Listen-in mode" / "go to sleep" / "wake up": switched at once, no trip to Claude.
+MODE_WORDS = re.compile(
+    r"^(?:(?:hey|hi|ok|okay)[\s,]+)?(?:(?:buddy|bro|aliya|machaa)[\s,]+)?(?:please[\s,]+)?"
+    r"(?:(?:switch|go|change|move|back)\s+(?:back\s+)?(?:to|into)\s+)?(?:the\s+)?"
+    r"(?P<mode>talk|talking|listen[\s-]?in|listening|room|sleep)(?:\s+mode)?"
+    r"(?:[\s,]+(?:please|buddy|bro))?[.!]*$", re.I)
+WAKE_UP = re.compile(r"^(?:(?:hey|ok|okay)[\s,]+)?(?:buddy|bro|aliya|machaa)?[\s,]*(?:wake up|let'?s talk)"
+                     r"(?:[\s,]+(?:buddy|bro))?[.!]*$", re.I)
+GO_TO_SLEEP = re.compile(r"^(?:(?:hey|ok|okay)[\s,]+)?(?:buddy|bro|aliya|machaa)?[\s,]*(?:go to sleep|you can sleep"
+                         r"(?: now)?|sleep now)\b.*$", re.I)
+
+
+def mode_command(text: str) -> str | None:
+    """'talk' or 'listen' for a spoken mode switch, else None."""
+    t = text.strip()
+    if WAKE_UP.match(t):
+        return "talk"
+    if GO_TO_SLEEP.match(t):
+        return "listen"
+    m = MODE_WORDS.match(t)
+    if not m:
+        return None
+    return "talk" if m.group("mode").lower().startswith("talk") else "listen"
+
+
 # Whisper ends a sentence cut off by a pause with "..."; wait this long for the rest before answering.
 UNFINISHED = re.compile(r"(\.\.\.|…)\s*$")
 FRAGMENT_WAIT_SECONDS = float(os.getenv("BUDDY_FRAGMENT_WAIT", "4"))
@@ -532,6 +557,19 @@ async def talk(ws: WebSocket) -> None:
         if text:
             await start_answer(text, via)
 
+    enroll_clips: list[bytes] = []
+
+    async def send_voice_status() -> None:
+        print_ = voiceprint.stored(memory)
+        await send({"type": "voice", "installed": voiceprint.available(), "enrolled": bool(print_),
+                    "on": voiceprint.on(memory), "sentences": voiceprint.ENROLL_SENTENCES})
+
+    async def switch_now(mode: str) -> None:
+        await stop_current()
+        await send({"type": "say", "text": "Listen-in mode." if mode == "listen" else "Talk mode."})
+        await send({"type": "mode", "mode": mode})
+        await send({"type": "done", "turn": ""})
+
     audio_tasks: set[asyncio.Task] = set()
     room_slot: dict = {"waiting": None, "worker": None}
 
@@ -545,6 +583,18 @@ async def talk(ws: WebSocket) -> None:
         like its own recognizer's (talk, Listen-in, "Hey Buddy")."""
         try:
             started = time.monotonic()
+            pcm = base64.b64decode(msg["pcm"])
+            if msg.get("mode") == "talk" and voiceprint.on(memory):
+                # Talk mode answers only the user's own voice; when unsure, stay quiet.
+                try:
+                    who, score = await asyncio.to_thread(voiceprint.check, memory, pcm,
+                                                         time.monotonic() - last_exchange["at"])
+                except voiceprint.VoiceMatchUnavailable:
+                    who, score = "you", None
+                if who != "you":
+                    trace("·", {"type": "not_you", "text": f"voice {'too short' if score is None else f'{score:.2f}'}"})
+                    usage.count(memory, "voice:ignored")
+                    return
             stats: dict | None = {} if msg.get("mode") == "talk" and tutor.ON else None
             meta: dict = {}
             heard, lang = await speech_to_text.transcribe(
@@ -636,6 +686,24 @@ async def talk(ws: WebSocket) -> None:
                     memory.set("timezone", tz)
                 # Names and words to recognise: the phone's recogniser biases towards them.
                 await send({"type": "vocabulary", "words": vocabulary.words(memory)})
+                await send_voice_status()
+            elif msg.get("type") == "voice_enroll" and msg.get("pcm"):
+                # Settings -> Teach Buddy my voice: one sentence at a time, the voiceprint after the last.
+                enroll_clips.append(base64.b64decode(msg["pcm"]))
+                if int(msg.get("index", 0)) + 1 >= int(msg.get("total", len(voiceprint.ENROLL_SENTENCES))):
+                    clips, enroll_clips[:] = list(enroll_clips), []
+                    try:
+                        result = await asyncio.to_thread(voiceprint.enroll, memory, clips)
+                    except voiceprint.VoiceMatchUnavailable as e:
+                        result = {"ok": False, "why": str(e)}
+                    await send({"type": "voice_enrolled", **result})
+                    await send_voice_status()
+            elif msg.get("type") == "voice_enroll_start":
+                enroll_clips.clear()
+            elif msg.get("type") == "voice_set":  # Settings switch / forget button
+                voiceprint.run_tool(memory, {"action": "forget" if msg.get("forget") else
+                                             ("turn_on" if msg.get("on") else "turn_off")})
+                await send_voice_status()
             elif msg.get("type") == "interrupt":
                 await stop_current()
             elif msg.get("type") == "user" and msg.get("text", "").strip():
@@ -645,6 +713,9 @@ async def talk(ws: WebSocket) -> None:
                     pending["task"].cancel()
                     text = f"{pending['text']} {text}"
                     pending.update(text="", task=None)
+                if switch := mode_command(text):  # "Listen-in mode", "go to sleep", "wake up"
+                    await switch_now(switch)
+                    continue
                 spoken = time.monotonic() - last_heard[0] < 3  # just heard by Whisper, not typed
                 if via == "user" and spoken and UNFINISHED.search(text) and len(text) < 400:
                     # "Why can't we use..." then a pause to think: wait a moment for the rest.
@@ -658,7 +729,9 @@ async def talk(ws: WebSocket) -> None:
                     unsure_heard.pop(old_line, None)
                 unclear = unsure_heard.pop(text, None) is not None
                 command = addressed_to_buddy(text)
-                if command:  # "Buddy, what did he just say?" is a command, not ambient talk
+                if command and (switch := mode_command(command)):
+                    await switch_now(switch)
+                elif command:  # "Buddy, what did he just say?" is a command, not ambient talk
                     await stop_current()
                     await send({"type": "thinking"})
                     current = asyncio.create_task(answer(command, "room"))

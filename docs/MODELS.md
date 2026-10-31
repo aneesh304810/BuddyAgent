@@ -156,6 +156,26 @@ language outside "My languages", your server's Whisper does that clip instead.
 - Insights → **Hearing you** shows clips by Groq and by your server. The English tutor's
   pronunciation scores come from your server's Whisper only, so they're rarer with Groq on.
 
+## 5. Voice match: Talk mode answers only you
+
+Settings → **Teach Buddy my voice**: read five sentences (5 seconds each). The server turns them
+into a voiceprint (a small speaker-recognition model, sherpa-onnx, about 25 MB, installed by
+update.sh / `deploy/voice.sh`). In **Talk mode** every clip is compared with it **before**
+transcription: your voice goes on; anything else (the TV, people around you) is ignored, never
+transcribed or sent to Groq. When Buddy isn't sure, it stays quiet. Clips under a second (a
+"yes", "thanks") pass only right after Buddy spoke to you. Clips that clearly match keep
+refining the voiceprint; "Buddy, that was me" adds one it wrongly ignored.
+
+- Needs the server to hear the audio: Speech recognition on Automatic or Server (with voice match
+  on, Talk stays on the server even at Groq's free limit, using its own Whisper).
+- `BUDDY_VOICE_THRESHOLD` (default 0.5): higher is stricter.
+- The voiceprint is biometric data: it stays in Buddy's encrypted database; "forget my voice"
+  (Settings or by voice) deletes it. Listen-in is unaffected.
+
+**Switching modes by voice:** "Talk mode", "Listen-in mode", "go to sleep", "wake up" switch at
+once (no Claude call). **Phone closed → Listen-in** (Settings, on by default): with a headset on,
+closing or locking the phone switches Talk to Listen-in; opening it switches back.
+
 ## See it working
 
 **Insights** (in the Android app's header, and on the web page) shows every model request:
