@@ -36,7 +36,7 @@ from .health import HEALTH_TOOL, run_health_tool
 from . import cards, sandbox
 from .codejob import CODE_TOOL_NAMES, CODE_TOOLS, run_code_tool
 from .makers import MAKER_TOOL_NAMES, MAKER_TOOLS, run_maker_tool
-from . import transcripts, tutor, vocabulary, voiceprint
+from . import datatools, transcripts, tutor, vocabulary, voiceprint
 from .lifelog import LIFELOG_TOOL, LifeLog, run_lifelog_tool
 from .mailbrain import MAIL_TOOL_NAMES, MAIL_TOOLS, MailManager, run_mail_tool
 from .money import MONEY_TOOL_NAMES, MONEY_TOOLS, Money, run_money_tool
@@ -460,6 +460,7 @@ class Conversation:
         spending += WATCH_TOOLS if self.watcher else []
         spending += BUILDER_TOOLS if self.builder and self.jobs else []
         spending += CODE_TOOLS if self.jobs and sandbox.available() else []
+        spending += [datatools.DATA_TOOL, datatools.TOOLS_ADMIN] if sandbox.available() else []
         spending += CONNECTOR_TOOLS if self.hub else []
         spending += social_tools(self.social) + TASTE_TOOLS + [WHERE_TOOL]
         spending += [GENERAL_TOOL, VERDICT_TOOL] if self.free.enabled() else []
@@ -543,6 +544,10 @@ class Conversation:
             return await run_watch_tool(self.watcher, name, args, self.thrift)
         if name in TASTE_TOOL_NAMES:
             return await run_taste_tool(self.taste, self.social, name, args, self.location)
+        if name == "process_data":
+            return await datatools.run_data_tool(self.memory, args)
+        if name == "buddy_tools":
+            return await datatools.run_tools_admin(args)
         if name == "voice_match":
             return voiceprint.run_tool(self.memory, args)
         if name == "switch_mode":

@@ -28,12 +28,16 @@ def _load(root: str = str(LIBRARY)) -> tuple[list[dict], list[dict]]:
         meta = {}
         match = re.match(r"(?s)^---\n(.*?)\n---\n(.*)$", text)
         if match:
-            meta = yaml.safe_load(match.group(1)) or {}
+            try:
+                meta = yaml.safe_load(match.group(1)) or {}
+            except yaml.YAMLError:
+                continue  # a broken guide: leave it out rather than hide every skill
             body = match.group(2)
         else:
             body = text
         skills.append({"name": meta.get("name", doc.parent.name), "description": meta.get("description", ""),
-                       "tags": meta.get("tags", []), "guide": body.strip(), "path": f"/buddy/skills/{doc.parent.name}/"})
+                       "tags": meta.get("tags", []), "guide": body.strip(), "path": f"/buddy/skills/{doc.parent.name}/",
+                       "data": bool(meta.get("data")), "run": meta.get("run", "")})
     return tools, skills
 
 

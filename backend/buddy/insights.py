@@ -171,6 +171,13 @@ def free_models_overview(memory: Memory, by_model: list[dict]) -> dict:
             "providers": sorted(rows, key=lambda r: (not r["on"], -r["requests"]))}
 
 
+def data_tools_overview(memory: Memory) -> dict:
+    """This month: data tools run in the sandbox, and the tokens the AI didn't have to read."""
+    month = local_now().strftime("%Y-%m")
+    get = lambda name: int(float(memory.get(f"count:sandbox:{name}:{month}") or 0))  # noqa: E731
+    return {"runs": get("data_runs"), "tokens_saved": get("saved_tokens")}
+
+
 def speech_overview(memory: Memory) -> dict:
     """This month: clips heard by Groq (Talk mode) and by the server's own Whisper, and Groq's misses."""
     from . import whisper
@@ -303,6 +310,7 @@ def report(memory: Memory, days: int = 7, recent: int = 60, model: str = "", pur
         "tools": tools_overview(memory, since, rows),
         "web": webread.web_overview(memory),
         "speech": speech_overview(memory),
+        "data_tools": data_tools_overview(memory),
         "by_model": by_model,
         "by_purpose": by_purpose,
         "by_day": list(per_day.values()),

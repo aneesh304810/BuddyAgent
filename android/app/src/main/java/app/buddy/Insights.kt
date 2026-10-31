@@ -364,6 +364,15 @@ fun InsightsScreen(link: ServerLink?) {
             }
         }
 
+        val dataTools = d.optJSONObject("data_tools")
+        if (dataTools != null && dataTools.optInt("runs") > 0) {
+            item { Heading("Data tools (this month)") }
+            item {
+                Text("${dataTools.optInt("runs")} runs in the sandbox · ${tokens(dataTools.optLong("tokens_saved"))} " +
+                    "tokens the AI didn't have to read (exact numbers by code)", color = Dim, fontSize = 13.sp)
+            }
+        }
+
         val tools = d.optJSONArray("tools")?.objects() ?: emptyList()
         item { Heading("Tools and agents") }
         if (tools.isEmpty()) item { Text("No tools used in this period.", color = Dim, fontSize = 13.sp) }

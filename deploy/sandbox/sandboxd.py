@@ -15,6 +15,11 @@ connection, and can ask for only these things:
   outputs {workspace}                         files the task left in output/ (names and sizes)
   fetch   {workspace, path}                   one of those files, base64 (at most 20 MB)
   push    {workspace, branch}                 push to a buddy/... branch (Buddy asks the user first)
+  write_b64 {workspace, path, content_b64}    write a binary file (a PDF, a spreadsheet; at most 15 MB)
+  save_skill {workspace, folder, name, replace?}  keep a tool the task wrote, for later tasks (checked and
+                                              tested first; saved tools are mounted read-only at /buddy-custom)
+  skills  {}                                  the saved tools
+  delete_skill {name}
   delete  {workspace}
   status  {}                                  workspaces and disk use
 
@@ -53,6 +58,15 @@ TOOL_ENV = {"PYTHONUSERBASE": "/work/.tools/py", "PIP_USER": "1", "NPM_CONFIG_PR
             "PATH": "/work/.tools/bin:/work/.tools/py/bin:/work/.tools/npm/bin:/usr/local/bin:/usr/bin:/bin",
             "PIP_DISABLE_PIP_VERSION_CHECK": "1", "BUDDY_LIBRARY": "/buddy"}
 AUDIT = Path(os.getenv("SANDBOX_AUDIT", "/var/lib/buddy-sandbox/commands.log"))
+# Tools Buddy made during tasks and chose to keep: data tools, so offline code only.
+CUSTOM = Path(os.getenv("SANDBOX_CUSTOM", "/var/lib/buddy-sandbox/skills"))
+SKILL_FILES = {".py", ".md", ".txt", ".json", ".csv", ".yaml", ".yml"}
+SKILL_MAX_BYTES, SKILL_MAX_FILES = 300_000, 12
+# A saved tool processes data it's given; it must not reach the network, start programs or load code.
+UNSAFE_CODE = re.compile(
+    r"^\s*(?:import|from)\s+(?:subprocess|socket|ctypes|requests|urllib|http|httpx|ftplib|smtplib|telnetlib|"
+    r"paramiko|asyncio\.subprocess|multiprocessing|pty|webbrowser)\b|\bos\.(?:system|popen|exec\w*|spawn\w*|fork)\b|"
+    r"\b(?:eval|exec|compile|__import__)\s*\(", re.M)
 # Downloads piped straight into a shell run unknown code unseen; installs go through the registry.
 PIPE_TO_SHELL = re.compile(r"(curl|wget)\b[^|;&]*\|\s*(sudo\s+)?(ba|z|da)?sh\b|\bbash\s+<\s*\(\s*(curl|wget)")
 CLIENT_GROUP = os.getenv("SANDBOX_CLIENT_GROUP", "buddy")
@@ -95,6 +109,8 @@ def docker_run(ws: Path, command: list[str], *, network: bool = True, env: dict 
             "--workdir", "/work"]
     if LIBRARY.is_dir():  # Buddy's tool registry, install guard and skills, read-only
         args += ["--mount", f"type=bind,src={LIBRARY},dst=/buddy,readonly"]
+    if CUSTOM.is_dir():  # tools Buddy made earlier, read-only
+        args += ["--mount", f"type=bind,src={CUSTOM},dst=/buddy-custom,readonly"]
     # Tools installed during a task live in the workspace, so they last for the whole task.
     env = {**TOOL_ENV, **(env or {})}
     if stdin:
@@ -140,11 +156,90 @@ def _audit(workspace: str, command: str) -> None:
         pass
 
 
+def skill_meta(text: str) -> tuple[dict, str]:
+    """The SKILL.md front matter (simple 'key: value' lines, tags as [a, b]) and the guide after it."""
+    match = re.match(r"(?s)^---\n(.*?)\n---\n?(.*)$", text)
+    if not match:
+        return {}, text
+    meta = {}
+    for line in match.group(1).splitlines():
+        key, sep, value = line.partition(":")
+        if sep:
+            value = value.strip()
+            if value.startswith("[") and value.endswith("]"):
+                meta[key.strip()] = [t.strip().strip("'\"") for t in value[1:-1].split(",") if t.strip()]
+            else:
+                meta[key.strip()] = value[1:-1] if len(value) > 1 and value[0] == value[-1] and value[0] in "'\"" else value
+    return meta, match.group(2).strip()
+
+
+def list_skills() -> list[dict]:
+    out = []
+    for doc in sorted(CUSTOM.glob("*/SKILL.md")) if CUSTOM.is_dir() else []:
+        meta, guide = skill_meta(doc.read_text(errors="replace"))
+        out.append({"name": doc.parent.name, "description": meta.get("description", ""), "tags": meta.get("tags", []),
+                    "run": meta.get("run", ""), "guide": guide[:900], "custom": True})
+    return out
+
+
+def save_skill(ws: Path, req: dict) -> dict:
+    name = str(req.get("name", ""))
+    if not NAME.match(name):
+        raise Refused("tool names are lowercase letters, digits and dashes")
+    folder = safe_path(str(req.get("folder", "")))
+    src = (ws / folder.removeprefix("/work/").lstrip("/")).resolve()
+    if not src.is_dir() or ws.resolve() not in src.parents:
+        raise Refused("give the tool's folder in the workspace")
+    files = [f for f in src.rglob("*") if f.is_file() or f.is_symlink()]
+    if any(f.is_symlink() for f in files) or len(files) > SKILL_MAX_FILES:
+        raise Refused(f"a tool is at most {SKILL_MAX_FILES} plain files (no links)")
+    if any(f.suffix.lower() not in SKILL_FILES for f in files) or sum(f.stat().st_size for f in files) > SKILL_MAX_BYTES:
+        raise Refused("a tool is Python scripts plus SKILL.md and small text/JSON/CSV samples, 300 KB at most")
+    if not (src / "SKILL.md").is_file():
+        raise Refused("the folder needs a SKILL.md")
+    meta, _ = skill_meta((src / "SKILL.md").read_text(errors="replace"))
+    missing = [k for k in ("description", "run", "test") if not meta.get(k)]
+    if missing:
+        raise Refused(f"SKILL.md front matter needs: {', '.join(missing)}")
+    if f"/buddy-custom/{name}/" not in meta["run"]:
+        raise Refused(f"run must call the script from /buddy-custom/{name}/")
+    for f in files:
+        if f.suffix == ".py" and UNSAFE_CODE.search(f.read_text(errors="replace")):
+            raise Refused(f"{f.name} uses the network, starts programs or loads code: saved tools work offline on "
+                          "the data they're given (standard library, pandas, openpyxl, pypdf)")
+    rel = str(src.relative_to(ws.resolve()))
+    test = _run(docker_run(ws, ["timeout", "--kill-after=5", "120", "bash", "-lc", f'cd "/work/{rel}" && {meta["test"]}'],
+                           network=False), 130)
+    if test["exit_code"] != 0:
+        raise Refused(f"its test failed (exit {test['exit_code']}): {test['output'][-1500:]}")
+    dest = CUSTOM / name
+    if dest.exists() and not req.get("replace"):
+        raise Refused(f"there's already a tool called {name}: pick another name, or replace it")
+    CUSTOM.mkdir(parents=True, exist_ok=True)
+    staging = CUSTOM / f".{name}.new"
+    shutil.rmtree(staging, ignore_errors=True)
+    shutil.copytree(src, staging)
+    for f in staging.rglob("*"):
+        f.chmod(0o755 if f.is_dir() else 0o644)
+    shutil.rmtree(dest, ignore_errors=True)
+    staging.rename(dest)
+    _audit(ws.name, f"saved tool {name}")
+    return {"ok": True, "saved": name, "test_output": test["output"][-500:]}
+
+
 def handle(req: dict) -> dict:
     op = req.get("op", "")
     if op == "status":
         spaces = sorted(p.name for p in ROOT.iterdir() if p.is_dir()) if ROOT.exists() else []
         return {"workspaces": [{"name": n, "mb": _size_mb(ROOT / n)} for n in spaces], "token": bool(TOKEN)}
+    if op == "skills":
+        return {"skills": list_skills()}
+    if op == "delete_skill":
+        name = str(req.get("name", ""))
+        if not NAME.match(name) or not (CUSTOM / name).is_dir():
+            raise Refused("no saved tool with that name")
+        shutil.rmtree(CUSTOM / name)
+        return {"ok": True}
     ws = workspace(req.get("workspace", ""))
 
     if op == "create":
@@ -161,7 +256,7 @@ def handle(req: dict) -> dict:
                         network=False), 120)
         shutil.rmtree(ws, ignore_errors=True)
         return {"ok": True}
-    if op in ("run", "clone", "write") and _size_mb(ws) > MAX_WORKSPACE_MB:
+    if op in ("run", "clone", "write", "write_b64") and _size_mb(ws) > MAX_WORKSPACE_MB:
         raise Refused(f"the workspace is over {MAX_WORKSPACE_MB} MB: clean it up or delete it")
 
     if op == "run":
@@ -182,6 +277,21 @@ def handle(req: dict) -> dict:
             raise Refused("files are at most 2 MB")
         script = 'mkdir -p "$(dirname "$1")" && cat > "$1"'
         return _run(docker_run(ws, ["sh", "-c", script, "sh", path], network=False, stdin=True), 60, content)
+    if op == "write_b64":
+        import base64
+        import binascii
+
+        path = safe_path(req.get("path", ""))
+        try:
+            content = base64.b64decode(str(req.get("content_b64", "")), validate=True)
+        except (binascii.Error, ValueError) as e:
+            raise Refused("that isn't base64") from e
+        if len(content) > 15_000_000:
+            raise Refused("files are at most 15 MB")
+        script = 'mkdir -p "$(dirname "$1")" && cat > "$1"'
+        return _run(docker_run(ws, ["sh", "-c", script, "sh", path], network=False, stdin=True), 120, content)
+    if op == "save_skill":
+        return save_skill(ws, req)
     if op == "read":
         path = safe_path(req.get("path", ""))
         return _run(docker_run(ws, ["head", "-c", str(MAX_READ), path], network=False), 60)

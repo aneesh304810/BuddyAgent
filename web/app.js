@@ -680,6 +680,11 @@ async function showInsights() {
         ["", "Clips", "Confidence", "Dropped", "Unclear"]));
     }
   }
+  const dt = r.data_tools;
+  if (dt && dt.runs) {
+    h("Data tools (this month)");
+    body.appendChild(el("p", "", `${dt.runs} runs in the sandbox · ${tok(dt.tokens_saved)} tokens the AI didn't have to read (exact numbers by code)`));
+  }
   h("Tools and agents");
   if (!(r.tools || []).length) body.appendChild(el("p", "", "No tools used in this period."));
   else body.appendChild(costTable(r.tools.map((t) => [
