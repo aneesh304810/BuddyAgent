@@ -681,8 +681,9 @@ private fun SettingsPanel(
         }
         Text("Listen-in microphone", color = Color.White)
         Text(
-            "Automatic: the phone's mic, or the earbuds' while the phone is in your pocket. " +
-                "Earbud mics favour one nearby voice and switch the earbuds to phone-call sound.",
+            "Automatic (best): the phone's mic, which hears the whole room, quiet voices boosted; the headset's " +
+                "only while the phone is in your pocket (it switches after 3 s). Headset mics favour your own " +
+                "voice and switch the earbuds to phone-call sound.",
             color = Muted, fontSize = 13.sp,
         )
         Row(horizontalArrangement = Arrangement.spacedBy(8.dp)) {

@@ -183,17 +183,17 @@ def speech_overview(memory: Memory) -> dict:
                                (f"%:{month}",)):
         _, _, ns, name, _ = r["key"].split(":")
         quality.setdefault(ns, {})[name] = float(r["value"])
-    compare = {}
-    for ns, q in quality.items():  # the phone's noise suppressor on vs off: does cleaner audio help Whisper?
+    compare, mics = {}, {}
+    for ns, q in quality.items():  # noise suppressor on vs off, and Listen-in's phone vs headset mic
         clips = int(q.get("clips", 0))
         if not clips:
             continue
-        compare[ns] = {"clips": clips,
+        (mics if ns.startswith("mic-") else compare)[ns.removeprefix("mic-")] = {"clips": clips,
                        "confidence": round(q["conf_milli"] / q["scored"] / 1000, 2) if q.get("scored") else None,
                        "dropped_pct": round(100 * q.get("dropped", 0) / clips),
                        "unsure_pct": round(100 * q.get("unsure", 0) / clips)}
     return {"groq_on": whisper.groq_on(), "groq": counts.get("groq", 0), "local": counts.get("local", 0),
-            "groq_skipped": counts.get("groq_skipped", 0), "noise_suppressor": compare}
+            "groq_skipped": counts.get("groq_skipped", 0), "noise_suppressor": compare, "listen_mics": mics}
 
 
 def tools_overview(memory: Memory, since: str, rows: list[dict]) -> list[dict]:

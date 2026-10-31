@@ -588,14 +588,25 @@ class BuddyService : Service() {
     private val proximity = object : SensorEventListener {
         override fun onSensorChanged(event: SensorEvent) {
             val near = event.values[0] < event.sensor.maximumRange.coerceAtMost(5f)
+            pocketTimer.removeCallbacksAndMessages(null)
             if (near == inPocket) return
-            inPocket = near
-            // In a pocket the phone's mic is muffled: hear the room through the earbuds instead.
-            if (ears.active && activeMode == Mode.LISTEN_IN) useEarbudMic(inPocket)
+            // In a pocket the phone's mic is muffled: hear the room through the headset instead (the only
+            // time Listen-in uses it). Wait 3 s first, so a hand passing over the sensor doesn't flip it.
+            pocketTimer.postDelayed({
+                inPocket = near
+                if (ears.active && activeMode == Mode.LISTEN_IN && prefs.listenMic == "auto") {
+                    pocketSwitch = true
+                    startListening(Mode.LISTEN_IN)  // reopens the mic with the right input
+                    pocketSwitch = false
+                }
+            }, 3_000)
         }
 
         override fun onAccuracyChanged(sensor: Sensor?, accuracy: Int) {}
     }
+
+    private val pocketTimer = android.os.Handler(android.os.Looper.getMainLooper())
+    private var pocketSwitch = false  // reopening the mic for a pocket change: keep the sensor running
 
     private fun startListenMic() {
         when (prefs.listenMic) {
@@ -615,6 +626,8 @@ class BuddyService : Service() {
     }
 
     private fun stopListenMic() {
+        if (pocketSwitch) return
+        pocketTimer.removeCallbacksAndMessages(null)
         getSystemService(SensorManager::class.java)?.unregisterListener(proximity)
     }
 

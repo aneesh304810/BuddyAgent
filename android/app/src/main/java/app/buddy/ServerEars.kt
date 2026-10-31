@@ -33,6 +33,7 @@ class ServerEars(
     private val noiseSuppress: () -> Boolean = { false },  // Settings: the phone's own noise suppressor
 ) : Hearing {
     @Volatile private var cleaning: android.media.audiofx.NoiseSuppressor? = null
+    @Volatile private var boost: android.media.audiofx.AutomaticGainControl? = null
     private val main = Handler(Looper.getMainLooper())
     private var thread: Thread? = null
     private var language = AUTO_LANGUAGE
@@ -79,6 +80,12 @@ class ServerEars(
         runCatching { cleaning?.release() }
         cleaning = if (noiseSuppress() && android.media.audiofx.NoiseSuppressor.isAvailable())
             runCatching { android.media.audiofx.NoiseSuppressor.create(recorder.audioSessionId)?.apply { enabled = true } }
+                .getOrNull() else null
+        // Listen-in on the phone's mic: raise quiet, distant voices before they're sent.
+        runCatching { boost?.release() }
+        boost = if (BuddyState.ui.value.mode == Mode.LISTEN_IN && !earbudMic() &&
+            android.media.audiofx.AutomaticGainControl.isAvailable())
+            runCatching { android.media.audiofx.AutomaticGainControl.create(recorder.audioSessionId)?.apply { enabled = true } }
                 .getOrNull() else null
     }
 
@@ -131,7 +138,9 @@ class ServerEars(
                 var sum = 0.0
                 for (i in 0 until n) sum += frame[i].toDouble() * frame[i]
                 val rms = sqrt(sum / n)
-                val loud = rms > max(noise * 3, 500.0)
+                // Listen-in: people across the table are quieter than you are into the mic, so a lower bar.
+                val listen = BuddyState.ui.value.mode == Mode.LISTEN_IN
+                val loud = if (listen) rms > max(noise * 2.2, 250.0) else rms > max(noise * 3, 500.0)
                 val bytes = toBytes(frame, n)
                 if (!speaking) {
                     if (loud) {
@@ -162,6 +171,8 @@ class ServerEars(
             recorder?.release()
             runCatching { cleaning?.release() }
             cleaning = null
+            runCatching { boost?.release() }
+            boost = null
         }
     }
 
@@ -174,6 +185,7 @@ class ServerEars(
             .put("mode", if (BuddyState.ui.value.mode == Mode.TALK) "talk" else "listen")
             // For Insights' comparison: did the phone's noise suppressor clean this clip?
             .put("ns", cleaning?.enabled == true)
+            .put("mic", if (earbudMic()) "headset" else "phone")  // which mic heard it, for Insights
         if (!send(message)) main.post { onProblem("Not connected to your server yet.") }
     }
 

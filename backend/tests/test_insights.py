@@ -135,3 +135,16 @@ def test_noise_suppressor_comparison():
     ns = insights.speech_overview(mem)["noise_suppressor"]
     assert ns["off"] == {"clips": 3, "confidence": -0.67, "dropped_pct": 33, "unsure_pct": 0}
     assert ns["on"]["confidence"] == -0.25 and ns["on"]["dropped_pct"] == 0
+
+
+def test_listen_in_quality_by_microphone():
+    from buddy import insights, server
+    from buddy.memory import Memory
+
+    mem = Memory(":memory:")
+    server.speech_quality(mem, "mic-phone", -0.4, kept=True, unsure=False)
+    server.speech_quality(mem, "mic-headset", -0.9, kept=True, unsure=True)
+    over = insights.speech_overview(mem)
+    assert over["listen_mics"]["phone"]["confidence"] == -0.4
+    assert over["listen_mics"]["headset"]["unsure_pct"] == 100
+    assert "mic-phone" not in over["noise_suppressor"]

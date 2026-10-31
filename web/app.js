@@ -671,6 +671,14 @@ async function showInsights() {
         ns[k].confidence == null ? "–" : ns[k].confidence.toFixed(2), `${ns[k].dropped_pct}%`, `${ns[k].unsure_pct}%`]),
         ["", "Clips", "Confidence", "Dropped", "Unclear"]));
     }
+    const mics = heard.listen_mics || {};
+    if (mics.phone || mics.headset) {
+      body.appendChild(el("p", "", "Listen-in by microphone (the headset only while the phone is in your pocket):"));
+      body.appendChild(costTable(["phone", "headset"].filter((k) => mics[k]).map((k) => [
+        k === "phone" ? "Phone mic" : "Headset mic", String(mics[k].clips),
+        mics[k].confidence == null ? "–" : mics[k].confidence.toFixed(2), `${mics[k].dropped_pct}%`, `${mics[k].unsure_pct}%`]),
+        ["", "Clips", "Confidence", "Dropped", "Unclear"]));
+    }
   }
   h("Tools and agents");
   if (!(r.tools || []).length) body.appendChild(el("p", "", "No tools used in this period."));

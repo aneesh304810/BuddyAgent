@@ -626,8 +626,10 @@ async def talk(ws: WebSocket) -> None:
                                seconds=meta["seconds"], cost=speech_to_text.groq_cost(meta["audio_seconds"]))
             mode = "talk" if msg.get("mode") == "talk" else "room"
             verdict = speech_to_text.judge(mode, meta.get("confidence"), len(base64.b64decode(msg["pcm"])) / 32000)
-            speech_quality(memory, "on" if msg.get("ns") else "off", meta.get("confidence"),
-                           kept=bool(heard) and verdict != "drop", unsure=verdict == "unsure")
+            for group in ["on" if msg.get("ns") else "off"] + (
+                    [f"mic-{msg.get('mic')}"] if mode == "room" and msg.get("mic") in ("phone", "headset") else []):
+                speech_quality(memory, group, meta.get("confidence"),
+                               kept=bool(heard) and verdict != "drop", unsure=verdict == "unsure")
             if heard and verdict == "drop":  # Talk: TV or other people, not you; not answered
                 log.info("whisper: dropped an unsure %s clip (%.2f)", mode, meta.get("confidence") or 0)
                 heard = ""
