@@ -61,6 +61,7 @@ from .connectors import ConnectorHub
 from .connectors.phone import NotificationsConnector, PhoneCalendarConnector, should_announce
 from .money import Money
 from .rides import RideFollower
+from . import uberapi
 from .privacy import SecretFilter, mask
 from .bankfeed import BankFeed
 from .builder import AgentBuilder
@@ -252,6 +253,9 @@ for _spec in builder.active_specs():  # agents built or connected earlier
 async def lifespan(app: FastAPI):
     await registry.start()
     task = asyncio.create_task(proactive.run(memory, deliver))
+    uberapi.notify = deliver  # an Uber booked through the API says its own progress
+    if (trip := uberapi.active_trip(memory)) and uberapi.enabled():  # still following one after a restart
+        asyncio.create_task(uberapi.watch(memory, trip["request_id"], _ride_fare))
     job_loop = asyncio.create_task(jobs.run())
     sync_loop = asyncio.create_task(hub.run())
     mail_loop = asyncio.create_task(mail.run())
@@ -580,6 +584,7 @@ async def talk(ws: WebSocket) -> None:
         await send({"type": "open", "links": links})
 
     convo.open_links = open_links
+    convo.record_fare = _ride_fare
 
     pending: dict = {"text": "", "task": None}  # a sentence cut off by a pause, waiting for its end
     last_heard = [-1e9]  # when Whisper last sent text back
