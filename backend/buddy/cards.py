@@ -119,7 +119,7 @@ class CardBox:
     """The cards one reply can show: offered by tools, picked by Claude."""
 
     PREFIX = {"place": "p", "news": "n", "finance": "n", "link": "w", "stay": "w", "flight": "w", "travel": "w",
-              "reddit": "r", "deal": "d", "money": "m", "image": "i", "file": "f"}
+              "reddit": "r", "deal": "d", "money": "m", "image": "i", "file": "f", "ride": "u"}
 
     def __init__(self):
         self.cards: dict[str, dict] = {}

@@ -32,6 +32,8 @@ sealed interface ServerEvent {
     data class VoiceStatus(val installed: Boolean, val enrolled: Boolean, val on: Boolean,
                            val sentences: List<String>) : ServerEvent
     data class VoiceEnrolled(val ok: Boolean, val text: String) : ServerEvent
+    /** Open Uber / Lyft with a trip filled in (the second one when Buddy is back in front). */
+    data class OpenLinks(val links: List<RideLink>) : ServerEvent
     /** You paused mid-sentence: Buddy is waiting for the rest. */
     data object Waiting : ServerEvent
 
@@ -58,6 +60,11 @@ sealed interface ServerEvent {
                 "speech_limit" -> SpeechLimit(msg.optLong("seconds", 600L))
                 "mode" -> SwitchMode(msg.optString("mode"))
                 "waiting" -> Waiting
+                "open" -> msg.getJSONArray("links").let { a ->
+                    OpenLinks((0 until a.length()).map { a.getJSONObject(it) }.map {
+                        RideLink(it.optString("app"), it.optString("url"), it.optString("label"))
+                    })
+                }
                 "voice" -> VoiceStatus(
                     msg.optBoolean("installed"), msg.optBoolean("enrolled"), msg.optBoolean("on"),
                     msg.optJSONArray("sentences")?.let { a -> (0 until a.length()).map { a.getString(it) } } ?: emptyList(),

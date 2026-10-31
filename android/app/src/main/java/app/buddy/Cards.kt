@@ -29,6 +29,7 @@ import androidx.compose.ui.Modifier
 import androidx.compose.ui.draw.clip
 import androidx.compose.ui.graphics.Color
 import androidx.compose.ui.layout.ContentScale
+import androidx.compose.ui.platform.LocalContext
 import androidx.compose.ui.platform.LocalUriHandler
 import androidx.compose.ui.text.font.FontStyle
 import androidx.compose.ui.text.font.FontWeight
@@ -65,6 +66,7 @@ private fun kindIcon(kind: String): String = when (kind) {
     "reddit" -> "💬"
     "image" -> "\uD83D\uDDBC\uFE0F"
     "file" -> "\uD83D\uDCC4"
+    "ride" -> "\uD83D\uDE95"  // taxi
     else -> "🔗"         // link
 }
 
@@ -80,10 +82,17 @@ fun CardsRow(json: String, onOpen: (String) -> Unit) {
     val list = runCatching { JSONArray(json) }.getOrNull() ?: return
     val cards = (0 until list.length()).map { list.getJSONObject(it) }
     val uri = LocalUriHandler.current
+    val context = LocalContext.current
     LazyRow(horizontalArrangement = Arrangement.spacedBy(8.dp), modifier = Modifier.padding(top = 6.dp)) {
         items(cards) { c ->
             // A Word document or deck opens straight in its app; everything else opens its full page.
-            CardTile(c) { if (c.str("kind") == "file" && c.str("url").isNotEmpty()) uri.openUri(c.str("url")) else onOpen(c.toString()) }
+            CardTile(c) {
+                when {
+                    c.str("kind") == "file" && c.str("url").isNotEmpty() -> uri.openUri(c.str("url"))
+                    c.str("kind") == "ride" -> Links.launch(context, RideLink(c.str("app_url"), c.str("url"), c.str("title")))
+                    else -> onOpen(c.toString())
+                }
+            }
         }
     }
 }
@@ -166,6 +175,7 @@ private fun MapTile(lat: Double, lng: Double, modifier: Modifier = Modifier, zoo
 fun CardScreen(json: String) {
     val c = runCatching { JSONObject(json) }.getOrNull() ?: return
     val uri = LocalUriHandler.current
+    val context = LocalContext.current
     Column(Modifier.fillMaxSize().verticalScroll(rememberScrollState()), verticalArrangement = Arrangement.spacedBy(10.dp)) {
         if (c.str("image").isNotEmpty()) {
             val picture = c.str("kind") == "image"
@@ -183,8 +193,9 @@ fun CardScreen(json: String) {
         Row(horizontalArrangement = Arrangement.spacedBy(8.dp)) {
             if (c.str("maps_url").isNotEmpty()) Action("Open in Google Maps") { uri.openUri(c.str("maps_url")) }
             if (c.str("url").isNotEmpty()) Action(when (c.str("kind")) {
-                "place" -> "Website"; "image" -> "Open full size"; else -> "Open" }) {
-                uri.openUri(c.str("url"))
+                "place" -> "Website"; "image" -> "Open full size"; "ride" -> "Open the app"; else -> "Open" }) {
+                if (c.str("kind") == "ride") Links.launch(context, RideLink(c.str("app_url"), c.str("url"), c.str("title")))
+                else uri.openUri(c.str("url"))
             }
         }
         if (!c.isNull("lat") && c.has("lat")) {

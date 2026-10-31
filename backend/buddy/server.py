@@ -29,6 +29,9 @@ Protocol (JSON messages):
                                                       background job; see GET /api/jobs/{id})
                    {"type": "whisper", "kind": "...", "text": "..."}
                                                       listen-in: translation / about_you / correction
+                   {"type": "open", "links": [{"app": "uber://...", "url": "https://...", "label": "..."}]}
+                                                      open Uber / Lyft with a trip filled in (the
+                                                      first now, the next when Buddy is back in front)
                    {"type": "error", "text": "..."}
 """
 
@@ -562,6 +565,11 @@ async def talk(ws: WebSocket) -> None:
         await send({"type": "mode", "mode": mode})
 
     convo.switch_mode = switch_mode
+
+    async def open_links(links: list[dict]) -> None:  # Uber / Lyft with the trip filled in
+        await send({"type": "open", "links": links})
+
+    convo.open_links = open_links
 
     pending: dict = {"text": "", "task": None}  # a sentence cut off by a pause, waiting for its end
     last_heard = [-1e9]  # when Whisper last sent text back

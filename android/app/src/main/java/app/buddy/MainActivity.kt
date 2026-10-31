@@ -135,6 +135,9 @@ sealed interface Screen {
 class MainActivity : ComponentActivity() {
     companion object {
         const val EXTRA_JOB_ID = "app.buddy.JOB_ID"
+        const val EXTRA_RIDE_APP = "app.buddy.RIDE_APP"  // a ride notification: open Uber / Lyft
+        const val EXTRA_RIDE_URL = "app.buddy.RIDE_URL"
+        const val EXTRA_RIDE_LABEL = "app.buddy.RIDE_LABEL"
         const val ACTION_LISTEN = "app.buddy.LISTEN"  // from the Quick Settings tile: start and listen
     }
 
@@ -156,6 +159,13 @@ class MainActivity : ComponentActivity() {
         super.onResume()
         LocationShare.maybeSend(this)
         BuddyService.instance?.claimEarbud() // opening Buddy takes the earbud button back from music apps
+        Links.buddyInFront = true
+        Links.resumed(this)
+    }
+
+    override fun onPause() {
+        super.onPause()
+        Links.buddyInFront = false
     }
 
     override fun onCreate(savedInstanceState: Bundle?) {
@@ -175,6 +185,7 @@ class MainActivity : ComponentActivity() {
         prefs = BuddyPrefs(this)
         if (prefs.link == null) screen.value = Screen.Settings
         openJobFrom(intent)
+        openRideFrom(intent)
         setContent {
             MaterialTheme(colorScheme = darkColorScheme(primary = Accent, background = Ink, surface = Panel)) {
                 BuddyScreen(
@@ -198,7 +209,16 @@ class MainActivity : ComponentActivity() {
     override fun onNewIntent(intent: Intent) {
         super.onNewIntent(intent)
         openJobFrom(intent)
+        openRideFrom(intent)
         listenFrom(intent)
+    }
+
+    /** A tapped ride notification: Buddy is on screen now, so Uber or Lyft may open. */
+    private fun openRideFrom(intent: Intent?) {
+        val url = intent?.getStringExtra(EXTRA_RIDE_URL) ?: return
+        intent.removeExtra(EXTRA_RIDE_URL)
+        Links.launch(this, RideLink(intent.getStringExtra(EXTRA_RIDE_APP) ?: "", url,
+            intent.getStringExtra(EXTRA_RIDE_LABEL) ?: ""))
     }
 
     /** The Quick Settings tile: Buddy is on screen now, so the microphone may start. */

@@ -436,6 +436,7 @@ class BuddyService : Service() {
                 pendingMode = if (event.mode == "listen") Mode.LISTEN_IN else Mode.TALK
                 if (!mouth.speaking && !replyOpen) applyPendingMode()
             }
+            is ServerEvent.OpenLinks -> Links.open(this, event.links)
             is ServerEvent.Approval -> {
                 BuddyState.update { it.copy(approval = event.question) }
                 Notes.approval(this, event.question)

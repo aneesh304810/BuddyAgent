@@ -135,7 +135,7 @@ object Notes {
     const val STATUS_ID = 1
     private const val APPROVAL_ID = 2
     private const val STATUS = "buddy_status"
-    private const val NUDGES = "buddy_nudges"
+    const val NUDGES = "buddy_nudges"
     private var nextId = 100
 
     fun createChannels(context: Context) {
