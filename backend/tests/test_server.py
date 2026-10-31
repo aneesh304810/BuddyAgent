@@ -374,3 +374,13 @@ def test_voice_match_ignores_other_voices_in_talk(monkeypatch):
         ws.send_json({"type": "audio", "pcm": audio, "lang": "en-US", "mode": "talk"})
         got = ws.receive_json()
     assert got["type"] == "heard"  # only the second clip (the user's voice) was transcribed and came back
+
+
+def test_sentences_ending_on_a_hanging_word_wait_for_the_rest():
+    for cut in ("I just need to understand how Buddy is doing its", "And Claude is the last resort, but.",
+                "Why can't we use..."):
+        assert server.UNFINISHED.search(cut) or server.DANGLING.search(cut), cut
+    for whole in ("What's the weather in Kochi?", "Thanks Buddy.", "I need to understand the AI models."):
+        assert not (server.UNFINISHED.search(whole) or server.DANGLING.search(whole)), whole
+    for natural in ("I'll do that.", "That's what it is.", "Keep it like that, so.", "What are you looking for?"):
+        assert not server.DANGLING.search(natural), natural

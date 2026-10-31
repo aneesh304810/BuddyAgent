@@ -136,6 +136,9 @@ def mode_command(text: str) -> str | None:
 
 # Whisper ends a sentence cut off by a pause with "..."; wait this long for the rest before answering.
 UNFINISHED = re.compile(r"(\.\.\.|…)\s*$")
+# ...or a sentence ending on a word that can't end one ("how Buddy is doing its", "the last resort, but.")
+DANGLING = re.compile(r"\b(?:its|the|a|an|to|and|but|or|of|with|my|your|our|their|if|because|than|from)[\s,.]*$",
+                      re.I)
 FRAGMENT_WAIT_SECONDS = float(os.getenv("BUDDY_FRAGMENT_WAIT", "4"))
 
 memory = Memory(settings.db_path)
@@ -604,6 +607,10 @@ async def talk(ws: WebSocket) -> None:
                                                          time.monotonic() - last_exchange["at"])
                 except voiceprint.VoiceMatchUnavailable:
                     who, score = "you", None
+                if score is not None:  # the scores, to see where the user's voice sits and tune the bar
+                    usage.count(memory, "voice:you" if who == "you" else "voice:not_you")
+                if who == "you" and score is not None:
+                    trace("·", {"type": "voice_ok", "text": f"voice {score:.2f}"})
                 if who != "you":
                     trace("·", {"type": "not_you", "text": f"voice {'too short' if score is None else f'{score:.2f}'}"})
                     usage.count(memory, "voice:ignored")
@@ -734,9 +741,9 @@ async def talk(ws: WebSocket) -> None:
                     await switch_now(switch)
                     continue
                 spoken = time.monotonic() - last_heard[0] < 3  # just heard by Whisper, not typed
-                if via == "user" and spoken and UNFINISHED.search(text) and len(text) < 400:
+                if via == "user" and spoken and (UNFINISHED.search(text) or DANGLING.search(text)) and len(text) < 400:
                     # "Why can't we use..." then a pause to think: wait a moment for the rest.
-                    pending["text"] = UNFINISHED.sub("", text).strip()
+                    pending["text"] = UNFINISHED.sub("", text).strip().rstrip(".")
                     pending["task"] = asyncio.create_task(answer_unfinished(via))
                     continue
                 await start_answer(text, via)
