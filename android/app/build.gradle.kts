@@ -58,10 +58,10 @@ dependencies {
     implementation("androidx.compose.foundation:foundation")
     implementation("androidx.compose.material3:material3")
     implementation("androidx.activity:activity-compose:1.9.3")
-    implementation("androidx.core:core-ktx:1.15.0")
-    implementation("com.squareup.okhttp3:okhttp:4.12.0")
+    implementation("androidx.core:core-ktx:1.19.1")
+    implementation("com.squareup.okhttp3:okhttp:4.12.1")
     implementation("io.coil-kt:coil-compose:2.7.0")  // photos and map tiles in result cards
-    implementation("com.microsoft.onnxruntime:onnxruntime-android:1.19.2")  // speech detection (Silero VAD)
+    implementation("com.microsoft.onnxruntime:onnxruntime-android:1.31.1")  // speech detection (Silero VAD)
 
     testImplementation("junit:junit:4.13.2")
 }
