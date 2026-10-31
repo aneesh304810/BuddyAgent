@@ -183,7 +183,7 @@ class BuddyService : Service() {
             onHeard = ::heard, onActive = onActive, onProblem = onProblem,
             // On the loudspeaker Buddy would hear itself; with earbuds that's no problem.
             paused = { mouth.speaking && activeMode == Mode.TALK && !headsetConnected() },
-            endSilenceMs = { BuddyPrefs(this).endSilenceMs - 200 },
+            endSilenceMs = { BuddyPrefs(this).endSilenceMs },  // the full pause: fewer cut-off sentences
             noiseSuppress = { BuddyPrefs(this).noiseSuppress },
         )
         mouth = Mouth(this, onMissingVoice = { name ->
@@ -383,6 +383,7 @@ class BuddyService : Service() {
             ServerEvent.Thinking -> thinking(true)
             is ServerEvent.Heard -> serverEars.heard(event.text, event.lang)
             is ServerEvent.SpeechLimit -> speechLimit(event.seconds)
+            ServerEvent.Waiting -> BuddyState.status("Go on…")
             is ServerEvent.VoiceStatus -> BuddyState.update {
                 it.copy(voiceInstalled = event.installed, voiceEnrolled = event.enrolled, voiceOn = event.on,
                         voiceSentences = event.sentences)

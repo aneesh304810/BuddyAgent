@@ -282,6 +282,7 @@ def test_a_sentence_cut_off_by_a_pause_is_put_back_together(monkeypatch):
         ws.send_json({"type": "audio", "pcm": audio, "lang": "en-US", "mode": "talk"})
         first = ws.receive_json()["text"]
         ws.send_json({"type": "user", "text": first})  # the phone sends what it heard: no answer yet
+        assert ws.receive_json() == {"type": "waiting"}  # the app shows "Go on…"
         ws.send_json({"type": "audio", "pcm": audio, "lang": "en-US", "mode": "talk"})
         rest = ws.receive_json()
         assert rest["type"] == "heard"  # not "thinking": the half sentence wasn't answered
@@ -378,9 +379,10 @@ def test_voice_match_ignores_other_voices_in_talk(monkeypatch):
 
 def test_sentences_ending_on_a_hanging_word_wait_for_the_rest():
     for cut in ("I just need to understand how Buddy is doing its", "And Claude is the last resort, but.",
-                "Why can't we use..."):
-        assert server.UNFINISHED.search(cut) or server.DANGLING.search(cut), cut
-    for whole in ("What's the weather in Kochi?", "Thanks Buddy.", "I need to understand the AI models."):
-        assert not (server.UNFINISHED.search(whole) or server.DANGLING.search(whole)), whole
+                "Why can't we use...", "So what I'm asking is", "Book the flight for Tuesday,"):
+        assert server.unfinished(cut), cut
+    for whole in ("What's the weather in Kochi?", "Thanks Buddy.", "I need to understand the AI models.",
+                  "എന്താ വിശേഷം?", "Stop!"):
+        assert not server.unfinished(whole), whole
     for natural in ("I'll do that.", "That's what it is.", "Keep it like that, so.", "What are you looking for?"):
         assert not server.DANGLING.search(natural), natural

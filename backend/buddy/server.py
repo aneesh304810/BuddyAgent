@@ -121,6 +121,13 @@ def speech_quality(memory, ns: str, confidence: float | None, kept: bool, unsure
         usage.count(memory, f"{key}:unsure")
 
 
+def unfinished(text: str) -> bool:
+    """Does Whisper's text look cut off mid-sentence? '...', no closing punctuation, a trailing comma,
+    or a last word that can't end a sentence. (Only for Whisper's text: the phone's has no punctuation.)"""
+    t = text.strip()
+    return bool(UNFINISHED.search(t) or DANGLING.search(t) or not FINISHED.search(t) or t.endswith(","))
+
+
 def mode_command(text: str) -> str | None:
     """'talk' or 'listen' for a spoken mode switch, else None."""
     t = text.strip()
@@ -139,7 +146,8 @@ UNFINISHED = re.compile(r"(\.\.\.|…)\s*$")
 # ...or a sentence ending on a word that can't end one ("how Buddy is doing its", "the last resort, but.")
 DANGLING = re.compile(r"\b(?:its|the|a|an|to|and|but|or|of|with|my|your|our|their|if|because|than|from)[\s,.]*$",
                       re.I)
-FRAGMENT_WAIT_SECONDS = float(os.getenv("BUDDY_FRAGMENT_WAIT", "4"))
+FRAGMENT_WAIT_SECONDS = float(os.getenv("BUDDY_FRAGMENT_WAIT", "3"))
+FINISHED = re.compile(r"[.?!।؟。]['\")\]]*\s*$")  # Whisper punctuates a complete sentence
 
 memory = Memory(settings.db_path)
 registry = AgentRegistry(memory, load_specs(settings.agents_file))
@@ -741,10 +749,11 @@ async def talk(ws: WebSocket) -> None:
                     await switch_now(switch)
                     continue
                 spoken = time.monotonic() - last_heard[0] < 3  # just heard by Whisper, not typed
-                if via == "user" and spoken and (UNFINISHED.search(text) or DANGLING.search(text)) and len(text) < 400:
+                if via == "user" and spoken and unfinished(text) and len(text) < 400:
                     # "Why can't we use..." then a pause to think: wait a moment for the rest.
                     pending["text"] = UNFINISHED.sub("", text).strip().rstrip(".")
                     pending["task"] = asyncio.create_task(answer_unfinished(via))
+                    await send({"type": "waiting"})  # the app shows "Go on…"
                     continue
                 await start_answer(text, via)
             elif msg.get("type") == "ambient" and msg.get("text", "").strip():

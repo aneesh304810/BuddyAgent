@@ -32,6 +32,8 @@ sealed interface ServerEvent {
     data class VoiceStatus(val installed: Boolean, val enrolled: Boolean, val on: Boolean,
                            val sentences: List<String>) : ServerEvent
     data class VoiceEnrolled(val ok: Boolean, val text: String) : ServerEvent
+    /** You paused mid-sentence: Buddy is waiting for the rest. */
+    data object Waiting : ServerEvent
 
     companion object {
         fun parse(raw: String): ServerEvent? = runCatching {
@@ -55,6 +57,7 @@ sealed interface ServerEvent {
                 "heard" -> Heard(msg.getString("text"), msg.optString("lang"))
                 "speech_limit" -> SpeechLimit(msg.optLong("seconds", 600L))
                 "mode" -> SwitchMode(msg.optString("mode"))
+                "waiting" -> Waiting
                 "voice" -> VoiceStatus(
                     msg.optBoolean("installed"), msg.optBoolean("enrolled"), msg.optBoolean("on"),
                     msg.optJSONArray("sentences")?.let { a -> (0 until a.length()).map { a.getString(it) } } ?: emptyList(),
