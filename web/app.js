@@ -663,6 +663,14 @@ async function showInsights() {
     body.appendChild(el("p", "", (heard.groq_on ? "Talk mode uses Groq's Whisper (fast, better Malayalam); Listen-in stays on your server. "
       : "Everything is heard by your server's Whisper (add BUDDY_GROQ_KEY for faster Talk mode). ") +
       `${heard.groq} clips by Groq · ${heard.local} by your server` + (heard.groq_skipped ? ` · ${heard.groq_skipped} times Groq was skipped (limit, error or other language)` : "")));
+    const ns = heard.noise_suppressor || {};
+    if (ns.on || ns.off) {
+      body.appendChild(el("p", "", "Noise suppressor on vs off (higher confidence and fewer dropped clips = better):"));
+      body.appendChild(costTable(["off", "on"].filter((k) => ns[k]).map((k) => [
+        k === "on" ? "Cleaned" : "Not cleaned", String(ns[k].clips),
+        ns[k].confidence == null ? "–" : ns[k].confidence.toFixed(2), `${ns[k].dropped_pct}%`, `${ns[k].unsure_pct}%`]),
+        ["", "Clips", "Confidence", "Dropped", "Unclear"]));
+    }
   }
   h("Tools and agents");
   if (!(r.tools || []).length) body.appendChild(el("p", "", "No tools used in this period."));

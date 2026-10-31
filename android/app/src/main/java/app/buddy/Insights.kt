@@ -334,6 +334,20 @@ fun InsightsScreen(link: ServerLink?) {
                     color = Dim, fontSize = 13.sp,
                 )
             }
+            val ns = speech.optJSONObject("noise_suppressor")
+            if (ns != null && ns.length() > 0) item {
+                Text(
+                    "Noise suppressor (higher confidence, fewer dropped = better):\n" +
+                        listOf("off" to "Not cleaned", "on" to "Cleaned").mapNotNull { (k, label) ->
+                            ns.optJSONObject(k)?.let { q ->
+                                "$label: ${q.optInt("clips")} clips · confidence " +
+                                    (if (q.isNull("confidence")) "–" else "%.2f".format(q.optDouble("confidence"))) +
+                                    " · ${q.optInt("dropped_pct")}% dropped · ${q.optInt("unsure_pct")}% unclear"
+                            }
+                        }.joinToString("\n"),
+                    color = Dim, fontSize = 13.sp,
+                )
+            }
         }
 
         val tools = d.optJSONArray("tools")?.objects() ?: emptyList()

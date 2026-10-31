@@ -108,6 +108,19 @@ GO_TO_SLEEP = re.compile(r"^(?:(?:hey|ok|okay)[\s,]+)?(?:buddy|bro|aliya|machaa)
                          r"(?: now)?|sleep now)\b.*$", re.I)
 
 
+def speech_quality(memory, ns: str, confidence: float | None, kept: bool, unsure: bool) -> None:
+    """Per clip, for Insights' noise-suppressor comparison: confidence, and whether it was used."""
+    key = f"speechq:{ns}"
+    usage.count(memory, f"{key}:clips")
+    if confidence is not None:
+        usage.count(memory, f"{key}:scored")
+        usage.count(memory, f"{key}:conf_milli", int(round(confidence * 1000)))
+    if not kept:
+        usage.count(memory, f"{key}:dropped")
+    elif unsure:
+        usage.count(memory, f"{key}:unsure")
+
+
 def mode_command(text: str) -> str | None:
     """'talk' or 'listen' for a spoken mode switch, else None."""
     t = text.strip()
@@ -613,6 +626,8 @@ async def talk(ws: WebSocket) -> None:
                                seconds=meta["seconds"], cost=speech_to_text.groq_cost(meta["audio_seconds"]))
             mode = "talk" if msg.get("mode") == "talk" else "room"
             verdict = speech_to_text.judge(mode, meta.get("confidence"), len(base64.b64decode(msg["pcm"])) / 32000)
+            speech_quality(memory, "on" if msg.get("ns") else "off", meta.get("confidence"),
+                           kept=bool(heard) and verdict != "drop", unsure=verdict == "unsure")
             if heard and verdict == "drop":  # Talk: TV or other people, not you; not answered
                 log.info("whisper: dropped an unsure %s clip (%.2f)", mode, meta.get("confidence") or 0)
                 heard = ""

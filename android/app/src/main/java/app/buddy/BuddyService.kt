@@ -184,6 +184,7 @@ class BuddyService : Service() {
             // On the loudspeaker Buddy would hear itself; with earbuds that's no problem.
             paused = { mouth.speaking && activeMode == Mode.TALK && !headsetConnected() },
             endSilenceMs = { BuddyPrefs(this).endSilenceMs - 200 },
+            noiseSuppress = { BuddyPrefs(this).noiseSuppress },
         )
         mouth = Mouth(this, onMissingVoice = { name ->
             BuddyState.add(Line("To hear me in $name, add its voice: phone Settings → Text-to-speech → " +

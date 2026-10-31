@@ -121,3 +121,17 @@ def test_insights_list_free_models_and_tools(monkeypatch):
     assert zap["extra_usd"] == round(2 * 20 / 750, 4)
     search = next(t for t in r["tools"] if t["tool"] == "web_search")
     assert search["calls"] == 2 and search["extra_usd"] == 0.02
+
+
+def test_noise_suppressor_comparison():
+    from buddy import insights, server
+    from buddy.memory import Memory
+
+    mem = Memory(":memory:")
+    for conf, kept in ((-0.3, True), (-0.5, True), (-1.2, False)):
+        server.speech_quality(mem, "off", conf, kept=kept, unsure=False)
+    for conf in (-0.2, -0.3):
+        server.speech_quality(mem, "on", conf, kept=True, unsure=False)
+    ns = insights.speech_overview(mem)["noise_suppressor"]
+    assert ns["off"] == {"clips": 3, "confidence": -0.67, "dropped_pct": 33, "unsure_pct": 0}
+    assert ns["on"]["confidence"] == -0.25 and ns["on"]["dropped_pct"] == 0

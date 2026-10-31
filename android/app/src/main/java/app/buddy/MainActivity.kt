@@ -895,6 +895,7 @@ private fun SpeechTuning(prefs: BuddyPrefs) {
 private fun VoiceMatch(prefs: BuddyPrefs) {
     val ui by BuddyState.ui.collectAsState()
     var closed by remember { mutableStateOf(prefs.closedListenIn) }
+    var cleanUp by remember { mutableStateOf(prefs.noiseSuppress) }
     Column(Modifier.fillMaxWidth().padding(top = 16.dp)) {
         Text("Voice match (Talk mode)", color = Color.White, fontSize = 18.sp)
         Text(
@@ -926,6 +927,15 @@ private fun VoiceMatch(prefs: BuddyPrefs) {
                     "switches back. Or just say \"Talk mode\" / \"Listen-in mode\".", color = Muted, fontSize = 12.sp)
             }
             Switch(checked = closed, onCheckedChange = { closed = it; prefs.closedListenIn = it })
+        }
+        Row(verticalAlignment = Alignment.CenterVertically, modifier = Modifier.padding(top = 10.dp)) {
+            Column(Modifier.weight(1f)) {
+                Text("Clean up background noise", color = Color.White)
+                Text("The phone's own noise suppressor (fans, traffic, hum) on audio your server hears. It keeps all " +
+                    "voices, the TV's too. Insights → Hearing you compares on and off; takes effect next time the " +
+                    "mic starts.", color = Muted, fontSize = 12.sp)
+            }
+            Switch(checked = cleanUp, onCheckedChange = { cleanUp = it; prefs.noiseSuppress = it })
         }
     }
     if (ui.enrollStep >= 0) {

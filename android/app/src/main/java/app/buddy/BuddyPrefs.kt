@@ -89,6 +89,11 @@ class BuddyPrefs(context: Context) {
         get() = prefs.getString("pauses", "normal") ?: "normal"
         set(value) = prefs.edit().putString("pauses", value).apply()
 
+    /** The phone's own noise suppressor on what's sent to your server's speech recognition. */
+    var noiseSuppress: Boolean
+        get() = prefs.getBoolean("noiseSuppress", false)
+        set(value) = prefs.edit().putBoolean("noiseSuppress", value).apply()
+
     /** Closing the phone with a headset on switches Talk to Listen-in (and back when opened). */
     var closedListenIn: Boolean
         get() = prefs.getBoolean("closedListenIn", true)

@@ -30,7 +30,9 @@ class ServerEars(
     private val onProblem: (String) -> Unit,
     private val paused: () -> Boolean,   // e.g. while Buddy talks on the loudspeaker
     private val endSilenceMs: () -> Long = { 800L },  // "Pauses when I talk" in Settings
+    private val noiseSuppress: () -> Boolean = { false },  // Settings: the phone's own noise suppressor
 ) : Hearing {
+    @Volatile private var cleaning: android.media.audiofx.NoiseSuppressor? = null
     private val main = Handler(Looper.getMainLooper())
     private var thread: Thread? = null
     private var language = AUTO_LANGUAGE
@@ -72,7 +74,13 @@ class ServerEars(
     private fun newRecorder(minBuffer: Int) = AudioRecord(
         if (earbudMic()) MediaRecorder.AudioSource.VOICE_COMMUNICATION else MediaRecorder.AudioSource.VOICE_RECOGNITION,
         RATE, AudioFormat.CHANNEL_IN_MONO, AudioFormat.ENCODING_PCM_16BIT, max(minBuffer, RATE),
-    )
+    ).also { recorder ->
+        // The phone's own noise suppressor (fans, traffic, hum), if asked for and the phone has one.
+        runCatching { cleaning?.release() }
+        cleaning = if (noiseSuppress() && android.media.audiofx.NoiseSuppressor.isAvailable())
+            runCatching { android.media.audiofx.NoiseSuppressor.create(recorder.audioSessionId)?.apply { enabled = true } }
+                .getOrNull() else null
+    }
 
     @SuppressLint("MissingPermission") // the service only starts after the microphone is allowed
     private fun record() {
@@ -152,6 +160,8 @@ class ServerEars(
         } finally {
             runCatching { recorder?.stop() }
             recorder?.release()
+            runCatching { cleaning?.release() }
+            cleaning = null
         }
     }
 
@@ -162,6 +172,8 @@ class ServerEars(
             .put("lang", language)
             // Talk mode is you talking to Buddy: the English tutor may learn from it (room speech isn't).
             .put("mode", if (BuddyState.ui.value.mode == Mode.TALK) "talk" else "listen")
+            // For Insights' comparison: did the phone's noise suppressor clean this clip?
+            .put("ns", cleaning?.enabled == true)
         if (!send(message)) main.post { onProblem("Not connected to your server yet.") }
     }
 
