@@ -49,8 +49,8 @@ class BuddyTile : TileService() {
 
     companion object {
         /** Ask Android to redraw the tile (after Buddy starts, stops or changes mode). */
-        fun update(context: Context) = runCatching {
-            requestListeningState(context, ComponentName(context, BuddyTile::class.java))
+        fun update(context: Context) {
+            runCatching { requestListeningState(context, ComponentName(context, BuddyTile::class.java)) }
         }
     }
 }
