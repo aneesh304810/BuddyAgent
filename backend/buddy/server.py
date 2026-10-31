@@ -565,6 +565,7 @@ async def talk(ws: WebSocket) -> None:
 
     pending: dict = {"text": "", "task": None}  # a sentence cut off by a pause, waiting for its end
     last_heard = [-1e9]  # when Whisper last sent text back
+    last_user: list = ["", -1e9]  # the last thing said to Buddy, and when
     unsure_heard: dict[str, float] = {}  # room lines Whisper wasn't sure of (text -> when)
 
     async def start_answer(text: str, via: str) -> None:
@@ -741,6 +742,9 @@ async def talk(ws: WebSocket) -> None:
             elif msg.get("type") == "user" and msg.get("text", "").strip():
                 via = "room" if msg.get("via") == "room" else "user"  # "Hey Buddy" heard in Listen-in
                 text = msg["text"].strip()
+                if text == last_user[0] and time.monotonic() - last_user[1] < 3:
+                    continue  # the same words twice in a row within seconds: a duplicate, not a new question
+                last_user[:] = [text, time.monotonic()]
                 if pending["task"]:  # the rest of a sentence cut off by a pause: put it back together
                     pending["task"].cancel()
                     text = f"{pending['text']} {text}"

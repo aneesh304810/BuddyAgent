@@ -386,3 +386,17 @@ def test_sentences_ending_on_a_hanging_word_wait_for_the_rest():
         assert not server.unfinished(whole), whole
     for natural in ("I'll do that.", "That's what it is.", "Keep it like that, so.", "What are you looking for?"):
         assert not server.DANGLING.search(natural), natural
+
+
+def test_the_same_words_twice_within_seconds_are_answered_once(monkeypatch):
+    monkeypatch.setattr(agent.client.beta.messages, "stream", lambda **kw: FakeStream("Hi!"))
+    with TestClient(server.app) as c, c.websocket_connect("/ws") as ws:
+        ws.send_json({"type": "user", "text": "Hey there Buddy."})
+        ws.send_json({"type": "user", "text": "Hey there Buddy."})
+        got = []
+        while not got or got[-1]["type"] != "done":
+            got.append(ws.receive_json())
+        ws.send_json({"type": "user", "text": "Status check."})
+        nxt = ws.receive_json()
+    assert [m["type"] for m in got].count("thinking") == 1
+    assert nxt["type"] == "thinking"  # the next real message is still answered

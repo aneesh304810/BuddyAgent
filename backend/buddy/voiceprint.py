@@ -31,9 +31,9 @@ ON_KEY = "voiceprint:on"
 SAMPLE_RATE = 16_000
 MODEL_FILE = "wespeaker_en_voxceleb_resnet34.onnx"
 MODEL_URL = ("https://github.com/k2-fsa/sherpa-onnx/releases/download/speaker-recongition-models/" + MODEL_FILE)
-# Cosine similarity: you at or above this. Bluetooth headset audio flattens voices, so the user's own
-# clips scored 0.39-0.50 in testing; other people and the TV usually score well below 0.3.
-THRESHOLD = float(os.getenv("BUDDY_VOICE_THRESHOLD", "0.4"))
+# Cosine similarity: you at or above this. Through the Shokz headset the user's own clips scored
+# 0.70-0.87; clips that weren't the user came in at 0.39-0.50.
+THRESHOLD = float(os.getenv("BUDDY_VOICE_THRESHOLD", "0.55"))
 MIN_SECONDS = 1.0  # shorter clips can't be judged reliably
 FOLLOW_UP_SECONDS = 20  # after Buddy spoke, a short "yes" or "thanks" is let through
 ENROLL_SENTENCES = [

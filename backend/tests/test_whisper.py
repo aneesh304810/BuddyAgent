@@ -200,3 +200,27 @@ def test_unsure_room_lines_are_tagged(monkeypatch):
     listener.hear("Hola, como estás?", "es", unclear=True)
     listener.hear("We're leaving at eight.", "en")
     assert [lang for _, lang, _ in listener.segments] == ["es?", "en"]
+
+
+def test_invented_short_phrases_on_noise_are_dropped():
+    noisy = [S(text=" Thank you.", no_speech_prob=0.55, avg_logprob=-0.3, compression_ratio=1.0)]
+    real = [S(text=" Thank you.", no_speech_prob=0.05, avg_logprob=-0.2, compression_ratio=1.0)]
+    assert whisper._clean(noisy) == ""
+    assert whisper._clean(real) == "Thank you."
+    assert whisper._clean([S(text=" Bye-bye.", no_speech_prob=0.6, avg_logprob=-0.4, compression_ratio=1.0)]) == ""
+
+
+def test_clips_without_speech_never_reach_groq(monkeypatch):
+    import asyncio
+
+    groq_env(monkeypatch)
+    called = []
+
+    async def fake_groq(*a, **k):
+        called.append(1)
+        return "Thank you.", "en"
+    monkeypatch.setattr(whisper, "_groq", fake_groq)
+    monkeypatch.setattr(whisper, "has_speech", lambda pcm: False)
+    meta = {}
+    assert asyncio.run(whisper.transcribe(b"\x01\x00" * 32000, "en-US", mode="talk", meta=meta)) == ("", "")
+    assert not called and meta["no_speech"]

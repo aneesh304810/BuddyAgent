@@ -46,19 +46,26 @@ class ServerEars(
     override val currentLanguage: String
         get() = detected ?: language
 
+    // Each start gets a new number; a recording thread stops as soon as its number isn't current.
+    // (A quick stop-then-start used to leave the old thread running beside the new one, so every
+    // sound was sent two or three times.)
+    @Volatile private var generation = 0
+
     override fun start(lang: String) {
         if (active) return
         language = lang
         detected = null
         active = true
         onActive(true)
-        thread = Thread(::record, "buddy-server-ears").also { it.start() }
+        val mine = ++generation
+        val old = thread
+        thread = Thread({ old?.join(1_500); if (mine == generation) record(mine) }, "buddy-server-ears").also { it.start() }
     }
 
     override fun stop() {
         if (!active) return
         active = false
-        thread = null
+        generation++
         onActive(false)
     }
 
@@ -90,7 +97,7 @@ class ServerEars(
     }
 
     @SuppressLint("MissingPermission") // the service only starts after the microphone is allowed
-    private fun record() {
+    private fun record(mine: Int) {
         val minBuffer = AudioRecord.getMinBufferSize(RATE, AudioFormat.CHANNEL_IN_MONO, AudioFormat.ENCODING_PCM_16BIT)
         var recorder: AudioRecord? = runCatching { newRecorder(minBuffer) }.getOrNull()
         if (recorder == null || recorder.state != AudioRecord.STATE_INITIALIZED) {
@@ -107,7 +114,7 @@ class ServerEars(
         var silentMs = 0
         var speechMs = 0
         try {
-            while (active) {
+            while (active && mine == generation) {
                 val n = recorder?.read(frame, 0, frame.size) ?: AudioRecord.ERROR_DEAD_OBJECT
                 if (n < 0) {
                     // Another app or a call has the microphone (Android gives it to one app at a time):

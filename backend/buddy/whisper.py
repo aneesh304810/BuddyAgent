@@ -87,6 +87,16 @@ STOCK_PHRASES = ("thank you for watching", "thanks for watching", "please subscr
                  "thank you for listening", "i'm going to show you the music")
 
 
+# Short lines Whisper also invents on near-silence; dropped when it thought the clip was probably not speech.
+SUSPECT_SHORT = {"thank you", "thanks", "thank you very much", "bye", "bye bye", "bye-bye", "okay", "ok", "you",
+                 "yeah", "oh", "hmm", "so", "the end", "i'm sorry", "sorry", "hello", "hi"}
+
+
+def _suspect_short(segments, text: str) -> bool:
+    t = re.sub(r"[^\w\s'-]", "", text.lower()).strip()
+    return t in SUSPECT_SHORT and any(getattr(s, "no_speech_prob", 0.0) >= 0.4 for s in segments)
+
+
 def _stock_phrase(text: str) -> bool:
     t = re.sub(r"[^\w\s.']", " ", text.lower()).strip()
     return any(p in t for p in STOCK_PHRASES) and len(t.split()) <= 12
@@ -154,7 +164,9 @@ def _clean(segments, prompt: str = "") -> str:
     if (len(words) >= 3 and len(set(words)) == 1) or (
             len(words) >= 5 and max(words.count(w) for w in set(words)) > len(words) * 0.5):
         return ""  # one word over and over: a hallucination, not speech
-    return "" if _echoes_prompt(text, prompt) or _stock_phrase(text) else text
+    if _echoes_prompt(text, prompt) or _stock_phrase(text) or _suspect_short(kept, text):
+        return ""
+    return text
 
 
 def _transcribe(pcm: bytes, language: str | None, prompt: str = "", stats: dict | None = None,
@@ -209,6 +221,24 @@ def groq_limit_seconds() -> int:
     if _groq_rest_reason != "limit":
         return 0
     return max(0, int(_groq_resting_until - time.monotonic()))
+
+
+def has_speech(pcm: bytes, min_ms: int = 300) -> bool | None:
+    """Is there real speech in the clip (Silero VAD, bundled with faster-whisper)? None if it isn't
+    installed. Groq transcribes whatever it gets, and on breathing or mic noise Whisper invents
+    'Thank you.', 'Bye bye.', 'Okay.': clips without speech never reach it."""
+    try:
+        import numpy as np
+        from faster_whisper.vad import VadOptions, get_speech_timestamps
+    except ImportError:
+        return None
+    audio = np.frombuffer(pcm[: SAMPLE_RATE * 2 * MAX_SECONDS], dtype=np.int16).astype(np.float32) / 32768.0
+    try:
+        found = get_speech_timestamps(audio, VadOptions(min_speech_duration_ms=150))
+    except Exception:
+        log.exception("speech check failed")
+        return None
+    return sum(c["end"] - c["start"] for c in found) >= SAMPLE_RATE * min_ms / 1000
 
 
 def groq_cost(audio_seconds: float) -> float:
@@ -304,6 +334,9 @@ async def transcribe(pcm: bytes, language: str = "", prompt: str = "", stats: di
     if len(pcm) < SAMPLE_RATE * 2 * 1.5:
         prompt = ""  # on a clip this short Whisper tends to read the vocabulary prompt back instead
     if mode == "talk" and groq_on():  # never Listen-in: other people's voices stay on this server
+        if await asyncio.to_thread(has_speech, pcm) is False:
+            meta.update(engine="vad", no_speech=True)
+            return "", ""  # noise, breathing, rustling: nothing to transcribe, nothing to invent
         started = time.monotonic()
         try:
             text, lang = await _groq(pcm, hint, prompt, allowed, meta=meta)
