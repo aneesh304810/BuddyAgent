@@ -125,12 +125,9 @@ RIDE_TOOL = {
     "to tap the schedule (clock) option, or offer a reminder before the time. save_place keeps 'home', 'work' "
     "and the like; places lists them. status: where the booked ride is (driver, car, plate, minutes away), \
 "
-    "from the Uber / Lyft notifications on the phone. With Uber's API connected: prices (real upfront fares for "
-    "every Uber ride type, and minutes to pickup), book (asks the user first; billed to their Uber for Business "
-    "card, trip link by text) and cancel; Lyft is always open-the-app.",
+    "from the Uber / Lyft notifications on the phone.",
     "input_schema": {"type": "object", "properties": {
-        "action": {"type": "string", "enum": ["open", "prices", "book", "cancel", "status", "save_place", "places"]},
-        "ride": {"type": "string", "description": "book: the ride type from prices (UberX, Comfort, XL...)"},
+        "action": {"type": "string", "enum": ["open", "status", "save_place", "places"]},
         "app": {"type": "string", "enum": ["uber", "lyft", "both"]},
         "to": {"type": "string", "description": "Drop-off, or the address to save"},
         "from": {"type": "string", "description": "Pickup, only if not where they are now"},
@@ -141,77 +138,12 @@ RIDE_TOOL = {
 }
 
 
-async def _uber_api(rides: Rides, args: dict, thrift, record_fare) -> str:
-    import asyncio
-
-    from . import uberapi
-
-    action = args.get("action")
-    if not uberapi.enabled():
-        return ("Uber's API isn't connected (it needs Uber for Business and Uber's approval), so I can't see prices "
-                "or book. I can open Uber and Lyft with the trip filled in instead: get_ride open with app both.")
-    if action == "cancel":
-        trip = uberapi.active_trip(rides.memory)
-        if not trip:
-            return "There's no Uber booked through Buddy right now."
-        if thrift is None:
-            return await uberapi.cancel(rides.memory)
-        return thrift.ask_action(f"Cancel the {trip['ride']} to {trip['to']}?", lambda: uberapi.cancel(rides.memory))
-    if action == "prices":
-        drop = await asyncio.to_thread(rides.find, str(args.get("to", "")))
-        if args.get("from"):
-            pickup = await asyncio.to_thread(rides.find, str(args["from"]))
-        else:
-            here = rides.location.current()
-            if not here:
-                raise ToolError("I don't know where you are: turn on Settings -> Share my location, or say the pickup.")
-            pickup = {"name": "where you are", "address": "", "lat": here["lat"], "lng": here["lng"]}
-        found = await uberapi.estimates(rides.memory, pickup, drop)
-        if not found:
-            return f"Uber has no rides from there to {drop['name']} right now."
-        shown = [{k: r[k] for k in ("ride", "price", "pickup_min", "seats")} for r in found[:6]]
-        return (f"Uber upfront fares to {drop['name']} ({drop['address']}), valid about 10 minutes, cheapest first: "
-                + json.dumps(shown) + ". Booking puts it on their Uber for Business card. For Lyft's price, offer to "
-                "open the Lyft app (get_ride open, app lyft).")
-    # book
-    quote = uberapi.last_estimates(rides.memory)
-    if not quote:
-        raise ToolError("Get fresh prices first (get_ride prices): Uber's quotes expire after a few minutes.")
-    wanted = str(args.get("ride") or "").lower().replace(" ", "")
-    choice = next((r for r in quote["rides"] if wanted and r["ride"].lower().replace(" ", "") == wanted), None) or \
-        next((r for r in quote["rides"] if wanted and wanted in r["ride"].lower().replace(" ", "")), None) or \
-        (quote["rides"][0] if not wanted else None)
-    if choice is None:
-        raise ToolError("Which one? " + ", ".join(r["ride"] for r in quote["rides"]))
-
-    async def go() -> str:
-        trip = await uberapi.book(rides.memory, choice, quote["pickup"], quote["drop"])
-        asyncio.create_task(uberapi.watch(rides.memory, trip["request_id"], record_fare))
-        return (f"Booked: {choice['ride']} to {quote['drop']['name']}, {choice['price']}. Uber is finding a driver; "
-                "I'll tell you when one's on the way. The trip link comes by text.")
-    question = (f"Book an {choice['ride']} to {quote['drop']['name']} for {choice['price']}"
-                + (f", about {choice['pickup_min']} minutes away" if choice.get("pickup_min") else "")
-                + "? It goes on your Uber for Business card.")
-    if thrift is None:
-        raise ToolError("Booking needs your OK, and that isn't available here.")
-    return thrift.ask_action(question, go)
-
-
-async def run_ride_tool(rides: Rides, args: dict, open_links, thrift=None, record_fare=None) -> str:
+async def run_ride_tool(rides: Rides, args: dict, open_links) -> str:
     """open_links: async (links: list[dict]) -> None, sends them to the phone (None when the app isn't connected)."""
     import asyncio
 
     action = args.get("action")
-    if action in ("prices", "book", "cancel"):
-        return await _uber_api(rides, args, thrift, record_fare)
     if action == "status":
-        from . import uberapi
-
-        booked = uberapi.active_trip(rides.memory)
-        if booked and booked.get("view"):
-            return describe(booked["view"]) + " " + json.dumps(booked["view"])
-        if booked:
-            return f"Your {booked['ride']} to {booked['to']} is booked; Uber is still finding a driver."
         ride = RideFollower(rides.memory).active()
         if not ride:
             return ("No ride in progress that I can see. I follow rides through the Uber and Lyft notifications, "

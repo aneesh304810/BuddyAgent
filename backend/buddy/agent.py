@@ -180,7 +180,6 @@ class Conversation:
         self.room = None  # Listen-in: a function giving the room's recent conversation (server sets it)
         self.switch_mode = None  # async (mode) -> None: tells the app to change mode (server sets it)
         self.open_links = None  # async (links) -> None: the phone opens Uber or Lyft (server sets it)
-        self.record_fare = None  # (app, fare, currency) -> None: a finished ride into spending (server sets it)
         self.via = "user"
         # Frozen for the whole session so the cached prompt prefix stays valid.
         self.system = build_system_prompt(memory.recall(""), memory.open_goals())
@@ -555,7 +554,7 @@ class Conversation:
             return voiceprint.run_tool(self.memory, args)
         if name == "get_ride":
             return await rides.run_ride_tool(rides.Rides(self.memory, self.social, self.location), args,
-                                             self.open_links, self.thrift, self.record_fare)
+                                             self.open_links)
         if name == "note_price":
             return prices.run_note_price(self.memory, args)
         if name == "switch_mode":
