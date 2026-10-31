@@ -31,6 +31,7 @@ class ServerEars(
     private val paused: () -> Boolean,   // e.g. while Buddy talks on the loudspeaker
     private val endSilenceMs: () -> Long = { 800L },  // "Pauses when I talk" in Settings
     private val noiseSuppress: () -> Boolean = { false },  // Settings: the phone's own noise suppressor
+    private val vadFactory: () -> SileroVad? = { null },  // speech detection on the phone
 ) : Hearing {
     @Volatile private var cleaning: android.media.audiofx.NoiseSuppressor? = null
     @Volatile private var boost: android.media.audiofx.AutomaticGainControl? = null
@@ -106,6 +107,9 @@ class ServerEars(
         }
         recorder.startRecording()
         var micErrors = 0
+        // Speech detection on the phone; if the model can't load, the loudness check below stands in.
+        val vad = runCatching { vadFactory() }.onFailure { android.util.Log.w("ServerEars", "no speech model", it) }
+            .getOrNull()
         val frame = ShortArray(FRAME)
         val preRoll = ArrayDeque<ByteArray>()
         val utterance = ByteArrayOutputStream()
@@ -147,7 +151,12 @@ class ServerEars(
                 val rms = sqrt(sum / n)
                 // Listen-in: people across the table are quieter than you are into the mic, so a lower bar.
                 val listen = BuddyState.ui.value.mode == Mode.LISTEN_IN
-                val loud = if (listen) rms > max(noise * 2.2, 250.0) else rms > max(noise * 3, 500.0)
+                val p = if (vad != null && n == FRAME) runCatching { vad.probability(frame) }.getOrNull() else null
+                val loud = if (p != null) {
+                    // Speech, not loudness: start at 0.5, keep going while above 0.35 (pauses between words).
+                    // In Talk, a faint far-off voice isn't you: it must also be audible.
+                    (if (speaking) p > 0.35f else p > 0.5f) && (listen || rms > 150.0)
+                } else if (listen) rms > max(noise * 2.2, 250.0) else rms > max(noise * 3, 500.0)
                 val bytes = toBytes(frame, n)
                 if (!speaking) {
                     if (loud) {
@@ -174,6 +183,7 @@ class ServerEars(
                 }
             }
         } finally {
+            runCatching { vad?.close() }
             runCatching { recorder?.stop() }
             recorder?.release()
             runCatching { cleaning?.release() }
@@ -204,9 +214,9 @@ class ServerEars(
 
     private companion object {
         const val RATE = 16_000
-        const val FRAME_MS = 30
-        const val FRAME = RATE * FRAME_MS / 1000
-        const val PRE_ROLL_FRAMES = 10        // 300 ms before the first loud frame
+        const val FRAME = SileroVad.FRAME  // 512 samples: the speech model's frame
+        const val FRAME_MS = FRAME * 1000 / RATE  // 32 ms
+        const val PRE_ROLL_FRAMES = 10        // 320 ms before the first speech frame
         const val MIN_SPEECH_MS = 400
         const val MAX_UTTERANCE_MS = 15_000
     }

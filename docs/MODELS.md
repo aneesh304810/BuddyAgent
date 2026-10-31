@@ -172,9 +172,19 @@ refining the voiceprint; "Buddy, that was me" adds one it wrongly ignored.
 - The voiceprint is biometric data: it stays in Buddy's encrypted database; "forget my voice"
   (Settings or by voice) deletes it. Listen-in is unaffected.
 
+**Speech detection on the phone:** the app decides what's speech with Silero VAD (MIT licence,
+`android/app/src/main/assets/silero_vad.onnx`, about 2 MB, ONNX Runtime), not loudness: breathing,
+rustling and hum aren't sent at all, quiet voices in Listen-in are caught, and a clip ends when the
+speech does. If the model can't load, the old loudness check takes over.
+
+**Quick Settings tile:** add "Buddy" to Quick Settings (swipe down, edit). Off: tap opens Buddy and starts
+Talk (Android only lets the microphone start while Buddy is on screen, so after a reboot this is
+the quick way). On: tap switches Talk and Listen-in.
+
 **Switching modes by voice:** "Talk mode", "Listen-in mode", "go to sleep", "wake up" switch at
 once (no Claude call). **Phone closed → Listen-in** (Settings, on by default): with a headset on,
-closing or locking the phone switches Talk to Listen-in; opening it switches back.
+folding the phone shut (the hinge sensor, so it works even with the cover screen on) or locking it
+switches Talk to Listen-in; opening it switches back.
 
 ## See it working
 

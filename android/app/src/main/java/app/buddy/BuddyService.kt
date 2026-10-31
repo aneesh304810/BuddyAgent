@@ -93,24 +93,52 @@ class BuddyService : Service() {
     private val screenWatch = object : android.content.BroadcastReceiver() {
         override fun onReceive(context: Context, intent: Intent) {
             screenOff = intent.action == Intent.ACTION_SCREEN_OFF
-            // Phone closed with a headset on: Listen-in (and back to Talk when you open it again).
-            if (prefs.closedListenIn && headsetConnected()) {
-                if (screenOff && ears.active && activeMode == Mode.TALK) {
-                    switchedOnClose = true
-                    startListening(Mode.LISTEN_IN)
-                    return
-                }
-                if (!screenOff && switchedOnClose && ears.active && activeMode == Mode.LISTEN_IN) {
-                    switchedOnClose = false
-                    startListening(Mode.TALK)
-                    return
-                }
-            }
-            if (!screenOff) switchedOnClose = false
+            if (phoneClosed(screenOff || folded)) return
             if (prefs.speechEngine == "auto" && whisperOnServer && (phoneEars.active || serverEars.active)) {
                 startListening(activeMode)  // stops the current ears and starts the right ones
             }
         }
+    }
+
+    /** Phone closed (folded, or the screen off) with a headset on: Listen-in; opened again: back to Talk.
+     *  True if it switched. */
+    private fun phoneClosed(closed: Boolean): Boolean {
+        if (prefs.closedListenIn && headsetConnected()) {
+            if (closed && ears.active && activeMode == Mode.TALK) {
+                switchedOnClose = true
+                startListening(Mode.LISTEN_IN)
+                return true
+            }
+            if (!closed && switchedOnClose && ears.active && activeMode == Mode.LISTEN_IN) {
+                switchedOnClose = false
+                startListening(Mode.TALK)
+                return true
+            }
+        }
+        if (!closed) switchedOnClose = false
+        return false
+    }
+
+    // The Fold's hinge: folding it shut counts as closing the phone, even when the cover screen stays on.
+    @Volatile private var folded = false
+    private val hingeTimer = android.os.Handler(android.os.Looper.getMainLooper())
+    private val hinge = object : SensorEventListener {
+        override fun onSensorChanged(event: SensorEvent) {
+            val angle = event.values[0]
+            val nowFolded = when {
+                angle < 25f -> true
+                angle > 120f -> false
+                else -> return  // half open: leave things as they are
+            }
+            hingeTimer.removeCallbacksAndMessages(null)
+            if (nowFolded == folded) return
+            hingeTimer.postDelayed({  // 1.5 s, so passing through an angle doesn't count
+                folded = nowFolded
+                phoneClosed(folded || screenOff)
+            }, 1_500)
+        }
+
+        override fun onAccuracyChanged(sensor: Sensor?, accuracy: Int) {}
     }
 
     /** Does the server have Whisper? Asked on every connect. */
@@ -164,8 +192,15 @@ class BuddyService : Service() {
             addAction(Intent.ACTION_SCREEN_OFF)
             addAction(Intent.ACTION_SCREEN_ON)
         })
+        getSystemService(SensorManager::class.java)?.let { sensors ->
+            sensors.getDefaultSensor(Sensor.TYPE_HINGE_ANGLE)?.let { sensors.registerListener(hinge, it, SensorManager.SENSOR_DELAY_NORMAL) }
+        }
         Notes.createChannels(this)
-        val onActive = { on: Boolean -> BuddyState.update { it.copy(listening = on) }; refreshNotification() }
+        val onActive = { on: Boolean ->
+            BuddyState.update { it.copy(listening = on) }
+            refreshNotification()
+            BuddyTile.update(this)
+        }
         val onProblem = { problem: String -> BuddyState.add(Line(problem, Speaker.ERROR)) }
         if (prefs.beepMuted) {  // the app stopped while the listening beep was muted: give sound back
             val audio = getSystemService(AudioManager::class.java)
@@ -185,6 +220,7 @@ class BuddyService : Service() {
             paused = { mouth.speaking && activeMode == Mode.TALK && !headsetConnected() },
             endSilenceMs = { BuddyPrefs(this).endSilenceMs },  // the full pause: fewer cut-off sentences
             noiseSuppress = { BuddyPrefs(this).noiseSuppress },
+            vadFactory = { SileroVad(this) },
         )
         mouth = Mouth(this, onMissingVoice = { name ->
             BuddyState.add(Line("To hear me in $name, add its voice: phone Settings → Text-to-speech → " +
@@ -247,6 +283,8 @@ class BuddyService : Service() {
         serverEars.destroy()
         watchdog.removeCallbacksAndMessages(null)
         tone?.release()
+        getSystemService(SensorManager::class.java)?.unregisterListener(hinge)
+        hingeTimer.removeCallbacksAndMessages(null)
         mouth.shutdown()
         calls.stop()
         getSystemService(AudioManager::class.java).unregisterAudioDeviceCallback(headsets)
@@ -470,6 +508,7 @@ class BuddyService : Service() {
         if (ears.active) stopListening()
         activeMode = mode
         BuddyState.update { it.copy(mode = mode) }
+        BuddyTile.update(this)
         if (mode == Mode.TALK) useEarbudMic(prefs.earbudMic) else startListenMic()
         val language = if (mode == Mode.LISTEN_IN) prefs.roomLanguage
             else prefs.talkLanguage.ifEmpty { Locale.getDefault().toLanguageTag() }

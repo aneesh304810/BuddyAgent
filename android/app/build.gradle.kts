@@ -19,6 +19,7 @@ android {
         targetSdk = 35
         versionCode = buildNumber
         versionName = "0.3.$buildNumber"
+        ndk { abiFilters += "arm64-v8a" }  // the speech model's runtime for 64-bit ARM phones only: a smaller app
     }
 
     signingConfigs {
@@ -60,6 +61,7 @@ dependencies {
     implementation("androidx.core:core-ktx:1.15.0")
     implementation("com.squareup.okhttp3:okhttp:4.12.0")
     implementation("io.coil-kt:coil-compose:2.7.0")  // photos and map tiles in result cards
+    implementation("com.microsoft.onnxruntime:onnxruntime-android:1.19.2")  // speech detection (Silero VAD)
 
     testImplementation("junit:junit:4.13.2")
 }

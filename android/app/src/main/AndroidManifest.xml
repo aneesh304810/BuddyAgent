@@ -57,6 +57,17 @@
         </service>
 
         <service
+            android:name=".BuddyTile"
+            android:exported="true"
+            android:icon="@drawable/ic_stat_buddy"
+            android:label="Buddy"
+            android:permission="android.permission.BIND_QUICK_SETTINGS_TILE">
+            <intent-filter>
+                <action android:name="android.service.quicksettings.action.QS_TILE" />
+            </intent-filter>
+            <meta-data android:name="android.service.quicksettings.TOGGLEABLE_TILE" android:value="true" />
+        </service>
+        <service
             android:name=".BuddyService"
             android:exported="false"
             android:foregroundServiceType="microphone" />

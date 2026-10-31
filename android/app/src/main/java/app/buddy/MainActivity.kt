@@ -135,6 +135,7 @@ sealed interface Screen {
 class MainActivity : ComponentActivity() {
     companion object {
         const val EXTRA_JOB_ID = "app.buddy.JOB_ID"
+        const val ACTION_LISTEN = "app.buddy.LISTEN"  // from the Quick Settings tile: start and listen
     }
 
     private lateinit var prefs: BuddyPrefs
@@ -191,11 +192,20 @@ class MainActivity : ComponentActivity() {
             }
         }
         if (prefs.link != null) startBuddy()
+        listenFrom(intent)
     }
 
     override fun onNewIntent(intent: Intent) {
         super.onNewIntent(intent)
         openJobFrom(intent)
+        listenFrom(intent)
+    }
+
+    /** The Quick Settings tile: Buddy is on screen now, so the microphone may start. */
+    private fun listenFrom(intent: Intent?) {
+        if (intent?.action != ACTION_LISTEN || prefs.link == null || !hasPermission(Manifest.permission.RECORD_AUDIO)) return
+        if (BuddyState.ui.value.listening) return
+        startForegroundService(Intent(this, BuddyService::class.java).setAction(BuddyService.ACTION_TOGGLE))
     }
 
     private fun openJobFrom(intent: Intent?) {
@@ -924,8 +934,9 @@ private fun VoiceMatch(prefs: BuddyPrefs) {
         Row(verticalAlignment = Alignment.CenterVertically, modifier = Modifier.padding(top = 10.dp)) {
             Column(Modifier.weight(1f)) {
                 Text("Phone closed → Listen-in", color = Color.White)
-                Text("With your headset on, closing or locking the phone switches Talk to Listen-in; opening it " +
-                    "switches back. Or just say \"Talk mode\" / \"Listen-in mode\".", color = Muted, fontSize = 12.sp)
+                Text("With your headset on, folding the phone shut (or locking it) switches Talk to Listen-in; " +
+                    "opening it switches back. Or say \"Talk mode\" / \"Listen-in mode\", or use the Buddy tile in " +
+                    "Quick Settings.", color = Muted, fontSize = 12.sp)
             }
             Switch(checked = closed, onCheckedChange = { closed = it; prefs.closedListenIn = it })
         }
