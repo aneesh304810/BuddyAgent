@@ -800,9 +800,10 @@ async def talk(ws: WebSocket) -> None:
             elif msg.get("type") == "notification":
                 added = hub.ingest("notifications", [NotificationsConnector.to_record(msg)])
                 if RideFollower.is_ride(msg):  # Uber / Lyft: follow the trip, say what matters
-                    say, card = RideFollower(memory, record_fare=_ride_fare).update(msg)
-                    if say:  # the moments that matter; the rest is there for "where's my Uber?"
-                        await deliver("ride", say, cards=[card] if card else [])
+                    # (not `say`: that's this connection's speaking function)
+                    ride_news, card = RideFollower(memory, record_fare=_ride_fare).update(msg)
+                    if ride_news:  # the moments that matter; the rest is there for "where's my Uber?"
+                        await deliver("ride", ride_news, cards=[card] if card else [])
                 elif added and should_announce(msg):
                     who = str(msg.get("title", "")).strip()
                     said = mask(str(msg.get("text", "")).strip())[:200]

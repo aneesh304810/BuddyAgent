@@ -400,3 +400,15 @@ def test_the_same_words_twice_within_seconds_are_answered_once(monkeypatch):
         nxt = ws.receive_json()
     assert [m["type"] for m in got].count("thinking") == 1
     assert nxt["type"] == "thinking"  # the next real message is still answered
+
+
+def test_a_ride_notification_doesnt_break_replies(monkeypatch):
+    """An Uber promotion once replaced the connection's `say` with None: every reply after it crashed."""
+    monkeypatch.setattr(agent.client.beta.messages, "stream", lambda **kw: FakeStream("Still here."))
+    with TestClient(server.app) as c, c.websocket_connect("/ws") as ws:
+        ws.send_json({"type": "notification", "device": "fold", "app": "com.ubercab", "app_name": "Uber",
+                      "title": "50% off your next 3 rides", "text": "Use code RIDE50", "key": "k1",
+                      "posted_at": "2026-10-31T15:00:00Z"})
+        ws.send_json({"type": "user", "text": "what's new with my week buddy"})
+        got = [ws.receive_json() for _ in range(3)]
+    assert [m["type"] for m in got] == ["thinking", "say", "done"] and got[1]["text"] == "Still here."
