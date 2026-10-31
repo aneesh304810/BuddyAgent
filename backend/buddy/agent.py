@@ -36,7 +36,7 @@ from .health import HEALTH_TOOL, run_health_tool
 from . import cards, sandbox
 from .codejob import CODE_TOOL_NAMES, CODE_TOOLS, run_code_tool
 from .makers import MAKER_TOOL_NAMES, MAKER_TOOLS, run_maker_tool
-from . import datatools, transcripts, tutor, vocabulary, voiceprint
+from . import datatools, prices, transcripts, tutor, vocabulary, voiceprint
 from .lifelog import LIFELOG_TOOL, LifeLog, run_lifelog_tool
 from .mailbrain import MAIL_TOOL_NAMES, MAIL_TOOLS, MailManager, run_mail_tool
 from .money import MONEY_TOOL_NAMES, MONEY_TOOLS, Money, run_money_tool
@@ -466,7 +466,8 @@ class Conversation:
         spending += [GENERAL_TOOL, VERDICT_TOOL] if self.free.enabled() else []
         spending += [RATE_TOOL, HEALTH_TOOL, cards.SHOW_TOOL, tutor.TUTOR_TOOL, vocabulary.LEARN_TOOL] + MAKER_TOOLS
         spending += [ROOM_TOOL] if self.room else []
-        spending += [REPLY_STYLE_TOOL, transcripts.TRANSCRIPT_TOOL, READ_TOOL, MODE_TOOL, voiceprint.VOICE_TOOL]
+        spending += [REPLY_STYLE_TOOL, transcripts.TRANSCRIPT_TOOL, READ_TOOL, MODE_TOOL, voiceprint.VOICE_TOOL,
+                     prices.NOTE_PRICE_TOOL]
         return (
             CLIENT_TOOLS + orchestration + job_tools + spending + [_expert_tool()]
             + agent_tools + web_tools()
@@ -550,6 +551,8 @@ class Conversation:
             return await datatools.run_tools_admin(args)
         if name == "voice_match":
             return voiceprint.run_tool(self.memory, args)
+        if name == "note_price":
+            return prices.run_note_price(self.memory, args)
         if name == "switch_mode":
             if self.switch_mode is None:
                 raise ToolError("The app isn't connected, so the mode can't be switched from here.")

@@ -124,6 +124,13 @@ class PriceWatcher:
         sets = ", ".join(f"{k} = ?" for k in fields)
         self.memory.db.execute(f"UPDATE price_watches SET {sets} WHERE id = ?", (*fields.values(), watch_id))
         self.memory.db.commit()
+        if fields.get("last_price"):  # every price seen goes into the history too
+            from . import prices
+
+            row = self.memory.db.execute("SELECT what, currency FROM price_watches WHERE id = ?", (watch_id,)).fetchone()
+            if row:
+                prices.record(self.memory, row["what"], fields["last_price"], row["currency"],
+                              fields.get("last_where", ""), fields.get("last_url", ""))
 
     def _over_budget(self) -> bool:
         from .thrift import Thrift

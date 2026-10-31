@@ -149,3 +149,44 @@ def test_saved_tools_are_mounted_read_only(daemon, tmp_path):
     (tmp_path / "skills").mkdir()
     args = daemon.docker_run(tmp_path / "ws" / "job", ["true"])
     assert f"type=bind,src={tmp_path / 'skills'},dst=/buddy-custom,readonly" in args
+
+
+def test_emails_calendar_and_prices_are_sources(monkeypatch):
+    from datetime import datetime, timedelta, timezone
+
+    from buddy import deals, prices
+    from buddy.connectors.hub import ConnectorHub
+
+    mem = Memory(":memory:")
+    ConnectorHub(mem, env={})  # creates the records table
+    now = datetime.now(timezone.utc)
+    for i, (kind, title, when) in enumerate((("email", "Your FPL bill", now - timedelta(days=2)),
+                                             ("email", "Old news", now - timedelta(days=90)),
+                                             ("event", "Dentist", now + timedelta(days=1)))):
+        mem.db.execute("INSERT INTO records (source, external_id, kind, title, body, start_at, data, synced_at) "
+                       "VALUES ('x', ?, ?, ?, 'Amount due $10', ?, '{\"from\": \"FPL\"}', ?)",
+                       (str(i), kind, title, when.isoformat(), now.isoformat()))
+    written = []
+
+    async def fake_call(op, **kw):
+        if op == "skills":
+            return {"skills": []}
+        if op == "write_b64":
+            written.append(base64.b64decode(kw["content_b64"]).decode())
+        return {"exit_code": 0, "output": "{}"} if op == "run" else {"ok": True}
+    monkeypatch.setattr(sandbox, "call", fake_call)
+    asyncio.run(datatools.run_data_tool(mem, {"tool": "bills-due", "source": {"kind": "emails", "days": 30}}))
+    assert [m["subject"] for m in json.loads(written[-1])] == ["Your FPL bill"] and '"from": "FPL"' in written[-1]
+    asyncio.run(datatools.run_data_tool(mem, {"tool": "free-slots", "source": {"kind": "calendar", "days": 7}}))
+    assert json.loads(written[-1])[0]["title"] == "Dentist"
+    with pytest.raises(ToolError, match="note_price"):
+        asyncio.run(datatools.run_data_tool(mem, {"tool": "price-history", "source": {"kind": "prices", "item": "x"}}))
+    # a price watch's checks feed the history
+    watcher = deals.PriceWatcher(mem)
+    mem.db.execute("INSERT INTO price_watches (id, what, currency, every_hours, until, created_at) VALUES "
+                   "(1, 'MIA-LIM flight March', 'USD', 6, '2099', '2026')")
+    watcher._checked(1, last_price=289.0, last_where="LATAM")
+    prices.run_note_price(mem, {"item": "mia-lim  flight march", "price": 310, "currency": "USD", "where": "Copa"})
+    asyncio.run(datatools.run_data_tool(mem, {"tool": "price-history", "source": {"kind": "prices", "item": "MIA-LIM"}}))
+    assert written[-1].startswith("seen_at,price,currency,where") and ",310.0,USD,Copa" in written[-1]
+    assert ",289.0,USD,LATAM" in written[-1]

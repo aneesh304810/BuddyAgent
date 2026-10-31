@@ -10,7 +10,7 @@ RUN apt-get update && apt-get install -y --no-install-recommends \
         git curl ca-certificates build-essential nodejs npm jq unzip ripgrep graphviz \
     && rm -rf /var/lib/apt/lists/* \
     && pip install --no-cache-dir pandas openpyxl matplotlib python-docx python-pptx pypdf reportlab \
-        requests beautifulsoup4 lxml pillow tabulate httpx pyyaml \
+        requests beautifulsoup4 lxml pillow tabulate httpx pyyaml tzdata \
     && useradd --uid 10001 --create-home --shell /bin/bash dev \
     && for p in pip pip3 pip3.12; do [ -e /usr/local/bin/$p ] && mv /usr/local/bin/$p /usr/local/bin/$p-unguarded || true; done \
     && mv /usr/bin/npm /usr/bin/npm-real \

@@ -77,11 +77,56 @@ async def _input(memory: Memory, source: dict) -> tuple[bytes, str]:
         for r in rows:  # stored as spending > 0; bank style (spending < 0) for the tool
             w.writerow([r["day"], r["merchant"], -float(r["amount"]), r["currency"], r["category"]])
         return out.getvalue().encode(), "csv"
+    if kind == "emails":
+        return _records_json(memory, "email", -int(source.get("days") or 30), source.get("query", "")), "json"
+    if kind == "calendar":
+        return _records_json(memory, "event", int(source.get("days") or 14), source.get("query", "")), "json"
+    if kind == "prices":
+        from . import prices
+
+        text = prices.history_csv(memory, str(source.get("item", "")), int(source.get("days") or 365))
+        if not text:
+            known = ", ".join(i["what"] for i in prices.items(memory)[:10]) or "none yet"
+            raise ToolError(f"No prices written down for that (note_price adds them). Known: {known}.")
+        return text.encode(), "csv"
     if kind == "url":
         import asyncio
 
         return await asyncio.to_thread(_download, str(source.get("url", "")))
-    raise ToolError("source.kind: text, file, transactions or url.")
+    raise ToolError("source.kind: transactions, emails, calendar, prices, file, url or text.")
+
+
+def _records_json(memory: Memory, kind: str, days: int, query: str = "") -> bytes:
+    """Synced emails (the last `days` days, days < 0) or calendar events (the next `days` days) as JSON."""
+    from datetime import datetime, timezone
+
+    days = max(-365, min(days, 365))
+    now = datetime.now(timezone.utc)
+    lo, hi = (now + timedelta(days=days), now) if days < 0 else (now - timedelta(hours=12), now + timedelta(days=days))
+    sql = "SELECT title, body, start_at, end_at, data FROM records WHERE kind = ? AND start_at >= ? AND start_at <= ?"
+    params: list = [kind, lo.isoformat(), hi.isoformat()]
+    for word in str(query).split()[:5]:
+        sql += " AND (title LIKE ? OR body LIKE ?)"
+        params += [f"%{word}%"] * 2
+    try:
+        rows = memory.db.execute(sql + " ORDER BY start_at LIMIT 2000", params).fetchall()
+    except Exception:  # no connectors yet
+        rows = []
+    if not rows:
+        what = "emails" if kind == "email" else "calendar events"
+        raise ToolError(f"No {what} for that period (is the {'email' if kind == 'email' else 'calendar'} connector on?).")
+    out = []
+    for r in rows:
+        if kind == "email":
+            try:
+                sender = json.loads(r["data"] or "{}").get("from", "")
+            except json.JSONDecodeError:
+                sender = ""
+            out.append({"date": r["start_at"], "from": sender, "subject": r["title"], "text": r["body"]})
+        else:
+            out.append({"title": r["title"], "start": r["start_at"], "end": r["end_at"] or r["start_at"],
+                        "notes": r["body"][:300]})
+    return json.dumps(out, ensure_ascii=False).encode()
 
 
 def _download(url: str) -> tuple[bytes, str]:
@@ -154,17 +199,22 @@ async def run_tools_admin(args: dict) -> str:
 DATA_TOOL = {
     "name": "process_data",
     "description": "Run a data tool in the sandbox: code does the mechanical work exactly and offline, and you get "
-    "a small result instead of the raw data. Use it for anything big or numeric: spending from transactions "
-    "(spending-summary), a PDF (pdf-extract with args like --find \"cancel,fee\"), a spreadsheet (table-query, args "
-    "--spec '{...}'), receipts and bookings in emails (receipts-extract), the relevant passages of a long text "
-    "(doc-snippets --question \"...\"), offers by true total (compare-offers), plus tools Buddy made earlier "
-    "(buddy_tools list). source: {kind: transactions, days} | {kind: file, id} (Buddy's files) | {kind: url, url} | "
-    "{kind: text, text, ext} (short data you already have: csv, json or txt).",
+    "a small result instead of the raw data. Use it for anything big or numeric. Money: spending-summary and "
+    "subscriptions (recurring charges, price increases, duplicates) on {kind: transactions, days}; bills-due and "
+    "deadlines on {kind: emails, days, query}; receipts-extract on emails. Time: free-slots (args --tz America/New_York "
+    "--also Asia/Kolkata for a call with someone there) on {kind: calendar, days}; itinerary-check on bookings as "
+    "JSON text. Prices: price-history (args --target 300) on {kind: prices, item}. Documents: pdf-extract (args "
+    "--find \"cancel,fee\"), table-query (args --spec '{...}'), doc-snippets --question \"...\", compare-offers. Plus "
+    "tools Buddy made earlier (buddy_tools list). Other sources: {kind: file, id} (Buddy's files) | {kind: url, url} "
+    "| {kind: text, text, ext} (short data you already have: csv, json or txt).",
     "input_schema": {"type": "object", "properties": {
         "tool": {"type": "string"},
         "source": {"type": "object", "properties": {
-            "kind": {"type": "string", "enum": ["transactions", "file", "url", "text"]},
-            "days": {"type": "integer"}, "id": {"type": "string"}, "url": {"type": "string"},
+            "kind": {"type": "string", "enum": ["transactions", "emails", "calendar", "prices", "file", "url", "text"]},
+            "days": {"type": "integer", "description": "transactions and emails: the last N days; calendar: the next N"},
+            "query": {"type": "string", "description": "emails and calendar: only those with these words"},
+            "item": {"type": "string", "description": "prices: what (as written with note_price)"},
+            "id": {"type": "string"}, "url": {"type": "string"},
             "text": {"type": "string"}, "ext": {"type": "string"}}, "required": ["kind"]},
         "args": {"type": "string", "description": "Options for the tool, as on a command line"}},
         "required": ["tool", "source"], "additionalProperties": False},
