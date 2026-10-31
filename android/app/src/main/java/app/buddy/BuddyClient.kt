@@ -33,7 +33,7 @@ sealed interface ServerEvent {
                            val sentences: List<String>) : ServerEvent
     data class VoiceEnrolled(val ok: Boolean, val text: String) : ServerEvent
     /** Open Uber / Lyft with a trip filled in (the second one when Buddy is back in front). */
-    data class OpenLinks(val links: List<RideLink>) : ServerEvent
+    data class OpenLinks(val links: List<RideLink>, val compare: String = "") : ServerEvent
     /** You paused mid-sentence: Buddy is waiting for the rest. */
     data object Waiting : ServerEvent
 
@@ -63,7 +63,7 @@ sealed interface ServerEvent {
                 "open" -> msg.getJSONArray("links").let { a ->
                     OpenLinks((0 until a.length()).map { a.getJSONObject(it) }.map {
                         RideLink(it.optString("app"), it.optString("url"), it.optString("label"))
-                    })
+                    }, msg.optString("compare"))
                 }
                 "voice" -> VoiceStatus(
                     msg.optBoolean("installed"), msg.optBoolean("enrolled"), msg.optBoolean("on"),

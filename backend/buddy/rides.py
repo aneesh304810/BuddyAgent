@@ -14,6 +14,9 @@ Google Maps (Serper) near where the user is, or OpenStreetMap when there's no Se
 
 import json
 import logging
+import re
+import secrets
+import time
 import urllib.parse
 import urllib.request
 
@@ -123,11 +126,14 @@ RIDE_TOOL = {
     "see prices or book: the user sees the real price in the app and taps Confirm. app 'both' = compare: Uber "
     "opens first, and Lyft opens when they come back to Buddy. For a ride later (Reserve), open it and tell them "
     "to tap the schedule (clock) option, or offer a reminder before the time. save_place keeps 'home', 'work' "
-    "and the like; places lists them. status: where the booked ride is (driver, car, plate, minutes away), \
+    "and the like; places lists them. compare: Buddy opens Uber, then Lyft, reads the prices each shows \
+"
+    "(every ride type, minutes away) and tells the user which is cheaper, about 30-40 seconds later; the phone must "
+    "be unlocked. prices: the last comparison read. status: where the booked ride is (driver, car, plate, minutes away), \
 "
     "from the Uber / Lyft notifications on the phone.",
     "input_schema": {"type": "object", "properties": {
-        "action": {"type": "string", "enum": ["open", "status", "save_place", "places"]},
+        "action": {"type": "string", "enum": ["open", "compare", "prices", "status", "save_place", "places"]},
         "app": {"type": "string", "enum": ["uber", "lyft", "both"]},
         "to": {"type": "string", "description": "Drop-off, or the address to save"},
         "from": {"type": "string", "description": "Pickup, only if not where they are now"},
@@ -143,6 +149,11 @@ async def run_ride_tool(rides: Rides, args: dict, open_links) -> str:
     import asyncio
 
     action = args.get("action")
+    if action == "prices":
+        quote = last_quotes(rides.memory)
+        if not quote or not quote.get("apps"):
+            return "No recent price comparison: use compare."
+        return json.dumps({"to": quote["to"], "apps": quote["apps"]})
     if action == "status":
         ride = RideFollower(rides.memory).active()
         if not ride:
@@ -164,7 +175,8 @@ async def run_ride_tool(rides: Rides, args: dict, open_links) -> str:
         raise ToolError("The phone isn't connected, so I can't open Uber or Lyft on it right now.")
     drop = await asyncio.to_thread(rides.find, str(args.get("to", "")))
     pickup = await asyncio.to_thread(rides.find, str(args["from"])) if args.get("from") else None
-    app = args.get("app") or "uber"
+    compare = action == "compare"
+    app = "both" if compare else (args.get("app") or "uber")
     links, shown = [], []
     for name in (["uber", "lyft"] if app == "both" else [app]):
         app_url, web_url = uber_links(drop, pickup) if name == "uber" else \
@@ -178,8 +190,16 @@ async def run_ride_tool(rides: Rides, args: dict, open_links) -> str:
     box = cards.current.get()
     if box is not None:  # always shown: the user may need to tap them
         box.pick([{"id": c} for c in shown if c])
-    await open_links(links)
     where = f"{drop['name']}" + (f" ({drop['address']})" if drop["address"] else "")
+    if compare:
+        compare_id = secrets.token_hex(4)
+        rides.memory.set(QUOTES_KEY, json.dumps({"id": compare_id, "to": drop["name"], "links": links, "apps": {},
+                                                  "at": time.time()}))
+        await open_links(links, compare=compare_id)
+        return (f"Reading the prices now: Uber opens, then Lyft, with drop-off {where}; Buddy comes back with both "
+                "in about 30-40 seconds and says which is cheaper. Tell them in a few words and that the phone must "
+                "stay unlocked; don't guess any prices.")
+    await open_links(links)
     first = links[0]["label"].split()[0]
     then = " When they come back to Buddy, Lyft opens with the same trip, so they can compare." if app == "both" else ""
     return (f"Opening {first} on the phone: drop-off {where}, pickup "
@@ -344,3 +364,118 @@ def status_card(ride: dict) -> dict:
     return {"kind": "ride_status", "title": f"{ride['app']} · {LABELS.get(ride['stage'], 'ride')}",
             "subtitle": " · ".join(x for x in (ride.get("driver"), ride.get("car"), ride.get("plate")) if x),
             "price": fare, "text": eta}
+
+
+# --- comparing prices by reading the Uber and Lyft screens -----------------------------------
+# The phone's ride reader (Android Accessibility, Uber and Lyft only) opens each app with the trip
+# filled in and sends the text on screen with where each piece is. Here that becomes ride types,
+# prices and minutes away, so fixing the reading when an app changes its screen is a server update.
+
+QUOTES_KEY = "rides:quotes"
+PRICE_RE = re.compile(r"(US\$|R\$|S/|[$€£₹])\s?(\d{1,4}(?:[.,]\d{2})?)")
+ETA_RE = re.compile(r"(\d{1,2})\s*min", re.I)
+_NOT_A_RIDE = re.compile(r"min\b|away|\d{1,2}:\d{2}|%|\b(?:am|pm)\b|off\b|promo|pay|cash|visa|mastercard|amex|"
+                         r"choose|confirm|request|schedule|pickup|drop|where to|save|cheaper|faster|ride options|"
+                         r"seats?\b|\bper\b", re.I)
+CURRENCIES = {"$": "USD", "US$": "USD", "R$": "BRL", "S/": "PEN", "€": "EUR", "£": "GBP", "₹": "INR"}
+
+
+def _price(text: str) -> tuple[float, str] | None:
+    m = PRICE_RE.search(text)
+    return (float(m.group(2).replace(",", ".")), CURRENCIES[m.group(1)]) if m else None
+
+
+def parse_ride_screen(nodes: list[dict]) -> list[dict]:
+    """Ride options on an Uber / Lyft screen: [{ride, price, value, currency, eta_min}], cheapest first."""
+    nodes = [n for n in nodes if str(n.get("t", "")).strip()]
+    options: dict[str, dict] = {}
+    for n in nodes:
+        text = str(n["t"])
+        found = _price(text)
+        if not found:
+            continue
+        # A whole row read as one ("UberX, 4 min away, $23.40")?
+        parts = [p.strip() for p in re.split(r"[,•·|\n]", text) if p.strip()]
+        name = next((p for p in parts if not PRICE_RE.search(p) and not _NOT_A_RIDE.search(p)
+                     and re.search(r"[A-Za-z]", p) and len(p) <= 30), "")
+        top, bottom, left = n.get("y", 0), n.get("b", 0), n.get("x", 0)
+        row = [m for m in nodes if m is not n and m.get("y", 0) < bottom + 25 and m.get("b", 0) > top - 70
+               and m.get("x", 0) < left]
+        if not name:
+            names = sorted((m for m in row if not PRICE_RE.search(str(m["t"])) and not _NOT_A_RIDE.search(str(m["t"]))
+                            and re.search(r"[A-Za-z]", str(m["t"])) and len(str(m["t"])) <= 30),
+                           key=lambda m: (m.get("y", 0), m.get("x", 0)))
+            name = str(names[0]["t"]).strip() if names else ""
+        if not name:
+            continue
+        eta = ETA_RE.search(text) or next((e for e in (ETA_RE.search(str(m["t"])) for m in row) if e), None)
+        value, currency = found
+        old = options.get(name.lower())
+        if old and old["value"] <= value:  # a crossed-out old price or a repeat: keep the lower
+            continue
+        options[name.lower()] = {"ride": name, "price": PRICE_RE.search(text).group(0).replace(" ", ""),
+                                 "value": value, "currency": currency,
+                                 "eta_min": int(eta.group(1)) if eta else None}
+    return sorted(options.values(), key=lambda o: o["value"])[:8]
+
+
+def last_quotes(memory: Memory) -> dict | None:
+    try:
+        quote = json.loads(memory.get(QUOTES_KEY) or "null")
+    except json.JSONDecodeError:
+        return None
+    return quote if quote and time.time() - quote.get("at", 0) < 30 * 60 else None
+
+
+def take_screen(memory: Memory, msg: dict) -> tuple[str | None, list[dict]]:
+    """One app's screen from the phone. When the last one is in: (what to say, cards)."""
+    quote = last_quotes(memory)
+    if not quote or quote["id"] != msg.get("compare"):
+        return None, []
+    if msg.get("error") == "reader_off":
+        return ("To compare prices I need Read Uber and Lyft prices switched on: Buddy Settings, then turn on "
+                "Buddy ride prices in Accessibility. I've opened Uber for now; Lyft opens when you come back."), []
+    app = str(msg.get("app", ""))[:10]
+    if app in ("Uber", "Lyft"):
+        quote["apps"][app] = parse_ride_screen(msg.get("nodes") or [])
+        log.info("ride prices read from %s: %s", app, [(o["ride"], o["price"]) for o in quote["apps"][app]])
+        memory.set(QUOTES_KEY, json.dumps(quote))
+    if not msg.get("last"):
+        return None, []
+    return compare_text(quote), compare_cards(quote)
+
+
+def _option(o: dict) -> str:
+    return f"{o['ride']} at {o['price']}" + (f", {o['eta_min']} min away" if o.get("eta_min") else "")
+
+
+def compare_text(quote: dict) -> str:
+    best = {app: opts[0] for app, opts in quote["apps"].items() if opts}
+    missed = [app for app in ("Uber", "Lyft") if not quote["apps"].get(app)]
+    if not best:
+        return ("I couldn't read either price. The app may have needed a tap, a sign-in or a pickup confirmation; "
+                "the screen has to stay unlocked while I read.")
+    if len(best) == 1:
+        (app, o), = best.items()
+        return f"{app}'s cheapest is {_option(o)}. I couldn't read {missed[0]}'s prices."
+    uber, lyft = best["Uber"], best["Lyft"]
+    if uber["currency"] == lyft["currency"] and abs(uber["value"] - lyft["value"]) >= 0.01:
+        cheap, other = ("Uber", "Lyft") if uber["value"] < lyft["value"] else ("Lyft", "Uber")
+        diff = abs(uber["value"] - lyft["value"])
+        return (f"{cheap} is cheaper by {diff:.2f}: {_option(best[cheap])}. {other}'s cheapest is "
+                f"{_option(best[other])}. Want me to open {cheap}?")
+    return f"About the same: Uber {_option(uber)}; Lyft {_option(lyft)}. Want me to open one?"
+
+
+def compare_cards(quote: dict) -> list[dict]:
+    links = {link["label"].split()[0]: link for link in quote.get("links", [])}
+    out = []
+    for app, opts in quote["apps"].items():
+        if not opts or app not in links:
+            continue
+        out.append({"kind": "ride", "title": f"{app} to {quote['to']}", "price": opts[0]["price"],
+                    "subtitle": f"{app} · cheapest {opts[0]['ride']}",
+                    "rows": [{"label": o["ride"], "value": o["price"] + (f" · {o['eta_min']} min" if o.get("eta_min")
+                                                                         else "")} for o in opts[:4]],
+                    "url": links[app]["url"], "app_url": links[app]["app"], "text": "Tap to open and book"})
+    return sorted(out, key=lambda c: next(o["value"] for o in quote["apps"][c["title"].split()[0]]))

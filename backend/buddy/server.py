@@ -29,9 +29,10 @@ Protocol (JSON messages):
                                                       background job; see GET /api/jobs/{id})
                    {"type": "whisper", "kind": "...", "text": "..."}
                                                       listen-in: translation / about_you / correction
-                   {"type": "open", "links": [{"app": "uber://...", "url": "https://...", "label": "..."}]}
-                                                      open Uber / Lyft with a trip filled in (the
-                                                      first now, the next when Buddy is back in front)
+                   {"type": "open", "links": [{"app": "uber://...", "url": "https://...", "label": "..."}],
+                    "compare": "id"}                  open Uber / Lyft with a trip filled in (the
+                                                      first now, the next when Buddy is back in front);
+                                                      with compare, the ride reader reads both prices
                    {"type": "error", "text": "..."}
 """
 
@@ -60,7 +61,7 @@ from .memory import Memory
 from .connectors import ConnectorHub
 from .connectors.phone import NotificationsConnector, PhoneCalendarConnector, should_announce
 from .money import Money
-from .rides import RideFollower
+from .rides import RideFollower, take_screen
 from .privacy import SecretFilter, mask
 from .bankfeed import BankFeed
 from .builder import AgentBuilder
@@ -576,8 +577,8 @@ async def talk(ws: WebSocket) -> None:
 
     convo.switch_mode = switch_mode
 
-    async def open_links(links: list[dict]) -> None:  # Uber / Lyft with the trip filled in
-        await send({"type": "open", "links": links})
+    async def open_links(links: list[dict], compare: str = "") -> None:  # Uber / Lyft with the trip filled in
+        await send({"type": "open", "links": links, **({"compare": compare} if compare else {})})
 
     convo.open_links = open_links
 
@@ -809,6 +810,10 @@ async def talk(ws: WebSocket) -> None:
                     said = mask(str(msg.get("text", "")).strip())[:200]
                     app_name = str(msg.get("app_name") or "a notification")
                     await deliver("notification", f"{app_name}{', ' + who if who else ''}: {said}")
+            elif msg.get("type") == "ride_screen":  # the ride reader: Uber's or Lyft's prices on screen
+                news, ride_cards = take_screen(memory, msg)
+                if news:
+                    await deliver("ride", news, cards=ride_cards)
             elif msg.get("type") == "phone_calendar":
                 device = str(msg.get("device", "phone"))
                 records = PhoneCalendarConnector.to_records(msg)

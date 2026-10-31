@@ -1,0 +1,4 @@
+<?xml version="1.0" encoding="utf-8"?>
+<resources>
+    <string name="ride_reader_description">Lets Buddy read the ride prices shown in Uber and Lyft when you ask it to compare them. It only sees those two apps, only while comparing, and never taps anything.</string>
+</resources>

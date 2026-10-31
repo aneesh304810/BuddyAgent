@@ -790,6 +790,21 @@ private fun SettingsPanel(
                 modifier = Modifier.padding(top = 4.dp),
             ) { Text(if (notificationsOn) "Change notification access" else "Turn on notification access") }
         }
+        Column {
+            val readerOn = RideReader.enabled(context)
+            Text("Read Uber and Lyft prices", color = Color.White)
+            Text(
+                if (readerOn) "On. When you say \"compare Uber and Lyft\", Buddy opens each app, reads the prices " +
+                    "and tells you which is cheaper. It only sees those two apps, and never taps Confirm."
+                else "Let Buddy read the prices Uber and Lyft show, so \"compare Uber and Lyft to the airport\" " +
+                    "gets you both prices and the cheaper one. Turn on \"Buddy ride prices\" in Accessibility.",
+                color = Muted, fontSize = 13.sp,
+            )
+            OutlinedButton(
+                onClick = { context.startActivity(Intent(Settings.ACTION_ACCESSIBILITY_SETTINGS)) },
+                modifier = Modifier.padding(top = 4.dp),
+            ) { Text(if (readerOn) "Change in Accessibility" else "Turn on in Accessibility") }
+        }
         Row(verticalAlignment = Alignment.CenterVertically) {
             Column(Modifier.weight(1f)) {
                 Text("Share my location", color = Color.White)

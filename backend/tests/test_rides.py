@@ -132,3 +132,65 @@ def test_promotions_are_ignored_and_status_explains_itself():
     out = asyncio.run(rides.run_ride_tool(rides.Rides(mem, Social(), Here()), {"action": "status"}, None))
     assert out.startswith("Your Lyft's on the way") and '"plate": "7XYZ123"' in out
     assert not rides.RideFollower.is_ride({"app": "com.ubercab.eats"})
+
+
+UBER_SCREEN = [  # text on screen with where it is (top y, bottom b, left x), like Uber's "Choose a ride"
+    {"t": "Choose a ride", "x": 40, "y": 900, "r": 600, "b": 960},
+    {"t": "UberX", "x": 220, "y": 1000, "r": 400, "b": 1040}, {"t": "4 min away · 9:42 PM", "x": 220, "y": 1045, "r": 600, "b": 1080},
+    {"t": "$23.40", "x": 900, "y": 1010, "r": 1040, "b": 1050}, {"t": "$27.00", "x": 900, "y": 1052, "r": 1040, "b": 1085},
+    {"t": "Comfort", "x": 220, "y": 1150, "r": 400, "b": 1190}, {"t": "3 min away", "x": 220, "y": 1195, "r": 500, "b": 1230},
+    {"t": "$29.10", "x": 900, "y": 1160, "r": 1040, "b": 1200},
+    {"t": "UberXL", "x": 220, "y": 1300, "r": 400, "b": 1340}, {"t": "6 min away", "x": 220, "y": 1345, "r": 500, "b": 1380},
+    {"t": "$35.80", "x": 900, "y": 1310, "r": 1040, "b": 1350},
+    {"t": "Visa •••• 4242", "x": 40, "y": 1700, "r": 500, "b": 1740}, {"t": "Choose UberX", "x": 40, "y": 1800, "r": 1000, "b": 1880},
+]
+LYFT_SCREEN = [  # Lyft reads each row as one piece of text
+    {"t": "Lyft, 6 min away, $21.90", "x": 40, "y": 1000, "r": 1040, "b": 1100},
+    {"t": "Lyft XL, 8 min away, $33.20", "x": 40, "y": 1120, "r": 1040, "b": 1220},
+    {"t": "Request Lyft", "x": 40, "y": 1800, "r": 1000, "b": 1880},
+]
+
+
+def test_prices_are_read_off_uber_and_lyft_screens():
+    uber = rides.parse_ride_screen(UBER_SCREEN)
+    assert [(o["ride"], o["price"], o["eta_min"]) for o in uber] == [
+        ("UberX", "$23.40", 4), ("Comfort", "$29.10", 3), ("UberXL", "$35.80", 6)]  # the crossed-out $27 is dropped
+    lyft = rides.parse_ride_screen(LYFT_SCREEN)
+    assert [(o["ride"], o["value"], o["eta_min"]) for o in lyft] == [("Lyft", 21.9, 6), ("Lyft XL", 33.2, 8)]
+    assert rides.parse_ride_screen([{"t": "Where to?", "x": 0, "y": 0, "b": 10}]) == []
+
+
+def test_compare_reads_both_apps_then_says_the_cheaper():
+    r = make()
+    sent = []
+
+    async def open_links(links, compare=""):
+        sent.append((links, compare))
+    box = cards.CardBox()
+    cards.current.set(box)
+    out = asyncio.run(rides.run_ride_tool(r, {"action": "compare", "to": "the airport"}, open_links))
+    links, compare_id = sent[0]
+    assert compare_id and [l["label"].split()[0] for l in links] == ["Uber", "Lyft"] and "don't guess" in out
+    mem = r.memory
+    assert rides.take_screen(mem, {"compare": compare_id, "app": "Uber", "nodes": UBER_SCREEN}) == (None, [])
+    assert rides.take_screen(mem, {"compare": "old", "app": "Lyft", "nodes": LYFT_SCREEN, "last": True}) == (None, [])
+    say, shown = rides.take_screen(mem, {"compare": compare_id, "app": "Lyft", "nodes": LYFT_SCREEN, "last": True})
+    assert say == ("Lyft is cheaper by 1.50: Lyft at $21.90, 6 min away. Uber's cheapest is UberX at $23.40, "
+                   "4 min away. Want me to open Lyft?")
+    assert [c["title"] for c in shown] == ["Lyft to Miami International Airport", "Uber to Miami International Airport"]
+    assert shown[1]["rows"][1] == {"label": "Comfort", "value": "$29.10 · 3 min"} and shown[0]["app_url"].startswith("lyft:")
+    assert '"Lyft XL"' in asyncio.run(rides.run_ride_tool(r, {"action": "prices"}, None))
+
+
+def test_compare_explains_a_missed_app_and_a_switched_off_reader():
+    r = make()
+    sent = []
+
+    async def open_links(links, compare=""):
+        sent.append(compare)
+    asyncio.run(rides.run_ride_tool(r, {"action": "compare", "to": "MIA"}, open_links))
+    rides.take_screen(r.memory, {"compare": sent[0], "app": "Uber", "nodes": UBER_SCREEN})
+    say, _ = rides.take_screen(r.memory, {"compare": sent[0], "app": "Lyft", "nodes": [], "last": True})
+    assert say == "Uber's cheapest is UberX at $23.40, 4 min away. I couldn't read Lyft's prices."
+    say, _ = rides.take_screen(r.memory, {"compare": sent[0], "error": "reader_off", "last": True})
+    assert "Accessibility" in say

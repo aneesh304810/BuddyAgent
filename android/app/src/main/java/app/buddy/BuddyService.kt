@@ -436,7 +436,16 @@ class BuddyService : Service() {
                 pendingMode = if (event.mode == "listen") Mode.LISTEN_IN else Mode.TALK
                 if (!mouth.speaking && !replyOpen) applyPendingMode()
             }
-            is ServerEvent.OpenLinks -> Links.open(this, event.links)
+            is ServerEvent.OpenLinks -> when {
+                event.compare.isEmpty() -> Links.open(this, event.links)
+                // "Compare Uber and Lyft": read both apps' prices (needs the reader on and the phone unlocked).
+                RideReader.compare(event.links, event.compare) -> Unit
+                else -> {
+                    PhoneBridge.send(JSONObject().put("type", "ride_screen").put("compare", event.compare)
+                        .put("error", "reader_off").put("last", true))
+                    Links.open(this, event.links)
+                }
+            }
             is ServerEvent.Approval -> {
                 BuddyState.update { it.copy(approval = event.question) }
                 Notes.approval(this, event.question)
