@@ -69,21 +69,21 @@ class ServerEars(
     }
 
     @SuppressLint("MissingPermission") // the service only starts after the microphone is allowed
+    private fun newRecorder(minBuffer: Int) = AudioRecord(
+        if (earbudMic()) MediaRecorder.AudioSource.VOICE_COMMUNICATION else MediaRecorder.AudioSource.VOICE_RECOGNITION,
+        RATE, AudioFormat.CHANNEL_IN_MONO, AudioFormat.ENCODING_PCM_16BIT, max(minBuffer, RATE),
+    )
+
+    @SuppressLint("MissingPermission") // the service only starts after the microphone is allowed
     private fun record() {
         val minBuffer = AudioRecord.getMinBufferSize(RATE, AudioFormat.CHANNEL_IN_MONO, AudioFormat.ENCODING_PCM_16BIT)
-        val recorder = runCatching {
-            AudioRecord(
-                if (earbudMic()) MediaRecorder.AudioSource.VOICE_COMMUNICATION
-                else MediaRecorder.AudioSource.VOICE_RECOGNITION,
-                RATE,
-                AudioFormat.CHANNEL_IN_MONO, AudioFormat.ENCODING_PCM_16BIT, max(minBuffer, RATE),
-            )
-        }.getOrNull()
+        var recorder: AudioRecord? = runCatching { newRecorder(minBuffer) }.getOrNull()
         if (recorder == null || recorder.state != AudioRecord.STATE_INITIALIZED) {
             main.post { onProblem("Couldn't open the microphone."); stop() }
             return
         }
         recorder.startRecording()
+        var micErrors = 0
         val frame = ShortArray(FRAME)
         val preRoll = ArrayDeque<ByteArray>()
         val utterance = ByteArrayOutputStream()
@@ -93,8 +93,29 @@ class ServerEars(
         var speechMs = 0
         try {
             while (active) {
-                val n = recorder.read(frame, 0, frame.size)
-                if (n <= 0) continue
+                val n = recorder?.read(frame, 0, frame.size) ?: AudioRecord.ERROR_DEAD_OBJECT
+                if (n < 0) {
+                    // Another app or a call has the microphone (Android gives it to one app at a time):
+                    // don't spin; wait, say so once, and reopen it when it's lost for good.
+                    micErrors++
+                    if (micErrors == 15) main.post { onProblem("The microphone is busy (a call or another app " +
+                        "is using it). I'll keep trying.") }
+                    Thread.sleep(200)
+                    if (n == AudioRecord.ERROR_DEAD_OBJECT && micErrors % 10 == 0) {
+                        runCatching { recorder?.release() }
+                        recorder = runCatching { newRecorder(minBuffer) }.getOrNull()
+                            ?.takeIf { it.state == AudioRecord.STATE_INITIALIZED }?.also { it.startRecording() }
+                        if (recorder == null) {  // not free yet: keep the loop alive and try again later
+                            Thread.sleep(1_000)
+                            recorder = runCatching { newRecorder(minBuffer).also { it.startRecording() } }.getOrNull()
+                            if (recorder == null) continue
+                        }
+                    }
+                    continue
+                }
+                if (micErrors >= 15) main.post { onProblem("The microphone is back.") }
+                micErrors = 0
+                if (n == 0) continue
                 if (paused()) {  // drop what we hear while Buddy itself is talking
                     speaking = false; utterance.reset(); preRoll.clear()
                     continue
@@ -129,8 +150,8 @@ class ServerEars(
                 }
             }
         } finally {
-            runCatching { recorder.stop() }
-            recorder.release()
+            runCatching { recorder?.stop() }
+            recorder?.release()
         }
     }
 
