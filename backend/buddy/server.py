@@ -59,6 +59,8 @@ from .jobs import JobRunner
 from .memory import Memory
 from .connectors import ConnectorHub
 from .connectors.phone import NotificationsConnector, PhoneCalendarConnector, should_announce
+from .money import Money
+from .rides import RideFollower
 from .privacy import SecretFilter, mask
 from .bankfeed import BankFeed
 from .builder import AgentBuilder
@@ -172,6 +174,14 @@ async def deliver(kind: str, text: str, **extra) -> bool:
             await ws.send_json(message)
             convo.note_proactive(text)
     return True
+
+
+def _ride_fare(app: str, fare: float, currency: str) -> None:
+    """A finished ride's fare goes into spending, unless the email receipt already put it there."""
+    money = Money(memory)
+    if hub.is_enabled("email"):
+        return  # the receipt email is read for money anyway: don't count the ride twice
+    money.add_transaction(fare, currency, app, "transport", source=f"ride:{app}:{int(time.time() // 600)}")
 
 
 async def job_finished(job: dict) -> bool:
@@ -789,7 +799,11 @@ async def talk(ws: WebSocket) -> None:
                     asyncio.create_task(room_or_buddy(text, str(msg.get("lang", ""))))
             elif msg.get("type") == "notification":
                 added = hub.ingest("notifications", [NotificationsConnector.to_record(msg)])
-                if added and should_announce(msg):
+                if RideFollower.is_ride(msg):  # Uber / Lyft: follow the trip, say what matters
+                    say, card = RideFollower(memory, record_fare=_ride_fare).update(msg)
+                    if say:  # the moments that matter; the rest is there for "where's my Uber?"
+                        await deliver("ride", say, cards=[card] if card else [])
+                elif added and should_announce(msg):
                     who = str(msg.get("title", "")).strip()
                     said = mask(str(msg.get("text", "")).strip())[:200]
                     app_name = str(msg.get("app_name") or "a notification")

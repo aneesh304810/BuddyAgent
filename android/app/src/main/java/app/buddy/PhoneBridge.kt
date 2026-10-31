@@ -120,10 +120,12 @@ class BuddyNotificationListener : NotificationListenerService() {
     override fun onNotificationPosted(sbn: StatusBarNotification) {
         val n = sbn.notification ?: return
         if (sbn.packageName == packageName || sbn.packageName in IGNORED) return
-        if (n.flags and Notification.FLAG_ONGOING_EVENT != 0) return
+        // Uber and Lyft show a trip as an ongoing notification (driver, car, minutes away): Buddy follows it.
+        val ride = sbn.packageName in RIDE_APPS
+        if (!ride && n.flags and Notification.FLAG_ONGOING_EVENT != 0) return
         if (n.flags and Notification.FLAG_GROUP_SUMMARY != 0) return
         val category = n.category
-        if (category != null && category in SKIPPED_CATEGORIES) return
+        if (!ride && category != null && category in SKIPPED_CATEGORIES) return
 
         val extras = n.extras
         val title = extras.getCharSequence(Notification.EXTRA_TITLE)?.toString().orEmpty()
@@ -155,6 +157,7 @@ class BuddyNotificationListener : NotificationListenerService() {
     }.getOrDefault(pkg)
 
     companion object {
+        private val RIDE_APPS = setOf("com.ubercab", "me.lyft.android")
         private val IGNORED = setOf("android", "com.android.systemui", "com.samsung.android.app.routines")
         private val SKIPPED_CATEGORIES = setOf(
             Notification.CATEGORY_TRANSPORT, Notification.CATEGORY_PROGRESS,
@@ -162,6 +165,8 @@ class BuddyNotificationListener : NotificationListenerService() {
         )
         private val KNOWN_APPS = mapOf(
             "com.microsoft.teams" to "Teams",
+            "com.ubercab" to "Uber",
+            "me.lyft.android" to "Lyft",
             "com.microsoft.office.outlook" to "Outlook",
             "com.whatsapp" to "WhatsApp",
             "com.google.android.gm" to "Gmail",

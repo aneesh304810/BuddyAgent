@@ -123,9 +123,11 @@ RIDE_TOOL = {
     "see prices or book: the user sees the real price in the app and taps Confirm. app 'both' = compare: Uber "
     "opens first, and Lyft opens when they come back to Buddy. For a ride later (Reserve), open it and tell them "
     "to tap the schedule (clock) option, or offer a reminder before the time. save_place keeps 'home', 'work' "
-    "and the like; places lists them.",
+    "and the like; places lists them. status: where the booked ride is (driver, car, plate, minutes away), \
+"
+    "from the Uber / Lyft notifications on the phone.",
     "input_schema": {"type": "object", "properties": {
-        "action": {"type": "string", "enum": ["open", "save_place", "places"]},
+        "action": {"type": "string", "enum": ["open", "status", "save_place", "places"]},
         "app": {"type": "string", "enum": ["uber", "lyft", "both"]},
         "to": {"type": "string", "description": "Drop-off, or the address to save"},
         "from": {"type": "string", "description": "Pickup, only if not where they are now"},
@@ -141,6 +143,13 @@ async def run_ride_tool(rides: Rides, args: dict, open_links) -> str:
     import asyncio
 
     action = args.get("action")
+    if action == "status":
+        ride = RideFollower(rides.memory).active()
+        if not ride:
+            return ("No ride in progress that I can see. I follow rides through the Uber and Lyft notifications, "
+                    "so Buddy needs Notification access (Settings) and the app's notifications on.")
+        return describe(ride) + " " + json.dumps({k: v for k, v in ride.items() if k in (
+            "app", "stage", "driver", "car", "plate", "eta_min", "fare", "currency")})
     if action == "places":
         places = rides.saved()
         return json.dumps({k: v["address"] or v["name"] for k, v in places.items()}) if places else \
@@ -177,3 +186,161 @@ async def run_ride_tool(rides: Rides, args: dict, open_links) -> str:
             f"{pickup['name'] if pickup else 'their current location'}.{then} If the screen is off, it waits as a "
             "notification. They see the price in the app and tap Confirm; you haven't booked anything. Check the "
             "drop-off is the right place.")
+
+
+# --- following a booked ride through Uber's and Lyft's own notifications --------------------
+# Neither app lets others see a trip, but both post notifications as it goes: driver found (name,
+# car, plate, minutes away), arriving, here, on the trip, done (fare). Buddy reads those (with the
+# user's Notification access), keeps the latest state, and speaks the moments that matter.
+
+RIDE_APPS = {"com.ubercab": "Uber", "me.lyft.android": "Lyft"}
+ACTIVE_KEY = "rides:active"
+STAGES = ("searching", "driver_found", "arriving", "arrived", "on_trip", "finished", "cancelled")
+SPOKEN = {"driver_found", "arriving", "arrived", "finished", "cancelled"}
+_STAGE_RULES = [  # first match wins
+    ("cancelled", r"\bcancel"),
+    ("finished", r"thanks for riding|trip (?:is )?(?:complete|ended|finished)|you(?:'ve| have) arrived|rate your "
+                 r"(?:trip|ride|driver)|receipt|how was your (?:trip|ride)|tip your driver|your (?:trip|ride) total"),
+    ("searching", r"looking for|finding (?:you )?a|matching you|connecting you|requesting"),
+    ("on_trip", r"heading to|on (?:your|the) (?:way|trip) to|en route to|arriving at \d|drop-?off at|you'll arrive|"
+                r"\beta\b.*\d{1,2}:\d{2}|trip in progress|enjoy your (?:trip|ride)"),
+    ("arrived", r"\b(?:has|is) (?:arrived|here)\b|driver is here|\bis outside\b|waiting (?:for you|outside)|"
+                r"meet (?:\w+ )?at (?:the )?pickup|at (?:the )?pickup"),
+    ("arriving", r"arriving (?:now|soon|in [1-2] min)|almost there|\b[1-2] min(?:ute)?s? away|about to arrive"),
+    ("driver_found", r"on (?:the|his|her|their) way|is coming|accepted|confirmed|will (?:arrive|pick you up)|"
+                     r"\d+ min(?:ute)?s? away|driver found|matched with"),
+]
+_COLOURS = r"(?i:white|black|silver|gr[ae]y|blue|red|green|gold|beige|brown|maroon|orange|yellow)"
+
+
+def _plate(segment: str) -> bool:
+    s = segment.replace(" ", "").replace("-", "")
+    return 4 <= len(s) <= 8 and s.isalnum() and s.upper() == s and any(c.isdigit() for c in s) \
+        and any(c.isalpha() for c in s)
+
+
+def parse_ride_notification(title: str, text: str) -> dict:
+    """What one Uber / Lyft notification says: stage, and any of driver, car, plate, eta_min, fare, currency."""
+    import re
+
+    both = f"{title} . {text}"
+    low = both.lower()
+    out: dict = {"stage": next((stage for stage, rule in _STAGE_RULES if re.search(rule, low)), "")}
+    if m := re.search(r"(\d{1,2})\s*min", low):
+        out["eta_min"] = int(m.group(1))
+    for seg in re.split(r"\s*[·•|•(),]\s*|\s+-\s+", both):
+        seg = seg.strip(" .")
+        if not out.get("plate") and _plate(seg):
+            out["plate"] = seg
+    if m := re.search(rf"(?:in an? |driving an? )?\b({_COLOURS}\s+)?([A-Z][a-z]+(?:-[A-Z][a-z]+)? [A-Z0-9][\w-]+)"
+                      r"(?=\s*[·•|(•]|\s*$| with plate| \()", both):
+        candidate = (m.group(1) or "") + m.group(2)
+        if not re.match(r"(?:Your|Meet|Thanks|Rate|Heading|Arriving|Driver)\b", m.group(2)):
+            out["car"] = candidate.strip()
+    if m := re.search(r"(?:your driver,? |meet |driver )([A-Z][a-z]+)\b|^([A-Z][a-z]+) (?:is|has|will)\b", both):
+        name = m.group(1) or m.group(2)
+        if name not in ("Your", "The", "Uber", "Lyft", "Driver"):
+            out["driver"] = name
+    if out["stage"] == "finished" and (m := re.search(r"(R\$|S/|US\$|[$€£₹])\s?(\d{1,4}(?:[.,]\d{2})?)", both)):
+        out["fare"] = float(m.group(2).replace(",", "."))
+        out["currency"] = {"$": "USD", "US$": "USD", "R$": "BRL", "S/": "PEN", "€": "EUR", "£": "GBP",
+                           "₹": "INR"}[m.group(1)]
+    return out
+
+
+class RideFollower:
+    """The latest state of the user's booked ride, from the ride apps' notifications."""
+
+    def __init__(self, memory: Memory, record_fare=None):
+        self.memory = memory
+        self.record_fare = record_fare  # (app, fare, currency) -> None: into spending
+
+    @staticmethod
+    def is_ride(msg: dict) -> bool:
+        return str(msg.get("app", "")) in RIDE_APPS
+
+    def active(self) -> dict | None:
+        try:
+            ride = json.loads(self.memory.get(ACTIVE_KEY) or "null")
+        except json.JSONDecodeError:
+            return None
+        if not ride:
+            return None
+        import time
+
+        done = ride.get("stage") in ("finished", "cancelled")
+        return ride if time.time() - ride.get("updated", 0) < (20 * 60 if done else 3 * 3600) else None
+
+    def update(self, msg: dict) -> tuple[str | None, dict | None]:
+        """(what to say or None, status card or None) for one ride-app notification."""
+        import time
+
+        app = RIDE_APPS[str(msg["app"])]
+        seen = parse_ride_notification(str(msg.get("title", "")), str(msg.get("text", "")))
+        stage = seen.pop("stage")
+        ride = self.active()
+        if ride and (ride["app"] != app or ride["stage"] in ("finished", "cancelled")):
+            ride = None if stage in ("searching", "driver_found") else ride  # a new trip
+        if not stage and not ride:
+            return None, None  # a promotion or anything else from the app
+        ride = ride or {"app": app, "stage": "", "started": time.time()}
+        before = ride["stage"]
+        # Notifications can arrive out of order: never step back (except a new search after a cancel).
+        if stage and (not before or STAGES.index(stage) >= STAGES.index(before)):
+            ride["stage"] = stage
+        ride.update({k: v for k, v in seen.items() if v not in (None, "")})
+        ride["updated"] = time.time()
+        if ride["stage"] in ("arrived", "finished", "cancelled") or (ride["stage"] == "on_trip" and "eta_min" not in seen):
+            ride.pop("eta_min", None)  # minutes to the pickup mean nothing now
+        self.memory.set(ACTIVE_KEY, json.dumps(ride))
+        changed = ride["stage"] != before
+        if ride["stage"] == "finished" and ride.get("fare") and not ride.get("fare_noted") and self.record_fare:
+            ride["fare_noted"] = True  # the receipt often comes a minute after "trip done"
+            self.memory.set(ACTIVE_KEY, json.dumps(ride))
+            self.record_fare(app, ride["fare"], ride.get("currency", "USD"))
+            if not changed:
+                return f"{app} trip: {ride['fare']:.2f} {ride.get('currency', '')}.".replace(" .", "."), status_card(ride)
+        say = describe(ride) if changed and ride["stage"] in SPOKEN else None
+        return say, (status_card(ride) if changed or seen else None)
+
+
+def _car_bits(ride: dict) -> str:
+    return ", ".join(x for x in (ride.get("car"), _spell_plate(ride.get("plate", ""))) if x)
+
+
+def _spell_plate(plate: str) -> str:
+    return f"plate {plate}" if plate else ""
+
+
+def describe(ride: dict) -> str:
+    app, stage = ride["app"], ride["stage"]
+    car = _car_bits(ride)
+    eta = f", {ride['eta_min']} minute{'s' if ride['eta_min'] != 1 else ''} away" if ride.get("eta_min") else ""
+    if stage == "driver_found":
+        who = ride.get("driver", "")
+        return f"Your {app}'s on the way" + (f": {who}" if who else "") + (f", {car}" if car else "") + f"{eta}."
+    if stage == "arriving":
+        return f"Your {app} is almost there{eta}" + (f": {car}." if car else ".")
+    if stage == "arrived":
+        return f"Your {app} is here" + (f": {car}." if car else ".")
+    if stage == "finished":
+        fare = f": {ride['fare']:.2f} {ride.get('currency', '')}".rstrip() if ride.get("fare") else ""
+        return f"{app} trip done{fare}."
+    if stage == "cancelled":
+        return f"Your {app} was cancelled."
+    if stage == "on_trip":
+        return f"On your {app} trip" + (f", about {ride['eta_min']} minutes to go." if ride.get("eta_min") else ".")
+    return f"Looking for your {app}."
+
+
+LABELS = {"searching": "finding a driver", "driver_found": "driver on the way", "arriving": "almost there",
+          "arrived": "driver is here", "on_trip": "on the trip", "finished": "trip done", "cancelled": "cancelled"}
+
+
+def status_card(ride: dict) -> dict:
+    eta = f"{ride['eta_min']} min away" if ride.get("eta_min") and ride["stage"] in ("driver_found", "arriving") \
+        else (f"about {ride['eta_min']} min to go" if ride.get("eta_min") and ride["stage"] == "on_trip" else "")
+    fare = f"{ride['fare']:.2f} {ride.get('currency', '')}".strip() if ride.get("fare") else ""
+    return {"kind": "ride_status", "title": f"{ride['app']} · {LABELS.get(ride['stage'], 'ride')}",
+            "subtitle": " · ".join(x for x in (ride.get("driver"), ride.get("car"), ride.get("plate")) if x),
+            "price": fare, "text": eta}

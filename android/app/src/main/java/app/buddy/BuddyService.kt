@@ -444,7 +444,7 @@ class BuddyService : Service() {
             is ServerEvent.Nudge -> {
                 BuddyState.add(Line(event.text, Speaker.NUDGE, event.jobId, opensInsights = event.kind == "health",
                     kind = event.kind, cards = event.cards))
-                Notes.nudge(this, event.text, event.jobId)
+                if (event.kind != "ride") Notes.nudge(this, event.text, event.jobId)  // Uber / Lyft show their own
                 if (!BuddyState.ui.value.onCall) mouth.speak(event.text)
             }
             is ServerEvent.Whisper -> {

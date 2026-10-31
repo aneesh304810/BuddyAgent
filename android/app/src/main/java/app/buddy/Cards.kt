@@ -66,7 +66,7 @@ private fun kindIcon(kind: String): String = when (kind) {
     "reddit" -> "💬"
     "image" -> "\uD83D\uDDBC\uFE0F"
     "file" -> "\uD83D\uDCC4"
-    "ride" -> "\uD83D\uDE95"  // taxi
+    "ride", "ride_status" -> "\uD83D\uDE95"  // taxi
     else -> "🔗"         // link
 }
 

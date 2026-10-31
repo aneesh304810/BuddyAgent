@@ -93,3 +93,42 @@ def test_openstreetmap_when_google_finds_nothing_and_clear_errors():
         run(make(Social([])), {"action": "open", "app": "uber", "to": "Nowhere"})
     with pytest.raises(ToolError, match="isn't connected"):
         asyncio.run(rides.run_ride_tool(make(), {"action": "open", "to": "MIA"}, None))
+
+
+def note(app, title, text):
+    return {"app": app, "title": title, "text": text}
+
+
+def test_a_ride_is_followed_through_its_notifications():
+    fares = []
+    f = rides.RideFollower(Memory(":memory:"), record_fare=lambda *a: fares.append(a))
+    uber = "com.ubercab"
+    assert f.update(note(uber, "Looking for a driver", "Finding you a ride"))[0] is None  # not spoken
+    say, card = f.update(note(uber, "Carlos is on the way", "Toyota Camry · ABC1234 · 4 min away"))
+    assert say == "Your Uber's on the way: Carlos, Toyota Camry, plate ABC1234, 4 minutes away."
+    assert card["title"] == "Uber · driver on the way" and card["subtitle"] == "Carlos · Toyota Camry · ABC1234"
+    assert f.update(note(uber, "Carlos is on the way", "Toyota Camry · ABC1234 · 3 min away"))[0] is None  # same stage
+    assert f.active()["eta_min"] == 3
+    say, _ = f.update(note(uber, "Carlos has arrived", "Meet Carlos at pickup"))
+    assert say == "Your Uber is here: Toyota Camry, plate ABC1234."
+    f.update(note(uber, "Carlos is on the way", "2 min away"))  # late and out of order: no step back
+    assert f.active()["stage"] == "arrived"
+    assert f.update(note(uber, "Heading to Miami International Airport", "Arriving at 6:42 PM"))[0] is None
+    say, card = f.update(note(uber, "Thanks for riding, Aneesh", "Your trip total was $23.45"))
+    assert say == "Uber trip done: 23.45 USD." and card["price"] == "23.45 USD"
+    assert fares == [("Uber", 23.45, "USD")]
+    f.update(note(uber, "Rate your trip", "Your receipt: $23.45"))
+    assert len(fares) == 1  # counted once
+
+
+def test_promotions_are_ignored_and_status_explains_itself():
+    mem = Memory(":memory:")
+    f = rides.RideFollower(mem)
+    assert f.update(note("me.lyft.android", "50% off your next 3 rides", "Use code RIDE50")) == (None, None)
+    assert "Notification access" in asyncio.run(rides.run_ride_tool(rides.Rides(mem, Social(), Here()),
+                                                                    {"action": "status"}, None))
+    say, _ = f.update(note("me.lyft.android", "Lyft", "Your driver Maria is 5 min away in a silver Honda Civic (7XYZ123)"))
+    assert say == "Your Lyft's on the way: Maria, silver Honda Civic, plate 7XYZ123, 5 minutes away."
+    out = asyncio.run(rides.run_ride_tool(rides.Rides(mem, Social(), Here()), {"action": "status"}, None))
+    assert out.startswith("Your Lyft's on the way") and '"plate": "7XYZ123"' in out
+    assert not rides.RideFollower.is_ride({"app": "com.ubercab.eats"})
