@@ -476,7 +476,13 @@ class BuddyService : Service() {
 
     /** Something you said or typed, for Buddy. via "room": heard through Listen-in ("Hey Buddy, ..."),
      *  where anyone nearby could have said it, so the server won't take it as an approval. */
+    private var lastSaid = "" to 0L
+
     fun sayToBuddy(text: String, via: String = "user") {
+        // The same words twice within 3 s (two recognisers, or one clip heard twice): show and send once.
+        val now = android.os.SystemClock.elapsedRealtime()
+        if (text.trim().equals(lastSaid.first, ignoreCase = true) && now - lastSaid.second < 3_000) return
+        lastSaid = text.trim() to now
         if (via != "room") answeringRoom = false
         if (BuddyState.ui.value.approval != null) {  // any answer settles the question
             BuddyState.update { it.copy(approval = null) }

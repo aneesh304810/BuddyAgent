@@ -33,12 +33,30 @@ def test_too_little_speech_to_enrol():
     assert not result["ok"] and not voiceprint.on(mem)
 
 
-def test_short_clips_pass_only_right_after_buddy_spoke():
+def test_very_short_clips_pass_only_right_after_buddy_spoke():
     mem = Memory(":memory:")
     voiceprint.enroll(mem, [SECOND * 3] * 5, embedder=ME)
-    half = b"\x01\x00" * 8000
-    assert voiceprint.check(mem, half, since_buddy_spoke=5, embedder=OTHER)[0] == "you"  # "thanks" after a reply
-    assert voiceprint.check(mem, half, since_buddy_spoke=120, embedder=ME)[0] == "short"  # out of the blue: quiet
+    tiny = b"\x01\x00" * 4000  # a quarter of a second of speech
+    keep = lambda pcm: pcm  # noqa: E731  (no silence to cut in these clips)
+    assert voiceprint.check(mem, tiny, since_buddy_spoke=5, embedder=OTHER, trim=keep)[0] == "you"  # "ok" after a reply
+    assert voiceprint.check(mem, tiny, since_buddy_spoke=120, embedder=ME, trim=keep)[0] == "short"  # out of the blue
+
+
+def test_a_lone_buddy_is_judged_on_its_speech_with_a_stricter_bar():
+    mem = Memory(":memory:")
+    voiceprint.enroll(mem, [SECOND * 3] * 5, embedder=ME)
+    clip = b"\x00\x00" * 16000 + b"\x01\x00" * 9600  # silence, then 0.6 s of "Buddy"
+    only_speech = lambda pcm: pcm[32000:]  # noqa: E731
+    seen = []
+    def embed(pcm):
+        seen.append(len(pcm))
+        return ME(pcm)
+    who, score = voiceprint.check(mem, clip, since_buddy_spoke=999, embedder=embed, trim=only_speech)
+    assert who == "you" and seen == [19200]  # judged on the 0.6 s of speech, not the silence
+    near = voice(1.0, 1.6, 0.0)  # scores about 0.61: enough for a long clip, not for a short one
+    assert voiceprint.check(mem, clip, 999, embedder=near, trim=only_speech)[0] == "not_you"
+    long_clip = b"\x01\x00" * 32000
+    assert voiceprint.check(mem, long_clip, 999, embedder=near, trim=lambda pcm: pcm)[0] == "you"
 
 
 def test_that_was_me_and_forget():

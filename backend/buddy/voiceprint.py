@@ -34,7 +34,9 @@ MODEL_URL = ("https://github.com/k2-fsa/sherpa-onnx/releases/download/speaker-re
 # Cosine similarity: you at or above this. Through the Shokz headset the user's own clips scored
 # 0.70-0.87; clips that weren't the user came in at 0.39-0.50.
 THRESHOLD = float(os.getenv("BUDDY_VOICE_THRESHOLD", "0.55"))
-MIN_SECONDS = 1.0  # shorter clips can't be judged reliably
+MIN_SECONDS = 1.0  # enrolment clips need at least this much speech
+SHORT_SECONDS = 0.4  # less speech than this can't be judged: only right after Buddy spoke
+SHORT_MARGIN = 0.1  # 0.4-1 s of speech ("Buddy"): judged, with a slightly stricter bar
 FOLLOW_UP_SECONDS = 20  # after Buddy spoke, a short "yes" or "thanks" is let through
 ENROLL_SENTENCES = [
     "Hey Buddy, what's the weather like in Kochi this weekend?",
@@ -134,18 +136,30 @@ def enroll(memory: Memory, clips: list[bytes], embedder=embed) -> dict:
     return {"ok": True, "used": len(good), "of": len(vectors), "consistency": round(consistency, 2)}
 
 
-def check(memory: Memory, pcm: bytes, since_buddy_spoke: float, embedder=embed) -> tuple[str, float | None]:
-    """('you' | 'not_you' | 'short', score) for a Talk clip. 'short': too short to judge, so accepted
-    only within the follow-up window. Matches nudge the voiceprint towards how the user sounds now."""
+def _speech(pcm: bytes) -> bytes:
+    from .whisper import speech_only
+
+    trimmed = speech_only(pcm)
+    return pcm if trimmed is None else trimmed
+
+
+def check(memory: Memory, pcm: bytes, since_buddy_spoke: float, embedder=embed,
+          trim=_speech) -> tuple[str, float | None]:
+    """('you' | 'not_you' | 'short', score) for a Talk clip, judged on its speech only (silence cut
+    away). Under 0.4 s of speech: too short to judge, accepted only within the follow-up window; 0.4-1 s
+    (a lone "Buddy"): judged with a slightly stricter bar. Matches nudge the voiceprint."""
     global _last_ignored
     print_ = stored(memory)
     if not print_:
         return "you", None
-    if len(pcm) < SAMPLE_RATE * 2 * MIN_SECONDS:
+    speech = trim(pcm)
+    seconds = len(speech) / (SAMPLE_RATE * 2)
+    if seconds < SHORT_SECONDS:
         return ("you" if since_buddy_spoke <= FOLLOW_UP_SECONDS else "short"), None
-    vector = embedder(pcm)
+    vector = embedder(speech)
     score = similarity(vector, print_["vector"])
-    if score >= THRESHOLD:
+    bar = THRESHOLD + (SHORT_MARGIN if seconds < MIN_SECONDS else 0.0)
+    if score >= bar:
         if score >= THRESHOLD + 0.15 and print_["samples"] < 200:  # clearly you: learn a little
             n = print_["samples"]
             _save(memory, [(a * n + b) / (n + 1) for a, b in zip(print_["vector"], vector)], n + 1)

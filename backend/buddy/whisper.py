@@ -241,6 +241,22 @@ def has_speech(pcm: bytes, min_ms: int = 300) -> bool | None:
     return sum(c["end"] - c["start"] for c in found) >= SAMPLE_RATE * min_ms / 1000
 
 
+def speech_only(pcm: bytes) -> bytes | None:
+    """Just the speech in a clip (the silence before and after cut away), or None if the speech
+    detector isn't installed. For voice match: a short 'Buddy' in a clip that's mostly silence."""
+    try:
+        import numpy as np
+        from faster_whisper.vad import VadOptions, get_speech_timestamps
+    except ImportError:
+        return None
+    samples = np.frombuffer(pcm[: SAMPLE_RATE * 2 * MAX_SECONDS], dtype=np.int16)
+    try:
+        found = get_speech_timestamps(samples.astype(np.float32) / 32768.0, VadOptions(min_speech_duration_ms=150))
+    except Exception:
+        return None
+    return b"".join(samples[c["start"]:c["end"]].tobytes() for c in found)
+
+
 def groq_cost(audio_seconds: float) -> float:
     """$0 on Groq's free tier; with BUDDY_GROQ_PAID=1, the paid rate (at least 10 s a request)."""
     if os.getenv("BUDDY_GROQ_PAID", "") != "1":

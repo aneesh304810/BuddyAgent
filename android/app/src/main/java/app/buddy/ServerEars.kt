@@ -217,7 +217,7 @@ class ServerEars(
         const val FRAME = SileroVad.FRAME  // 512 samples: the speech model's frame
         const val FRAME_MS = FRAME * 1000 / RATE  // 32 ms
         const val PRE_ROLL_FRAMES = 10        // 320 ms before the first speech frame
-        const val MIN_SPEECH_MS = 400
+        const val MIN_SPEECH_MS = 300  // a quick "Buddy" is about this long
         const val MAX_UTTERANCE_MS = 15_000
     }
 }
