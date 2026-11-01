@@ -237,3 +237,44 @@ def test_piping_downloads_into_a_shell_is_refused(sbx):
         with pytest.raises(sbx.Refused, match="piping a download"):
             sbx.handle({"op": "run", "workspace": "app", "command": cmd})
     sbx.handle({"op": "run", "workspace": "app", "command": "curl -o data.csv https://x.example/data.csv"})
+
+
+def test_tools_are_published_to_the_tools_repo_on_a_buddy_branch(sbx, tmp_path, monkeypatch):
+    lib = tmp_path / "library"
+    for name in ("bills-due", "free-slots"):
+        (lib / "skills" / name).mkdir(parents=True)
+        (lib / "skills" / name / "SKILL.md").write_text(f"---\nname: {name}\n---\n")
+    monkeypatch.setattr(sbx, "LIBRARY", lib)
+    monkeypatch.setattr(sbx, "TOKEN", "github_pat_SECRET")
+    monkeypatch.setattr(sbx, "TOOLS_REPO", "https://github.com/owner-sandbox/Sandbox")
+    ran = []
+
+    def fake_run(args, timeout, stdin=None):
+        ran.append(" ".join(args))
+        if "remote.origin.url" in args:
+            return {"exit_code": 0, "output": "https://github.com/owner-sandbox/Sandbox.git"}
+        if any("clone" in a for a in args):  # a real clone leaves a .git folder
+            for ws in sbx.ROOT.iterdir():
+                (ws / ".git").mkdir(exist_ok=True)
+                (ws / ".git" / "config").write_text("[core]\n")
+        return {"exit_code": 0, "output": "ok"}
+    monkeypatch.setattr(sbx, "_run", fake_run)
+    copied = {}
+    real_rmtree = sbx.shutil.rmtree
+
+    def watch_rmtree(path, ignore_errors=False):  # see what was in the workspace before it's deleted
+        if path.parent == sbx.ROOT:
+            copied.update({str(f.relative_to(path)): True for f in path.rglob("*") if f.is_file()})
+        real_rmtree(path, ignore_errors=ignore_errors)
+    monkeypatch.setattr(sbx.shutil, "rmtree", watch_rmtree)
+    out = sbx.handle({"op": "publish_tools", "source": "library", "names": "all"})
+    assert out["tools"] == ["bills-due", "free-slots"] and out["branch"].startswith("buddy/tools-built-in-")
+    assert out["url"].startswith("https://github.com/owner-sandbox/Sandbox/tree/buddy/")
+    assert "tools/built-in/bills-due/SKILL.md" in copied and "README.md" in copied
+    assert any("clone" in r for r in ran) and any("push" in r for r in ran)
+    assert not list(sbx.ROOT.iterdir())  # the throwaway workspace is gone
+    with pytest.raises(sbx.Refused, match="no such tool"):
+        sbx.handle({"op": "publish_tools", "source": "library", "names": ["nope"]})
+    monkeypatch.setattr(sbx, "TOKEN", "")
+    with pytest.raises(sbx.Refused, match="token"):
+        sbx.handle({"op": "publish_tools", "source": "library"})

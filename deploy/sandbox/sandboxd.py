@@ -36,9 +36,11 @@ import asyncio
 import json
 import os
 import re
+import secrets
 import shutil
 import subprocess
 import sys
+import time
 from pathlib import Path
 
 ROOT = Path(os.getenv("SANDBOX_ROOT", "/var/lib/buddy-sandbox/ws"))
@@ -46,6 +48,9 @@ SOCKET = os.getenv("SANDBOX_SOCKET", "/run/buddy-sandbox/sandbox.sock")
 IMAGE = os.getenv("SANDBOX_IMAGE", "buddy-sandbox:latest")
 NETWORK = os.getenv("SANDBOX_NETWORK", "buddy-sandbox")
 TOKEN = os.getenv("SANDBOX_GITHUB_TOKEN", "")
+# The library of every tool on GitHub: built-in ones (publish_tools) and each one Buddy saves
+# (save_skill) arrive there as buddy/... branches for the owner to merge. Empty = off.
+TOOLS_REPO = os.getenv("SANDBOX_TOOLS_REPO", "https://github.com/aneeshnair304810-buddy-sandbix/Sandbox")
 MAX_WORKSPACES = int(os.getenv("SANDBOX_MAX_WORKSPACES", "10"))
 MAX_WORKSPACE_MB = int(os.getenv("SANDBOX_MAX_WORKSPACE_MB", "4000"))
 MAX_TIMEOUT = 1800
@@ -224,11 +229,69 @@ def save_skill(ws: Path, req: dict) -> dict:
     shutil.rmtree(dest, ignore_errors=True)
     staging.rename(dest)
     _audit(ws.name, f"saved tool {name}")
-    return {"ok": True, "saved": name, "test_output": test["output"][-500:]}
+    result = {"ok": True, "saved": name, "test_output": test["output"][-500:]}
+    if TOOLS_REPO and TOKEN and req.get("publish", True):  # also to the tools library on GitHub, for review
+        try:
+            result["published"] = publish_tools([name], "custom")
+        except Exception as e:  # saved either way; say why it isn't on GitHub
+            result["publish_error"] = str(e)[:300]
+    return result
+
+
+TOOLS_README = """# Buddy's tools
+
+Data tools Buddy runs in its code sandbox (offline scripts that print a small JSON result).
+
+- `tools/built-in/`: the tools that ship with Buddy (from the BuddyAgent repo, deploy/sandbox/skills)
+- `tools/buddy-made/`: tools Buddy wrote during tasks, tested and saved
+
+Each folder has a SKILL.md (what it does, how it's run and tested) and its scripts. New tools arrive
+as buddy/... branches: review and merge them here.
+"""
+
+
+def publish_tools(names, source: str) -> dict:
+    """Push tools to TOOLS_REPO on a new buddy/... branch: built-in ("library") or Buddy-made ("custom")."""
+    if not TOOLS_REPO or not REPO.match(TOOLS_REPO):
+        raise Refused("no tools repo is set (SANDBOX_TOOLS_REPO)")
+    if not TOKEN:
+        raise Refused("no GitHub token is set for the sandbox (deploy/sandbox.sh token)")
+    base, folder = (LIBRARY / "skills", "built-in") if source == "library" else (CUSTOM, "buddy-made")
+    available = sorted(p.name for p in base.iterdir() if p.is_dir() and not p.name.startswith(".")) \
+        if base.is_dir() else []
+    chosen = available if names in ("all", ["all"], None, []) else [str(n) for n in names]
+    unknown = [n for n in chosen if not NAME.match(n) or n not in available]
+    if unknown or not chosen:
+        raise Refused("no such tool: " + (", ".join(unknown) or "none to publish"))
+    ws_name = f"tools-{secrets.token_hex(3)}"
+    handle({"op": "create", "workspace": ws_name})
+    try:
+        cloned = handle({"op": "clone", "workspace": ws_name, "repo": TOOLS_REPO})
+        if cloned.get("exit_code") != 0:
+            raise Refused("couldn't clone the tools repo (does the token cover it?): " + cloned["output"][-300:])
+        ws = workspace(ws_name)
+        if not (ws / "README.md").exists():
+            (ws / "README.md").write_text(TOOLS_README)
+        for name in chosen:
+            dest = ws / "tools" / folder / name
+            shutil.rmtree(dest, ignore_errors=True)
+            shutil.copytree(base / name, dest, ignore=shutil.ignore_patterns("__pycache__", "*.pyc"))
+        stamp = time.strftime("%Y%m%d-%H%M")
+        branch = f"buddy/tool-{chosen[0]}-{stamp}" if len(chosen) == 1 else f"buddy/tools-{folder}-{stamp}"
+        what = chosen[0] if len(chosen) == 1 else f"{len(chosen)} {folder} tools"
+        pushed = handle({"op": "push", "workspace": ws_name, "branch": branch, "message": f"Add {what}"})
+        if pushed.get("exit_code") != 0:
+            raise Refused("the push didn't work: " + pushed["output"][-300:])
+        _audit(ws_name, f"published {what} to {TOOLS_REPO} ({branch})")
+        return {"ok": True, "branch": branch, "url": pushed.get("url", ""), "tools": chosen}
+    finally:
+        handle({"op": "delete", "workspace": ws_name})
 
 
 def handle(req: dict) -> dict:
     op = req.get("op", "")
+    if op == "publish_tools":
+        return publish_tools(req.get("names") or "all", str(req.get("source") or "library"))
     if op == "status":
         spaces = sorted(p.name for p in ROOT.iterdir() if p.is_dir()) if ROOT.exists() else []
         return {"workspaces": [{"name": n, "mb": _size_mb(ROOT / n)} for n in spaces], "token": bool(TOKEN)}

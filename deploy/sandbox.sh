@@ -4,6 +4,8 @@
 #
 #   sudo bash /opt/buddy/deploy/sandbox.sh          install or update (about 5 minutes the first time)
 #   sudo bash /opt/buddy/deploy/sandbox.sh token    set the GitHub token for private repos and pushing
+#   sudo bash /opt/buddy/deploy/sandbox.sh publish-tools   push the built-in tools to the tools repo (a buddy/... branch)
+#   sudo bash /opt/buddy/deploy/sandbox.sh tools-repo URL  where tools go (default: the Sandbox repo; "off" to stop)
 #   sudo bash /opt/buddy/deploy/sandbox.sh status   is it running, workspaces and disk use
 #   sudo bash /opt/buddy/deploy/sandbox.sh off      stop it (workspaces are kept)
 #
@@ -28,6 +30,29 @@ case "${1:-install}" in
     grep -v '^SANDBOX_GITHUB_TOKEN=' "$ENV_FILE" > "$ENV_FILE.new" || true
     echo "SANDBOX_GITHUB_TOKEN=$TOKEN" >> "$ENV_FILE.new" && mv "$ENV_FILE.new" "$ENV_FILE" && chmod 600 "$ENV_FILE"
     systemctl restart buddy-sandbox && echo "Saved. The sandbox can now clone your private repos and push buddy/... branches."
+    exit 0 ;;
+  tools-repo)
+    [[ -n ${2:-} ]] || { echo "Use: sandbox.sh tools-repo https://github.com/OWNER/REPO   (or: off)"; exit 1; }
+    VALUE=$2; [[ $VALUE == off ]] && VALUE=""
+    [[ -z $VALUE || $VALUE =~ ^https://github\.com/[A-Za-z0-9_.-]+/[A-Za-z0-9_.-]+$ ]] || { echo "Give https://github.com/OWNER/REPO"; exit 1; }
+    mkdir -p /etc/buddy-sandbox && touch "$ENV_FILE" && chmod 600 "$ENV_FILE"
+    grep -v '^SANDBOX_TOOLS_REPO=' "$ENV_FILE" > "$ENV_FILE.new" || true
+    echo "SANDBOX_TOOLS_REPO=$VALUE" >> "$ENV_FILE.new" && mv "$ENV_FILE.new" "$ENV_FILE" && chmod 600 "$ENV_FILE"
+    systemctl restart buddy-sandbox && echo "Saved: ${VALUE:-tools are no longer pushed anywhere}"
+    exit 0 ;;
+  publish-tools)
+    python3 - <<'PY'
+import json, socket
+s = socket.socket(socket.AF_UNIX)
+s.connect("/run/buddy-sandbox/sandbox.sock")
+s.sendall(json.dumps({"op": "publish_tools", "source": "library", "names": "all"}).encode() + b"\n")
+r = json.loads(s.makefile().readline())
+if r.get("error"):
+    print("Not published:", r["error"])
+else:
+    print(f"Pushed {len(r['tools'])} tools to the {r['branch']} branch. Open a pull request and merge it:")
+    print(r["url"])
+PY
     exit 0 ;;
   status)
     systemctl is-active buddy-sandbox || true

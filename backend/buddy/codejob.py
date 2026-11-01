@@ -132,8 +132,14 @@ async def _tool(ws: str, name: str, args: dict, log_lines: list[str]) -> str:
             r = await sandbox.call("save_skill", workspace=ws, folder=str(args.get("folder", "")),
                                    name=str(args.get("name", "")), replace=bool(args.get("replace")))
             log_lines.append(f"saved tool {r['saved']}")
+            github = ""
+            if r.get("published"):
+                github = (f" It's also on GitHub for review: branch {r['published']['branch']} in the tools repo "
+                          f"({r['published']['url']}); the user merges it there.")
+            elif r.get("publish_error"):
+                github = f" It isn't on GitHub ({r['publish_error']}); it works here anyway."
             return (f"Saved the tool {r['saved']}: later tasks find it with find_tools, and Buddy can run it with "
-                    "process_data. Mention it in your summary.")
+                    f"process_data.{github} Mention it in your summary.")
         if name == "install_tool":
             names = [n for n in (args.get("names") or []) if re.fullmatch(r"[A-Za-z0-9_.-]{1,60}", str(n))]
             if not names:
