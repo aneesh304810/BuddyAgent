@@ -7,3 +7,4 @@ __pycache__/
 backend/agents.yaml
 # Buddy's generated files (tests and makers write here)
 backend/files/
+/files/
