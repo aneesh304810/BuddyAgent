@@ -99,6 +99,12 @@ def safe_path(path: str) -> str:
     return str(Path("/work") / path)
 
 
+def _cpus(wanted: str) -> str:
+    """Docker refuses more CPUs than the machine has (a 1-CPU droplet): ask for at most that many."""
+    have = os.cpu_count() or 1
+    return f"{min(float(wanted), float(have)):g}"
+
+
 def docker_run(ws: Path, command: list[str], *, network: bool = True, env: dict | None = None,
                memory: str = "2g", cpus: str = "1.5", stdin: bool = False) -> list[str]:
     """The one way a container is started: hardened, limited, only the workspace mounted."""
@@ -108,7 +114,7 @@ def docker_run(ws: Path, command: list[str], *, network: bool = True, env: dict 
             "--read-only",
             "--tmpfs", "/tmp:rw,exec,size=1g",  # nosec B108: the container's own /tmp
             "--tmpfs", f"/home/dev:rw,exec,size=1g,uid={UID}",
-            "--memory", memory, "--memory-swap", memory, "--cpus", cpus, "--pids-limit", "512",
+            "--memory", memory, "--memory-swap", memory, "--cpus", _cpus(cpus), "--pids-limit", "512",
             "--network", NETWORK if network else "none",
             "--mount", f"type=bind,src={ws},dst=/work",
             "--workdir", "/work"]

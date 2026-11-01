@@ -278,3 +278,12 @@ def test_tools_are_published_to_the_tools_repo_on_a_buddy_branch(sbx, tmp_path, 
     monkeypatch.setattr(sbx, "TOKEN", "")
     with pytest.raises(sbx.Refused, match="token"):
         sbx.handle({"op": "publish_tools", "source": "library"})
+
+
+def test_containers_never_ask_for_more_cpus_than_the_server_has(sbx, monkeypatch):
+    monkeypatch.setattr(sbx.os, "cpu_count", lambda: 1)  # the 1-CPU droplet
+    args = sbx.docker_run(Path("/x/ws"), ["true"])
+    assert args[args.index("--cpus") + 1] == "1"
+    monkeypatch.setattr(sbx.os, "cpu_count", lambda: 4)
+    args = sbx.docker_run(Path("/x/ws"), ["true"])
+    assert args[args.index("--cpus") + 1] == "1.5"
