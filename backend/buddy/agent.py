@@ -36,7 +36,7 @@ from .health import HEALTH_TOOL, run_health_tool
 from . import cards, sandbox
 from .codejob import CODE_TOOL_NAMES, CODE_TOOLS, run_code_tool
 from .makers import MAKER_TOOL_NAMES, MAKER_TOOLS, run_maker_tool
-from . import datatools, formfill, prices, rides, transcripts, tutor, vocabulary, voiceprint
+from . import datatools, formfill, prices, rides, selfcode, transcripts, tutor, vocabulary, voiceprint
 from .lifelog import LIFELOG_TOOL, LifeLog, run_lifelog_tool
 from .mailbrain import MAIL_TOOL_NAMES, MAIL_TOOLS, MailManager, run_mail_tool
 from .money import MONEY_TOOL_NAMES, MONEY_TOOLS, Money, run_money_tool
@@ -470,7 +470,7 @@ class Conversation:
         spending += [RATE_TOOL, HEALTH_TOOL, cards.SHOW_TOOL, tutor.TUTOR_TOOL, vocabulary.LEARN_TOOL] + MAKER_TOOLS
         spending += [ROOM_TOOL] if self.room else []
         spending += [REPLY_STYLE_TOOL, transcripts.TRANSCRIPT_TOOL, READ_TOOL, MODE_TOOL, voiceprint.VOICE_TOOL,
-                     prices.NOTE_PRICE_TOOL, rides.RIDE_TOOL, formfill.FORM_TOOL]
+                     prices.NOTE_PRICE_TOOL, rides.RIDE_TOOL, formfill.FORM_TOOL, selfcode.CODE_TOOL]
         return (
             CLIENT_TOOLS + orchestration + job_tools + spending + [_expert_tool()]
             + agent_tools + web_tools()
@@ -557,6 +557,10 @@ class Conversation:
         if name == "get_ride":
             return await rides.run_ride_tool(rides.Rides(self.memory, self.social, self.location), args,
                                              self.open_links)
+        if name == "buddy_code":
+            async def start_task(task_args: dict) -> str:
+                return await run_code_tool(self.jobs, "start_task", task_args, self.thrift)
+            return await selfcode.run_tool(args, start_task if self.jobs and sandbox.available() else None)
         if name == "fill_form":
             return await formfill.run_form_tool(self.phone_request, self.thrift, self.form_state, args)
         if name == "note_price":
