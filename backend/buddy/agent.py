@@ -36,7 +36,7 @@ from .health import HEALTH_TOOL, run_health_tool
 from . import cards, sandbox
 from .codejob import CODE_TOOL_NAMES, CODE_TOOLS, run_code_tool
 from .makers import MAKER_TOOL_NAMES, MAKER_TOOLS, run_maker_tool
-from . import brain, datatools, thinking, formfill, library, prices, rides, selfcode, transcripts, tutor, vocabulary, voiceprint
+from . import brain, datatools, finance, thinking, formfill, library, prices, rides, selfcode, transcripts, tutor, vocabulary, voiceprint
 from .lifelog import LIFELOG_TOOL, LifeLog, run_lifelog_tool
 from .mailbrain import MAIL_TOOL_NAMES, MAIL_TOOLS, MailManager, run_mail_tool
 from .money import MONEY_TOOL_NAMES, MONEY_TOOLS, Money, run_money_tool
@@ -490,7 +490,7 @@ class Conversation:
         spending += [ROOM_TOOL] if self.room else []
         spending += [REPLY_STYLE_TOOL, transcripts.TRANSCRIPT_TOOL, READ_TOOL, MODE_TOOL, voiceprint.VOICE_TOOL,
                      prices.NOTE_PRICE_TOOL, rides.RIDE_TOOL, formfill.FORM_TOOL, selfcode.CODE_TOOL,
-                     library.LIBRARY_TOOL, brain.BRAIN_TOOL]
+                     library.LIBRARY_TOOL, brain.BRAIN_TOOL, finance.FINANCE_TOOL]
         return (
             CLIENT_TOOLS + orchestration + job_tools + spending + [_expert_tool()]
             + agent_tools + web_tools()
@@ -579,6 +579,8 @@ class Conversation:
                                              self.open_links)
         if name == "brain":
             return await brain.run_tool(self.brain, args)
+        if name == "finance":
+            return await finance.run_tool(finance.Finance(self.memory), args, self.open_links)
         if name == "library":
             return await library.run_tool(library.Library(self.memory), args, self.thrift)
         if name == "buddy_code":

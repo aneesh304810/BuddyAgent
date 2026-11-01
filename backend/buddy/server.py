@@ -54,7 +54,7 @@ from fastapi import Depends, FastAPI, Header, HTTPException, Request, WebSocket,
 from fastapi.staticfiles import StaticFiles
 
 from . import health as healthcheck
-from . import codejob, insights, thinking, makers, proactive, research, tutor, usage, vocabulary, voiceprint
+from . import codejob, finance, insights, thinking, makers, proactive, research, tutor, usage, vocabulary, voiceprint
 from .agent import FILLERS, Conversation
 from .agents import AgentRegistry, load_specs
 from .ambient import AmbientListener, is_think_cue
@@ -576,6 +576,13 @@ async def api_library(request: Request, name: str = "upload", note: str = "", va
         text = library_report(done)
         with contextlib.suppress(Exception):  # searchable by meaning straight away (else the loop does it)
             await asyncio.to_thread(Brain(memory).index_pending)
+        if finance.looks_like_statement(done):
+            try:  # a card statement: the card's dates and amounts, its charges, a bill to remind
+                got = await finance.Finance(memory).import_statement(done["id"], first_filing=True)
+                if got.get("imported"):
+                    text += finance.statement_line(got)
+            except Exception:
+                log.exception("finance: reading the statement failed")
         if done["important"]:
             facts = done["important"]
 
@@ -654,6 +661,30 @@ def api_people(name: str = "") -> dict:
             raise HTTPException(status_code=404, detail="No one by that name.")
         return found
     return {"people": brain_.people(), "status": brain_.status()}
+
+
+@app.get("/api/finance", dependencies=[Depends(require_admin)])
+def api_finance(stopped: bool = False) -> dict:
+    """The Money screen: subscriptions with totals, and the card calendar."""
+    fin = finance.Finance(memory)
+    return {**fin.subscriptions(include_stopped=stopped), "cards": fin.cards()}
+
+
+@app.post("/api/finance/subscriptions/{sub_id}", dependencies=[Depends(require_admin)])
+def api_finance_decide(sub_id: int, status: str) -> dict:
+    try:
+        sub = finance.Finance(memory).decide(str(sub_id), status)
+    except ToolError as e:
+        raise HTTPException(status_code=400, detail=str(e)) from e
+    return {"ok": True, "status": sub["status"]}
+
+
+@app.get("/api/finance/subscriptions/{sub_id}/cancel", dependencies=[Depends(require_admin)])
+def api_finance_cancel_page(sub_id: int) -> dict:
+    try:
+        return finance.Finance(memory).cancel_page(str(sub_id))
+    except ToolError as e:
+        raise HTTPException(status_code=404, detail=str(e)) from e
 
 
 @app.get("/api/brain", dependencies=[Depends(require_admin)])

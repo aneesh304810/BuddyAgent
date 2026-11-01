@@ -5,7 +5,7 @@ import logging
 from datetime import datetime
 from collections.abc import Awaitable, Callable
 
-from . import health, thinking
+from . import finance, health, thinking
 from .agent import compose
 from .config import settings
 from .memory import Memory
@@ -117,7 +117,15 @@ async def run(memory: Memory, deliver: Deliver) -> None:
                 if text and await deliver("briefing", text):
                     memory.set("last_briefing", local_now().date().isoformat())
                     thinking.taken(memory)
+            today = local_now().date().isoformat()
+            if memory.get("finance:refreshed") != today:
+                await asyncio.to_thread(finance.Finance(memory).refresh)
+                memory.set("finance:refreshed", today)
             if not in_quiet_hours():
+                fin = finance.Finance(memory)
+                for alert in fin.alerts():
+                    if await deliver("money", alert["text"]):
+                        fin.told(alert)
                 money = Money(memory)
                 for bill in money.bills_to_remind():
                     if await deliver("bill", bill_reminder_text(bill)):
