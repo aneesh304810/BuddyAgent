@@ -110,6 +110,7 @@ def test_card_calendar_from_statement_emails_and_what_the_user_says(mem):
     assert cards[0]["next_due"] == due and cards[0]["used_percent"] == 25
     texts = [a["text"] for a in fin.alerts()]
     assert any("due in 5 days" in t and "1240.55" in t for t in texts)
+    assert fin.forget("1004") == "Removed the card Amex Gold." and fin.cards() == []
 
 
 def test_a_statement_upload_fills_the_calendar_and_finds_charges(mem):

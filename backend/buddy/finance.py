@@ -289,6 +289,23 @@ class Finance:
         self.memory.db.commit()
         return {**sub, "status": status}
 
+    def forget(self, what) -> str:
+        """Remove a card (by name or last four) or a subscription from the lists."""
+        what = str(what).strip().lower()
+        if not what:
+            raise ToolError("Forget which card or subscription?")
+        db = self.memory.db
+        card = db.execute("SELECT id, name FROM fin_cards WHERE last4 = ? OR lower(name) LIKE ?",
+                          (re.sub(r"\D", "", what)[-4:] or "-", f"%{what}%")).fetchone()
+        if card:
+            db.execute("DELETE FROM fin_cards WHERE id = ?", (card["id"],))
+            db.commit()
+            return f"Removed the card {card['name']}."
+        sub = self._find(what)
+        db.execute("DELETE FROM fin_subscriptions WHERE id = ?", (sub["id"],))
+        db.commit()
+        return f"Removed {sub['merchant']} from the list (it comes back if the charges continue)."
+
     def cancel_page(self, what) -> dict:
         sub = self._find(what)
         page = next((url for name, url in CANCEL_PAGES.items() if name in sub["key"] or name in sub["merchant"].lower()),
@@ -572,10 +589,10 @@ FINANCE_TOOL = {
     "used and APR. card (name, issuer, last4, due_day, closing_day, credit_limit, apr: add or correct a card the user "
     "tells you about; only ever the last four digits). import_statement (id of a card statement in the library). "
     "report: the numbers for subscription advice (biggest, price rises, duplicates, monthly ones worth switching to "
-    "yearly, undecided). refresh: scan again now.",
+    "yearly, undecided). refresh: scan again now. forget (what): remove a card or subscription from the lists.",
     "input_schema": {"type": "object", "properties": {
         "action": {"type": "string", "enum": ["subscriptions", "decide", "cancel_help", "cards", "card",
-                                              "import_statement", "report", "refresh"]},
+                                              "import_statement", "report", "refresh", "forget"]},
         "what": {"type": "string"}, "status": {"type": "string", "enum": ["new", "keep", "cancel", "unsure",
                                                                           "cancelled"]},
         "name": {"type": "string"}, "issuer": {"type": "string"}, "last4": {"type": "string"},
@@ -627,4 +644,6 @@ async def run_tool(fin: Finance, args: dict, open_links=None) -> str:
         return json.dumps(await fin.import_statement(str(args.get("id") or args.get("what") or "")))
     if action == "report":
         return json.dumps(fin.report(), ensure_ascii=False)
+    if action == "forget":
+        return fin.forget(args.get("what") or args.get("id") or "")
     raise ToolError("Unknown finance action.")
