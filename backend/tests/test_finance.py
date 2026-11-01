@@ -162,3 +162,68 @@ def test_tool_and_money_screen_endpoints(mem):
         assert c.post(f"/api/finance/subscriptions/{sub['id']}", params={"status": "keep"}).json()["status"] == "keep"
         assert c.post(f"/api/finance/subscriptions/{sub['id']}", params={"status": "nope"}).status_code == 400
         assert c.get(f"/api/finance/subscriptions/{sub['id']}/cancel").json()["url"].startswith("https://www.dropbox")
+
+
+# --- phase B: credit use and the weekly report -------------------------------------------------------
+def _card_with_statement(mem, statement_days_ago=5, balance=1000.0, limit=5000.0):
+    fin = finance.Finance(mem)
+    stmt = local_now().date() - timedelta(days=statement_days_ago)
+    due = stmt + timedelta(days=25)
+    fin.card(name="Amex Gold", issuer="American Express", last4="1004", statement_date=stmt.isoformat(),
+             closing_day=stmt.day, due_date=due.isoformat(), due_day=due.day, statement_balance=balance,
+             credit_limit=limit, minimum_due=35, source="statement")
+    return fin
+
+
+def test_credit_use_counts_charges_since_the_statement_and_warns(mem):
+    fin = _card_with_statement(mem)
+    charges(mem, "Delta Air Lines", [(1600.0, 2)], card="1004", category="travel")
+    use = fin.credit_use()[0]
+    assert use["balance_now"] == 2600.0 and use["used_now"] == 52 and use["pay_to_get_under_30"] == 1150.0
+    alerts = fin.credit_alerts(local_now().date())
+    assert len(alerts) == 1 and "about 52% of its limit" in alerts[0]["text"] and "1,150.00" in alerts[0]["text"]
+    fin.told(alerts[0])
+    assert fin.credit_alerts(local_now().date()) == []  # once per statement cycle and level
+
+
+def test_just_over_30_percent_only_matters_the_week_before_closing(mem):
+    fin = _card_with_statement(mem, statement_days_ago=5, balance=1700.0)  # 34%, closes in ~25 days
+    assert fin.credit_alerts(local_now().date()) == []
+    fin = _card_with_statement(mem, statement_days_ago=27, balance=1700.0)  # closes in a few days
+    assert "about 34%" in fin.credit_alerts(local_now().date())[0]["text"]
+
+
+def test_the_weekly_report(mem):
+    fin = _card_with_statement(mem, statement_days_ago=24)  # due in a day
+    for week in range(1, 9):  # a usual week: about 100
+        charges(mem, f"Cafe {week}", [(100.0, 7 * week + 1)], card="1004", category="food")
+    charges(mem, "Whole Foods", [(180.0, 2)], card="1004", category="groceries")
+    charges(mem, "Uber", [(45.0, 1)], card="1004", category="transport")
+    charges(mem, "PURCHASE INTEREST CHARGE", [(18.4, 3)], card="1004", category="other")
+    charges(mem, "Spotify USA", [(11.99, 60), (11.99, 30), (12.99, 1)])
+    fin.find_subscriptions()
+    w = fin.week()
+    usd = w["spent"]["USD"]
+    assert usd["total"] == round(180 + 45 + 18.4 + 12.99, 2) and usd["usual_week"] == pytest.approx(100, rel=0.2)
+    assert any("Amex Gold payment due" == x["what"] for x in w["coming"])
+    assert w["interest"] and w["actions"][0].startswith("You were charged 18.40 USD interest")
+    assert any("Spotify USA" in p for p in w["subscriptions"]["price"])
+    text = fin.week_markdown(w)
+    for heading in ("# Money this week", "## Do this week", "## Spending", "## Coming up", "## Cards",
+                    "## Interest and fees", "## Subscriptions"):
+        assert heading in text
+    job_id, summary = fin.save_week()
+    assert summary.startswith("You spent 256 USD this week") and "Amex Gold due" in summary
+    job = mem.db.execute("SELECT * FROM jobs WHERE id = ?", (job_id,)).fetchone()
+    assert job["kind"] == "money_weekly" and job["status"] == "done" and "## Cards" in job["report"]
+
+
+def test_weekly_report_timing(mem, monkeypatch):
+    day = ("mon", "tue", "wed", "thu", "fri", "sat", "sun")[local_now().weekday()]
+    monkeypatch.setattr(finance, "WEEKLY_AT", f"{day} 00:00")
+    assert finance.weekly_due(mem)
+    mem.set("finance:weekly", local_now().date().isoformat())
+    assert not finance.weekly_due(mem)
+    monkeypatch.setattr(finance, "WEEKLY_AT", "")
+    mem.set("finance:weekly", "")
+    assert not finance.weekly_due(mem)

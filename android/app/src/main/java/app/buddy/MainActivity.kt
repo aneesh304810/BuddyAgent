@@ -344,7 +344,7 @@ private fun BuddyScreen(
                 return@Column
             }
             Screen.Money -> {
-                MoneyScreen(prefs.link)
+                MoneyScreen(prefs.link) { onNavigate(Screen.Reports) }
                 return@Column
             }
             Screen.Library -> {

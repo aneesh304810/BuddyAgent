@@ -19,6 +19,7 @@ yearly renewal in two weeks, a charge after the user cancelled, a card due in fi
 
 import json
 import logging
+import os
 import re
 import statistics
 import time
@@ -109,6 +110,10 @@ CARD_ISSUERS = ("american express", "amex", "chase", "citi", "capital one", "dis
                 "navy federal", "pnc", "td bank", "credit one", "bilt", "hsbc", "hdfc", "icici", "sbi card",
                 "axis bank", "credit card")
 DUE_HEADS_UP_DAYS = 5
+WEEKLY_AT = os.getenv("BUDDY_MONEY_WEEKLY", "sun 18:00")   # day and time of the weekly report; "" = off
+UTIL_GOOD = 30                    # percent of the limit a card should report at or under
+UTIL_WARN = (30, 50, 90)
+INTEREST = re.compile(r"(?i)\b(interest charge|purchase interest|finance charge|interest on purchases|late fee)\b")
 RENEWAL_NOTICE_DAYS = 14
 NEW_DAYS = 45
 
@@ -471,7 +476,7 @@ class Finance:
                 out.append({"text": f"{c['name']} is due in {(due - today).days} days ({due.strftime('%A %d %B')}): "
                             f"statement balance {c['statement_balance']:.2f} {c['currency']}{minimum}. "
                             "Paying the full statement balance avoids interest.", "mark": ("kv", key, "")})
-        return out
+        return out + self.credit_alerts(today)
 
     def told(self, alert: dict) -> None:
         kind, ref, key = alert["mark"]
@@ -483,6 +488,231 @@ class Finance:
             told = sorted(set(json.loads(row["told"])) | {key})
             self.memory.db.execute("UPDATE fin_subscriptions SET told = ? WHERE id = ?", (json.dumps(told), ref))
             self.memory.db.commit()
+
+    # --- phase B: credit use and the weekly report --------------------------------------------------
+    def balance_now(self, card: dict) -> float | None:
+        """What the card owes now: the bank feed's balance when it has the card, else the last statement
+        plus the charges on that card since."""
+        try:
+            for r in self.memory.db.execute("SELECT name, balance FROM bank_accounts WHERE balance IS NOT NULL"):
+                if card["last4"] and card["last4"] in r["name"]:
+                    return round(abs(r["balance"]), 2)
+        except Exception:
+            pass  # no bank feed
+        if card["statement_balance"] is None:
+            return None
+        since = card.get("statement_date") or ""
+        names = [x for x in (card["last4"], card["name"]) if x]
+        spent = self.memory.db.execute(
+            f"SELECT COALESCE(SUM(amount), 0) FROM transactions WHERE day > ? AND card IN ({','.join('?' * len(names))})",
+            [since, *names]).fetchone()[0] if since and names else 0
+        return round(card["statement_balance"] + spent, 2)
+
+    def credit_use(self) -> list[dict]:
+        """Each card with a limit: balance now, percent used, and what to pay before closing to report under 30%."""
+        out = []
+        for c in self.cards():
+            balance = self.balance_now(c)
+            if balance is None or not c["credit_limit"]:
+                continue
+            pct = round(100 * balance / c["credit_limit"])
+            pay = round(max(0.0, balance - (UTIL_GOOD - 1) / 100 * c["credit_limit"]), 2)
+            out.append({**c, "balance_now": balance, "used_now": pct, "pay_to_get_under_30": pay})
+        return out
+
+    def credit_alerts(self, today: date) -> list[dict]:
+        out = []
+        for c in self.credit_use():
+            closing = _day(c["next_closing"]) if c["next_closing"] else None
+            days = (closing - today).days if closing else None
+            level = max((t for t in UTIL_WARN if c["used_now"] >= t), default=0)
+            if not level or (level == UTIL_GOOD and (days is None or days > 7)):
+                continue  # just over 30% only matters in the week before the statement closes
+            key = f"finance:util:{c['id']}:{c['next_closing'] or 'none'}:{level}"
+            if self.memory.get(key):
+                continue
+            when = f" and its statement closes {closing.strftime('%A %d %B')}" if closing else ""
+            text = (f"Your {c['name']} is at about {c['used_now']}% of its limit "
+                    f"({c['balance_now']:,.2f} of {c['credit_limit']:,.0f} {c['currency']}){when}. ")
+            text += (f"Paying about {c['pay_to_get_under_30']:,.2f} before then would report it under 30%, which helps "
+                     "your credit score." if c["pay_to_get_under_30"] else "")
+            out.append({"text": text.strip(), "mark": ("kv", key, "")})
+        return out
+
+    def week(self, today: date | None = None) -> dict:
+        """Everything in the weekly report, worked out here: no AI, nothing leaves the server."""
+        today = today or local_now().date()
+        start = today - timedelta(days=6)
+        db = self.memory.db
+        spent: dict[str, dict] = {}
+        for r in db.execute("SELECT currency, category, card, merchant, amount FROM transactions WHERE day BETWEEN ? AND ? "
+                            "AND amount > 0", (start.isoformat(), today.isoformat())):
+            t = spent.setdefault(r["currency"], {"total": 0.0, "by_category": {}, "by_card": {}, "merchants": {}})
+            t["total"] += r["amount"]
+            t["by_category"][r["category"]] = t["by_category"].get(r["category"], 0) + r["amount"]
+            card = r["card"] or "other"
+            t["by_card"][card] = t["by_card"].get(card, 0) + r["amount"]
+            name = r["merchant"]
+            t["merchants"][name] = t["merchants"].get(name, 0) + r["amount"]
+        usual_from, usual_to = (today - timedelta(days=62)).isoformat(), (start - timedelta(days=1)).isoformat()
+        for r in db.execute("SELECT currency, COALESCE(SUM(amount), 0) AS total, MIN(day) AS first FROM transactions "
+                            "WHERE day BETWEEN ? AND ? AND amount > 0 GROUP BY currency", (usual_from, usual_to)):
+            weeks = max(1.0, ((start - _day(r["first"])).days) / 7) if r["first"] else 1.0
+            spent.setdefault(r["currency"], {"total": 0.0, "by_category": {}, "by_card": {}, "merchants": {}})[
+                "usual_week"] = round(r["total"] / weeks, 2)
+        for t in spent.values():
+            t["total"] = round(t["total"], 2)
+            t["by_category"] = dict(sorted(((k, round(v, 2)) for k, v in t["by_category"].items()), key=lambda kv: -kv[1]))
+            t["by_card"] = dict(sorted(((k, round(v, 2)) for k, v in t["by_card"].items()), key=lambda kv: -kv[1]))
+            t["top_merchants"] = sorted(((k, round(v, 2)) for k, v in t.pop("merchants").items()), key=lambda kv: -kv[1])[:5]
+        until = today + timedelta(days=14)
+        cards = self.credit_use() or []
+        with_use = {c["id"] for c in cards}
+        cards += [{**c, "balance_now": self.balance_now(c), "used_now": None, "pay_to_get_under_30": None}
+                  for c in self.cards() if c["id"] not in with_use]
+        card_names = {c["name"].lower() for c in cards}
+        coming = [{"what": f"{c['name']} payment due", "date": c["next_due"],
+                   "amount": c["statement_balance"], "currency": c["currency"]}
+                  for c in cards if c["next_due"] and today <= _day(c["next_due"]) <= until and c["statement_balance"]]
+        coming += [{"what": f"{b['biller']} bill due", "date": b["due_date"], "amount": b["amount"], "currency": b["currency"]}
+                   for b in self.money.open_bills(14) if b["biller"].lower() not in card_names]
+        subs = self.subscriptions()["subscriptions"]
+        coming += [{"what": f"{s['merchant']} renews", "date": s["next_charge"], "amount": s["amount"],
+                    "currency": s["currency"]}
+                   for s in subs if s["active"] and s["status"] not in ("cancel", "cancelled")
+                   and today <= _day(s["next_charge"]) <= until]
+        coming.sort(key=lambda x: x["date"])
+        week_ago = start.isoformat()
+        changes = {
+            "new": [s["merchant"] for s in subs if "new" in s["flags"] and s["last_charge"] >= week_ago],
+            "price": [f"{s['merchant']} ({next(f for f in s['flags'] if f.startswith('price'))})" for s in subs
+                      if any(f.startswith("price") for f in s["flags"]) and s["last_charge"] >= week_ago],
+            "cancelled": [r["merchant"] for r in db.execute(
+                "SELECT merchant FROM fin_subscriptions WHERE status = 'cancelled' AND updated_at >= ?", (week_ago,))],
+            "to_decide": [s["merchant"] for s in subs if s["status"] in ("new", "unsure")],
+        }
+        interest = [dict(r) for r in db.execute(
+            "SELECT day, merchant, amount, currency, card FROM transactions WHERE day >= ? ORDER BY day DESC",
+            ((today - timedelta(days=35)).isoformat(),)) if INTEREST.search(r["merchant"])]
+        totals = self.subscriptions()["totals"]
+        return {"from": start.isoformat(), "to": today.isoformat(), "spent": spent, "coming": coming,
+                "subscriptions": changes, "subscription_totals": totals, "cards": cards, "interest": interest,
+                "actions": self._actions(spent, coming, changes, cards, interest, today)}
+
+    @staticmethod
+    def _actions(spent, coming, changes, cards, interest, today) -> list[str]:
+        acts = []
+        if interest:
+            i = interest[0]
+            acts.append(f"You were charged {i['amount']:.2f} {i['currency']} interest ({i['merchant']}). Pay the full "
+                        "statement balance each month to stop interest; set autopay to the statement balance.")
+        for c in cards:
+            if c.get("used_now") and c["used_now"] >= UTIL_GOOD and c.get("pay_to_get_under_30"):
+                when = f" before {c['next_closing']}" if c["next_closing"] else ""
+                acts.append(f"Pay about {c['pay_to_get_under_30']:,.2f} on {c['name']}{when} to report under 30% used.")
+        for x in coming:
+            if "payment due" in x["what"] and (_day(x["date"]) - today).days <= 7:
+                acts.append(f"{x['what']} on {x['date']}: {x['amount']:,.2f} {x['currency']}.")
+        for cur, t in spent.items():
+            usual = t.get("usual_week")
+            if usual and t["total"] > 1.3 * usual and t["by_category"]:
+                top = next(iter(t["by_category"]))
+                acts.append(f"Spending was {round(100 * (t['total'] / usual - 1))}% above a usual week "
+                            f"({t['total']:,.2f} vs {usual:,.2f} {cur}), mostly {top}.")
+        if changes["price"]:
+            acts.append(f"Price went up: {', '.join(changes['price'])}. Still worth it?")
+        if changes["to_decide"]:
+            n = len(changes["to_decide"])
+            acts.append(f"{n} subscription{'s' if n > 1 else ''} to decide on: keep or cancel (Money screen).")
+        return acts[:4]
+
+    def week_markdown(self, w: dict) -> str:
+        def amt(v, cur=""):
+            return f"{v:,.2f}{' ' + cur if cur else ''}"
+        lines = [f"# Money this week", f"{w['from']} to {w['to']}", ""]
+        if w["actions"]:
+            lines += ["## Do this week"] + [f"- {a}" for a in w["actions"]] + [""]
+        lines.append("## Spending")
+        if not w["spent"]:
+            lines.append("No spending recorded this week.")
+        for cur, t in w["spent"].items():
+            usual = f" (usual week {amt(t['usual_week'], cur)})" if t.get("usual_week") else ""
+            lines.append(f"Total {amt(t['total'], cur)}{usual}")
+            if t["by_category"]:
+                lines.append("By category: " + ", ".join(f"{k} {amt(v)}" for k, v in t["by_category"].items()))
+            if t["by_card"]:
+                lines.append("By card: " + ", ".join(f"{'••' + k if k.isdigit() else k} {amt(v)}"
+                                                     for k, v in t["by_card"].items()))
+            if t["top_merchants"]:
+                lines.append("Most at: " + ", ".join(f"{k} {amt(v)}" for k, v in t["top_merchants"]))
+            lines.append("")
+        lines.append("## Coming up (next 14 days)")
+        lines += [f"- {x['date']}: {x['what']}" + (f", {amt(x['amount'], x['currency'])}" if x["amount"] else "")
+                  for x in w["coming"]] or ["Nothing due."]
+        lines += ["", "## Cards"]
+        for c in w["cards"]:
+            parts = []
+            if c.get("balance_now") is not None:
+                parts.append(f"owes {amt(c['balance_now'], c['currency'])}")
+            if c.get("used_now") is not None:
+                parts.append(f"{c['used_now']}% of limit")
+            if c["next_closing"]:
+                parts.append(f"closes {c['next_closing']}")
+            if c["next_due"]:
+                parts.append(f"due {c['next_due']}")
+            lines.append(f"- {c['name']}{' ••' + c['last4'] if c['last4'] else ''}: " + (", ".join(parts) or "no details yet"))
+        if not w["cards"]:
+            lines.append("No cards yet: share a card statement to Buddy.")
+        if w["interest"]:
+            lines += ["", "## Interest and fees"] + [f"- {i['day']}: {i['merchant']} {amt(i['amount'], i['currency'])}"
+                                                      for i in w["interest"]]
+        subs, totals = w["subscriptions"], w["subscription_totals"]
+        lines += ["", "## Subscriptions"]
+        lines += [f"{amt(t['monthly'], cur)} a month, {amt(t['yearly'], cur)} a year ({t['count']})"
+                  for cur, t in totals.items()] or ["None found yet."]
+        for label, key in (("New", "new"), ("Price changes", "price"), ("Cancelled", "cancelled"),
+                           ("To decide", "to_decide")):
+            if subs[key]:
+                lines.append(f"{label}: {', '.join(subs[key])}")
+        return "\n".join(lines)
+
+    def week_summary(self, w: dict) -> str:
+        """The spoken version: a few sentences."""
+        bits = []
+        for cur, t in w["spent"].items():
+            usual = t.get("usual_week")
+            compare = ""
+            if usual:
+                diff = round(100 * (t["total"] / usual - 1))
+                compare = f", {abs(diff)}% {'above' if diff > 0 else 'below'} a usual week" if abs(diff) >= 10 else \
+                    ", about a usual week"
+            bits.append(f"You spent {t['total']:,.0f} {cur} this week{compare}.")
+        if not bits:
+            bits.append("No spending recorded this week.")
+        due = [x for x in w["coming"] if "payment due" in x["what"]]
+        if due:
+            bits.append("Coming up: " + "; ".join(f"{x['what'].replace(' payment due', '')} due {_day(x['date']).strftime('%A %d')}"
+                                                   for x in due[:3]) + ".")
+        if w["actions"]:
+            bits.append(w["actions"][0])
+        bits.append("The full report is in Reports.")
+        return " ".join(bits)
+
+    def save_week(self, today: date | None = None) -> tuple[int, str]:
+        """Write the weekly report where the Reports screen shows it. Returns (report id, spoken summary)."""
+        from .jobs import SCHEMA as JOBS_SCHEMA
+
+        w = self.week(today)
+        summary, report = self.week_summary(w), self.week_markdown(w)
+        now = datetime.now(timezone.utc).isoformat()
+        self.memory.db.executescript(JOBS_SCHEMA)
+        job_id = self.memory.db.execute(
+            "INSERT INTO jobs (kind, title, params, status, created_at, started_at, finished_at, summary, report, "
+            "findings, sources, delivered) VALUES ('money_weekly', ?, '{}', 'done', ?, ?, ?, ?, ?, ?, '[]', 1)",
+            (f"Money this week, {_day(w['to']).strftime('%d %b').lstrip('0')}", now, now, now, summary, report,
+             json.dumps(w["actions"]))).lastrowid
+        self.memory.db.commit()
+        return job_id, summary
 
     def report(self) -> dict:
         """The numbers behind the subscription advice, worked out here (Claude only words them)."""
@@ -503,6 +733,22 @@ class Finance:
                                              and s["yearly_cost"] >= 60],
             "cards": self.cards(),
         }
+
+
+def weekly_due(memory: Memory) -> bool:
+    """True once the weekly report's day and time have come this week and it isn't done yet."""
+    if not WEEKLY_AT.strip():
+        return False
+    try:
+        day, at = WEEKLY_AT.lower().split()
+        weekday = ("mon", "tue", "wed", "thu", "fri", "sat", "sun").index(day[:3])
+        hour, minute = map(int, at.split(":"))
+    except ValueError:
+        return False
+    now = local_now()
+    if now.weekday() != weekday or (now.hour, now.minute) < (hour, minute):
+        return False
+    return memory.get("finance:weekly") != now.date().isoformat()
 
 
 def _day_of(value) -> int | None:
@@ -591,10 +837,13 @@ FINANCE_TOOL = {
     "used and APR. card (name, issuer, last4, due_day, closing_day, credit_limit, apr: add or correct a card the user "
     "tells you about; only ever the last four digits). import_statement (id of a card statement in the library). "
     "report: the numbers for subscription advice (biggest, price rises, duplicates, monthly ones worth switching to "
-    "yearly, undecided). refresh: scan again now. forget (what): remove a card or subscription from the lists.",
+    "yearly, undecided). refresh: scan again now. forget (what): remove a card or subscription from the lists. weekly: make this week's money report now (saved to "
+    "Reports; say its summary). credit_use: each card's balance now, percent of limit used, and what to pay before the "
+    "statement closes to report under 30%.",
     "input_schema": {"type": "object", "properties": {
         "action": {"type": "string", "enum": ["subscriptions", "decide", "cancel_help", "cards", "card",
-                                              "import_statement", "report", "refresh", "forget"]},
+                                              "import_statement", "report", "refresh", "forget", "weekly",
+                                              "credit_use"]},
         "what": {"type": "string"}, "status": {"type": "string", "enum": ["new", "keep", "cancel", "unsure",
                                                                           "cancelled"]},
         "name": {"type": "string"}, "issuer": {"type": "string"}, "last4": {"type": "string"},
@@ -646,6 +895,13 @@ async def run_tool(fin: Finance, args: dict, open_links=None) -> str:
         return json.dumps(await fin.import_statement(str(args.get("id") or args.get("what") or "")))
     if action == "report":
         return json.dumps(fin.report(), ensure_ascii=False)
+    if action == "weekly":
+        job_id, summary = fin.save_week()
+        return f"{summary} (Report {job_id} saved in Reports.)"
+    if action == "credit_use":
+        found = fin.credit_use()
+        return json.dumps(found, ensure_ascii=False) if found else (
+            "No card has both a balance and a limit yet: share a statement, or tell me the card's limit.")
     if action == "forget":
         return fin.forget(args.get("what") or args.get("id") or "")
     raise ToolError("Unknown finance action.")

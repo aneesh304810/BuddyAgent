@@ -667,7 +667,11 @@ def api_people(name: str = "") -> dict:
 def api_finance(stopped: bool = False) -> dict:
     """The Money screen: subscriptions with totals, and the card calendar."""
     fin = finance.Finance(memory)
-    return {**fin.subscriptions(include_stopped=stopped), "cards": fin.cards()}
+    use = {c["id"]: c for c in fin.credit_use()}
+    cards = [{**c, **({"balance_now": use[c["id"]]["balance_now"], "used_now": use[c["id"]]["used_now"],
+                       "pay_to_get_under_30": use[c["id"]]["pay_to_get_under_30"]} if c["id"] in use else {})}
+             for c in fin.cards()]
+    return {**fin.subscriptions(include_stopped=stopped), "cards": cards}
 
 
 @app.post("/api/finance/subscriptions/{sub_id}", dependencies=[Depends(require_admin)])

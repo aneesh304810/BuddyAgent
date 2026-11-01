@@ -1,6 +1,7 @@
 """Buddy speaking up on its own: due reminders, the morning briefing and the evening wrap-up."""
 
 import asyncio
+import json
 import logging
 from datetime import datetime
 from collections.abc import Awaitable, Callable
@@ -121,6 +122,15 @@ async def run(memory: Memory, deliver: Deliver) -> None:
             if memory.get("finance:refreshed") != today:
                 await asyncio.to_thread(finance.Finance(memory).refresh)
                 memory.set("finance:refreshed", today)
+            if finance.weekly_due(memory):
+                fin = finance.Finance(memory)
+                if memory.get("finance:weekly_saved") != today:
+                    job_id, summary = fin.save_week()
+                    memory.set("finance:weekly_saved", today)
+                    memory.set("finance:weekly_job", json.dumps([job_id, summary]))
+                job_id, summary = json.loads(memory.get("finance:weekly_job"))
+                if await deliver("money_weekly", summary, job_id=job_id):
+                    memory.set("finance:weekly", today)
             if not in_quiet_hours():
                 fin = finance.Finance(memory)
                 for alert in fin.alerts():

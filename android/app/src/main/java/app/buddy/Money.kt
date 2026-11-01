@@ -75,7 +75,7 @@ private fun JSONArray.list(): List<JSONObject> = (0 until length()).map { getJSO
 private fun money(v: Double, currency: String) = "%,.2f %s".format(v, currency)
 
 @Composable
-fun MoneyScreen(link: ServerLink?) {
+fun MoneyScreen(link: ServerLink?, onReports: () -> Unit = {}) {
     var data by remember { mutableStateOf<JSONObject?>(null) }
     var problem by remember { mutableStateOf<String?>(null) }
     var filter by remember { mutableStateOf("all") }
@@ -115,6 +115,10 @@ fun MoneyScreen(link: ServerLink?) {
                     }
                 }
             }
+        }
+        item {
+            Text("Weekly money reports are in Reports →", color = MDim, fontSize = 13.sp,
+                modifier = Modifier.clickable { onReports() }.padding(vertical = 2.dp))
         }
         item {
             Row(Modifier.horizontalScroll(rememberScrollState()), horizontalArrangement = Arrangement.spacedBy(8.dp)) {
@@ -208,13 +212,17 @@ private fun CardRow(c: JSONObject) {
         val parts = mutableListOf<String>()
         if (!c.isNull("statement_balance")) parts += "balance ${money(c.optDouble("statement_balance"), cur)}"
         if (!c.isNull("minimum_due")) parts += "minimum ${money(c.optDouble("minimum_due"), cur)}"
-        if (!c.isNull("used_percent")) parts += "${c.optInt("used_percent")}% of limit used"
+        val used = if (c.has("used_now")) c.optInt("used_now") else if (!c.isNull("used_percent")) c.optInt("used_percent") else null
+        if (c.has("balance_now")) parts += "owes ${money(c.optDouble("balance_now"), cur)} now"
+        if (used != null) parts += "$used% of limit used"
         if (!c.isNull("apr") && c.optDouble("apr") > 0) parts += "APR ${c.optDouble("apr")}%"
         if (c.optString("next_closing").isNotBlank()) parts += "closes ${c.optString("next_closing")}"
         if (parts.isNotEmpty()) Text(parts.joinToString(" · "), color = MDim, fontSize = 13.sp)
-        if (!c.isNull("used_percent") && c.optInt("used_percent") > 30) {
-            Text("Over 30% used: paying some before the closing date helps your credit score.", color = MWarn,
-                fontSize = 13.sp)
+        val pay = c.optDouble("pay_to_get_under_30", 0.0)
+        if (used != null && used >= 30) {
+            Text(if (pay > 0) "Pay about ${money(pay, cur)} before it closes to report under 30% (helps your credit score)."
+                else "Over 30% used: paying some before the closing date helps your credit score.",
+                color = MWarn, fontSize = 13.sp)
         }
     }
 }
