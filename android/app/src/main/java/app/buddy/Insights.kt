@@ -254,6 +254,14 @@ fun InsightsScreen(link: ServerLink?) {
             }
         }
 
+        item { Heading("Tokens and requests per model") }
+        item {
+            Text("Tap a request type to see its calls below.", color = Dim, fontSize = 12.sp)
+        }
+        items(d.getJSONArray("by_model").objects(), key = { "tok" + it.optString("name") }) { m ->
+            ModelTokens(m, picked = purpose) { p -> purpose = if (purpose == p) "" else p; model = "" }
+        }
+
         item { Heading("Spend per day") }
         item { DailyBars(d.getJSONArray("by_day").objects()) }
 
@@ -481,6 +489,52 @@ private fun HealthCard(data: JSONObject?, checking: Boolean, onRun: () -> Unit) 
                 Text("${h.optString("at").take(10)} · ${h.optString("status")} · first words ${secs(h, "first_word_median")}" +
                     " · free right ${pct(h, "accuracy")} · you ${pct(h, "satisfaction")}",
                     color = Bright, fontSize = 12.sp, fontFamily = FontFamily.Monospace)
+            }
+        }
+    }
+}
+
+/** One model: requests, input and output tokens, and each kind of request that went to it. */
+@Composable
+private fun ModelTokens(m: JSONObject, picked: String, onPick: (String) -> Unit) {
+    val free = m.optString("provider") != "claude"
+    Column(Modifier.fillMaxWidth().background(Card, RoundedCornerShape(12.dp)).padding(12.dp),
+        verticalArrangement = Arrangement.spacedBy(6.dp)) {
+        Row(verticalAlignment = Alignment.CenterVertically) {
+            Text(m.optString("model"), color = Color.White, fontSize = 15.sp, fontWeight = FontWeight.SemiBold,
+                modifier = Modifier.weight(1f))
+            Text(if (free) "free" else usd(m.optDouble("cost_usd")), color = Color.White, fontSize = 15.sp)
+        }
+        Text(m.optString("provider"), color = Dim, fontSize = 12.sp)
+        Row(horizontalArrangement = Arrangement.spacedBy(8.dp)) {
+            listOf("Requests" to m.optInt("requests").toString(),
+                "Input" to tokens(m.optLong("input_tokens")),
+                "Output" to tokens(m.optLong("output_tokens")),
+                "Cached" to tokens(m.optLong("cache_read_tokens"))).forEach { (label, value) ->
+                Column(Modifier.weight(1f).background(BarTrack, RoundedCornerShape(8.dp)).padding(8.dp)) {
+                    Text(label, color = Dim, fontSize = 11.sp)
+                    Text(value, color = Color.White, fontSize = 16.sp, fontWeight = FontWeight.SemiBold)
+                }
+            }
+        }
+        val kinds = m.optJSONArray("purposes")?.objects().orEmpty()
+        val most = kinds.maxOfOrNull { it.optInt("requests") }?.takeIf { it > 0 } ?: 1
+        kinds.forEach { k ->
+            Column(Modifier.fillMaxWidth()
+                .background(if (picked == k.optString("name")) BarTrack else Color.Transparent, RoundedCornerShape(8.dp))
+                .clickable { onPick(k.optString("name")) }.padding(vertical = 4.dp, horizontal = 4.dp)) {
+                Row {
+                    Text(k.optString("label"), color = Bright, fontSize = 13.sp, modifier = Modifier.weight(1f))
+                    Text("${k.optInt("requests")} req", color = Bright, fontSize = 13.sp)
+                }
+                Box(Modifier.fillMaxWidth().padding(vertical = 3.dp).height(4.dp).background(BarTrack, RoundedCornerShape(2.dp))) {
+                    Box(Modifier.fillMaxWidth((k.optInt("requests").toFloat() / most).coerceIn(0.02f, 1f)).height(4.dp)
+                        .background(Bar, RoundedCornerShape(2.dp)))
+                }
+                Text("${tokens(k.optLong("input_tokens"))} in · ${tokens(k.optLong("output_tokens"))} out" +
+                    (if (k.optLong("cache_read_tokens") > 0) " · ${tokens(k.optLong("cache_read_tokens"))} cached" else "") +
+                    (if (!free && k.optDouble("cost_usd") > 0) " · ${usd(k.optDouble("cost_usd"))}" else ""),
+                    color = Dim, fontSize = 11.sp)
             }
         }
     }

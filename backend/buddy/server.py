@@ -793,9 +793,21 @@ def api_resolve(conflict_id: int, keep: str) -> dict:
 
 
 # --- background job reports: the phone apps show them -----------------------
+REPORT_TYPES = {"research": "Research", "money_weekly": "Money", "money_monthly": "Money", "tutor": "English",
+                "code": "Code", "build_agent": "Agents"}
+ARCHIVE_AFTER_DAYS = 7
+
+
 @app.get("/api/jobs", dependencies=[Depends(require_admin)])
-def api_jobs(limit: int = 50) -> list[dict]:
-    return jobs.list(limit=min(limit, 200))
+def api_jobs(limit: int = 300) -> list[dict]:
+    """Reports newest first, each with its type and whether it's archived (older than a week)."""
+    cutoff = (datetime.now(timezone.utc) - timedelta(days=ARCHIVE_AFTER_DAYS)).isoformat()
+    out = []
+    for j in jobs.list(limit=min(limit, 500)):
+        when = j.get("finished_at") or j.get("created_at") or ""
+        out.append({**j, "type": REPORT_TYPES.get(j.get("kind", ""), "Other"),
+                    "archived": j.get("status") in ("done", "failed", "cancelled") and when < cutoff})
+    return out
 
 
 @app.get("/api/jobs/{job_id}", dependencies=[Depends(require_admin)])

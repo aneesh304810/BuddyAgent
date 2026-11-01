@@ -2,6 +2,7 @@ package app.buddy
 
 import androidx.compose.foundation.background
 import androidx.compose.foundation.clickable
+import androidx.compose.foundation.horizontalScroll
 import androidx.compose.foundation.layout.Arrangement
 import androidx.compose.foundation.layout.Column
 import androidx.compose.foundation.layout.Row
@@ -38,7 +39,16 @@ import org.json.JSONArray
 import org.json.JSONObject
 import java.util.concurrent.TimeUnit
 
-data class JobSummary(val id: Int, val title: String, val status: String, val createdAt: String)
+data class JobSummary(
+    val id: Int,
+    val title: String,
+    val status: String,
+    val createdAt: String,
+    val type: String = "Other",
+    val archived: Boolean = false,
+    val summary: String = "",
+    val finishedAt: String = "",
+)
 
 data class JobReport(
     val id: Int,
@@ -70,7 +80,10 @@ object ReportsApi {
         val array = JSONArray(get(link, "/api/jobs"))
         return (0 until array.length()).map { i ->
             val job = array.getJSONObject(i)
-            JobSummary(job.getInt("id"), job.optString("title"), job.optString("status"), job.optString("created_at"))
+            JobSummary(job.getInt("id"), job.optString("title"), job.optString("status"), job.optString("created_at"),
+                job.optString("type", "Other"), job.optBoolean("archived"),
+                if (job.isNull("summary")) "" else job.optString("summary"),
+                if (job.isNull("finished_at")) "" else job.optString("finished_at"))
         }
     }
 
@@ -81,10 +94,26 @@ object ReportsApi {
     }
 }
 
+private val RDim = Color(0xFF8A93B2)
+private val RTile = Color(0xFF151C33)
+
+private fun localTime(iso: String): java.time.ZonedDateTime? = runCatching {
+    java.time.OffsetDateTime.parse(iso).atZoneSameInstant(java.time.ZoneId.systemDefault())
+}.getOrNull()
+
+private fun whenText(job: JobSummary): String {
+    val t = localTime(job.finishedAt.ifBlank { job.createdAt }) ?: return ""
+    return t.format(java.time.format.DateTimeFormatter.ofPattern("EEE d MMM, h:mm a"))
+}
+
+/** Reports by type, this week's first; anything older than 7 days moves to the Archive, grouped by month. */
 @Composable
 fun ReportsScreen(link: ServerLink?, onOpen: (Int) -> Unit) {
     var jobs by remember { mutableStateOf<List<JobSummary>?>(null) }
     var problem by remember { mutableStateOf<String?>(null) }
+    var type by remember { mutableStateOf("All") }
+    var query by remember { mutableStateOf("") }
+    var archiveOpen by remember { mutableStateOf(false) }
     LaunchedEffect(link) {
         if (link == null) {
             problem = "Set up your server first."
@@ -94,29 +123,73 @@ fun ReportsScreen(link: ServerLink?, onOpen: (Int) -> Unit) {
             .onSuccess { jobs = it }
             .onFailure { problem = "Couldn't load reports (${it.message})." }
     }
-    Column(Modifier.fillMaxSize()) {
-        problem?.let { Text(it, color = Color(0xFFFF8A80)) }
-        val list = jobs
-        when {
-            list == null && problem == null -> Text("Loading…", color = Color(0xFF8A93B2))
-            list != null && list.isEmpty() -> Text(
-                "No research yet. Ask Buddy: \"research the best phone plan in Brazil\".",
-                color = Color(0xFF8A93B2),
+    val all = jobs
+    LazyColumn(Modifier.fillMaxSize(), verticalArrangement = Arrangement.spacedBy(8.dp)) {
+        problem?.let { item { Text(it, color = Color(0xFFFF8A80)) } }
+        if (all == null) {
+            if (problem == null) item { Text("Loading…", color = RDim) }
+            return@LazyColumn
+        }
+        if (all.isEmpty()) {
+            item { Text("No reports yet. Ask Buddy: \"research the best phone plan in Brazil\".", color = RDim) }
+            return@LazyColumn
+        }
+        item {
+            androidx.compose.material3.OutlinedTextField(
+                value = query, onValueChange = { query = it }, singleLine = true,
+                placeholder = { Text("Search reports") }, modifier = Modifier.fillMaxWidth(),
             )
-            list != null -> LazyColumn(verticalArrangement = Arrangement.spacedBy(8.dp)) {
-                items(list) { job ->
-                    Column(
-                        Modifier
-                            .fillMaxWidth()
-                            .background(Color(0xFF151C33), RoundedCornerShape(12.dp))
-                            .clickable { onOpen(job.id) }
-                            .padding(12.dp)
-                    ) {
-                        Text(job.title, color = Color.White, fontSize = 16.sp)
-                        Text("${job.status} · ${job.createdAt.take(16).replace('T', ' ')} UTC", color = Color(0xFF8A93B2), fontSize = 12.sp)
-                    }
+        }
+        val types = listOf("All") + all.map { it.type }.distinct().sorted()
+        item {
+            Row(Modifier.horizontalScroll(rememberScrollState()), horizontalArrangement = Arrangement.spacedBy(8.dp)) {
+                types.forEach { t ->
+                    val n = if (t == "All") all.size else all.count { it.type == t }
+                    Text("$t $n", color = if (type == t) Color.Black else Color.White, fontSize = 13.sp,
+                        modifier = Modifier.background(if (type == t) Color.White else RTile, RoundedCornerShape(50))
+                            .clickable { type = t }.padding(horizontal = 14.dp, vertical = 6.dp))
                 }
             }
+        }
+        val shown = all.filter { (type == "All" || it.type == type) &&
+            (query.isBlank() || "${it.title} ${it.summary}".contains(query.trim(), ignoreCase = true)) }
+        val recent = shown.filter { !it.archived }
+        val archived = shown.filter { it.archived }
+        item { Text("This week", color = Color.White, fontSize = 16.sp, fontWeight = FontWeight.SemiBold) }
+        if (recent.isEmpty()) item { Text("Nothing in the last 7 days.", color = RDim, fontSize = 13.sp) }
+        items(recent, key = { it.id }) { job -> ReportRow(job) { onOpen(job.id) } }
+        if (archived.isNotEmpty()) {
+            item {
+                Text((if (archiveOpen || query.isNotBlank()) "▾ " else "▸ ") + "Archive (${archived.size})",
+                    color = Color.White, fontSize = 16.sp, fontWeight = FontWeight.SemiBold,
+                    modifier = Modifier.fillMaxWidth().clickable { archiveOpen = !archiveOpen }.padding(top = 10.dp, bottom = 2.dp))
+            }
+            if (archiveOpen || query.isNotBlank()) {
+                archived.groupBy { j ->
+                    localTime(j.finishedAt.ifBlank { j.createdAt })
+                        ?.format(java.time.format.DateTimeFormatter.ofPattern("MMMM yyyy")) ?: "Older"
+                }.forEach { (month, list) ->
+                    item(key = "m$month") { Text(month, color = RDim, fontSize = 13.sp, modifier = Modifier.padding(top = 6.dp)) }
+                    items(list, key = { it.id }) { job -> ReportRow(job) { onOpen(job.id) } }
+                }
+            }
+        }
+    }
+}
+
+@Composable
+private fun ReportRow(job: JobSummary, onClick: () -> Unit) {
+    Column(Modifier.fillMaxWidth().background(RTile, RoundedCornerShape(12.dp)).clickable(onClick = onClick).padding(12.dp)) {
+        Row(Modifier.fillMaxWidth()) {
+            Text(job.type, color = Color(0xFF7BE0A5), fontSize = 12.sp, modifier = Modifier.weight(1f))
+            Text(whenText(job), color = RDim, fontSize = 12.sp)
+        }
+        Text(job.title, color = Color.White, fontSize = 16.sp)
+        if (job.status != "done") {
+            Text(job.status, color = if (job.status == "failed") Color(0xFFFF8A80) else Color(0xFFFFC46B), fontSize = 12.sp)
+        } else if (job.summary.isNotBlank()) {
+            Text(job.summary, color = RDim, fontSize = 13.sp, maxLines = 2,
+                overflow = androidx.compose.ui.text.style.TextOverflow.Ellipsis)
         }
     }
 }

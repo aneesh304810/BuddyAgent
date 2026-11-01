@@ -27,6 +27,12 @@ PURPOSE_NAMES = {
     "lifelog": "Life log imports",
     "briefing": "Briefings and nudges",
     "build_agent": "Agent builder",
+    "library": "Reading your documents",
+    "brain:night": "Overnight memory tidy-up",
+    "brain:conflicts": "Memory: facts that disagree",
+    "finance:statement": "Reading card statements",
+    "tutor": "English review",
+    "code": "Code tasks",
 }
 
 
@@ -242,6 +248,19 @@ def report(memory: Memory, days: int = 7, recent: int = 60, model: str = "", pur
     by_model = _group(rows, lambda r: f"{r['provider']} · {r['model']}")
     for g in by_model:
         g["provider"], g["model"] = g["name"].split(" · ", 1)
+        mine = [r for r in rows if r["provider"] == g["provider"] and r["model"] == g["model"]]
+        g["cache_write_tokens"] = sum(r["cache_write_tokens"] for r in mine)
+        kinds: dict[str, dict] = {}
+        for r in mine:  # what kinds of request went to this model
+            k = kinds.setdefault(r["purpose"], {"name": r["purpose"], "label": purpose_name(r["purpose"]),
+                                                "requests": 0, "input_tokens": 0, "output_tokens": 0,
+                                                "cache_read_tokens": 0, "cost_usd": 0.0})
+            k["requests"] += 1
+            k["input_tokens"] += r["input_tokens"]
+            k["output_tokens"] += r["output_tokens"]
+            k["cache_read_tokens"] += r["cache_read_tokens"]
+            k["cost_usd"] = round(k["cost_usd"] + r["cost_usd"], 4)
+        g["purposes"] = sorted(kinds.values(), key=lambda k: (-k["requests"], -k["input_tokens"]))
     by_purpose = _group(rows, lambda r: r["purpose"])
     for g in by_purpose:
         g["label"] = purpose_name(g["name"])
