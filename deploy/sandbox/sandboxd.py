@@ -50,7 +50,7 @@ NETWORK = os.getenv("SANDBOX_NETWORK", "buddy-sandbox")
 TOKEN = os.getenv("SANDBOX_GITHUB_TOKEN", "")
 # The library of every tool on GitHub: built-in ones (publish_tools) and each one Buddy saves
 # (save_skill) arrive there as buddy/... branches for the owner to merge. Empty = off.
-TOOLS_REPO = os.getenv("SANDBOX_TOOLS_REPO", "https://github.com/aneeshnair304810-buddy-sandbix/Sandbox")
+TOOLS_REPO = os.getenv("SANDBOX_TOOLS_REPO", "https://github.com/aneesh304810/Buddy-sandbox-tools")
 MAX_WORKSPACES = int(os.getenv("SANDBOX_MAX_WORKSPACES", "10"))
 MAX_WORKSPACE_MB = int(os.getenv("SANDBOX_MAX_WORKSPACE_MB", "4000"))
 MAX_TIMEOUT = 1800
