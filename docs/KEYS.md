@@ -60,6 +60,7 @@ snippets). A Reddit app adds full threads, top comments and scores.
    ```
    sudo bash /opt/buddy/deploy/set.sh BUDDY_REDDIT_CLIENT_ID
    sudo bash /opt/buddy/deploy/set.sh BUDDY_REDDIT_SECRET
+   sudo bash /opt/buddy/deploy/set.sh BUDDY_REDDIT_USERNAME   # your Reddit username (Reddit asks apps to name their owner)
    ```
 
 Check: *"What does Reddit say about Cusco in December?"*

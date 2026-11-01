@@ -81,6 +81,7 @@ Your monthly budget, per-job cap ($5) and approvals for anything over 50 cents s
    ```
    sudo bash /opt/buddy/deploy/set.sh BUDDY_REDDIT_CLIENT_ID
    sudo bash /opt/buddy/deploy/set.sh BUDDY_REDDIT_SECRET
+   sudo bash /opt/buddy/deploy/set.sh BUDDY_REDDIT_USERNAME   # your Reddit username (Reddit asks apps to name their owner)
    ```
 Try: *"What does Reddit say about Cusco in December?"*, *"Top posts in r/personalfinance this week"*.
 
