@@ -54,7 +54,7 @@ from fastapi import Depends, FastAPI, Header, HTTPException, Request, WebSocket,
 from fastapi.staticfiles import StaticFiles
 
 from . import health as healthcheck
-from . import advisor, codejob, finance, insights, thinking, makers, proactive, research, tutor, usage, vocabulary, voiceprint
+from . import advisor, codejob, finance, plaid, insights, thinking, makers, proactive, research, tutor, usage, vocabulary, voiceprint
 from .agent import FILLERS, Conversation
 from .agents import AgentRegistry, load_specs
 from .ambient import AmbientListener, is_think_cue
@@ -279,6 +279,7 @@ async def lifespan(app: FastAPI):
     mail_loop = asyncio.create_task(mail.run())
     watch_loop = asyncio.create_task(watcher.run())
     bank_loop = asyncio.create_task(bank.run())
+    plaid_loop = asyncio.create_task(plaid.Plaid(memory).run(deliver))
     health_loop = asyncio.create_task(healthcheck.run(memory, finops, deliver))
     tutor_loop = asyncio.create_task(tutor.run(memory, jobs))
     brain_loop = asyncio.create_task(_index_brain())
@@ -292,6 +293,7 @@ async def lifespan(app: FastAPI):
         mail_loop.cancel()
         watch_loop.cancel()
         bank_loop.cancel()
+        plaid_loop.cancel()
         health_loop.cancel()
         tutor_loop.cancel()
         brain_loop.cancel()
@@ -318,6 +320,12 @@ class _HideTokens(logging.Filter):
 for _name in ("uvicorn.access", "uvicorn.error", "uvicorn"):
     logging.getLogger(_name).addFilter(_HideTokens())
     logging.getLogger(_name).addFilter(SecretFilter())  # uvicorn's own handlers skip the root filter
+
+
+def _base_url(headers) -> str:
+    host = headers.get("x-forwarded-host") or headers.get("host") or ""
+    scheme = "http" if host.startswith(("127.", "localhost", "testserver")) else "https"
+    return f"{scheme}://{host}" if host else ""
 
 
 def _absolute(items: list[dict], ws: WebSocket) -> list[dict]:
@@ -694,6 +702,76 @@ def api_finance_cancel_page(sub_id: int) -> dict:
         raise HTTPException(status_code=404, detail=str(e)) from e
 
 
+# --- Plaid: linking a bank (the page is opened in the phone's browser; its one-time state authenticates it)
+@app.get("/api/plaid", dependencies=[Depends(require_admin)])
+def api_plaid() -> dict:
+    p = plaid.Plaid(memory)
+    return {"configured": p.configured(), "banks": p.status()}
+
+
+@app.post("/api/plaid/link", dependencies=[Depends(require_admin)])
+async def api_plaid_link(request: Request) -> dict:
+    try:
+        return await asyncio.to_thread(plaid.Plaid(memory).start_link, _base_url(request.headers))
+    except (ToolError, plaid.PlaidError) as e:
+        raise HTTPException(status_code=400, detail=str(e)) from e
+
+
+@app.delete("/api/plaid/{item_id}", dependencies=[Depends(require_admin)])
+async def api_plaid_unlink(item_id: str) -> dict:
+    try:
+        return {"result": await asyncio.to_thread(plaid.Plaid(memory).unlink, item_id)}
+    except (ToolError, plaid.PlaidError) as e:
+        raise HTTPException(status_code=400, detail=str(e)) from e
+
+
+@app.get("/plaid/link")
+def plaid_link_page(state: str = ""):
+    from fastapi.responses import HTMLResponse
+
+    link = plaid.Plaid(memory).pending(state)
+    if not link:
+        return HTMLResponse(plaid.error_page("This link expired or was already used. Ask Buddy to connect the bank "
+                                             "again."), status_code=403)
+    return HTMLResponse(plaid.link_page(link["token"], link["state"]), headers={"Cache-Control": "no-store",
+                                                                                "Referrer-Policy": "no-referrer"})
+
+
+@app.get("/plaid/oauth")
+def plaid_oauth_page(oauth_state_id: str = ""):
+    """Banks that sign in on their own site come back here; Link picks up where it left off."""
+    from fastapi.responses import HTMLResponse
+
+    link = plaid.Plaid(memory).pending()
+    if not link or not oauth_state_id:
+        return HTMLResponse(plaid.error_page("This link expired. Ask Buddy to connect the bank again."), status_code=403)
+    return HTMLResponse(plaid.link_page(link["token"], link["state"], oauth=True),
+                        headers={"Cache-Control": "no-store", "Referrer-Policy": "no-referrer"})
+
+
+@app.post("/plaid/exchange")
+async def plaid_exchange(body: dict) -> dict:
+    p = plaid.Plaid(memory)
+    try:
+        got = await asyncio.to_thread(p.finish_link, str(body.get("state", "")), str(body.get("public_token", "")),
+                                      str(body.get("institution", "")))
+    except (ToolError, plaid.PlaidError) as e:
+        raise HTTPException(status_code=400, detail=str(e)) from e
+
+    async def first_sync() -> None:
+        try:
+            done = await asyncio.to_thread(p.sync, True)
+            await deliver("money", f"Connected {got['institution'] or 'your bank'}: {done['added']} transactions"
+                          + (f" and {done['cards']} card{'s' if done['cards'] != 1 else ''} with due dates, minimums "
+                             "and APRs" if done["cards"] else "") + ". Your subscriptions and card calendar are updated.")
+        except Exception:
+            log.exception("plaid: first sync failed")
+            await deliver("money", f"Connected {got['institution'] or 'your bank'}, but the first sync failed; "
+                          "I'll try again shortly.")
+    asyncio.create_task(first_sync())
+    return {"ok": True}
+
+
 @app.get("/api/brain", dependencies=[Depends(require_admin)])
 def api_brain() -> dict:
     """What Buddy has learned about the user: preferences, dates it watches, questions waiting."""
@@ -742,6 +820,8 @@ async def talk(ws: WebSocket) -> None:
     await ws.accept()
     convo = Conversation(memory, registry, jobs, thrift, hub, finops, mail, watcher, builder)
     connections[ws] = convo
+    with contextlib.suppress(Exception):  # the address the phone reaches Buddy at, for links like the Plaid page
+        memory.set("server:base_url", _base_url(ws.headers))
     jobs.wake.set()  # results that finished while the phone was away go out now
     current: asyncio.Task | None = None
     last_exchange = {"at": -1e9, "said": ""}  # when Buddy last answered, and what it said

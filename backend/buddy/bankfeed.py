@@ -94,7 +94,14 @@ class BankFeed:
         return (self.env.get("BUDDY_SIMPLEFIN_URL") or "").strip()
 
     def configured(self) -> bool:
-        return self.url.startswith("https://")
+        return self.url.startswith("https://") and not self._plaid_linked()
+
+    def _plaid_linked(self) -> bool:
+        """With a bank linked through Plaid, SimpleFIN stands down so nothing is counted twice."""
+        try:
+            return bool(self.memory.db.execute("SELECT 1 FROM plaid_items LIMIT 1").fetchone())
+        except Exception:
+            return False
 
     async def run(self) -> None:
         while True:

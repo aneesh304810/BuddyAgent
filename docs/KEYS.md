@@ -90,6 +90,23 @@ Details: `docs/ZAPIER.md`.
 
 Check: *"What are my account balances?"* Details: `docs/MONEY.md`.
 
+## 5b. Plaid (banks and cards: transactions, due dates, minimums, APRs, limits)
+
+Read-only. Once Plaid approves your app (dashboard.plaid.com → Keys):
+
+```
+sudo bash /opt/buddy/deploy/set.sh BUDDY_PLAID_CLIENT_ID
+sudo bash /opt/buddy/deploy/set.sh BUDDY_PLAID_SECRET      # the production secret (or sandbox, to try it)
+sudo bash /opt/buddy/deploy/set.sh BUDDY_PLAID_ENV         # production (or sandbox)
+sudo bash /opt/buddy/deploy/set.sh BUDDY_PLAID_REDIRECT_URI   # https://<your server>.ts.net/plaid/oauth
+```
+
+Add the same redirect address in the Plaid dashboard under API → Allowed redirect URIs; banks that sign
+in on their own site (Chase, Capital One, Wells Fargo...) need it. Then in the app: Money → Connect a
+bank or card, or say "connect my bank". You sign in inside Plaid's window; Buddy never sees the password.
+Once a bank is linked through Plaid, the SimpleFIN feed stands down so nothing is counted twice.
+Unlink in Money (or "unlink my bank"): access is revoked at Plaid and that bank's data deleted.
+
 ## 6. DigitalOcean token (cost report)
 1. Chrome → **cloud.digitalocean.com** → **API** → **Tokens** → **Generate New Token**.
 2. Name `Buddy costs`; choose **Custom scopes** → tick only **billing: read**

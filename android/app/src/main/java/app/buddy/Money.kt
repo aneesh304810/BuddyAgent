@@ -50,10 +50,11 @@ private val MGood = Color(0xFF7BE0A5)
 object FinanceApi {
     private val http = OkHttpClient.Builder().callTimeout(30, TimeUnit.SECONDS).build()
 
-    private suspend fun call(link: ServerLink, path: String, post: Boolean = false): JSONObject =
+    private suspend fun call(link: ServerLink, path: String, post: Boolean = false, delete: Boolean = false): JSONObject =
         withContext(Dispatchers.IO) {
             val builder = Request.Builder().url(link.baseUrl + path).header("Authorization", "Bearer ${link.token}")
             if (post) builder.post(ByteArray(0).toRequestBody())
+            if (delete) builder.delete()
             http.newCall(builder.build()).execute().use { r ->
                 val body = r.body?.string().orEmpty()
                 if (!r.isSuccessful) {
@@ -68,6 +69,9 @@ object FinanceApi {
     suspend fun decide(link: ServerLink, id: Int, status: String) =
         call(link, "/api/finance/subscriptions/$id?status=$status", post = true)
     suspend fun cancelPage(link: ServerLink, id: Int) = call(link, "/api/finance/subscriptions/$id/cancel")
+    suspend fun banks(link: ServerLink) = call(link, "/api/plaid")
+    suspend fun connectBank(link: ServerLink) = call(link, "/api/plaid/link", post = true)
+    suspend fun unlinkBank(link: ServerLink, itemId: String) = call(link, "/api/plaid/$itemId", delete = true)
 }
 
 private fun JSONArray.list(): List<JSONObject> = (0 until length()).map { getJSONObject(it) }
@@ -116,6 +120,7 @@ fun MoneyScreen(link: ServerLink?, onReports: () -> Unit = {}) {
                 }
             }
         }
+        item { BanksPanel(link!!) }
         item {
             Text("Weekly money reports are in Reports →", color = MDim, fontSize = 13.sp,
                 modifier = Modifier.clickable { onReports() }.padding(vertical = 2.dp))
@@ -197,6 +202,67 @@ fun MoneyScreen(link: ServerLink?, onReports: () -> Unit = {}) {
             }
         }
         items(goals, key = { "goal" + it.optInt("id") }) { g -> GoalRow(g) }
+    }
+}
+
+/** Banks linked through Plaid: connect one (Plaid's own page, in the browser), or unlink. */
+@Composable
+private fun BanksPanel(link: ServerLink) {
+    var banks by remember { mutableStateOf<JSONObject?>(null) }
+    var note by remember { mutableStateOf<String?>(null) }
+    var confirm by remember { mutableStateOf<JSONObject?>(null) }
+    var refresh by remember { mutableIntStateOf(0) }
+    val scope = rememberCoroutineScope()
+    val context = LocalContext.current
+    LaunchedEffect(refresh) { banks = runCatching { FinanceApi.banks(link) }.getOrNull() }
+    val b = banks ?: return
+    Column(Modifier.fillMaxWidth().background(MTile, RoundedCornerShape(12.dp)).padding(12.dp),
+        verticalArrangement = Arrangement.spacedBy(6.dp)) {
+        Text("Banks and cards (Plaid, read-only)", color = MDim, fontSize = 13.sp)
+        if (!b.optBoolean("configured")) {
+            Text("Not set up yet: once Plaid approves the app, add its keys on the server " +
+                "(set.sh BUDDY_PLAID_CLIENT_ID, BUDDY_PLAID_SECRET, BUDDY_PLAID_ENV).", color = MDim, fontSize = 13.sp)
+            return@Column
+        }
+        b.optJSONArray("banks")?.list().orEmpty().forEach { bank ->
+            Row(Modifier.fillMaxWidth()) {
+                Column(Modifier.weight(1f)) {
+                    Text(bank.optString("institution").ifBlank { "Bank" }, color = Color.White, fontWeight = FontWeight.SemiBold)
+                    val accts = bank.optJSONArray("accounts")?.list().orEmpty()
+                        .joinToString { it.optString("name") + if (it.optString("mask").isNotBlank()) " ••${it.optString("mask")}" else "" }
+                    if (accts.isNotBlank()) Text(accts, color = MDim, fontSize = 12.sp)
+                    val problem = bank.optString("problem")
+                    if (problem.isNotBlank()) Text(problem, color = MWarn, fontSize = 12.sp)
+                }
+                Text("Unlink", color = MDim, modifier = Modifier.clickable { confirm = bank }.padding(8.dp))
+            }
+        }
+        OutlinedButton(onClick = {
+            scope.launch {
+                runCatching { FinanceApi.connectBank(link).optString("url") }
+                    .onSuccess { url ->
+                        note = "Pick your bank and sign in inside Plaid's window. Buddy never sees your password."
+                        runCatching { context.startActivity(Intent(Intent.ACTION_VIEW, Uri.parse(url))) }
+                    }
+                    .onFailure { note = "Couldn't start: ${it.message}" }
+            }
+        }) { Text("Connect a bank or card") }
+        note?.let { Text(it, color = MDim, fontSize = 12.sp) }
+    }
+    confirm?.let { bank ->
+        androidx.compose.material3.AlertDialog(
+            onDismissRequest = { confirm = null },
+            title = { Text("Unlink ${bank.optString("institution")}?") },
+            text = { Text("Buddy's access is revoked at Plaid and this bank's accounts, transactions and cards are deleted from your server.") },
+            confirmButton = {
+                androidx.compose.material3.TextButton(onClick = {
+                    val id = bank.optString("item_id")
+                    confirm = null
+                    scope.launch { runCatching { FinanceApi.unlinkBank(link, id) }; refresh++ }
+                }) { Text("Unlink") }
+            },
+            dismissButton = { androidx.compose.material3.TextButton(onClick = { confirm = null }) { Text("Keep") } },
+        )
     }
 }
 

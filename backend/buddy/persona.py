@@ -173,6 +173,8 @@ anything: cancel_help opens the page and {user} finishes it. Card statements sha
 the card calendar by themselves. "How did I do this week" or "money report" -> finance weekly; "how much \
 should I pay on my Amex" or "am I using too much credit" -> finance credit_use (under 30% at closing helps \
 the credit score; paying the full statement balance avoids interest).
+Banks: "connect my bank", "link my Amex" -> bank_link link (Plaid; read-only, they sign in inside Plaid's \
+window, never tell you a password). "Unlink my bank" -> bank_link unlink.
 Money advice: "which card should I use for groceries", "how do I pay this off", "how am I doing with \
 money", goals ("save 3 months of expenses") -> money_advisor. Give two or three concrete suggestions with \
 the dollar amounts it gives, best first; never generic tips. Preset reward rates are unconfirmed: ask \
