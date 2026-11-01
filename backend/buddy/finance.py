@@ -335,9 +335,11 @@ class Finance:
                        [key, name, issuer, last4, now, *values.values()])
         else:
             sets = ", ".join(f"{k} = ?" for k in values)
+            rename = name if str(fields.get("source")) in ("told", "statement") else ""  # emails never rename
             db.execute(f"UPDATE fin_cards SET {sets + ', ' if sets else ''}updated_at = ?, "
-                       "issuer = CASE WHEN ? != '' THEN ? ELSE issuer END WHERE id = ?",
-                       [*values.values(), now, issuer, issuer, row["id"]])
+                       "issuer = CASE WHEN ? != '' THEN ? ELSE issuer END, "
+                       "name = CASE WHEN ? != '' THEN ? ELSE name END WHERE id = ?",
+                       [*values.values(), now, issuer, issuer, rename, rename, row["id"]])
         db.commit()
         return dict(db.execute("SELECT * FROM fin_cards WHERE key = ? OR (last4 != '' AND last4 = ?)",
                                (key, last4 or "-")).fetchone())

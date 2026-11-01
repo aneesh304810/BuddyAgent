@@ -104,7 +104,9 @@ def test_card_calendar_from_statement_emails_and_what_the_user_says(mem):
     money.add_bill("Electric company", 80, "USD", due, "", "email:2")
     fin = finance.Finance(mem)
     assert fin.cards_from_bills() == 1
-    fin.card(name="Amex Gold", issuer="American Express", last4="371449631004", credit_limit=5000, apr=27.49)
+    fin.card(name="Amex Gold", issuer="American Express", last4="371449631004", credit_limit=5000, apr=27.49,
+             source="told")
+    fin.cards_from_bills()  # the next statement email doesn't undo the name the user gave
     cards = fin.cards()
     assert len(cards) == 1 and cards[0]["last4"] == "1004"  # only ever the last four digits
     assert cards[0]["next_due"] == due and cards[0]["used_percent"] == 25
