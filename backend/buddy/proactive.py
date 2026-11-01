@@ -6,7 +6,7 @@ import logging
 from datetime import datetime
 from collections.abc import Awaitable, Callable
 
-from . import finance, health, thinking
+from . import advisor, finance, health, thinking
 from .agent import compose
 from .config import settings
 from .memory import Memory
@@ -122,6 +122,16 @@ async def run(memory: Memory, deliver: Deliver) -> None:
             if memory.get("finance:refreshed") != today:
                 await asyncio.to_thread(finance.Finance(memory).refresh)
                 memory.set("finance:refreshed", today)
+            if advisor.monthly_due(memory):
+                month = local_now().strftime("%Y-%m")
+                adv = advisor.Advisor(memory)
+                if memory.get("finance:monthly_saved") != month:
+                    job_id, summary = adv.save_month()
+                    memory.set("finance:monthly_saved", month)
+                    memory.set("finance:monthly_job", json.dumps([job_id, summary]))
+                job_id, summary = json.loads(memory.get("finance:monthly_job"))
+                if await deliver("money_monthly", summary, job_id=job_id):
+                    memory.set("finance:monthly", month)
             if finance.weekly_due(memory):
                 fin = finance.Finance(memory)
                 if memory.get("finance:weekly_saved") != today:

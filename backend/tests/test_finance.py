@@ -221,6 +221,8 @@ def test_the_weekly_report(mem):
 def test_weekly_report_timing(mem, monkeypatch):
     day = ("mon", "tue", "wed", "thu", "fri", "sat", "sun")[local_now().weekday()]
     monkeypatch.setattr(finance, "WEEKLY_AT", f"{day} 00:00")
+    assert not finance.weekly_due(mem)  # nothing to report yet
+    charges(mem, "Cafe", [(5.0, 1)])
     assert finance.weekly_due(mem)
     mem.set("finance:weekly", local_now().date().isoformat())
     assert not finance.weekly_due(mem)

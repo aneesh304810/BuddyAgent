@@ -165,6 +165,59 @@ fun MoneyScreen(link: ServerLink?, onReports: () -> Unit = {}) {
             }
         }
         items(cards, key = { "card" + it.optInt("id") }) { c -> CardRow(c) }
+        val best = d.optJSONObject("best_card_for")
+        if (best != null && best.length() > 0) {
+            item { Text("Best card for", color = MDim, fontSize = 13.sp, modifier = Modifier.padding(top = 8.dp)) }
+            item {
+                Column(Modifier.fillMaxWidth().background(MTile, RoundedCornerShape(12.dp)).padding(12.dp),
+                    verticalArrangement = Arrangement.spacedBy(3.dp)) {
+                    best.keys().forEach { cat ->
+                        val b = best.getJSONObject(cat)
+                        Row(Modifier.fillMaxWidth()) {
+                            Text(cat.replaceFirstChar { it.uppercase() }, color = Color.White, fontSize = 14.sp,
+                                modifier = Modifier.weight(1f))
+                            Text("${b.optString("card")} · ${"%.1f".format(b.optDouble("rate")).removeSuffix(".0")}x",
+                                color = MGood, fontSize = 14.sp)
+                        }
+                    }
+                    val toConfirm = d.optJSONArray("rewards")?.list().orEmpty().filter { it.optBoolean("preset_to_confirm") }
+                    if (toConfirm.isNotEmpty()) {
+                        Text("Rates for ${toConfirm.joinToString { it.optString("card") }} are the published ones: tell " +
+                            "Buddy if yours differ, or say \"they're right\".", color = MWarn, fontSize = 12.sp)
+                    }
+                }
+            }
+        }
+        val goals = d.optJSONArray("goals")?.list().orEmpty()
+        item { Text("Goals", color = MDim, fontSize = 13.sp, modifier = Modifier.padding(top = 8.dp)) }
+        if (goals.isEmpty()) {
+            item {
+                Text("No goals yet. Tell Buddy one: \"save 3 months of expenses\", \"pay off my Amex\", " +
+                    "\"save 2,000 for Lima by March\".", color = MDim, fontSize = 13.sp)
+            }
+        }
+        items(goals, key = { "goal" + it.optInt("id") }) { g -> GoalRow(g) }
+    }
+}
+
+@Composable
+private fun GoalRow(g: JSONObject) {
+    val cur = g.optString("currency")
+    Column(Modifier.fillMaxWidth().background(MTile, RoundedCornerShape(12.dp)).padding(12.dp),
+        verticalArrangement = Arrangement.spacedBy(3.dp)) {
+        Text(g.optString("name"), color = Color.White, fontWeight = FontWeight.SemiBold)
+        val line = when (g.optString("kind")) {
+            "pay_off" -> if (g.isNull("left")) "Balance not known yet" else "${money(g.optDouble("left"), cur)} left"
+            else -> {
+                val have = if (g.isNull("have")) "unknown (tell Buddy)" else money(g.optDouble("have"), cur)
+                val target = if (g.isNull("target")) "?" else money(g.optDouble("target"), cur)
+                "$have of $target" + if (g.has("percent")) " · ${g.optInt("percent")}%" else ""
+            }
+        }
+        Text(line, color = MDim, fontSize = 13.sp)
+        if (g.has("save_a_month")) {
+            Text("Put aside about ${money(g.optDouble("save_a_month"), cur)} a month to make it", color = MWarn, fontSize = 13.sp)
+        }
     }
 }
 

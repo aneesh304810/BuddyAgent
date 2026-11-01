@@ -54,7 +54,7 @@ from fastapi import Depends, FastAPI, Header, HTTPException, Request, WebSocket,
 from fastapi.staticfiles import StaticFiles
 
 from . import health as healthcheck
-from . import codejob, finance, insights, thinking, makers, proactive, research, tutor, usage, vocabulary, voiceprint
+from . import advisor, codejob, finance, insights, thinking, makers, proactive, research, tutor, usage, vocabulary, voiceprint
 from .agent import FILLERS, Conversation
 from .agents import AgentRegistry, load_specs
 from .ambient import AmbientListener, is_think_cue
@@ -671,7 +671,10 @@ def api_finance(stopped: bool = False) -> dict:
     cards = [{**c, **({"balance_now": use[c["id"]]["balance_now"], "used_now": use[c["id"]]["used_now"],
                        "pay_to_get_under_30": use[c["id"]]["pay_to_get_under_30"]} if c["id"] in use else {})}
              for c in fin.cards()]
-    return {**fin.subscriptions(include_stopped=stopped), "cards": cards}
+    adv = advisor.Advisor(memory)
+    adv.apply_presets()
+    return {**fin.subscriptions(include_stopped=stopped), "cards": cards, "best_card_for": adv.best_cards(),
+            "rewards": adv.rewards(), "goals": adv.goals()}
 
 
 @app.post("/api/finance/subscriptions/{sub_id}", dependencies=[Depends(require_admin)])

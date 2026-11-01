@@ -361,7 +361,7 @@ class Finance:
             closing = _next_day_of_month(today, int(c["closing_day"])) if c["closing_day"] else None
             used = round(100 * c["statement_balance"] / c["credit_limit"]) if c["statement_balance"] is not None \
                 and c["credit_limit"] else None
-            out.append({"id": c["id"], "name": c["name"], "last4": c["last4"], "currency": c["currency"],
+            out.append({"id": c["id"], "name": c["name"], "issuer": c["issuer"], "last4": c["last4"], "currency": c["currency"],
                         "next_due": due.isoformat() if due else "", "next_closing": closing.isoformat() if closing else "",
                         "statement_balance": c["statement_balance"], "minimum_due": c["minimum_due"],
                         "credit_limit": c["credit_limit"], "apr": c["apr"], "used_percent": used,
@@ -735,6 +735,19 @@ class Finance:
         }
 
 
+def has_money_data(memory: Memory) -> bool:
+    """Any card, or any charge in the last two months: otherwise a money report would be empty."""
+    since = (local_now().date() - timedelta(days=62)).isoformat()
+    for sql, args in (("SELECT 1 FROM fin_cards LIMIT 1", ()),
+                      ("SELECT 1 FROM transactions WHERE day >= ? LIMIT 1", (since,))):
+        try:
+            if memory.db.execute(sql, args).fetchone():
+                return True
+        except Exception:
+            pass  # that table doesn't exist yet
+    return False
+
+
 def weekly_due(memory: Memory) -> bool:
     """True once the weekly report's day and time have come this week and it isn't done yet."""
     if not WEEKLY_AT.strip():
@@ -748,7 +761,7 @@ def weekly_due(memory: Memory) -> bool:
     now = local_now()
     if now.weekday() != weekday or (now.hour, now.minute) < (hour, minute):
         return False
-    return memory.get("finance:weekly") != now.date().isoformat()
+    return memory.get("finance:weekly") != now.date().isoformat() and has_money_data(memory)
 
 
 def _day_of(value) -> int | None:
