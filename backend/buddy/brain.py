@@ -19,7 +19,7 @@ import logging
 import os
 import re
 import threading
-from datetime import datetime, timezone
+from datetime import datetime, timedelta, timezone
 from pathlib import Path
 
 from .config import settings
@@ -31,6 +31,8 @@ MODEL = os.getenv("BUDDY_EMBED_MODEL", "BAAI/bge-small-en-v1.5")
 ENABLED = os.getenv("BUDDY_MEANING_SEARCH", "1") != "0"
 BATCH = 32
 RRF_K = 60
+DIRECT_SCORE = float(os.getenv("BUDDY_DIRECT_SCORE", "0.80"))  # how sure meaning search must be to answer alone
+DIRECT_MARGIN = 0.06
 KINDS = ("person", "organization", "place", "account", "thing")
 
 SCHEMA_SQL = """
@@ -54,6 +56,41 @@ CREATE TABLE IF NOT EXISTS entity_links (
     source TEXT NOT NULL,            -- item (library) or fact
     ref TEXT NOT NULL,
     PRIMARY KEY (entity_id, source, ref)
+);
+CREATE TABLE IF NOT EXISTS preferences (     -- layer 5, "you": how the user likes things done
+    id INTEGER PRIMARY KEY,
+    topic TEXT NOT NULL,
+    key TEXT NOT NULL UNIQUE,         -- lower-case topic + text, for de-duplication
+    text TEXT NOT NULL,
+    source TEXT NOT NULL,             -- told (the user said so) | learned (from their choices)
+    evidence INTEGER NOT NULL DEFAULT 1,
+    updated_at TEXT NOT NULL
+);
+CREATE TABLE IF NOT EXISTS decisions (       -- choices the user made between options
+    id INTEGER PRIMARY KEY,
+    at TEXT NOT NULL,
+    topic TEXT NOT NULL,
+    chose TEXT NOT NULL,
+    options TEXT NOT NULL DEFAULT '',
+    context TEXT NOT NULL DEFAULT ''  -- e.g. cheaper | pricier | faster
+);
+CREATE TABLE IF NOT EXISTS brain_conflicts ( -- two saved facts that disagree: the user decides
+    id INTEGER PRIMARY KEY,
+    a INTEGER NOT NULL,
+    b INTEGER NOT NULL,
+    question TEXT NOT NULL,
+    status TEXT NOT NULL DEFAULT 'open',  -- open | asked | resolved
+    created_at TEXT NOT NULL,
+    UNIQUE (a, b)
+);
+CREATE TABLE IF NOT EXISTS brain_dates (     -- dates to act on, found in facts and documents
+    id INTEGER PRIMARY KEY,
+    what TEXT NOT NULL,
+    day TEXT NOT NULL,                -- YYYY-MM-DD
+    kind TEXT NOT NULL,               -- expiry | renewal | warranty | due | appointment | other
+    key TEXT NOT NULL UNIQUE,
+    reminders TEXT NOT NULL DEFAULT '[]',  -- ids of the reminders scheduled for it
+    created_at TEXT NOT NULL
 );
 """
 
@@ -199,6 +236,31 @@ class Brain:
                 break
         return out
 
+    def best_fact(self, query: str) -> dict | None:
+        """The one saved fact that clearly answers a lookup, or None.
+
+        Both searches must agree on the same fact, the meaning match must be strong, and clearly
+        ahead of the next one: a wrong answer from memory is worse than asking the AI.
+        """
+        embed = self.embed
+        keys, matrix = self._matrix() if embed is not None else ([], None)
+        facts = [i for i, k in enumerate(keys) if k[0] == "fact"]
+        if not facts:
+            return None
+        import numpy as np
+
+        scores = matrix[facts] @ embed([query])[0]
+        order = np.argsort(-scores)
+        top = float(scores[order[0]])
+        second = float(scores[order[1]]) if len(order) > 1 else 0.0
+        ref = keys[facts[order[0]]][1]
+        by_words = self._by_words(query, {"fact"}, 1)
+        if top < DIRECT_SCORE or top - second < DIRECT_MARGIN or not by_words or by_words[0][1] != ref:
+            return None
+        row = self.memory.db.execute("SELECT id, text, created_at FROM facts WHERE id = ?", (ref,)).fetchone()
+        return {"id": row["id"], "text": row["text"], "saved": row["created_at"][:10], "score": round(top, 3)} \
+            if row else None
+
     def _describe(self, source: str, ref: str) -> dict | None:
         db = self.memory.db
         if source == "fact":
@@ -279,13 +341,103 @@ class Brain:
         self.memory.db.execute("DELETE FROM entity_links WHERE source = 'item' AND ref = ?", (item_id,))
         self.memory.db.commit()
 
+    # --- you: preferences and decisions ----------------------------------------------------------
+    def prefer(self, topic: str, text: str, source: str = "told", evidence: int = 1) -> int:
+        """Save how the user likes something. What they said themselves is never replaced by a guess."""
+        topic, text = " ".join(str(topic).split())[:60] or "general", " ".join(str(text).split())[:240]
+        if not text:
+            return 0
+        key = f"{topic.lower()}|{text.lower()}"
+        now = datetime.now(timezone.utc).isoformat()
+        db = self.memory.db
+        row = db.execute("SELECT id, source FROM preferences WHERE key = ?", (key,)).fetchone()
+        if row:
+            db.execute("UPDATE preferences SET evidence = MAX(evidence, ?), source = ?, updated_at = ? WHERE id = ?",
+                       (evidence, "told" if "told" in (source, row["source"]) else source, now, row["id"]))
+            db.commit()
+            return row["id"]
+        pid = db.execute("INSERT INTO preferences (topic, key, text, source, evidence, updated_at) VALUES (?,?,?,?,?,?)",
+                         (topic, key, text, source, evidence, now)).lastrowid
+        db.commit()
+        return pid
+
+    def preferences(self, topic: str = "") -> list[dict]:
+        sql = "SELECT id, topic, text, source, evidence FROM preferences"
+        args: tuple = ()
+        if topic:
+            sql += " WHERE lower(topic) LIKE ? OR lower(text) LIKE ?"
+            args = (f"%{topic.lower()}%", f"%{topic.lower()}%")
+        return [dict(r) for r in self.memory.db.execute(sql + " ORDER BY source DESC, evidence DESC, id DESC LIMIT 60",
+                                                         args)]
+
+    def forget_preference(self, what: str) -> int:
+        what = str(what).strip().lower()
+        if not what:
+            return 0
+        rows = self.memory.db.execute("SELECT id FROM preferences WHERE id = ?", (int(what),)).fetchall() \
+            if what.isdigit() else self.memory.db.execute(
+                "SELECT id FROM preferences WHERE lower(text) LIKE ? OR lower(topic) LIKE ?",
+                (f"%{what}%", f"%{what}%")).fetchall()
+        for r in rows:
+            self.memory.db.execute("DELETE FROM preferences WHERE id = ?", (r["id"],))
+        self.memory.db.commit()
+        return len(rows)
+
+    def decided(self, topic: str, chose: str, options: str = "", context: str = "") -> None:
+        """Log a choice the user made; repeated ones become learned preferences overnight."""
+        topic, chose = " ".join(str(topic).split())[:60].lower(), " ".join(str(chose).split())[:80]
+        if not topic or not chose:
+            return
+        self.memory.db.execute("INSERT INTO decisions (at, topic, chose, options, context) VALUES (?, ?, ?, ?, ?)",
+                               (datetime.now(timezone.utc).isoformat(), topic, chose, str(options)[:200],
+                                str(context)[:60].lower()))
+        self.memory.db.commit()
+
+    # --- conflicts and dates --------------------------------------------------------------------
+    def conflicts(self, status: str = "open") -> list[dict]:
+        out = []
+        for r in self.memory.db.execute("SELECT * FROM brain_conflicts WHERE status IN (?, 'asked') ORDER BY id"
+                                        if status == "open" else "SELECT * FROM brain_conflicts ORDER BY id DESC LIMIT 20",
+                                        (status,) if status == "open" else ()):
+            texts = {f["id"]: f["text"] for f in self.memory.db.execute(
+                "SELECT id, text FROM facts WHERE id IN (?, ?)", (r["a"], r["b"]))}
+            if len(texts) < 2 and r["status"] != "resolved":
+                self.memory.db.execute("UPDATE brain_conflicts SET status = 'resolved' WHERE id = ?", (r["id"],))
+                continue  # one of them is gone already
+            out.append({"id": r["id"], "question": r["question"], "status": r["status"],
+                        "a": texts.get(r["a"], ""), "b": texts.get(r["b"], "")})
+        self.memory.db.commit()
+        return out
+
+    def resolve(self, conflict_id: int, keep: str) -> str:
+        """keep: a, b or both."""
+        row = self.memory.db.execute("SELECT * FROM brain_conflicts WHERE id = ?", (conflict_id,)).fetchone()
+        if row is None:
+            return "No such question."
+        if keep not in ("a", "b", "both"):
+            return "Say which to keep: a, b or both."
+        if keep != "both":
+            self.memory.db.execute("DELETE FROM facts WHERE id = ?", (row["b"] if keep == "a" else row["a"],))
+        self.memory.db.execute("UPDATE brain_conflicts SET status = 'resolved' WHERE id = ?", (conflict_id,))
+        self.memory.db.commit()
+        return "Kept both." if keep == "both" else "Fixed: kept the right one, removed the other."
+
+    def dates(self, days: int = 400) -> list[dict]:
+        until = (datetime.now(timezone.utc).date() + timedelta(days=days)).isoformat()
+        today = datetime.now(timezone.utc).date().isoformat()
+        return [{"what": r["what"], "date": r["day"], "kind": r["kind"]} for r in self.memory.db.execute(
+            "SELECT what, day, kind FROM brain_dates WHERE day >= ? AND day <= ? ORDER BY day LIMIT 50", (today, until))]
+
     def status(self) -> dict:
         db = self.memory.db
         count = lambda sql: db.execute(sql).fetchone()[0]  # noqa: E731
         return {"meaning_search": self.embed is not None, "model": MODEL if self.embed is not None else "",
                 "passages": count("SELECT COUNT(*) FROM library_chunks"), "facts": count("SELECT COUNT(*) FROM facts"),
                 "vectors": count("SELECT COUNT(*) FROM brain_vectors"), "people_and_things": count(
-                    "SELECT COUNT(*) FROM entities")}
+                    "SELECT COUNT(*) FROM entities"), "preferences": count("SELECT COUNT(*) FROM preferences"),
+                "open_questions": count("SELECT COUNT(*) FROM brain_conflicts WHERE status != 'resolved'"),
+                "dates_watched": count("SELECT COUNT(*) FROM brain_dates"),
+                "last_night": self.memory.get("brain_last_night") or "never"}
 
 
 BRAIN_TOOL = {
@@ -295,10 +447,19 @@ BRAIN_TOOL = {
     "Geico policy), person (a name or relation like \"landlord\" or \"Amma\": who they are, notes, documents and facts "
     "about them), people (list, optional kind: person, organization, place, account, thing), note (remember a person "
     "or thing the user tells you about: name, kind, relation, notes), status. Use recall before answering anything "
-    "about the user's own life, papers or past; say where the answer came from.",
+    "about the user's own life, papers or past; say where the answer came from. "
+    "prefer (topic + text: how the user likes something, when they say so: \"window seat\", \"no chains\"), "
+    "preferences (list, optional topic), forget_preference (query), decided (topic + chose, options, context: log a "
+    "choice the user made between options, like a flight, hotel or restaurant; repeated choices become preferences), "
+    "questions (facts that disagree, waiting for the user), resolve (id + keep a, b or both, after they answer), "
+    "dates (expiries, renewals and due dates Buddy is watching, with reminders set ahead).",
     "input_schema": {"type": "object", "properties": {
-        "action": {"type": "string", "enum": ["recall", "person", "people", "note", "status"]},
+        "action": {"type": "string", "enum": ["recall", "person", "people", "note", "status", "prefer", "preferences",
+                                              "forget_preference", "decided", "questions", "resolve", "dates"]},
         "query": {"type": "string"}, "name": {"type": "string"},
+        "topic": {"type": "string"}, "text": {"type": "string"}, "chose": {"type": "string"},
+        "options": {"type": "string"}, "context": {"type": "string"},
+        "id": {"type": "integer"}, "keep": {"type": "string", "enum": ["a", "b", "both"]},
         "kind": {"type": "string", "enum": list(KINDS)},
         "relation": {"type": "string"}, "notes": {"type": "string"}},
         "required": ["action"], "additionalProperties": False},
@@ -324,4 +485,25 @@ async def run_tool(brain: Brain, args: dict) -> str:
                           str(args.get("notes") or "")):
             return "Give a name."
         return f"Noted {args.get('name')}."
+    if action == "prefer":
+        if not brain.prefer(str(args.get("topic") or "general"), str(args.get("text") or args.get("query") or "")):
+            return "Say the preference."
+        return "Saved: I'll keep that in mind."
+    if action == "preferences":
+        return json.dumps(brain.preferences(str(args.get("topic") or args.get("query") or "")), ensure_ascii=False) \
+            or "[]"
+    if action == "forget_preference":
+        n = brain.forget_preference(str(args.get("query") or args.get("text") or ""))
+        return f"Forgot {n} preference{'s' if n != 1 else ''}." if n else "No preference like that."
+    if action == "decided":
+        brain.decided(str(args.get("topic", "")), str(args.get("chose", "")), str(args.get("options") or ""),
+                      str(args.get("context") or ""))
+        return "Logged."
+    if action == "questions":
+        found = brain.conflicts()
+        return UNTRUSTED + json.dumps(found, ensure_ascii=False) if found else "No open questions."
+    if action == "resolve":
+        return brain.resolve(int(args.get("id") or 0), str(args.get("keep") or ""))
+    if action == "dates":
+        return json.dumps(brain.dates(), ensure_ascii=False) if brain.dates() else "No dates being watched yet."
     return json.dumps(brain.status())

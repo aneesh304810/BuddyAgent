@@ -36,7 +36,7 @@ from .health import HEALTH_TOOL, run_health_tool
 from . import cards, sandbox
 from .codejob import CODE_TOOL_NAMES, CODE_TOOLS, run_code_tool
 from .makers import MAKER_TOOL_NAMES, MAKER_TOOLS, run_maker_tool
-from . import brain, datatools, formfill, library, prices, rides, selfcode, transcripts, tutor, vocabulary, voiceprint
+from . import brain, datatools, thinking, formfill, library, prices, rides, selfcode, transcripts, tutor, vocabulary, voiceprint
 from .lifelog import LIFELOG_TOOL, LifeLog, run_lifelog_tool
 from .mailbrain import MAIL_TOOL_NAMES, MAIL_TOOLS, MailManager, run_mail_tool
 from .money import MONEY_TOOL_NAMES, MONEY_TOOLS, Money, run_money_tool
@@ -184,7 +184,9 @@ class Conversation:
         self.form_state: dict = {}  # the form last read off the browser
         self.via = "user"
         # Frozen for the whole session so the cached prompt prefix stays valid.
-        self.system = build_system_prompt(memory.recall(""), memory.open_goals())
+        self.brain = brain.Brain(memory)
+        self.system = build_system_prompt(memory.recall(""), memory.open_goals(),
+                                          [f"{p['topic']}: {p['text']}" for p in self.brain.preferences()[:25]])
 
     async def reply(self, user_text: str, say: Say, via: str = "user") -> None:
         """Answer one user utterance, calling `say` with each sentence to speak.
@@ -225,13 +227,30 @@ class Conversation:
         tutor.log_utterance(self.memory, user_text, via)  # for the English tutor's review
         if not self.memory.get(DUAL_KEY) and await self._free_turn(user_text, say, via):
             return
+        # The brain first: answer from memory when one saved fact clearly does, else pack what it knows.
+        prep = thinking.Prep()
+        with contextlib.suppress(Exception):  # memory never breaks a reply
+            prep = await asyncio.to_thread(thinking.prepare, self.brain, user_text, via)
+        if prep.direct:
+            started = time.monotonic()
+            await say(prep.direct)
+            self._note_exchange(user_text, mask(prep.direct))  # history goes to Claude later: IDs masked
+            usage.count(self.memory, "router:brain")
+            usage.log_turn(self.memory, turn=self.turn_key, via=via, first_model="brain", final_model="brain",
+                           first_word=time.monotonic() - started, total=time.monotonic() - started, rounds=0,
+                           tools=[], sentences=1, filler=False, outcome="ok")
+            return
         self.model = self.router.pick(user_text)
+        if prep.lookup and prep.pack and settings.fast_model and len(user_text.split()) <= 18:
+            self.model = settings.fast_model  # the facts are in hand: the quick model can say them
         usage.count(self.memory, "router:quick" if self.model == settings.fast_model else "router:main")
+        if prep.pack:
+            usage.count(self.memory, "brain:pack")
         # Sensitive numbers never leave the server.
         self.dual = self.memory.get(DUAL_KEY) or ""  # e.g. "ml": speak Malayalam, show English
         room_note = (" (Said in Listen-in mode: Listen-in is ON and you hear the room as text; check "
                      "room_conversation before saying you've heard nothing.)") if via == "room" else ""
-        self._add_user_text(f"({stamp}) {mask(user_text)}" + room_note + (tutor.LIVE_NOTE if tutor.live(self.memory) else "")
+        self._add_user_text(f"({stamp}) {mask(user_text)}" + prep.pack + room_note + (tutor.LIVE_NOTE if tutor.live(self.memory) else "")
                             + (DUAL_NOTE.format(language=DUAL_LANGUAGES.get(self.dual, self.dual)) if self.dual else ""))
         spoken: list[str] = []
         said_anything = asyncio.Event()
@@ -559,7 +578,7 @@ class Conversation:
             return await rides.run_ride_tool(rides.Rides(self.memory, self.social, self.location), args,
                                              self.open_links)
         if name == "brain":
-            return await brain.run_tool(brain.Brain(self.memory), args)
+            return await brain.run_tool(self.brain, args)
         if name == "library":
             return await library.run_tool(library.Library(self.memory), args, self.thrift)
         if name == "buddy_code":

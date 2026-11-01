@@ -54,7 +54,7 @@ from fastapi import Depends, FastAPI, Header, HTTPException, Request, WebSocket,
 from fastapi.staticfiles import StaticFiles
 
 from . import health as healthcheck
-from . import codejob, insights, makers, proactive, research, tutor, usage, vocabulary, voiceprint
+from . import codejob, insights, thinking, makers, proactive, research, tutor, usage, vocabulary, voiceprint
 from .agent import FILLERS, Conversation
 from .agents import AgentRegistry, load_specs
 from .ambient import AmbientListener, is_think_cue
@@ -255,13 +255,16 @@ for _spec in builder.active_specs():  # agents built or connected earlier
 
 
 async def _index_brain() -> None:
-    """Keep the meaning-search vectors up to date: new facts and passages every few minutes."""
+    """Keep the meaning-search vectors up to date (new facts and passages every few minutes), and
+    run the brain's overnight pass once a night."""
     await asyncio.sleep(30)  # let Buddy start answering first
     while True:
         try:
             added = await asyncio.to_thread(Brain(memory).index_pending)
             if added:
                 log.info("brain: indexed %s passages and facts", added)
+            if thinking.night_due(memory):
+                await thinking.nightly(memory)
         except Exception:
             log.exception("brain indexing failed; trying again later")
         await asyncio.sleep(180)
@@ -651,6 +654,26 @@ def api_people(name: str = "") -> dict:
             raise HTTPException(status_code=404, detail="No one by that name.")
         return found
     return {"people": brain_.people(), "status": brain_.status()}
+
+
+@app.get("/api/brain", dependencies=[Depends(require_admin)])
+def api_brain() -> dict:
+    """What Buddy has learned about the user: preferences, dates it watches, questions waiting."""
+    brain_ = Brain(memory)
+    return {"status": brain_.status(), "preferences": brain_.preferences(), "dates": brain_.dates(),
+            "questions": brain_.conflicts()}
+
+
+@app.delete("/api/brain/preferences/{pref_id}", dependencies=[Depends(require_admin)])
+def api_forget_preference(pref_id: int) -> dict:
+    if not Brain(memory).forget_preference(str(pref_id)):
+        raise HTTPException(status_code=404, detail="No such preference.")
+    return {"ok": True}
+
+
+@app.post("/api/brain/questions/{conflict_id}", dependencies=[Depends(require_admin)])
+def api_resolve(conflict_id: int, keep: str) -> dict:
+    return {"result": Brain(memory).resolve(conflict_id, keep)}
 
 
 # --- background job reports: the phone apps show them -----------------------

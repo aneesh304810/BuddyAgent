@@ -144,6 +144,21 @@ RIDE_TOOL = {
 }
 
 
+def _note_choice(memory, app: str) -> None:
+    """Opening one app right after a comparison is a choice: logged so the brain can learn the habit."""
+    quote = last_quotes(memory)
+    if app not in ("uber", "lyft") or not quote or time.time() - quote.get("at", 0) > 1200:
+        return
+    best = {a.lower(): opts[0] for a, opts in (quote.get("apps") or {}).items() if opts}
+    if len(best) < 2 or best["uber"]["currency"] != best["lyft"]["currency"]:
+        return
+    mine, other = best[app]["value"], best["lyft" if app == "uber" else "uber"]["value"]
+    context = "cheaper" if mine < other else "pricier" if mine > other else "the same price"
+    from .brain import Brain
+
+    Brain(memory).decided("ride app", app.title(), "Uber, Lyft", context)
+
+
 async def run_ride_tool(rides: Rides, args: dict, open_links) -> str:
     """open_links: async (links: list[dict]) -> None, sends them to the phone (None when the app isn't connected)."""
     import asyncio
@@ -199,6 +214,10 @@ async def run_ride_tool(rides: Rides, args: dict, open_links) -> str:
         return (f"Reading the prices now: Uber opens, then Lyft, with drop-off {where}; Buddy comes back with both "
                 "in about 30-40 seconds and says which is cheaper. Tell them in a few words and that the phone must "
                 "stay unlocked; don't guess any prices.")
+    try:
+        _note_choice(rides.memory, app)
+    except Exception:
+        log.exception("couldn't note the ride choice")
     await open_links(links)
     first = links[0]["label"].split()[0]
     then = " When they come back to Buddy, Lyft opens with the same trip, so they can compare." if app == "both" else ""

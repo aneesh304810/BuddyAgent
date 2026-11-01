@@ -83,6 +83,8 @@ object LibraryApi {
     }
 
     suspend fun item(link: ServerLink, id: String) = JSONObject(String(call(link, "/api/library/$id")))
+    suspend fun brain(link: ServerLink) = JSONObject(String(call(link, "/api/brain")))
+    suspend fun forgetPreference(link: ServerLink, id: Int) = call(link, "/api/brain/preferences/$id", "DELETE")
     suspend fun unlock(link: ServerLink, id: String) = call(link, "/api/library/$id/unlock", "POST")
     suspend fun forget(link: ServerLink, id: String) = call(link, "/api/library/$id", "DELETE")
 
@@ -122,6 +124,7 @@ fun LibraryScreen(link: ServerLink?, onOpen: (String) -> Unit) {
             modifier = Modifier.fillMaxWidth(),
         )
         problem?.let { Text(it, color = Color(0xFFFF8A80)) }
+        if (query.isBlank() && link != null) BrainPanel(link)
         val people = data?.optJSONArray("people")?.objects().orEmpty()
         if (people.isNotEmpty()) {
             Text("People and things", color = Dim, fontSize = 13.sp)
@@ -247,4 +250,58 @@ fun LibraryItemScreen(link: ServerLink?, id: String, onGone: () -> Unit) {
         },
         dismissButton = { TextButton(onClick = { confirmForget = false }) { Text("Keep") } },
     )
+}
+
+
+/** What Buddy has learned about you: preferences (tap ✕ to forget one), dates it watches, questions waiting. */
+@Composable
+private fun BrainPanel(link: ServerLink) {
+    var open by remember { mutableStateOf(false) }
+    var brain by remember { mutableStateOf<JSONObject?>(null) }
+    var refresh by remember { mutableIntStateOf(0) }
+    val scope = rememberCoroutineScope()
+    LaunchedEffect(open, refresh) {
+        if (open) brain = runCatching { LibraryApi.brain(link) }.getOrNull()
+    }
+    Text((if (open) "▾ " else "▸ ") + "What Buddy knows about you", color = Color.White, fontWeight = FontWeight.SemiBold,
+        modifier = Modifier.fillMaxWidth().clickable { open = !open }.padding(vertical = 4.dp))
+    if (!open) return
+    val b = brain ?: run { Text("Loading…", color = Dim); return }
+    Column(Modifier.background(Tile, RoundedCornerShape(12.dp)).padding(12.dp).fillMaxWidth(),
+        verticalArrangement = Arrangement.spacedBy(6.dp)) {
+        val prefs = b.optJSONArray("preferences")?.objects().orEmpty()
+        Text("How you like things", color = Dim, fontSize = 13.sp)
+        if (prefs.isEmpty()) Text("Nothing yet: tell Buddy (\"I prefer aisle seats\") or it learns from your choices.",
+            color = Dim, fontSize = 13.sp)
+        prefs.take(30).forEach { p ->
+            Row(Modifier.fillMaxWidth()) {
+                Text(p.optString("topic") + ": " + p.optString("text") +
+                    if (p.optString("source") == "learned") "  (learned)" else "",
+                    color = Color.White, fontSize = 14.sp, modifier = Modifier.weight(1f))
+                Text("✕", color = Dim, modifier = Modifier.clickable {
+                    scope.launch { runCatching { LibraryApi.forgetPreference(link, p.optInt("id")) }; refresh++ }
+                }.padding(horizontal = 8.dp))
+            }
+        }
+        val dates = b.optJSONArray("dates")?.objects().orEmpty()
+        if (dates.isNotEmpty()) {
+            Spacer(Modifier.height(4.dp))
+            Text("Dates I'm watching (reminders set ahead)", color = Dim, fontSize = 13.sp)
+            dates.take(10).forEach { d ->
+                Text(d.optString("date") + "  " + d.optString("what"), color = Color.White, fontSize = 14.sp)
+            }
+        }
+        val questions = b.optJSONArray("questions")?.objects().orEmpty()
+        if (questions.isNotEmpty()) {
+            Spacer(Modifier.height(4.dp))
+            Text("Questions for you (answer Buddy in the chat)", color = Vault, fontSize = 13.sp)
+            questions.forEach { q -> Text(q.optString("question"), color = Color.White, fontSize = 14.sp) }
+        }
+        val status = b.optJSONObject("status")
+        if (status != null) {
+            Text("${status.optInt("facts")} facts · ${status.optInt("passages")} passages · " +
+                "${status.optInt("people_and_things")} people and things · last tidy-up: ${status.optString("last_night")}",
+                color = Dim, fontSize = 12.sp)
+        }
+    }
 }

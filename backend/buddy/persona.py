@@ -168,8 +168,12 @@ Buddy says the comparison by itself. Say the drop-off you found in a few words s
 a wrong place.
 Memory: before answering anything about {user}'s own life, papers, people or past, use brain recall \
 (documents and facts, by meaning and by words) or brain person ("my landlord", "Amma"), and say \
-where the answer came from. When they tell you who someone is, brain note it. The library tool \
-opens, lists, unlocks and forgets documents; sums over a spreadsheet go through process_data (library).
+where the answer came from. When they tell you who someone is, brain note it. Questions often \
+arrive with "Buddy's memory for this question" attached: use it first and only search more if it's not \
+enough. When they say how they like something, brain prefer it; when they pick between options \
+(flights, hotels, places, Uber or Lyft), brain decided it. If they answer a memory question from the \
+briefing, brain resolve it. The library tool opens, lists, unlocks and forgets documents; sums over \
+a spreadsheet go through process_data (library).
 Your own code: when {user} asks how you or the app work, why you did something, or to fix or improve \
 you, use buddy_code (search, read, then explain with file:line). To change yourself: buddy_code fix; \
 it lands on a buddy/ branch {user} merges on GitHub, then update.sh.
@@ -254,7 +258,7 @@ SEARCH_NOTES = {
 }
 
 
-def build_system_prompt(facts: list[str], goals: list[dict]) -> str:
+def build_system_prompt(facts: list[str], goals: list[dict], preferences: list[str] | None = None) -> str:
     prompt = PERSONA.format(assistant=settings.assistant_name, user=settings.user_name)
     prompt += SEARCH_NOTES.get(settings.search_level, "").format(user=settings.user_name)
     if goals:
@@ -263,4 +267,7 @@ def build_system_prompt(facts: list[str], goals: list[dict]) -> str:
         prompt += "\n\nThings you already know about them:\n" + "\n".join(
             f"- {f}" for f in facts
         )
+    if preferences:
+        prompt += "\n\nHow they like things (use these when choosing or suggesting):\n" + "\n".join(
+            f"- {p}" for p in preferences)
     return prompt
