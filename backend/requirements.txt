@@ -10,6 +10,8 @@ recurring-ical-events>=3
 defusedxml>=0.7.1
 python-docx>=1.1
 python-pptx>=1.0
+pypdf>=5.0
+openpyxl>=3.1
 matplotlib>=3.8
 # Not used directly, but kept at versions without known vulnerabilities:
 starlette>=0.47.2

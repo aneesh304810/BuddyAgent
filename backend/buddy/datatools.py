@@ -89,6 +89,13 @@ async def _input(memory: Memory, source: dict) -> tuple[bytes, str]:
             known = ", ".join(i["what"] for i in prices.items(memory)[:10]) or "none yet"
             raise ToolError(f"No prices written down for that (note_price adds them). Known: {known}.")
         return text.encode(), "csv"
+    if kind == "library":
+        from . import library
+
+        data, row = library.original(memory, str(source.get("id", "")))
+        if row["vault"] and not library.Library(memory).unlocked(row["id"]):
+            raise ToolError("That's a vault item: library unlock asks the user first.")
+        return data, row["ext"] or "txt"
     if kind == "url":
         import asyncio
 
@@ -206,11 +213,12 @@ DATA_TOOL = {
     "JSON text. Prices: price-history (args --target 300) on {kind: prices, item}. Documents: pdf-extract (args "
     "--find \"cancel,fee\"), table-query (args --spec '{...}'), doc-snippets --question \"...\", compare-offers. Plus "
     "tools Buddy made earlier (buddy_tools list). Other sources: {kind: file, id} (Buddy's files) | {kind: url, url} "
-    "| {kind: text, text, ext} (short data you already have: csv, json or txt).",
+    "| {kind: library, id} (a spreadsheet, CSV, JSON or PDF from the user's library) | {kind: text, text, ext} "
+    "(short data you already have: csv, json or txt).",
     "input_schema": {"type": "object", "properties": {
         "tool": {"type": "string"},
         "source": {"type": "object", "properties": {
-            "kind": {"type": "string", "enum": ["transactions", "emails", "calendar", "prices", "file", "url", "text"]},
+            "kind": {"type": "string", "enum": ["transactions", "emails", "calendar", "prices", "library", "file", "url", "text"]},
             "days": {"type": "integer", "description": "transactions and emails: the last N days; calendar: the next N"},
             "query": {"type": "string", "description": "emails and calendar: only those with these words"},
             "item": {"type": "string", "description": "prices: what (as written with note_price)"},

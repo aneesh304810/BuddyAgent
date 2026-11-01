@@ -132,6 +132,15 @@ sealed interface Screen {
     data class Report(val id: Int) : Screen
 }
 
+@Suppress("DEPRECATION")
+private fun Intent.parcelableExtraCompat(name: String): Uri? =
+    if (Build.VERSION.SDK_INT >= 33) getParcelableExtra(name, Uri::class.java) else getParcelableExtra(name)
+
+@Suppress("DEPRECATION")
+private fun Intent.parcelableListExtraCompat(name: String): List<Uri> =
+    (if (Build.VERSION.SDK_INT >= 33) getParcelableArrayListExtra(name, Uri::class.java)
+    else getParcelableArrayListExtra<Uri>(name)).orEmpty()
+
 class MainActivity : ComponentActivity() {
     companion object {
         const val EXTRA_JOB_ID = "app.buddy.JOB_ID"
@@ -186,6 +195,7 @@ class MainActivity : ComponentActivity() {
         if (prefs.link == null) screen.value = Screen.Settings
         openJobFrom(intent)
         openRideFrom(intent)
+        uploadSharedFrom(intent)
         setContent {
             MaterialTheme(colorScheme = darkColorScheme(primary = Accent, background = Ink, surface = Panel)) {
                 BuddyScreen(
@@ -210,7 +220,24 @@ class MainActivity : ComponentActivity() {
         super.onNewIntent(intent)
         openJobFrom(intent)
         openRideFrom(intent)
+        uploadSharedFrom(intent)
         listenFrom(intent)
+    }
+
+    /** Share -> Buddy from Files, Photos, Gmail...: the files go to Buddy's library. */
+    private fun uploadSharedFrom(intent: Intent?) {
+        val uris: List<Uri> = when (intent?.action) {
+            Intent.ACTION_SEND -> listOfNotNull(intent.parcelableExtraCompat(Intent.EXTRA_STREAM))
+            Intent.ACTION_SEND_MULTIPLE -> intent.parcelableListExtraCompat(Intent.EXTRA_STREAM)
+            else -> return
+        }
+        val note = intent.getStringExtra(Intent.EXTRA_TEXT).orEmpty()
+        intent.action = null  // once: not again on rotation
+        if (uris.isEmpty()) {
+            if (note.isNotBlank()) BuddyService.instance?.sayToBuddy("Remember this: $note")
+            return
+        }
+        LibraryUpload.upload(this, uris, note)
     }
 
     /** A tapped ride notification: Buddy is on screen now, so Uber or Lyft may open. */
@@ -529,6 +556,14 @@ private fun Controls(ui: UiState, prefs: BuddyPrefs) {
     var roomLanguage by remember { mutableStateOf(prefs.roomLanguage) }
     var languageMenu by remember { mutableStateOf(false) }
     var typed by remember { mutableStateOf("") }
+    val context = LocalContext.current
+    // The paperclip: documents, photos, PDFs, spreadsheets, CSV, JSON into Buddy's library (the typed text is the note).
+    val pickFiles = rememberLauncherForActivityResult(ActivityResultContracts.OpenMultipleDocuments()) { uris ->
+        if (uris.isNotEmpty()) {
+            LibraryUpload.upload(context, uris, typed.trim())
+            typed = ""
+        }
+    }
 
     val stateColor by animateColorAsState(
         when {
@@ -595,6 +630,11 @@ private fun Controls(ui: UiState, prefs: BuddyPrefs) {
 
         // Typing, and one round button: Send when there's text, the mic otherwise.
         Row(Modifier.fillMaxWidth(), verticalAlignment = Alignment.CenterVertically) {
+            Box(
+                Modifier.size(44.dp).clip(CircleShape).background(Panel).clickable { pickFiles.launch(arrayOf("*/*")) },
+                contentAlignment = Alignment.Center,
+            ) { Text("📎", fontSize = 20.sp) }
+            Spacer(Modifier.width(8.dp))
             OutlinedTextField(
                 value = typed,
                 onValueChange = { typed = it },

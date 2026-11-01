@@ -72,6 +72,7 @@ from .deals import PriceWatcher
 from .finops import FinOps
 from . import lifelog
 from .lifelog import LifeLog
+from .library import Library, report as library_report
 from .location import Location
 from . import addressee
 from . import whisper as speech_to_text  # not `whisper`: that's Listen-in's whisper below
@@ -519,6 +520,51 @@ async def api_import(request: Request, name: str = "upload.json") -> dict:
         return await LifeLog(memory).import_file(name, data)
     except ToolError as e:
         raise HTTPException(status_code=400, detail=str(e)) from e
+
+
+# --- the library: documents, photos, PDFs, spreadsheets, CSV, JSON from the phone ----
+@app.post("/api/library", dependencies=[Depends(require_admin)])
+async def api_library(request: Request, name: str = "upload", note: str = "", vault: bool = False) -> dict:
+    """The raw file is the body; ?name= its file name, ?note= what it is, ?vault=true to keep it locked.
+    Answers at once; Buddy reads it in the background and says what it found in the chat."""
+    from . import library as lib_module
+
+    if int(request.headers.get("content-length") or 0) > lib_module.MAX_UPLOAD:
+        raise HTTPException(status_code=413, detail="That file is over 25 MB.")
+    chunks, size = [], 0
+    async for chunk in request.stream():
+        size += len(chunk)
+        if size > lib_module.MAX_UPLOAD:
+            raise HTTPException(status_code=413, detail="That file is over 25 MB.")
+        chunks.append(chunk)
+    data = b"".join(chunks)
+    lib = Library(memory)
+    try:
+        item = lib.add(name, data, note=note, vault=vault)
+    except ToolError as e:
+        raise HTTPException(status_code=400, detail=str(e)) from e
+    if item.get("duplicate"):
+        await deliver("library", library_report(item))
+        return {"id": item["id"], "status": "duplicate"}
+
+    async def read_it() -> None:
+        try:
+            done = await lib.ingest(item["id"], data)
+        except Exception:
+            log.exception("library: reading %s failed", item["name"])
+            await deliver("library", f"Saved {item['name']}, but I couldn't read it just now.")
+            return
+        text = library_report(done)
+        if done["important"]:
+            facts = done["important"]
+
+            async def keep() -> str:
+                return lib.save_facts(done["id"], facts)
+            thrift.ask_action("Shall I remember these?", keep)
+            text += " I found: " + "; ".join(facts) + ". Shall I remember these?"
+        await deliver("library", text)
+    asyncio.create_task(read_it())
+    return {"id": item["id"], "status": "reading", "name": item["name"]}
 
 
 # --- background job reports: the phone apps show them -----------------------

@@ -52,6 +52,14 @@ TARGET=${TARGET:-/var/lib/buddy/buddy.db}
 systemctl stop buddy
 [[ -f $TARGET ]] && mv "$TARGET" "$TARGET.before-restore"
 install -o buddy -g buddy -m 600 "$WORK/buddy.db" "$TARGET"
+LIBBACKUP="${BACKUP%.db.age}.library.tar.age"
+if [[ -f $LIBBACKUP ]]; then  # uploaded documents (still encrypted inside)
+  LIBDIR="$(dirname "$TARGET")/library"
+  [[ -d $LIBDIR ]] && mv "$LIBDIR" "$LIBDIR.before-restore"
+  age -d -i "$WORK/identity" "$LIBBACKUP" | tar -x -C "$(dirname "$TARGET")" --no-same-owner
+  chown -R buddy:buddy "$LIBDIR" && chmod 700 "$LIBDIR"
+  echo "Restored the library too."
+fi
 if [[ $(secrets_get BUDDY_DB_KEY) != "$DB_KEY" ]]; then
   secrets_set BUDDY_DB_KEY "$DB_KEY"
   echo "Set this server's database key to the backup's."
