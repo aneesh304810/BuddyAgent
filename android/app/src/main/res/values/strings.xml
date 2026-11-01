@@ -1,4 +1,5 @@
 <?xml version="1.0" encoding="utf-8"?>
 <resources>
     <string name="ride_reader_description">Lets Buddy read the ride prices shown in Uber and Lyft when you ask it to compare them. It only sees those two apps, only while comparing, and never taps anything.</string>
+    <string name="form_helper_description">Lets Buddy read a form open in Chrome or Samsung Internet and fill in the answers you approve, when you ask it to. It never touches password fields and never presses Submit, Pay or Send.</string>
 </resources>

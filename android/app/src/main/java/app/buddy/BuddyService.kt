@@ -14,6 +14,7 @@ import android.media.AudioDeviceInfo
 import android.media.AudioManager
 import android.os.IBinder
 import android.util.Log
+import org.json.JSONArray
 import org.json.JSONObject
 import java.util.Locale
 
@@ -435,6 +436,10 @@ class BuddyService : Service() {
                 // After Buddy has finished saying it (Talk would otherwise hear its own reply).
                 pendingMode = if (event.mode == "listen") Mode.LISTEN_IN else Mode.TALK
                 if (!mouth.speaking && !replyOpen) applyPendingMode()
+            }
+            is ServerEvent.Form -> if (!FormHelper.request(event.action, event.id, event.fills?.let { JSONArray(it) })) {
+                PhoneBridge.send(JSONObject().put("type", if (event.action == "fill") "form_result" else "form_screen")
+                    .put("id", event.id).put("error", "helper_off"))
             }
             is ServerEvent.OpenLinks -> when {
                 event.compare.isEmpty() -> Links.open(this, event.links)

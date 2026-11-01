@@ -33,6 +33,9 @@ Protocol (JSON messages):
                     "compare": "id"}                  open Uber / Lyft with a trip filled in (the
                                                       first now, the next when Buddy is back in front);
                                                       with compare, the ride reader reads both prices
+                   {"type": "form", "action": "read|scroll|fill", "id": "...", "fills": [...]}
+                                                      the form helper: read / fill the browser form; the
+                                                      phone answers {"type": "form_screen" | "form_result"}
                    {"type": "error", "text": "..."}
 """
 
@@ -582,6 +585,21 @@ async def talk(ws: WebSocket) -> None:
 
     convo.open_links = open_links
 
+    replies: dict[str, asyncio.Future] = {}  # requests to the phone waiting for its answer (the form helper)
+
+    async def phone_request(message: dict, timeout: float = 25) -> dict:
+        request_id = secrets.token_hex(4)
+        replies[request_id] = asyncio.get_running_loop().create_future()
+        try:
+            await send({**message, "id": request_id})
+            return await asyncio.wait_for(replies[request_id], timeout)
+        except asyncio.TimeoutError:
+            return {"error": "no answer from the phone (is the Buddy app open and up to date?)"}
+        finally:
+            replies.pop(request_id, None)
+
+    convo.phone_request = phone_request
+
     pending: dict = {"text": "", "task": None}  # a sentence cut off by a pause, waiting for its end
     last_heard = [-1e9]  # when Whisper last sent text back
     last_user: list = ["", -1e9]  # the last thing said to Buddy, and when
@@ -810,6 +828,10 @@ async def talk(ws: WebSocket) -> None:
                     said = mask(str(msg.get("text", "")).strip())[:200]
                     app_name = str(msg.get("app_name") or "a notification")
                     await deliver("notification", f"{app_name}{', ' + who if who else ''}: {said}")
+            elif msg.get("type") in ("form_screen", "form_result"):  # the form helper answering phone_request
+                waiting = replies.get(str(msg.get("id", "")))
+                if waiting is not None and not waiting.done():
+                    waiting.set_result(msg)
             elif msg.get("type") == "ride_screen":  # the ride reader: Uber's or Lyft's prices on screen
                 news, ride_cards = take_screen(memory, msg)
                 if news:

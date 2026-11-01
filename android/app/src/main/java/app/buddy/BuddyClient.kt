@@ -34,6 +34,8 @@ sealed interface ServerEvent {
     data class VoiceEnrolled(val ok: Boolean, val text: String) : ServerEvent
     /** Open Uber / Lyft with a trip filled in (the second one when Buddy is back in front). */
     data class OpenLinks(val links: List<RideLink>, val compare: String = "") : ServerEvent
+    /** The form helper: read, scroll or fill the form in the browser (fills: JSON array). */
+    data class Form(val action: String, val id: String, val fills: String?) : ServerEvent
     /** You paused mid-sentence: Buddy is waiting for the rest. */
     data object Waiting : ServerEvent
 
@@ -60,6 +62,7 @@ sealed interface ServerEvent {
                 "speech_limit" -> SpeechLimit(msg.optLong("seconds", 600L))
                 "mode" -> SwitchMode(msg.optString("mode"))
                 "waiting" -> Waiting
+                "form" -> Form(msg.optString("action"), msg.optString("id"), msg.optJSONArray("fills")?.toString())
                 "open" -> msg.getJSONArray("links").let { a ->
                     OpenLinks((0 until a.length()).map { a.getJSONObject(it) }.map {
                         RideLink(it.optString("app"), it.optString("url"), it.optString("label"))

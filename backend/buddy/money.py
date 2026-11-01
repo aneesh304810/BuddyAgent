@@ -92,10 +92,20 @@ def _month_bounds(which: str) -> tuple[str, str]:
     return first.isoformat(), today.isoformat()  # this_month
 
 
+KEEP_MONTHS = 24  # the privacy policy promises transactions are deleted after 24 months
+_purged_on: dict[int, str] = {}
+
+
 class Money:
     def __init__(self, memory: Memory):
         self.memory = memory
         memory.db.executescript(SCHEMA_SQL)
+        today = local_now().date()
+        if _purged_on.get(id(memory.db)) != today.isoformat():  # once a day is plenty
+            _purged_on[id(memory.db)] = today.isoformat()
+            memory.db.execute("DELETE FROM transactions WHERE day < ?",
+                              ((today - timedelta(days=KEEP_MONTHS * 365 // 12)).isoformat(),))
+            memory.db.commit()
 
     # --- recording -----------------------------------------------------------
     def add_transaction(self, amount: float, currency: str, merchant: str, category: str,

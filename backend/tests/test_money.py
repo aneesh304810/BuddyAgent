@@ -69,3 +69,20 @@ def test_email_manager_reads_money(setup, monkeypatch):
     assert manager.money.recent()[0]["merchant"] == "Amazon"
     assert manager.money.open_bills(30)[0]["biller"] == "Amex"
     assert any("shopping is at 120 of your 100 USD limit" in t for t in told)
+
+
+def test_transactions_older_than_24_months_are_deleted():
+    from datetime import timedelta
+
+    from buddy import money as money_mod
+    from buddy.memory import Memory
+    from buddy.tools import local_now
+
+    mem = Memory(":memory:")
+    m = money_mod.Money(mem)
+    today = local_now().date()
+    m.add_transaction(12.0, "USD", "Old cafe", "food", day=(today - timedelta(days=800)).isoformat())
+    m.add_transaction(9.0, "USD", "New cafe", "food", day=(today - timedelta(days=30)).isoformat())
+    money_mod._purged_on.clear()
+    money_mod.Money(mem)
+    assert [r["merchant"] for r in mem.db.execute("SELECT merchant FROM transactions")] == ["New cafe"]

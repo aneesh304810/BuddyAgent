@@ -791,6 +791,21 @@ private fun SettingsPanel(
             ) { Text(if (notificationsOn) "Change notification access" else "Turn on notification access") }
         }
         Column {
+            val formsOn = FormHelper.enabled(context)
+            Text("Fill forms in the browser", color = Color.White)
+            Text(
+                if (formsOn) "On. Say \"help me fill this form\" with a form open in Chrome: Buddy reads it, tells you " +
+                    "its answers and fills them after you say yes. It never touches passwords or presses Submit."
+                else "Let Buddy read and fill forms in Chrome or Samsung Internet when you ask. Turn on " +
+                    "\"Buddy form helper\" in Accessibility.",
+                color = Muted, fontSize = 13.sp,
+            )
+            OutlinedButton(
+                onClick = { context.startActivity(Intent(Settings.ACTION_ACCESSIBILITY_SETTINGS)) },
+                modifier = Modifier.padding(top = 4.dp),
+            ) { Text(if (formsOn) "Change in Accessibility" else "Turn on in Accessibility") }
+        }
+        Column {
             val readerOn = RideReader.enabled(context)
             Text("Read Uber and Lyft prices", color = Color.White)
             Text(
