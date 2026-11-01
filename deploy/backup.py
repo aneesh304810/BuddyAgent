@@ -2,6 +2,10 @@
 with your age public key. Only your age private key (kept off the server) can
 open it, so a stolen backup is useless even together with the server.
 
+Each backup has a small companion, buddy-<stamp>.key.age: the database key, encrypted with the
+same age public key. So the age private key alone is enough to restore everything, even if this
+server is gone (deploy/restore.sh), while a stolen backup still opens for no one.
+
 Keeps the last 14 backups in /var/backups/buddy. If BUDDY_BACKUP_REMOTE is set
 (an rclone remote such as "b2:my-bucket/buddy"), each backup is also copied there.
 """
@@ -35,14 +39,22 @@ def main() -> None:
         subprocess.run(["age", "-r", recipient, "-o", str(target), str(snapshot)], check=True)
     finally:
         snapshot.unlink(missing_ok=True)
+    key_target = BACKUP_DIR / f"buddy-{stamp}.key.age"
+    db_key = os.getenv("BUDDY_DB_KEY", "")
+    if db_key:  # through stdin: the key never touches the disk unencrypted
+        subprocess.run(["age", "-r", recipient, "-o", str(key_target)], input=f"BUDDY_DB_KEY={db_key}\n".encode(),
+                       check=True)
 
-    for old in sorted(BACKUP_DIR.glob("buddy-*.db.age"))[:-KEEP]:
-        old.unlink()
+    for pattern in ("buddy-*.db.age", "buddy-*.key.age"):
+        for old in sorted(BACKUP_DIR.glob(pattern))[:-KEEP]:
+            old.unlink()
 
     remote = os.getenv("BUDDY_BACKUP_REMOTE")
     if remote and shutil.which("rclone"):
-        subprocess.run(["rclone", "copy", str(target), remote], check=True)
-    print(f"backup written: {target}")
+        for path in (target, key_target):
+            if path.exists():
+                subprocess.run(["rclone", "copy", str(path), remote], check=True)
+    print(f"backup written: {target}" + (f" (+ {key_target.name})" if key_target.exists() else ""))
 
 
 if __name__ == "__main__":

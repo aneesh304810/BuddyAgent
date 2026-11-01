@@ -12,6 +12,7 @@
 #   sudo bash /opt/buddy/deploy/security.sh link           the app link (server address + access token)
 #   sudo bash /opt/buddy/deploy/security.sh edit           edit all settings in nano (sealed or not), then restart
 #   sudo bash /opt/buddy/deploy/security.sh get NAME       print one setting's value
+#   sudo bash /opt/buddy/deploy/security.sh recovery       show the database key once, to save off the server
 set -euo pipefail
 [[ $EUID -eq 0 ]] || { echo "Run as root (sudo)."; exit 1; }
 HERE="$(dirname "$(readlink -f "$0")")"
@@ -114,6 +115,25 @@ PY
     secrets_open
     HOST=$(tailscale status --json 2>/dev/null | python3 -c 'import json,sys; print(json.load(sys.stdin)["Self"]["DNSName"].rstrip("."))' || echo "your-server")
     echo "https://$HOST/?token=$(secrets_get BUDDY_TOKEN)" ;;
+  recovery)
+    secrets_open
+    KEY=$(secrets_get BUDDY_DB_KEY)
+    [[ -n $KEY ]] || { echo "This server has no database key: the database isn't encrypted."; exit 1; }
+    echo
+    echo "=============== YOUR DATABASE KEY: SAVE IT NOW ==============="
+    echo "Save this next to your backup key (AGE-SECRET-KEY-...) in your password"
+    echo "manager. With both, your backups open even if this server is gone."
+    echo "(Every backup also carries this key, encrypted with your backup key.)"
+    echo
+    echo "BUDDY_DB_KEY=$KEY"
+    echo
+    echo "=============================================================="
+    if [[ -t 0 ]]; then
+      read -rp "Type SAVED once it's in your password manager: " answer
+      until [[ "$answer" == SAVED ]]; do read -rp "Type SAVED: " answer; done
+      clear 2>/dev/null || true   # off the screen and out of the scrollback
+    fi
+    date -u +"recovery-shown %Y-%m-%d" >> "$KEY_DATES" ;;
   get)
     [[ -n ${2:-} ]] || { echo "Use: security.sh get NAME"; exit 1; }
     secrets_open

@@ -90,3 +90,18 @@ secrets_get() {
   local name=$1
   grep "^$name=" "$ENV_FILE" 2>/dev/null | head -1 | cut -d= -f2-
 }
+
+# Set one setting (added if missing). Call secrets_open first and secrets_seal after.
+secrets_set() {
+  NAME="$1" VALUE="$2" python3 - "$ENV_FILE" <<'PY'
+import os, re, sys
+path, name, value = sys.argv[1], os.environ["NAME"], os.environ["VALUE"]
+text = open(path).read() if os.path.exists(path) else ""
+line = f"{name}={value}"
+if re.search(rf"(?m)^{re.escape(name)}=", text):
+    text = re.sub(rf"(?m)^{re.escape(name)}=.*$", lambda m: line, text)
+else:
+    text = text.rstrip("\n") + "\n" + line + "\n"
+open(path, "w").write(text)
+PY
+}
