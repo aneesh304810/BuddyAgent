@@ -20,7 +20,7 @@ import os
 import re
 from datetime import date, datetime, timedelta, timezone
 
-from .finance import Finance, _day, has_money_data
+from .finance import Finance, _day, has_money_data, purge_reports
 from .memory import Memory
 from .tools import ToolError, local_now
 
@@ -540,6 +540,7 @@ class Advisor:
                    + (m["todo"][0] + " " if m["todo"] else "") + "The full check-in is in Reports.")
         now = datetime.now(timezone.utc).isoformat()
         self.memory.db.executescript(JOBS_SCHEMA)
+        purge_reports(self.memory)
         job_id = self.memory.db.execute(
             "INSERT INTO jobs (kind, title, params, status, created_at, started_at, finished_at, summary, report, findings, "
             "sources, delivered) VALUES ('money_monthly', ?, '{}', 'done', ?, ?, ?, ?, ?, ?, '[]', 1)",

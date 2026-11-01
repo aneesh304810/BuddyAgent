@@ -706,6 +706,7 @@ class Finance:
         summary, report = self.week_summary(w), self.week_markdown(w)
         now = datetime.now(timezone.utc).isoformat()
         self.memory.db.executescript(JOBS_SCHEMA)
+        purge_reports(self.memory)
         job_id = self.memory.db.execute(
             "INSERT INTO jobs (kind, title, params, status, created_at, started_at, finished_at, summary, report, "
             "findings, sources, delivered) VALUES ('money_weekly', ?, '{}', 'done', ?, ?, ?, ?, ?, ?, '[]', 1)",
@@ -733,6 +734,16 @@ class Finance:
                                              and s["yearly_cost"] >= 60],
             "cards": self.cards(),
         }
+
+
+REPORT_KEEP_DAYS = {"money_weekly": 365, "money_monthly": 730}  # the privacy policy promises these
+
+
+def purge_reports(memory: Memory) -> None:
+    for kind, days in REPORT_KEEP_DAYS.items():
+        memory.db.execute("DELETE FROM jobs WHERE kind = ? AND created_at < ?",
+                          (kind, (datetime.now(timezone.utc) - timedelta(days=days)).isoformat()))
+    memory.db.commit()
 
 
 def has_money_data(memory: Memory) -> bool:

@@ -216,6 +216,9 @@ def test_the_weekly_report(mem):
     assert summary.startswith("You spent 256 USD this week") and "Amex Gold due" in summary
     job = mem.db.execute("SELECT * FROM jobs WHERE id = ?", (job_id,)).fetchone()
     assert job["kind"] == "money_weekly" and job["status"] == "done" and "## Cards" in job["report"]
+    mem.db.execute("UPDATE jobs SET created_at = '2020-01-01T00:00:00+00:00' WHERE id = ?", (job_id,))
+    fin.save_week()
+    assert mem.db.execute("SELECT COUNT(*) FROM jobs WHERE kind = 'money_weekly'").fetchone()[0] == 1  # old one gone
 
 
 def test_weekly_report_timing(mem, monkeypatch):
