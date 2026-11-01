@@ -4,7 +4,8 @@
     android:packageNames="com.android.chrome,com.sec.android.app.sbrowser"
     android:accessibilityEventTypes="typeWindowStateChanged"
     android:accessibilityFeedbackType="feedbackGeneric"
-    android:accessibilityFlags="flagReportViewIds"
+    android:accessibilityFlags="flagReportViewIds|flagRetrieveInteractiveWindows"
+    android:canPerformGestures="true"
     android:notificationTimeout="500"
     android:canRetrieveWindowContent="true"
     android:description="@string/form_helper_description" />

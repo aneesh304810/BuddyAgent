@@ -15,6 +15,8 @@ SCREEN = [  # what the phone's form helper sends: plain text, then fillable thin
     {"i": "f3", "kind": "edit", "t": "Explanation", "value": ""},
     {"i": "f4", "kind": "secret"},
     {"i": "f5", "kind": "button", "t": "Submit"},
+    {"kind": "text", "t": "Is MFA in place for access to critical systems?"},
+    {"i": "f6", "kind": "dropdown", "t": "Select an option", "value": ""},
 ]
 
 
@@ -88,3 +90,12 @@ def test_the_server_waits_for_the_phones_answer():
         ws.send_json({"type": "form_screen", "id": ask["id"], "nodes": SCREEN})
         future.result(timeout=5)
     assert got["reply"]["nodes"] == SCREEN
+
+
+def test_dropdowns_are_chosen_by_option_text():
+    assert "[f6 dropdown: Select an option]" in formfill.describe(SCREEN)
+    assert formfill.check_fills([{"field": "f6", "choose": "Yes"}], SCREEN) == [{"field": "f6", "choose": "Yes"}]
+    with pytest.raises(ToolError, match="use choose"):
+        formfill.check_fills([{"field": "f6", "text": "Yes"}], SCREEN)
+    with pytest.raises(ToolError, match="submit-type"):
+        formfill.check_fills([{"field": "f6", "choose": "Submit"}], SCREEN)

@@ -1,8 +1,13 @@
 package app.buddy
 
 import android.accessibilityservice.AccessibilityService
+import android.accessibilityservice.GestureDescription
+import android.content.ClipData
+import android.content.ClipboardManager
 import android.content.ComponentName
 import android.content.Context
+import android.graphics.Path
+import android.graphics.Rect
 import android.os.Bundle
 import android.os.Handler
 import android.os.Looper
@@ -69,6 +74,8 @@ class FormHelper : AccessibilityService() {
         val item = JSONObject()
         when {
             node.isPassword -> item.put("kind", "secret")  // never read, never filled
+            isDropdown(node) -> item.put("kind", "dropdown").put("value", own)
+                .put("t", node.labeledBy?.text?.toString() ?: own.ifEmpty { childText(node) })
             node.isEditable -> item.put("kind", "edit").put("value", own)
                 .put("hint", node.hintText?.toString().orEmpty())
                 .put("t", node.labeledBy?.text?.toString() ?: node.hintText?.toString().orEmpty())
@@ -85,7 +92,7 @@ class FormHelper : AccessibilityService() {
                 item.put("i", key)
             }
             out.put(item)
-            if (item.getString("kind") in listOf("button", "check", "radio", "edit", "secret")) return  // label read
+            if (item.getString("kind") in listOf("button", "check", "radio", "edit", "secret", "dropdown")) return
         }
         for (i in 0 until node.childCount) node.getChild(i)?.let { collect(it, out, depth + 1) }
     }
@@ -107,39 +114,101 @@ class FormHelper : AccessibilityService() {
     private fun fill(id: String, fills: JSONArray) {
         val done = JSONArray()
         val skipped = JSONArray()
-        for (i in 0 until fills.length()) {
+        fun step(i: Int) {
+            if (i >= fills.length()) {
+                PhoneBridge.send(JSONObject().put("type", "form_result").put("id", id).put("done", done)
+                    .put("skipped", skipped))
+                return
+            }
             val f = fills.getJSONObject(i)
             val key = f.optString("field")
             val node = fields[key]?.also { it.refresh() }
-            val why = when {
-                node == null -> "not on screen any more"
-                node.isPassword -> "password field"
-                f.has("text") && !node.isEditable -> "not a text box"
-                f.has("text") -> if (node.performAction(AccessibilityNodeInfo.ACTION_SET_TEXT, Bundle().apply {
-                        putCharSequence(AccessibilityNodeInfo.ACTION_ARGUMENT_SET_TEXT_CHARSEQUENCE, f.getString("text"))
-                    })) null else "the page didn't accept the text"
-                NEVER_TAP.containsMatchIn((node.text ?: node.contentDescription ?: childText(node)).toString()) ->
-                    "submit-type button: you tap it"
-                f.optBoolean("tap") -> if (tap(node)) null else "couldn't tap it"
-                else -> "nothing to do"
+            fun finish(why: String?) {
+                if (why == null) done.put(key) else skipped.put(JSONObject().put("field", key).put("why", why))
+                main.postDelayed({ step(i + 1) }, STEP_MS)
             }
-            if (why == null) done.put(key) else skipped.put(JSONObject().put("field", key).put("why", why))
+            when {
+                node == null -> finish("not on screen any more")
+                node.isPassword -> finish("password field")
+                f.has("choose") -> {
+                    val wanted = f.getString("choose")
+                    if (NEVER_TAP.containsMatchIn(wanted)) finish("submit-type option: you tap it")
+                    else if (!tap(node)) finish("couldn't open the dropdown")
+                    else main.postDelayed({  // let the list open, then tap the option
+                        val option = findOption(wanted, node)
+                        finish(if (option != null && tap(option)) null else "option '$wanted' not found in the list")
+                    }, OPEN_MS)
+                }
+                f.has("text") -> finish(if (setText(node, f.getString("text"))) null else "the page didn't accept the text")
+                NEVER_TAP.containsMatchIn(label(node)) -> finish("submit-type button: you tap it")
+                f.optBoolean("tap") -> finish(if (tap(node)) null else "couldn't tap it")
+                else -> finish("nothing to do")
+            }
         }
-        PhoneBridge.send(JSONObject().put("type", "form_result").put("id", id).put("done", done).put("skipped", skipped))
+        step(0)
     }
 
+    private fun label(node: AccessibilityNodeInfo): String =
+        (node.text ?: node.contentDescription)?.toString()?.ifEmpty { null } ?: childText(node)
+
+    private fun isDropdown(node: AccessibilityNodeInfo): Boolean {
+        val role = node.extras?.getCharSequence("AccessibilityNodeInfo.roleDescription")?.toString().orEmpty().lowercase()
+        val cls = node.className?.toString().orEmpty()
+        return cls.contains("Spinner") || "combo" in role || "pop up" in role || "popup" in role || "list box" in role ||
+            "dropdown" in role || label(node).trim().equals("Select an option", ignoreCase = true) ||
+            label(node).trim().equals("Select options", ignoreCase = true)
+    }
+
+    /** Type into a text box: set it directly, else focus and set, else paste. */
+    private fun setText(node: AccessibilityNodeInfo, text: String): Boolean {
+        val args = Bundle().apply { putCharSequence(AccessibilityNodeInfo.ACTION_ARGUMENT_SET_TEXT_CHARSEQUENCE, text) }
+        if (node.performAction(AccessibilityNodeInfo.ACTION_SET_TEXT, args)) return true
+        node.performAction(AccessibilityNodeInfo.ACTION_FOCUS)
+        node.performAction(AccessibilityNodeInfo.ACTION_CLICK)
+        if (node.performAction(AccessibilityNodeInfo.ACTION_SET_TEXT, args)) return true
+        getSystemService(ClipboardManager::class.java)?.setPrimaryClip(ClipData.newPlainText("Buddy", text))
+        return node.performAction(AccessibilityNodeInfo.ACTION_PASTE)
+    }
+
+    /** Tap: the node's own click, else a clickable parent, else a real tap on its middle. */
     private fun tap(node: AccessibilityNodeInfo): Boolean {
         var target: AccessibilityNodeInfo? = node
         repeat(3) {  // web buttons are often a clickable wrapper around the text
-            val t = target ?: return false
+            val t = target ?: return@repeat
             if (t.isClickable && t.performAction(AccessibilityNodeInfo.ACTION_CLICK)) return true
             target = t.parent
         }
-        return false
+        val r = Rect()
+        node.getBoundsInScreen(r)
+        if (r.isEmpty) return false
+        val path = Path().apply { moveTo(r.exactCenterX(), r.exactCenterY()) }
+        return dispatchGesture(GestureDescription.Builder()
+            .addStroke(GestureDescription.StrokeDescription(path, 0, 60)).build(), null, null)
+    }
+
+    /** The open dropdown's option with this text, in any of the browser's windows (lists open in a popup). */
+    private fun findOption(wanted: String, dropdown: AccessibilityNodeInfo): AccessibilityNodeInfo? {
+        val roots = windows.mapNotNull { it.root }.filter { it.packageName?.toString() in BROWSERS }
+            .ifEmpty { listOfNotNull(rootInActiveWindow) }
+        var partial: AccessibilityNodeInfo? = null
+        fun search(n: AccessibilityNodeInfo, depth: Int): AccessibilityNodeInfo? {
+            if (depth > 60 || !n.isVisibleToUser) return null
+            val text = (n.text ?: n.contentDescription)?.toString()?.trim().orEmpty()
+            if (text.isNotEmpty() && n != dropdown && !n.isEditable) {
+                if (text.equals(wanted.trim(), ignoreCase = true)) return n
+                if (partial == null && text.startsWith(wanted.trim(), ignoreCase = true)) partial = n
+            }
+            for (i in 0 until n.childCount) n.getChild(i)?.let { c -> search(c, depth + 1)?.let { return it } }
+            return null
+        }
+        for (root in roots) search(root, 0)?.let { return it }
+        return partial
     }
 
     companion object {
         private const val MAX_NODES = 350
+        private const val STEP_MS = 450L  // between answers: the page reacts to each one
+        private const val OPEN_MS = 900L  // a dropdown's list takes a moment to open
         val BROWSERS = setOf("com.android.chrome", "com.sec.android.app.sbrowser")
         private val NEVER_TAP = Regex("""\b(submit|send|pay|purchase|buy|place order|checkout|check out|confirm|transfer|""" +
             """delete|remove|sign in|log in|login|sign up|register|accept all|agree and|book now|order)\b""",
