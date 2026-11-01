@@ -22,6 +22,8 @@ def fake_understand(sensitive=False, facts=None):
         return {"title": "Lease, 12 Oak St" if "LEASE" in sample else row["name"], "doc_type": "lease",
                 "summary": "Residential lease, rent $2,100 a month, ends 2027-06-30.", "sensitive": sensitive,
                 "text": "Passport no. X1234567, expires 2029-03-14" if image else "",
+                "entities": [{"name": "Oak Street Homes", "kind": "organization", "relation": "landlord",
+                              "detail": "lease ends 2027-06-30"}] if "LEASE" in sample else [],
                 "facts": facts if facts is not None else [
                     {"fact": "Rent $2,100 due on the 1st", "important": True},
                     {"fact": "One cat allowed with a $300 pet deposit", "important": False}]}

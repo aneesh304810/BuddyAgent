@@ -55,6 +55,15 @@
             </intent-filter>
         </activity>
 
+        <!-- Opening a library file in another app (a photo viewer, a PDF reader). -->
+        <provider
+            android:name="androidx.core.content.FileProvider"
+            android:authorities="${applicationId}.files"
+            android:exported="false"
+            android:grantUriPermissions="true">
+            <meta-data android:name="android.support.FILE_PROVIDER_PATHS" android:resource="@xml/file_paths" />
+        </provider>
+
         <service
             android:name=".BuddyNotificationListener"
             android:exported="true"

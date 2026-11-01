@@ -12,6 +12,8 @@ python-docx>=1.1
 python-pptx>=1.0
 pypdf>=5.0
 openpyxl>=3.1
+# Meaning search: a small embedding model on the server (brain.py)
+fastembed>=0.9
 matplotlib>=3.8
 # Not used directly, but kept at versions without known vulnerabilities:
 starlette>=0.47.2

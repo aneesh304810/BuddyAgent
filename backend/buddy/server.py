@@ -73,6 +73,7 @@ from .finops import FinOps
 from . import lifelog
 from .lifelog import LifeLog
 from .library import Library, report as library_report
+from .brain import Brain
 from .location import Location
 from . import addressee
 from . import whisper as speech_to_text  # not `whisper`: that's Listen-in's whisper below
@@ -253,6 +254,19 @@ for _spec in builder.active_specs():  # agents built or connected earlier
     registry.specs.setdefault(_spec.name, _spec)
 
 
+async def _index_brain() -> None:
+    """Keep the meaning-search vectors up to date: new facts and passages every few minutes."""
+    await asyncio.sleep(30)  # let Buddy start answering first
+    while True:
+        try:
+            added = await asyncio.to_thread(Brain(memory).index_pending)
+            if added:
+                log.info("brain: indexed %s passages and facts", added)
+        except Exception:
+            log.exception("brain indexing failed; trying again later")
+        await asyncio.sleep(180)
+
+
 @contextlib.asynccontextmanager
 async def lifespan(app: FastAPI):
     await registry.start()
@@ -264,6 +278,7 @@ async def lifespan(app: FastAPI):
     bank_loop = asyncio.create_task(bank.run())
     health_loop = asyncio.create_task(healthcheck.run(memory, finops, deliver))
     tutor_loop = asyncio.create_task(tutor.run(memory, jobs))
+    brain_loop = asyncio.create_task(_index_brain())
     try:
         yield
     finally:
@@ -276,6 +291,7 @@ async def lifespan(app: FastAPI):
         bank_loop.cancel()
         health_loop.cancel()
         tutor_loop.cancel()
+        brain_loop.cancel()
         await registry.close()
 
 
@@ -555,6 +571,8 @@ async def api_library(request: Request, name: str = "upload", note: str = "", va
             await deliver("library", f"Saved {item['name']}, but I couldn't read it just now.")
             return
         text = library_report(done)
+        with contextlib.suppress(Exception):  # searchable by meaning straight away (else the loop does it)
+            await asyncio.to_thread(Brain(memory).index_pending)
         if done["important"]:
             facts = done["important"]
 
@@ -565,6 +583,74 @@ async def api_library(request: Request, name: str = "upload", note: str = "", va
         await deliver("library", text)
     asyncio.create_task(read_it())
     return {"id": item["id"], "status": "reading", "name": item["name"]}
+
+
+@app.get("/api/library", dependencies=[Depends(require_admin)])
+def api_library_list(q: str = "", kind: str = "") -> dict:
+    """The Library screen: recent items, or the items that match a search (by meaning and words)."""
+    lib = Library(memory)
+    if q.strip():
+        seen, items = set(), []
+        for hit in lib.search(q, limit=20):
+            if hit["id"] not in seen:
+                seen.add(hit["id"])
+                items.append({**[i for i in lib.recent(limit=500) if i["id"] == hit["id"]][0], "match": hit["text"][:300]})
+        return {"items": items, "people": []}
+    return {"items": lib.recent(kind, limit=200), "people": Brain(memory).people()[:30]}
+
+
+@app.get("/api/library/{item_id}", dependencies=[Depends(require_admin)])
+def api_library_item(item_id: str) -> dict:
+    try:
+        return Library(memory).open(item_id)
+    except ToolError as e:
+        raise HTTPException(status_code=404, detail=str(e)) from e
+
+
+@app.post("/api/library/{item_id}/unlock", dependencies=[Depends(require_admin)])
+def api_library_unlock(item_id: str) -> dict:
+    """The owner tapping Unlock in their own app is the yes a vault item needs."""
+    try:
+        return {"ok": True, "text": Library(memory).unlock(item_id)}
+    except ToolError as e:
+        raise HTTPException(status_code=404, detail=str(e)) from e
+
+
+@app.delete("/api/library/{item_id}", dependencies=[Depends(require_admin)])
+def api_library_forget(item_id: str) -> dict:
+    try:
+        return {"ok": True, "text": Library(memory).forget(item_id)}
+    except ToolError as e:
+        raise HTTPException(status_code=404, detail=str(e)) from e
+
+
+@app.get("/api/library/{item_id}/file", dependencies=[Depends(require_admin)])
+def api_library_file(item_id: str):
+    from fastapi.responses import Response
+
+    from . import library as lib_module
+
+    lib = Library(memory)
+    try:
+        data, row = lib_module.original(memory, item_id)
+    except ToolError as e:
+        raise HTTPException(status_code=404, detail=str(e)) from e
+    if row["vault"] and not lib.unlocked(item_id):
+        raise HTTPException(status_code=403, detail="Vault item: unlock it first.")
+    kind = lib_module.IMAGES.get(row["ext"]) or {"pdf": "application/pdf", "csv": "text/csv", "json": "application/json",
+                                                 "txt": "text/plain"}.get(row["ext"], "application/octet-stream")
+    return Response(data, media_type=kind, headers={"Content-Disposition": f'inline; filename="{row["name"]}"'})
+
+
+@app.get("/api/people", dependencies=[Depends(require_admin)])
+def api_people(name: str = "") -> dict:
+    brain_ = Brain(memory)
+    if name:
+        found = brain_.person(name)
+        if not found:
+            raise HTTPException(status_code=404, detail="No one by that name.")
+        return found
+    return {"people": brain_.people(), "status": brain_.status()}
 
 
 # --- background job reports: the phone apps show them -----------------------

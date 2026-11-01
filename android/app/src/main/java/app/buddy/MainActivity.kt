@@ -128,6 +128,8 @@ sealed interface Screen {
     data object Settings : Screen
     data object Reports : Screen
     data object Insights : Screen
+    data object Library : Screen
+    data class LibraryItem(val id: String) : Screen
     data class Card(val json: String) : Screen
     data class Report(val id: Int) : Screen
 }
@@ -311,12 +313,17 @@ private fun BuddyScreen(
             Spacer(Modifier.size(6.dp))
             Text(ui.connection, color = Muted, fontSize = 13.sp, modifier = Modifier.weight(1f))
             if (screen == Screen.Talk) {
+                TextButton(onClick = { onNavigate(Screen.Library) }) { Text("Library") }
                 TextButton(onClick = { onNavigate(Screen.Insights) }) { Text("Insights") }
                 TextButton(onClick = { onNavigate(Screen.Reports) }) { Text("Reports") }
                 TextButton(onClick = { onNavigate(Screen.Settings) }) { Text("Settings") }
             } else {
                 TextButton(onClick = {
-                    onNavigate(if (screen is Screen.Report) Screen.Reports else Screen.Talk)
+                    onNavigate(when (screen) {
+                        is Screen.Report -> Screen.Reports
+                        is Screen.LibraryItem -> Screen.Library
+                        else -> Screen.Talk
+                    })
                 }) { Text("Back") }
             }
         }
@@ -332,6 +339,14 @@ private fun BuddyScreen(
             }
             Screen.Insights -> {
                 InsightsScreen(prefs.link)
+                return@Column
+            }
+            Screen.Library -> {
+                LibraryScreen(prefs.link) { onNavigate(Screen.LibraryItem(it)) }
+                return@Column
+            }
+            is Screen.LibraryItem -> {
+                LibraryItemScreen(prefs.link, screen.id) { onNavigate(Screen.Library) }
                 return@Column
             }
             is Screen.Card -> {

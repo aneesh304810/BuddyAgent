@@ -15,3 +15,4 @@ os.environ.setdefault("BUDDY_AGENTS", "tests/no-agents.yaml")
 os.environ.setdefault("BUDDY_LISTEN_BATCH_SECONDS", "0")
 os.environ.setdefault("BUDDY_LISTEN_TRIAGE_MODEL", "")
 os.environ.pop("BUDDY_DB_KEY", None)
+os.environ.setdefault("BUDDY_MEANING_SEARCH", "0")  # no model download in tests; brain tests pass a stand-in
