@@ -212,7 +212,8 @@ class BuddyService : Service() {
         }
         phoneEars = Ears(this, onHeard = ::heard, onActive = onActive, onProblem = onProblem,
             speaking = { this::mouth.isInitialized && mouth.speaking },
-            paused = { this::mouth.isInitialized && mouth.speaking && !headsetConnected() })
+            paused = { this::mouth.isInitialized && mouth.speaking && !headsetConnected() },
+            onEnd = { voiceSent(server = false) })
         serverEars = ServerEars(
             earbudMic = { earbudMicOn },
             send = { message -> client?.send(message) ?: false },
@@ -222,6 +223,7 @@ class BuddyService : Service() {
             endSilenceMs = { BuddyPrefs(this).endSilenceMs },  // the full pause: fewer cut-off sentences
             noiseSuppress = { BuddyPrefs(this).noiseSuppress },
             vadFactory = { SileroVad(this) },
+            onSent = { voiceSent(server = true) },
         )
         mouth = Mouth(this, onMissingVoice = { name ->
             BuddyState.add(Line("To hear me in $name, add its voice: phone Settings → Text-to-speech → " +
@@ -381,6 +383,93 @@ class BuddyService : Service() {
         return sent
     }
 
+    // --- "heard you": a tick and a buzz the moment your words leave, a live status, timings ---
+    private class VoiceTrace(val sentAt: Long, val waitMs: Long, val server: Boolean) {
+        var heardAt = 0L
+        var sttMs = -1L
+        var engine = if (server) "server" else "phone"
+        var thinkingAt = 0L
+    }
+    private var voiceTrace: VoiceTrace? = null
+    private val missWatch = android.os.Handler(android.os.Looper.getMainLooper())
+    private val vibrator by lazy {
+        runCatching { getSystemService(android.os.VibratorManager::class.java)?.defaultVibrator }.getOrNull()
+    }
+
+    private fun heardCue() {
+        phoneEars.releaseMute()
+        runCatching { tone?.startTone(android.media.ToneGenerator.TONE_PROP_BEEP, 40) }
+        runCatching { vibrator?.vibrate(android.os.VibrationEffect.createPredefined(android.os.VibrationEffect.EFFECT_TICK)) }
+    }
+
+    private fun missCue() {
+        phoneEars.releaseMute()
+        runCatching { tone?.startTone(android.media.ToneGenerator.TONE_PROP_NACK, 160) }
+        runCatching { vibrator?.vibrate(android.os.VibrationEffect.createWaveform(longArrayOf(0, 40, 90, 40), -1)) }
+    }
+
+    /** Your words just left for the server (or the phone's recognizer heard you stop). Talk mode only:
+     *  in Listen-in, room talk would tick all day. */
+    private fun voiceSent(server: Boolean) {
+        if (activeMode != Mode.TALK || !ears.active) return
+        heardCue()
+        val now = android.os.SystemClock.elapsedRealtime()
+        voiceTrace = VoiceTrace(now, if (server) prefs.endSilenceMs else 0L, server)
+        BuddyState.status(if (server) "Heard you · turning it into text…" else "Heard you…")
+        missWatch.removeCallbacksAndMessages(null)
+        missWatch.postDelayed({
+            val t = voiceTrace ?: return@postDelayed
+            if (t.heardAt != 0L) return@postDelayed
+            if (!t.server) { voiceTrace = null; return@postDelayed }  // phone recognizer: often just a cough
+            missCue()
+            BuddyState.status("Didn't reach Buddy: check the connection")
+            mouth.speak("I didn't catch that. Can you say it again?", quiet = true)
+            sendTiming(t, "timeout")
+            voiceTrace = null
+        }, if (server) 8_000L else 6_000L)
+    }
+
+    /** The server's text for a clip arrived (or the phone recognizer's): note when, then route it. */
+    private fun voiceHeard(event: ServerEvent.Heard) {
+        missWatch.removeCallbacksAndMessages(null)
+        val t = voiceTrace
+        if (t != null && t.heardAt == 0L) {
+            t.heardAt = android.os.SystemClock.elapsedRealtime()
+            t.sttMs = event.sttMs
+            if (event.engine.isNotBlank()) t.engine = event.engine
+        }
+        if (event.text.isBlank()) {
+            if (activeMode == Mode.TALK && event.missed.isNotBlank()) {
+                missCue()
+                BuddyState.status(when (event.missed) {
+                    "not_you" -> "That didn't sound like you (voice match), so I left it"
+                    "unclear" -> "Too unclear to be sure: say it again?"
+                    else -> "Didn't catch any words: say it again?"
+                })
+                if (t != null) sendTiming(t, event.missed)
+                voiceTrace = null
+            }
+            return
+        }
+        serverEars.heard(event.text, event.lang)
+    }
+
+    private fun sendTiming(t: VoiceTrace, missed: String = "") {
+        val now = android.os.SystemClock.elapsedRealtime()
+        val json = JSONObject().put("type", "voice_timing").put("engine", t.engine).put("wait_ms", t.waitMs)
+            .put("missed", missed)
+        if (t.server && t.heardAt > 0 && t.sttMs >= 0) {
+            json.put("stt_ms", t.sttMs).put("network_ms", maxOf(0L, t.heardAt - t.sentAt - t.sttMs))
+        }
+        if (missed.isEmpty()) {
+            val heardAt = if (t.heardAt > 0) t.heardAt else t.sentAt
+            val thinkingAt = if (t.thinkingAt > 0) t.thinkingAt else heardAt
+            json.put("to_thinking_ms", thinkingAt - heardAt).put("first_word_ms", now - thinkingAt)
+                .put("total_ms", t.waitMs + (now - t.sentAt))
+        }
+        client?.send(json)
+    }
+
     // --- "got it": a soft tone when the question arrives, and no silent waits ---------------
     private val tone by lazy { runCatching { android.media.ToneGenerator(AudioManager.STREAM_MUSIC, 35) }.getOrNull() }
     private val watchdog = android.os.Handler(android.os.Looper.getMainLooper())
@@ -389,6 +478,8 @@ class BuddyService : Service() {
         watchdog.removeCallbacksAndMessages(null)
         BuddyState.update { it.copy(thinking = on) }
         if (!on) return
+        voiceTrace?.let { if (it.thinkingAt == 0L) it.thinkingAt = android.os.SystemClock.elapsedRealtime() }
+        BuddyState.status("Got it · thinking…")
         phoneEars.releaseMute()
         tone?.startTone(android.media.ToneGenerator.TONE_PROP_ACK, 120)
         watchdog.postDelayed({ mouth.speak("Still working on it.", quiet = true) }, 20_000)
@@ -404,6 +495,7 @@ class BuddyService : Service() {
         }
         when (event) {
             is ServerEvent.Say -> if (!muted) {
+                voiceTrace?.let { sendTiming(it); voiceTrace = null }  // Buddy's first word: the timing is complete
                 if (event.filler) {
                     BuddyState.status(event.text)
                 } else {
@@ -420,7 +512,7 @@ class BuddyService : Service() {
                 if (pendingMode != null && !mouth.speaking) main.postDelayed({ applyPendingMode() }, 400)
             }
             ServerEvent.Thinking -> thinking(true)
-            is ServerEvent.Heard -> serverEars.heard(event.text, event.lang)
+            is ServerEvent.Heard -> voiceHeard(event)
             is ServerEvent.SpeechLimit -> speechLimit(event.seconds)
             ServerEvent.Waiting -> BuddyState.status("Go on…")
             is ServerEvent.VoiceStatus -> BuddyState.update {
@@ -785,6 +877,9 @@ class BuddyService : Service() {
 
     private fun heard(text: String, final: Boolean) {
         if (ownEcho(text)) return
+        if (final) voiceTrace?.let { t ->  // the phone recognizer's text (the server's is noted on arrival)
+            if (t.heardAt == 0L) { t.heardAt = android.os.SystemClock.elapsedRealtime(); missWatch.removeCallbacksAndMessages(null) }
+        }
         if (activeMode == Mode.LISTEN_IN && final) {
             val followUp = android.os.SystemClock.elapsedRealtime() < followUpUntil
             if (CHECK_IN.matches(text.trim())) {

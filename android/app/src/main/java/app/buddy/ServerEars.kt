@@ -32,6 +32,7 @@ class ServerEars(
     private val endSilenceMs: () -> Long = { 800L },  // "Pauses when I talk" in Settings
     private val noiseSuppress: () -> Boolean = { false },  // Settings: the phone's own noise suppressor
     private val vadFactory: () -> SileroVad? = { null },  // speech detection on the phone
+    private val onSent: () -> Unit = {},  // a clip just left for the server: "heard you" feedback
 ) : Hearing {
     @Volatile private var cleaning: android.media.audiofx.NoiseSuppressor? = null
     @Volatile private var boost: android.media.audiofx.AutomaticGainControl? = null
@@ -204,6 +205,7 @@ class ServerEars(
             .put("ns", cleaning?.enabled == true)
             .put("mic", if (earbudMic()) "headset" else "phone")  // which mic heard it, for Insights
         if (!send(message)) main.post { onProblem("Not connected to your server yet.") }
+        else main.post { onSent() }
     }
 
     private fun toBytes(frame: ShortArray, n: Int): ByteArray {

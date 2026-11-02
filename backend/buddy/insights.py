@@ -196,6 +196,70 @@ def data_tools_overview(memory: Memory) -> dict:
     return {"runs": get("data_runs"), "tokens_saved": get("saved_tokens")}
 
 
+VOICE_SQL = """
+CREATE TABLE IF NOT EXISTS voice_timings (   -- one row per thing said to Buddy by voice (no audio, no text)
+    id INTEGER PRIMARY KEY,
+    at TEXT NOT NULL,
+    engine TEXT NOT NULL,             -- groq | local | phone | voice match
+    wait_ms INTEGER,                  -- the pause that ends what you say (setting)
+    network_ms INTEGER,               -- sending the clip and getting the text back, minus transcribing
+    stt_ms INTEGER,                   -- turning speech into text
+    to_thinking_ms INTEGER,           -- from the text to "got it" (the question reaching Buddy)
+    first_word_ms INTEGER,            -- from "got it" to Buddy's first word
+    total_ms INTEGER,                 -- from the end of your speech to Buddy's first word
+    missed TEXT NOT NULL DEFAULT ''   -- '' | nothing | unclear | not_you | timeout
+);
+"""
+
+
+def _ms(v) -> int | None:
+    try:
+        return max(0, min(int(float(v)), 600_000))
+    except (TypeError, ValueError):
+        return None
+
+
+def record_voice_timing(memory: Memory, msg: dict) -> None:
+    memory.db.executescript(VOICE_SQL)
+    memory.db.execute(
+        "INSERT INTO voice_timings (at, engine, wait_ms, network_ms, stt_ms, to_thinking_ms, first_word_ms, total_ms, "
+        "missed) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?)",
+        (datetime.now(timezone.utc).isoformat(), str(msg.get("engine") or "?")[:20], _ms(msg.get("wait_ms")),
+         _ms(msg.get("network_ms")), _ms(msg.get("stt_ms")), _ms(msg.get("to_thinking_ms")),
+         _ms(msg.get("first_word_ms")), _ms(msg.get("total_ms")), str(msg.get("missed") or "")[:20]))
+    memory.db.execute("DELETE FROM voice_timings WHERE at < ?",
+                      ((datetime.now(timezone.utc) - timedelta(days=90)).isoformat(),))
+    memory.db.commit()
+
+
+def voice_overview(memory: Memory, since: str) -> dict:
+    """Where the time goes between the end of your speech and Buddy's first word, step by step."""
+    memory.db.executescript(VOICE_SQL)
+    rows = [dict(r) for r in memory.db.execute("SELECT * FROM voice_timings WHERE at >= ?", (since,))]
+    ok = [r for r in rows if not r["missed"]]
+
+    def med(key, rs=ok):
+        vals = [r[key] for r in rs if r[key] is not None]
+        return _percentile(vals, 0.5)
+    steps = [{"step": "Pause that ends your sentence", "ms": med("wait_ms")},
+             {"step": "Sending and getting text back", "ms": med("network_ms")},
+             {"step": "Turning speech into text", "ms": med("stt_ms")},
+             {"step": "Question reaching Buddy", "ms": med("to_thinking_ms")},
+             {"step": "Buddy's first word", "ms": med("first_word_ms")}]
+    engines = {}
+    for e in {r["engine"] for r in ok}:
+        mine = [r for r in ok if r["engine"] == e]
+        engines[e] = {"utterances": len(mine), "stt_ms": med("stt_ms", mine), "total_ms": med("total_ms", mine)}
+    missed: dict[str, int] = {}
+    for r in rows:
+        if r["missed"]:
+            missed[r["missed"]] = missed.get(r["missed"], 0) + 1
+    slowest = max((s for s in steps if s["ms"] is not None), key=lambda s: s["ms"], default=None)
+    return {"utterances": len(rows), "total_ms": med("total_ms"),
+            "total_p95_ms": _percentile([r["total_ms"] for r in ok if r["total_ms"] is not None], 0.95),
+            "steps": steps, "engines": engines, "missed": missed, "slowest": slowest["step"] if slowest else ""}
+
+
 def speech_overview(memory: Memory) -> dict:
     """This month: clips heard by Groq (Talk mode) and by the server's own Whisper, and Groq's misses."""
     from . import whisper
@@ -342,6 +406,7 @@ def report(memory: Memory, days: int = 7, recent: int = 60, model: str = "", pur
         "apis": _apis(memory, since),
         "web": webread.web_overview(memory),
         "speech": speech_overview(memory),
+        "voice": voice_overview(memory, since),
         "data_tools": data_tools_overview(memory),
         "by_model": by_model,
         "by_purpose": by_purpose,

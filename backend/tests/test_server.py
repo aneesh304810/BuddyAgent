@@ -138,7 +138,9 @@ def test_whisper_on_the_server(monkeypatch):
     with TestClient(server.app) as c, c.websocket_connect("/ws") as ws:
         ws.send_json({"type": "audio", "pcm": audio, "lang": "auto"})
         got = ws.receive_json()
-    assert got == {"type": "heard", "text": "hola, ¿dónde está la estación?", "lang": "es", "id": None}
+    assert {k: got[k] for k in ("type", "text", "lang", "id")} == {
+        "type": "heard", "text": "hola, ¿dónde está la estación?", "lang": "es", "id": None}
+    assert got["engine"] == "local" and got["stt_ms"] >= 0  # for the phone's voice timing
 
 
 def test_whisper_not_installed_says_how(monkeypatch):
@@ -341,8 +343,10 @@ def test_unsure_talk_clips_are_not_answered(monkeypatch):
     with TestClient(server.app) as c, c.websocket_connect("/ws") as ws:
         ws.send_json({"type": "audio", "pcm": audio, "lang": "en-US", "mode": "talk"})
         ws.send_json({"type": "audio", "pcm": audio, "lang": "en-US", "mode": "talk"})
-        got = ws.receive_json()
-    assert got["type"] == "heard" and got["text"] == "What's the weather?"  # the TV line never came back
+        first, second = ws.receive_json(), ws.receive_json()
+    # The TV line isn't answered, but the phone is told it was missed (so it can say so, not wait)
+    assert first["type"] == "heard" and first["text"] == "" and first["missed"] == "unclear"
+    assert second["type"] == "heard" and second["text"] == "What's the weather?"
 
 
 def test_mode_commands_switch_without_claude():

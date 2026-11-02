@@ -54,6 +54,7 @@ class Ears(
     private val speaking: () -> Boolean = { false },
     // On the loudspeaker Buddy would hear itself: no listening while it talks.
     private val paused: () -> Boolean = { false },
+    private val onEnd: () -> Unit = {},  // the recognizer heard you stop talking: "heard you" feedback
 ) : Hearing {
     private val main = Handler(Looper.getMainLooper())
     // The recogniser beeps when a session starts and ends, and Buddy starts one after every phrase
@@ -217,7 +218,7 @@ class Ears(
         override fun onBeginningOfSpeech() {}
         override fun onRmsChanged(rmsdB: Float) {}
         override fun onBufferReceived(buffer: ByteArray?) {}
-        override fun onEndOfSpeech() {}
+        override fun onEndOfSpeech() { onEnd() }
         override fun onEvent(eventType: Int, params: Bundle?) {}
 
         override fun onError(error: Int) {

@@ -1022,6 +1022,9 @@ async def talk(ws: WebSocket) -> None:
                 if who != "you":
                     trace("·", {"type": "not_you", "text": f"voice {'too short' if score is None else f'{score:.2f}'}"})
                     usage.count(memory, "voice:ignored")
+                    # The phone is waiting to know: say it was heard but not taken (it tells the user).
+                    await send({"type": "heard", "text": "", "missed": "not_you", "id": msg.get("id"),
+                                "stt_ms": round((time.monotonic() - started) * 1000), "engine": "voice match"})
                     return
             stats: dict | None = {} if msg.get("mode") == "talk" and tutor.ON else None
             meta: dict = {}
@@ -1048,11 +1051,16 @@ async def talk(ws: WebSocket) -> None:
             if heard and verdict == "drop":  # Talk: TV or other people, not you; not answered
                 log.info("whisper: dropped an unsure %s clip (%.2f)", mode, meta.get("confidence") or 0)
                 heard = ""
+            stt_ms = round((time.monotonic() - started) * 1000)
             if heard:
                 last_heard[0] = time.monotonic()
                 if verdict == "unsure":
                     unsure_heard[heard] = time.monotonic()  # Listen-in: kept, but marked as unclear
-                await send({"type": "heard", "text": heard, "lang": lang, "id": msg.get("id")})
+                await send({"type": "heard", "text": heard, "lang": lang, "id": msg.get("id"), "stt_ms": stt_ms,
+                            "engine": meta.get("engine", "local")})
+            elif mode == "talk":  # nothing usable: tell the phone, so it can say so instead of waiting
+                await send({"type": "heard", "text": "", "missed": "unclear" if verdict == "drop" else "nothing",
+                            "id": msg.get("id"), "stt_ms": stt_ms, "engine": meta.get("engine", "local")})
         except speech_to_text.WhisperUnavailable as e:
             await send({"type": "error", "text": str(e)})
         except Exception:
@@ -1227,6 +1235,9 @@ async def talk(ws: WebSocket) -> None:
                 with contextlib.suppress(TypeError, ValueError):
                     await asyncio.to_thread(Location(memory).update, float(msg["lat"]), float(msg["lng"]),
                                             msg.get("accuracy"))
+            elif msg.get("type") == "voice_timing":  # how long each step of one utterance took, for Insights
+                with contextlib.suppress(Exception):
+                    insights.record_voice_timing(memory, msg)
             elif msg.get("type") == "rate" and msg.get("turn"):
                 up = msg.get("up")
                 usage.rate_turn(memory, str(msg["turn"])[:32], None if up is None else bool(up))

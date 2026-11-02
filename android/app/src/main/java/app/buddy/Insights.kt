@@ -262,6 +262,12 @@ fun InsightsScreen(link: ServerLink?) {
             ModelTokens(m, picked = purpose) { p -> purpose = if (purpose == p) "" else p; model = "" }
         }
 
+        val voice = d.optJSONObject("voice")
+        if (voice != null && voice.optInt("utterances") > 0) {
+            item { Heading("Voice: from your last word to Buddy's first") }
+            item { VoiceTimings(voice) }
+        }
+
         item { Heading("Spend per day") }
         item { DailyBars(d.getJSONArray("by_day").objects()) }
 
@@ -519,6 +525,47 @@ private fun HealthCard(data: JSONObject?, checking: Boolean, onRun: () -> Unit) 
                     " · free right ${pct(h, "accuracy")} · you ${pct(h, "satisfaction")}",
                     color = Bright, fontSize = 12.sp, fontFamily = FontFamily.Monospace)
             }
+        }
+    }
+}
+
+/** Where the time goes after you stop talking, step by step (medians), and what was missed. */
+@Composable
+private fun VoiceTimings(v: JSONObject) {
+    fun s(ms: Double) = if (ms.isNaN() || ms < 0) "–" else "%.1f s".format(ms / 1000)
+    val steps = v.optJSONArray("steps")?.objects().orEmpty()
+    val most = steps.maxOfOrNull { it.optDouble("ms", 0.0) }?.takeIf { it > 0 } ?: 1.0
+    Column(Modifier.fillMaxWidth().background(Card, RoundedCornerShape(12.dp)).padding(12.dp),
+        verticalArrangement = Arrangement.spacedBy(6.dp)) {
+        Text("Typical ${s(v.optDouble("total_ms"))} · slow ones ${s(v.optDouble("total_p95_ms"))} · ${v.optInt("utterances")} times",
+            color = Color.White, fontSize = 15.sp, fontWeight = FontWeight.SemiBold)
+        steps.forEach { st ->
+            val ms = st.optDouble("ms", Double.NaN)
+            Row(verticalAlignment = Alignment.CenterVertically) {
+                Text(st.optString("step"), color = Bright, fontSize = 13.sp, modifier = Modifier.weight(1f))
+                Text(s(ms), color = if (st.optString("step") == v.optString("slowest")) Color(0xFFFFC46B) else Bright, fontSize = 13.sp)
+            }
+            Box(Modifier.fillMaxWidth().height(4.dp).background(BarTrack, RoundedCornerShape(2.dp))) {
+                Box(Modifier.fillMaxWidth(if (ms.isNaN()) 0.01f else (ms / most).toFloat().coerceIn(0.01f, 1f))
+                    .height(4.dp).background(Bar, RoundedCornerShape(2.dp)))
+            }
+        }
+        val engines = v.optJSONObject("engines")
+        if (engines != null && engines.length() > 0) {
+            Text("Speech to text: " + engines.keys().asSequence().joinToString(" · ") { e ->
+                val x = engines.getJSONObject(e)
+                "$e ${s(x.optDouble("stt_ms"))} (${x.optInt("utterances")}×)"
+            }, color = Dim, fontSize = 12.sp)
+        }
+        val missed = v.optJSONObject("missed")
+        if (missed != null && missed.length() > 0) {
+            Text("Missed: " + missed.keys().asSequence().joinToString(" · ") { k ->
+                "${mapOf("timeout" to "no answer", "nothing" to "no words", "unclear" to "too unclear",
+                    "not_you" to "not your voice")[k] ?: k} ${missed.optInt(k)}"
+            }, color = Color(0xFFFFC46B), fontSize = 12.sp)
+        }
+        if (v.optString("slowest").isNotBlank()) {
+            Text("Slowest step: ${v.optString("slowest")}", color = Dim, fontSize = 12.sp)
         }
     }
 }
