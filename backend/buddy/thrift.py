@@ -72,13 +72,55 @@ class Pending:
     created: float
     run: Callable[[], Awaitable[str]] | None = None
     resume: str | None = None  # the request to answer once approved
+    group: str = ""           # actions from the same tool in the same turn are asked together
+    item: str = ""            # this action in a few words, for a combined question
+    plural: str = ""          # what several of them are called ("email rules")
 
 
 class Thrift:
+    """Questions wait in a queue: one is asked at a time, the next once it's answered. Several
+    actions from the same tool in one turn (6 email rules) become one question, and one yes runs them all."""
+
     def __init__(self, memory: Memory):
         self.memory = memory
-        self.pending: Pending | None = None
+        self.queue: list[Pending] = []
         self.turn = 0  # every user message, from any device
+
+    @property
+    def pending(self) -> Pending | None:
+        """The question being asked now (the front of the queue)."""
+        self._expire()
+        return self.queue[0] if self.queue else None
+
+    def _expire(self) -> None:
+        now = time.monotonic()
+        self.queue = [p for p in self.queue if now - p.created <= PENDING_TTL_SECONDS]
+
+    def _batch(self) -> list[Pending]:
+        """The front question and any queued with it: same tool, same turn."""
+        if not self.queue:
+            return []
+        first = self.queue[0]
+        if first.kind != "action" or not first.group:
+            return [first]
+        out = [first]
+        for p in self.queue[1:]:
+            if p.kind == "action" and p.group == first.group and p.turn == first.turn:
+                out.append(p)
+            else:
+                break
+        return out
+
+    def question(self) -> str:
+        """What to ask the user now: one question, or the batch as one."""
+        batch = self._batch()
+        if not batch:
+            return ""
+        if len(batch) == 1:
+            return batch[0].question
+        noun = batch[0].plural or "things"
+        items = "; ".join(f"{i}) {p.item or p.question.rstrip('?')}" for i, p in enumerate(batch, 1))
+        return f"Shall I set these {len(batch)} {noun}: {items}? One yes does them all."
 
     # --- money -----------------------------------------------------------
     def _today(self) -> str:
@@ -142,11 +184,15 @@ class Thrift:
         )
 
     # --- asking ----------------------------------------------------------
-    def _ask(self, kind: str, question: str, run=None, resume: str | None = None) -> str:
-        self.pending = Pending(
-            id=secrets.token_hex(3), kind=kind, question=question, turn=self.turn,
-            created=time.monotonic(), run=run, resume=resume,
-        )
+    def _ask(self, kind: str, question: str, run=None, resume: str | None = None, group: str = "",
+             item: str = "", plural: str = "") -> str:
+        p = Pending(id=secrets.token_hex(3), kind=kind, question=question, turn=self.turn,
+                    created=time.monotonic(), run=run, resume=resume, group=group, item=item, plural=plural)
+        self._expire()
+        if kind == "action":
+            self.queue.append(p)  # after anything already waiting
+        else:  # money and Listen-in questions come first, and only once each
+            self.queue = [p] + [q for q in self.queue if q.kind != kind]
         return question
 
     def gate_chat(self, user_text: str) -> str | None:
@@ -180,7 +226,7 @@ class Thrift:
             return False, None  # the monthly question comes up when the user next talks
         if self.listen_spent() < self.listen_allowance():
             return True, None
-        if self.pending and self.pending.kind == "listen":
+        if any(p.kind == "listen" for p in self.queue):
             return False, None  # already asked
         return False, self._ask(
             "listen",
@@ -188,13 +234,22 @@ class Thrift:
             f"Say \"Buddy, yes\" to keep listening today for another ${settings.listen_daily_usd:.2f}.",
         )
 
-    def ask_action(self, question: str, run: Callable[[], Awaitable[str]]) -> str:
-        """For a costly action: park it until the user says yes."""
-        self._ask("action", question, run=run)
-        return (
-            "APPROVAL NEEDED. Ask the user exactly this, then stop: "
-            f"\"{question}\" Their answer is handled automatically; don't call this tool again."
-        )
+    def ask_action(self, question: str, run: Callable[[], Awaitable[str]], group: str = "", item: str = "",
+                   plural: str = "") -> str:
+        """For an action that needs a yes: queue it. group/item/plural let several of the same kind from one
+        turn be asked as one question ("Shall I set these 6 email rules: ...?")."""
+        self._ask("action", question, run=run, group=group, item=item, plural=plural)
+        batch = self._batch()
+        now = self.question()
+        if any(p.run is run for p in batch) and len(batch) > 1:
+            return ("APPROVAL NEEDED (this replaces any earlier approval question in this reply). Ask the user "
+                    f"exactly this, then stop: \"{now}\" Their answer is handled automatically; don't call this "
+                    "tool again.")
+        if batch and batch[0].run is run:
+            return ("APPROVAL NEEDED. Ask the user exactly this, then stop: "
+                    f"\"{now}\" Their answer is handled automatically; don't call this tool again.")
+        return ("QUEUED for approval after the current question. Don't ask it now: ask only "
+                f"\"{now}\". Buddy asks the next one by itself once they answer.")
 
     async def resolve(self, user_text: str, trusted: bool = True) -> tuple[str | None, str | None]:
         """Read the user's reply to a pending question.
@@ -205,11 +260,8 @@ class Thrift:
         anyone in the room could have said them, so a yes doesn't count.
         """
         self.turn += 1
-        p = self.pending
+        p = self.pending  # also drops questions that waited too long
         if p is None or p.turn >= self.turn:
-            return None, None
-        if time.monotonic() - p.created > PENDING_TTL_SECONDS:
-            self.pending = None
             return None, None
         answer = answer_of(user_text)
         if answer is None:
@@ -217,7 +269,25 @@ class Thrift:
         if answer is True and not trusted:
             return ("To be safe, I only take a yes for that from you directly: tap Approve, or say it "
                     "in Talk mode."), None
-        self.pending = None
+        batch = self._batch()
+        self.queue = self.queue[len(batch):]
+        said, resume = await self._settle(p, batch, answer)
+        nxt = self.question()
+        if nxt:  # the next waiting question: asked now, answered by the user's next message
+            said = f"{said} Next: {nxt}" if said else nxt
+        return said, resume
+
+    async def _settle(self, p: Pending, batch: list[Pending], answer: bool) -> tuple[str, str | None]:
+        if answer is False and len(batch) > 1:
+            return f"Okay, I won't do any of those {len(batch)}.", None
+        if answer is True and len(batch) > 1:
+            done = []
+            for b in batch:
+                try:
+                    done.append((await b.run()) if b.run else "Done.")
+                except Exception as e:  # one failing doesn't stop the rest
+                    done.append(f"Couldn't do '{b.item or b.question}': {type(e).__name__}.")
+            return " ".join(done), None
         if answer is False:
             if p.kind in ("month", "day"):
                 return "Okay, I'll hold off for now. Reminders keep working.", None

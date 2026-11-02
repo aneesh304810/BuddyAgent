@@ -127,3 +127,74 @@ def test_rules_that_change_mail_ask_first(setup):
     assert asyncio.run(mailbrain.run_mail_tool(manager, "email_rules", {"remove_id": rule_id})) == "Removed."
     with pytest.raises(Exception):
         manager.add_rule("x", "label")  # a label rule needs the label
+
+
+def add_triage(memory, n, sender, done="", priority="low"):
+    now = datetime.now(timezone.utc).isoformat()
+    memory.db.execute(
+        "INSERT INTO mail_triage (record_id, account, sender, subject, priority, reason, done, received_at, sorted_at) "
+        "VALUES (?, 'me@gmail.com', ?, 'Hi', ?, 'A promotion.', ?, ?, ?)", (n, sender, priority, done, now, now))
+
+
+def test_weekly_label_suggestions_skip_covered_and_acted_senders(setup):
+    memory, manager, told, box = setup
+    n = 0
+    for sender, count, done in [("Temu <deals@temu.com>", 12, ""), ("Uber <receipts@uber.com>", 9, ""),
+                                ("Shop <news@shop.com>", 10, "labelled Shop"), ("Rare <hi@rare.com>", 3, "")]:
+        for _ in range(count):
+            n += 1
+            add_triage(memory, n, sender, done if n % 2 else "")
+    manager.add_rule("Uber receipts", "label", "Travel")  # already covered by a rule
+    items = manager.label_suggestions()
+    assert [i["sender"] for i in items] == ["temu.com"]  # shop was acted on, rare is too few
+    assert items[0]["label"] == "Temu" and items[0]["emails"] == 12 and items[0]["mostly_low"]
+    assert "label emails from temu.com as Temu" in items[0]["say"]
+
+
+def test_weekly_suggestions_ask_once_and_batch_yes_creates_all_rules(setup):
+    memory, manager, told, box = setup
+    n = 0
+    for sender in ("Temu <deals@temu.com>", "Shein <hi@shein.com>", "Wish <x@wish.com>"):
+        for _ in range(8):
+            n += 1
+            add_triage(memory, n, sender)
+    thrift = Thrift(memory)
+    asked = []
+
+    async def suggest(items):  # what the server does: queue one approval per rule, ask once
+        for item in items:
+            async def add(item=item):
+                manager.add_rule(item["rule"], "label", item["label"])
+                return f"Label rule set: {item['label']}."
+            thrift.ask_action(f"Label {item['sender']}?", add, group="weekly_labels", item=item["say"],
+                              plural="email label rules")
+        asked.append(thrift.question())
+        return True
+
+    manager.suggest = suggest
+    assert manager.rules() == []
+    assert asyncio.run(manager.weekly_suggestions()) == 3
+    assert asyncio.run(manager.weekly_suggestions()) == 0  # once a week only
+    assert len(asked) == 1 and "these 3 email label rules" in asked[0] and "One yes does them all" in asked[0]
+    assert manager.rules() == []  # nothing created before the yes
+    said, _ = asyncio.run(thrift.resolve("yes"))
+    assert sorted(r["label"] for r in manager.rules()) == ["Shein", "Temu", "Wish"]
+    assert said and "Temu" in said
+    memory.set("mail:suggest_week", "old")  # next week: the same senders are not offered again
+    assert manager.label_suggestions() == []
+
+
+def test_weekly_suggestions_retry_when_nobody_listening(setup):
+    memory, manager, told, box = setup
+    for n in range(8):
+        add_triage(memory, n + 1, "Temu <deals@temu.com>")
+    calls = []
+
+    async def suggest(items):
+        calls.append(items)
+        return len(calls) > 1  # first time the phone isn't connected
+
+    manager.suggest = suggest
+    assert asyncio.run(manager.weekly_suggestions()) == 0
+    assert asyncio.run(manager.weekly_suggestions()) == 1
+    assert len(calls) == 2

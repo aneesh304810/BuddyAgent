@@ -242,6 +242,28 @@ thrift = Thrift(memory)
 hub = ConnectorHub(memory)
 finops = FinOps(memory)
 mail = MailManager(memory, deliver)
+
+
+async def _offer_label_rules(items: list[dict]) -> bool:
+    """The weekly label suggestions, as one batch question (one yes creates them all)."""
+    if not connections:
+        return False  # nobody to ask now: try again later
+    for item in items:
+        async def add(item=item) -> str:
+            mail.add_rule(item["rule"], "label", item["label"])
+            return f"Label rule set: {item['rule']} → {item['label']}."
+        thrift.ask_action(f"Shall I label emails from {item['sender']} as {item['label']}?", add,
+                          group="weekly_labels", item=item["say"], plural="email label rules")
+    question = thrift.question()
+    if not await deliver("mail", f"Weekly inbox tidy-up: {question}"):
+        return False
+    for ws in list(connections):  # show Approve / Decline on the phone
+        with contextlib.suppress(Exception):
+            await ws.send_json({"type": "approval", "question": question})
+    return True
+
+
+mail.suggest = _offer_label_rules
 watcher = PriceWatcher(memory, deliver)
 bank = BankFeed(memory, deliver)
 jobs = JobRunner(memory, job_finished)
@@ -1130,7 +1152,7 @@ async def talk(ws: WebSocket) -> None:
             # Approve and Decline buttons, which answer "yes" or "no" for the user.
             new_thrift = thrift.pending is not None and thrift.pending.id != thrift_asks
             if new_thrift or set(registry.pending) - agent_asks:
-                question = thrift.pending.question if new_thrift else " ".join(spoken)[-400:]
+                question = thrift.question() if new_thrift else " ".join(spoken)[-400:]
                 await send({"type": "approval", "question": question})
             if convo.cards.picked:
                 await send({"type": "cards", "turn": convo.turn_key,

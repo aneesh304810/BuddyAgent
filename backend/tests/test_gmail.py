@@ -269,3 +269,56 @@ def test_agent_works_on_the_account_asked_for(monkeypatch):
     assert "isn't a Gmail account" in gmail_server.search_mail("x", account="icloud")
     assert json.loads(gmail_server.list_accounts()) == [
         {"account": "me@gmail.com", "manageable": True}, {"account": "me@icloud.com", "manageable": False}]
+
+
+def test_inbox_summary_carries_on_when_gmail_cuts_the_connection(gmail, monkeypatch):
+    import imaplib
+    _, box = gmail
+    real = mb.Mailbox._headers
+    calls = {"n": 0}
+
+    def flaky(imap, uids):
+        calls["n"] += 1
+        if calls["n"] == 1:
+            raise imaplib.IMAP4.abort("socket error: EOF")
+        return real(imap, uids)
+    monkeypatch.setattr(mb.Mailbox, "_headers", staticmethod(flaky))
+    monkeypatch.setattr(mb.time, "sleep", lambda s: None)
+    summary = box.inbox_summary(30)
+    assert summary["inbox_messages"] == 4 and summary["top_senders"][0]["sender"] == "deals@shop.com"
+
+
+def test_reading_tools_retry_before_giving_up(monkeypatch):
+    import time as _time
+    monkeypatch.setenv("BUDDY_EMAIL_ADDRESS", "me@gmail.com")
+    monkeypatch.setenv("BUDDY_EMAIL_APP_PASSWORD", "apppass")
+    monkeypatch.setattr(_time, "sleep", lambda s: None)
+    tries = {"n": 0}
+
+    def cut_off(self, days=30):
+        tries["n"] += 1
+        if tries["n"] <= 2:
+            raise OSError("connection reset")
+        return {"days": days, "inbox_messages": 7, "unread": 1, "top_senders": []}
+    monkeypatch.setattr(mb.Mailbox, "inbox_summary", cut_off)
+    out = json.loads(gmail_server.inbox_summary(30))
+    assert out["inbox_messages"] == 7 and tries["n"] == 3
+    tries["n"] = -10  # fails every time: a clear error after the retries, not a crash
+    monkeypatch.setattr(mb.Mailbox, "inbox_summary", lambda self, days=30: (_ for _ in ()).throw(OSError("down")))
+    assert gmail_server.inbox_summary(30).startswith("Error: couldn't reach Gmail")
+
+
+def test_misheard_account_names_are_matched_or_asked():
+    from buddy.email_accounts import email_accounts, pick_account, spoken_address
+
+    env = {"BUDDY_EMAIL_ADDRESS": "aneesh.nair@gmail.com", "BUDDY_EMAIL_APP_PASSWORD": "a",
+           "BUDDY_EMAIL_2_ADDRESS": "aneeshnair304810@gmail.com", "BUDDY_EMAIL_2_APP_PASSWORD": "b",
+           "BUDDY_EMAIL_3_ADDRESS": "nairaneesh389@gmail.com", "BUDDY_EMAIL_3_APP_PASSWORD": "c"}
+    accounts = email_accounts(env)
+    assert spoken_address("Aneesh Nair 304810 at gmail dot com") == "aneeshnair304810@gmail.com"
+    assert pick_account(accounts, "Aneesh Nair 304810 at gmail dot com").address == "aneeshnair304810@gmail.com"
+    assert pick_account(accounts, "nair aneesh three eight nine").address == "nairaneesh389@gmail.com"
+    with pytest.raises(LookupError, match="Did you mean"):  # close to two accounts: ask, don't guess
+        pick_account(accounts, "aneesh near 3048")
+    with pytest.raises(LookupError, match="No account matches"):
+        pick_account(accounts, "my work outlook")

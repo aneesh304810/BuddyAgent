@@ -34,6 +34,9 @@ log = logging.getLogger(__name__)
 client = claude_client()
 
 CHECK_SECONDS = 5 * 60
+SUGGEST_MIN = 8          # weekly label suggestions: senders with this many emails in 30 days and no rule
+SUGGEST_MAX = 6
+SUGGEST_AGAIN_DAYS = 60  # a sender suggested once isn't suggested again for this long
 BATCH = 25
 FIRST_LOOK_HOURS = 12          # the first time, only sort mail from the last few hours
 ACTIONS = ("urgent", "normal", "low", "label", "archive", "mark_read")
@@ -111,6 +114,7 @@ class MailManager:
         self.env = env
         self.mailbox_factory = mailbox_factory or _gmail_mailbox
         self.money = Money(memory)
+        self.suggest: Callable[[list[dict]], Awaitable[bool]] | None = None  # set by the server
         memory.db.executescript(SCHEMA_SQL)
 
     # --- rules -----------------------------------------------------------
@@ -135,6 +139,61 @@ class MailManager:
         cur = self.memory.db.execute("DELETE FROM mail_rules WHERE id = ?", (rule_id,))
         self.memory.db.commit()
         return cur.rowcount > 0
+
+    # --- weekly label suggestions -----------------------------------------
+    def label_suggestions(self, days: int = 30) -> list[dict]:
+        """Senders that keep piling up with no rule and nothing done: a label rule for each, in plain words."""
+        from email.utils import parseaddr
+
+        since = (datetime.now(timezone.utc) - timedelta(days=days)).isoformat()
+        rules_text = " ".join(f"{r['rule']} {r['label']}".lower() for r in self.rules())
+        rows = self.memory.db.execute(
+            "SELECT sender, COUNT(*) AS n, SUM(done != '') AS acted, SUM(priority = 'low') AS low FROM mail_triage "
+            "WHERE COALESCE(received_at, sorted_at) >= ? GROUP BY sender HAVING n >= ? ORDER BY n DESC LIMIT 40",
+            (since, SUGGEST_MIN)).fetchall()
+        out, seen = [], set()
+        for r in rows:
+            address = (parseaddr(r["sender"])[1] or r["sender"]).lower()
+            domain = address.split("@")[-1]
+            parts = domain.split(".")
+            brand = parts[-2] if len(parts) >= 2 else domain
+            if r["acted"] or domain in seen or any(x and x in rules_text for x in (address, domain, brand)):
+                continue
+            last = self.memory.get(f"mail:suggested:{domain}")
+            if last and datetime.fromisoformat(last) > datetime.now(timezone.utc) - timedelta(days=SUGGEST_AGAIN_DAYS):
+                continue
+            seen.add(domain)
+            label = brand.replace("-", " ").title()
+            out.append({"sender": domain, "emails": r["n"], "label": label, "mostly_low": r["low"] >= r["n"] * 0.7,
+                        "rule": f"Emails from {domain}",
+                        "say": f"label emails from {domain} as {label} ({r['n']} in the last {days} days)"})
+            if len(out) >= SUGGEST_MAX:
+                break
+        return out
+
+    def suggestions_offered(self, items: list[dict]) -> None:
+        now = datetime.now(timezone.utc).isoformat()
+        for i in items:
+            self.memory.set(f"mail:suggested:{i['sender']}", now)
+
+    def _suggest_due(self) -> bool:
+        year, week, _ = datetime.now(timezone.utc).isocalendar()
+        return self.memory.get("mail:suggest_week") != f"{year}-{week}"
+
+    async def weekly_suggestions(self) -> int:
+        """Once a week: offer label rules for senders piling up. Nothing is created without the user's yes."""
+        if self.suggest is None or not self._suggest_due() or in_quiet_hours():
+            return 0
+        items = self.label_suggestions()
+        year, week, _ = datetime.now(timezone.utc).isocalendar()
+        if not items:
+            self.memory.set("mail:suggest_week", f"{year}-{week}")
+            return 0
+        if await self.suggest(items):  # asked (someone was listening): done for this week
+            self.suggestions_offered(items)
+            self.memory.set("mail:suggest_week", f"{year}-{week}")
+            return len(items)
+        return 0
 
     # --- what's important ------------------------------------------------
     def important(self, hours: int = 24, include_low: bool = False) -> list[dict]:
@@ -164,6 +223,10 @@ class MailManager:
                 await self.sort_new()
             except Exception:
                 log.exception("email manager: sorting failed; trying again later")
+            try:
+                await self.weekly_suggestions()
+            except Exception:
+                log.exception("email manager: label suggestions failed")
             await asyncio.sleep(CHECK_SECONDS)
 
     def _new_emails(self) -> list[dict]:
@@ -359,7 +422,8 @@ async def run_mail_tool(manager: MailManager, name: str, args: dict, thrift=None
             async def add() -> str:
                 manager.add_rule(rule, action, label)
                 return f"Done: from now on, {rule.rstrip('.')}: I'll {what}."
-            return thrift.ask_action(f"Shall I automatically {what} from now on: {rule.rstrip('.')}?", add)
+            return thrift.ask_action(f"Shall I automatically {what} from now on: {rule.rstrip('.')}?", add,
+                                     group="add_email_rule", item=f"{rule.rstrip('.')} → {what}", plural="email rules")
         added = manager.add_rule(rule, action, label)
         return f"Rule {added['id']} saved: {rule} -> {action}."
     raise ToolError(f"Unknown tool {name}")

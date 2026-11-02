@@ -7,6 +7,7 @@ _SMTP_HOST, _SMTP_PORT and _FOLDER override them. Google Workspace addresses
 on your own domain work like Gmail, which is also the default for unknown domains.
 """
 
+import re
 import os
 from collections.abc import Mapping
 from dataclasses import dataclass
@@ -73,4 +74,55 @@ def pick_account(accounts: list[EmailAccount], which: str = "") -> EmailAccount:
     if len(matches) == 1:
         return matches[0]
     names = ", ".join(a.address for a in accounts)
-    raise LookupError(f"Which account? I have: {names}." if matches else f"No account matches '{which}'. I have: {names}.")
+    if matches:
+        raise LookupError(f"Which account? I have: {names}.")
+    # Speech often mangles addresses ("aneesh nair three oh four at gmail"): match the spoken form, and if
+    # one account is clearly the closest use it; otherwise ask. Never guess silently between close ones.
+    spoken = spoken_address(which)
+    for a in accounts:
+        if spoken and spoken in (a.address.lower(), a.address.lower().split("@")[0]):
+            return a
+    scored = sorted(((_closeness(spoken, a.address.lower()), a) for a in accounts), key=lambda x: -x[0])
+    best, second = scored[0], (scored[1] if len(scored) > 1 else (0.0, None))
+    if best[0] >= 0.9 and best[0] - second[0] >= 0.15:
+        return best[1]
+    if best[0] >= 0.55:
+        raise LookupError(f"Did you mean {best[1].address}? Ask the user to confirm before using it "
+                          f"(their accounts: {names}).")
+    raise LookupError(f"No account matches '{which}'. Ask the user which one: {names}.")
+
+
+NUMBER_WORDS = {"zero": "0", "oh": "0", "o": "0", "one": "1", "two": "2", "to": "2", "too": "2", "three": "3",
+                "four": "4", "for": "4", "five": "5", "six": "6", "seven": "7", "eight": "8", "nine": "9"}
+
+
+def spoken_address(text: str) -> str:
+    """'Aneesh Nair three oh four at gmail dot com' -> 'aneeshnair304@gmail.com'."""
+    words = re.findall(r"[a-z0-9@._-]+", text.lower())
+    out = []
+    for w in words:
+        if w == "at":
+            out.append("@")
+        elif w in ("dot", "point"):
+            out.append(".")
+        elif w in ("underscore",):
+            out.append("_")
+        elif w in ("dash", "hyphen"):
+            out.append("-")
+        elif w in NUMBER_WORDS and (out and (out[-1][-1:].isdigit() or out[-1][-1:].isalpha())):
+            out.append(NUMBER_WORDS[w])
+        else:
+            out.append(w)
+    joined = "".join(out)
+    if joined.endswith("@gmail"):
+        joined += ".com"
+    return joined
+
+
+def _closeness(spoken: str, address: str) -> float:
+    """How close a spoken account name is to an address (0-1), on the whole address and its name part."""
+    from difflib import SequenceMatcher
+
+    local = address.split("@")[0]
+    s_local = spoken.split("@")[0]
+    return max(SequenceMatcher(None, spoken, address).ratio(), SequenceMatcher(None, s_local, local).ratio())

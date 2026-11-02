@@ -178,3 +178,70 @@ def test_status_and_summary():
     status = thrift.status()
     assert status["today_usd"] == 0.62 and status["month_budget_usd"] == 40
     assert "today so far $0.62" in thrift.summary()
+
+
+# --- the approval queue (several approvals in one turn) ---------------------------------------
+def queued(thrift, label, ran, group="", item=""):
+    async def run():
+        ran.append(label)
+        return f"did {label}."
+    return thrift.ask_action(f"Do {label}?", run, group=group, item=item or label, plural="email rules")
+
+
+def test_each_yes_runs_the_question_it_answers_in_order():
+    memory = Memory(":memory:")
+    thrift = Thrift(memory)
+    ran = []
+    first = queued(thrift, "dev tools rule", ran)
+    second = queued(thrift, "india rule", ran)
+    assert first.startswith("APPROVAL NEEDED") and "Do dev tools rule?" in first
+    assert second.startswith("QUEUED") and "Do dev tools rule?" in second  # still ask the first one only
+    said, _ = asyncio.run(thrift.resolve("yes"))
+    assert ran == ["dev tools rule"]  # not the india rule (the old bug)
+    assert "did dev tools rule." in said and "Next: Do india rule?" in said
+    said, _ = asyncio.run(thrift.resolve("yes"))
+    assert ran == ["dev tools rule", "india rule"] and thrift.pending is None
+
+
+def test_a_no_drops_only_that_question():
+    memory = Memory(":memory:")
+    thrift = Thrift(memory)
+    ran = []
+    queued(thrift, "first", ran)
+    queued(thrift, "second", ran)
+    said, _ = asyncio.run(thrift.resolve("no"))
+    assert ran == [] and said.startswith("Okay, I won't do that.") and "Next: Do second?" in said
+    asyncio.run(thrift.resolve("yes"))
+    assert ran == ["second"]
+
+
+def test_same_tool_in_one_turn_is_one_question_and_one_yes():
+    memory = Memory(":memory:")
+    thrift = Thrift(memory)
+    ran = []
+    replies = [queued(thrift, f"rule {i}", ran, group="add_email_rule") for i in range(1, 7)]
+    assert "Shall I set these 6 email rules" in replies[-1] and "replaces any earlier" in replies[-1]
+    assert thrift.question().startswith("Shall I set these 6 email rules: 1) rule 1;")
+    said, _ = asyncio.run(thrift.resolve("yes please"))
+    assert ran == [f"rule {i}" for i in range(1, 7)] and thrift.pending is None
+    # a no to a batch does none of them
+    for i in range(2):
+        queued(thrift, f"more {i}", ran, group="add_email_rule")
+    said, _ = asyncio.run(thrift.resolve("no"))
+    assert "won't do any of those 2" in said and len(ran) == 6
+
+
+def test_a_batch_waits_its_turn_and_room_yes_still_doesnt_count():
+    memory = Memory(":memory:")
+    thrift = Thrift(memory)
+    ran = []
+    queued(thrift, "forget the lease", ran)  # another tool first
+    for i in range(3):
+        queued(thrift, f"rule {i}", ran, group="add_email_rule")
+    assert thrift.question() == "Do forget the lease?"
+    said, _ = asyncio.run(thrift.resolve("yes", trusted=False))
+    assert "tap Approve" in said and ran == []
+    said, _ = asyncio.run(thrift.resolve("yes"))
+    assert ran == ["forget the lease"] and "Next: Shall I set these 3 email rules" in said
+    asyncio.run(thrift.resolve("yes"))
+    assert ran[1:] == ["rule 0", "rule 1", "rule 2"]

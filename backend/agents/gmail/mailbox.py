@@ -173,15 +173,26 @@ class Mailbox:
             "attachments": attachments,
         }
 
-    def inbox_summary(self, days: int = 30) -> dict:
-        """Who fills the inbox: the starting point for a cleanup."""
+    def inbox_summary(self, days: int = 30, reconnects: int = 2) -> dict:
+        """Who fills the inbox: the starting point for a cleanup. Reading up to 2,000 headers can be cut off
+        when Gmail drops the connection: it reconnects (twice at most) and carries on where it stopped."""
         imap, _ = self._open(readonly=True)
         try:
             uids = self._search(imap, f"in:inbox newer_than:{max(1, min(days, 365))}d")
             recent = list(reversed(uids))[:2000]
             headers: list[dict] = []
-            for i in range(0, len(recent), 200):
-                headers += self._headers(imap, recent[i:i + 200])
+            i = 0
+            while i < len(recent):
+                try:
+                    headers += self._headers(imap, recent[i:i + 200])
+                    i += 200
+                except (imaplib.IMAP4.abort, OSError):
+                    if reconnects <= 0:
+                        raise
+                    reconnects -= 1
+                    self._close(imap)
+                    time.sleep(1)
+                    imap, _ = self._open(readonly=True)  # the same uids stay valid in the same mailbox
         finally:
             self._close(imap)
         senders = Counter()
