@@ -706,7 +706,8 @@ def api_finance_cancel_page(sub_id: int) -> dict:
 @app.get("/api/travel", dependencies=[Depends(require_admin)])
 def api_travel() -> dict:
     t = travel.Travel(memory)
-    return {"sources": t.sources(), "profile": t.profile(), "learned": t.learned(), "searches": t.searches()}
+    return {"sources": t.sources(), "profile": t.profile(), "learned": t.learned(), "searches": t.searches(),
+            "watches": t.watches()}
 
 
 @app.post("/api/travel/search", dependencies=[Depends(require_admin)])
@@ -746,6 +747,29 @@ def api_travel_chose(search_id: str, offer_id: str) -> dict:
     """The app's 'Open to book' tap: Buddy learns from the choice."""
     try:
         return travel.Travel(memory).chose(search_id, offer_id)
+    except ToolError as e:
+        raise HTTPException(status_code=404, detail=str(e)) from e
+
+
+@app.get("/api/travel/watches", dependencies=[Depends(require_admin)])
+def api_travel_watches() -> list[dict]:
+    return travel.Travel(memory).watches()
+
+
+@app.post("/api/travel/watches", dependencies=[Depends(require_admin)])
+def api_travel_watch(body: dict) -> dict:
+    try:
+        return travel.Travel(memory).watch(str(body.get("origin", "")), str(body.get("destination", "")),
+                                           str(body.get("month", "")), body.get("target") or None,
+                                           str(body.get("return_month") or ""))
+    except ToolError as e:
+        raise HTTPException(status_code=400, detail=str(e)) from e
+
+
+@app.delete("/api/travel/watches/{watch_id}", dependencies=[Depends(require_admin)])
+def api_travel_unwatch(watch_id: int) -> dict:
+    try:
+        return {"result": travel.Travel(memory).unwatch(str(watch_id))}
     except ToolError as e:
         raise HTTPException(status_code=404, detail=str(e)) from e
 

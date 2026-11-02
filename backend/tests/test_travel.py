@@ -305,3 +305,66 @@ def test_patterns_answer_good_price_when_to_book_and_cheaper_days(mem):
     out = json.loads(asyncio.run(travel.run_tool(t, {"action": "price_pattern", "origin": "MIA", "destination": "LIM",
                                                      "depart": "2026-12-10"})))
     assert out["seen"] == 90
+
+
+def test_travelpayouts_fares_feed_the_patterns(mem):
+    t, fake = make(mem)
+    asyncio.run(t.flights("MIA", "LIM", "2026-12-10"))
+    rows = {(r["day"], r["price"]) for r in mem.db.execute(
+        "SELECT day, price FROM travel_prices WHERE source = 'travelpayouts'")}
+    assert ("2026-12-08", 150.0) in rows and ("2026-12-15", 245.0) in rows  # each on its own travel date
+
+
+def test_route_watching_alerts_once_per_drop(mem):
+    t, fake = make(mem)
+    w = t.watch("mia", "lim", "2026-12", target=200)
+    assert w["origin"] == "MIA" and w["target"] == 200
+    alerts = t.check_watches()
+    assert len(alerts) == 1 and "150 USD" in alerts[0]["text"] and "target" in alerts[0]["text"]
+    assert alerts[0]["link"].startswith("https://www.aviasales.com/")
+    t.told(alerts[0])
+    assert t.check_watches() == []  # same fare: not said again
+    TP["data"][0]["price"] = 120  # a further drop is news
+    try:
+        again = t.check_watches()
+        assert again and "a new low (was 150)" in again[0]["text"]
+    finally:
+        TP["data"][0]["price"] = 150
+    watched = t.watches()[0]
+    assert watched["best"] == 120 and watched["best_day"] == "2026-12-08"
+    assert mem.db.execute("SELECT COUNT(*) FROM travel_prices WHERE source = 'travelpayouts'").fetchone()[0] >= 4
+    assert "Stopped watching MIA → LIM" in t.unwatch("MIA-LIM") and t.watches() == []
+
+
+def test_past_months_stop_being_watched_and_bad_input(mem):
+    t, fake = make(mem)
+    mem.db.execute("INSERT INTO travel_watches (origin, destination, month, currency, created_at) VALUES "
+                   "('MIA', 'LIM', '2020-01', 'USD', '2020-01-01')")
+    mem.db.commit()
+    t.check_watches()
+    assert t.watches() == []
+    with pytest.raises(Exception, match="YYYY-MM"):
+        t.watch("MIA", "LIM", "December")
+    with pytest.raises(Exception, match="Travelpayouts"):
+        travel.Travel(mem, env={}).watch("MIA", "LIM", "2026-12")
+
+
+def test_watch_endpoints_and_tool(monkeypatch):
+    from buddy import server
+    fake = FakeHTTP()
+    real = travel.Travel.__init__
+
+    def init(self, memory, env=None, http=None):
+        real(self, memory, env=ENV, http=fake)
+    monkeypatch.setattr(travel.Travel, "__init__", init)
+    with TestClient(server.app) as c:
+        w = c.post("/api/travel/watches", json={"origin": "MIA", "destination": "LIM", "month": "2026-12",
+                                                 "target": 250}).json()
+        assert any(x["id"] == w["id"] for x in c.get("/api/travel/watches").json())
+        assert "watches" in c.get("/api/travel").json()
+        assert c.post("/api/travel/watches", json={"origin": "MIA", "destination": "LIM", "month": "Dec"}).status_code == 400
+        assert "Stopped" in c.delete(f"/api/travel/watches/{w['id']}").json()["result"]
+    out = asyncio.run(travel.run_tool(travel.Travel(server.memory), {"action": "watch", "origin": "MIA",
+                                                                    "destination": "LIM", "month": "2026-12"}))
+    assert "Checked every morning" in out
+    travel.Travel(server.memory).unwatch("MIA-LIM")

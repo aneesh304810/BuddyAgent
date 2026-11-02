@@ -77,6 +77,11 @@ object TravelApi {
     suspend fun chose(link: ServerLink, sid: String, oid: String) =
         call(link, "/api/travel/searches/$sid/offers/$oid/chose", JSONObject())
     suspend fun profile(link: ServerLink, p: JSONObject) = call(link, "/api/travel/profile", p)
+    suspend fun watch(link: ServerLink, w: JSONObject) = call(link, "/api/travel/watches", w)
+    suspend fun unwatch(link: ServerLink, id: Int) = withContext(Dispatchers.IO) {
+        http.newCall(Request.Builder().url(link.baseUrl + "/api/travel/watches/$id")
+            .header("Authorization", "Bearer ${link.token}").delete().build()).execute().close()
+    }
 }
 
 private fun JSONArray?.objs(): List<JSONObject> = if (this == null) emptyList() else (0 until length()).map { getJSONObject(it) }
@@ -117,6 +122,7 @@ fun TravelScreen(link: ServerLink?) {
         }
         item { SourcesLine(o.optJSONObject("sources")) }
         item { StylePanel(link!!, o.optJSONObject("profile") ?: JSONObject(), o.optJSONObject("learned")) { refresh++ } }
+        item { WatchPanel(link!!, o.optJSONArray("watches").objs(), o.optJSONObject("sources")?.optBoolean("travelpayouts") == true) { refresh++ } }
         val searches = o.optJSONArray("searches").objs()
         if (searches.isNotEmpty()) item { Text("Recent searches", color = TDim, fontSize = 13.sp) }
         items(searches, key = { it.optString("id") }) { s ->
@@ -428,5 +434,71 @@ private fun DateRow(d: JSONObject) {
             color = Color.White, fontSize = 14.sp, modifier = Modifier.weight(1f))
         Text("${d.optString("airline")} · ${if (d.optInt("stops") == 0) "nonstop" else "${d.optInt("stops")} stop"} · " +
             amount(d.optDouble("price"), d.optString("currency")), color = TDim, fontSize = 13.sp)
+    }
+}
+
+
+/** Routes Buddy checks every morning for a cheap fare (Travelpayouts), speaking up when one shows. */
+@Composable
+private fun WatchPanel(link: ServerLink, watches: List<JSONObject>, available: Boolean, onChanged: () -> Unit) {
+    var open by remember { mutableStateOf(watches.isNotEmpty()) }
+    var from by remember { mutableStateOf("") }
+    var to by remember { mutableStateOf("") }
+    var month by remember { mutableStateOf("") }
+    var target by remember { mutableStateOf("") }
+    var note by remember { mutableStateOf<String?>(null) }
+    val scope = rememberCoroutineScope()
+    val ctx = LocalContext.current
+    Text((if (open) "▾ " else "▸ ") + "Watched routes (${watches.size})", color = Color.White, fontWeight = FontWeight.SemiBold,
+        modifier = Modifier.fillMaxWidth().clickable { open = !open }.padding(vertical = 4.dp))
+    if (!open) return
+    Column(Modifier.fillMaxWidth().background(TTile, RoundedCornerShape(12.dp)).padding(12.dp),
+        verticalArrangement = Arrangement.spacedBy(8.dp)) {
+        if (!available) {
+            Text("Needs Travelpayouts (BUDDY_TRAVELPAYOUTS_TOKEN on the server).", color = TDim, fontSize = 13.sp)
+            return@Column
+        }
+        Text("Checked every morning. Buddy speaks up when a fare hits your target, drops well below the usual, or hits a new low.",
+            color = TDim, fontSize = 12.sp)
+        watches.forEach { w ->
+            Row(Modifier.fillMaxWidth()) {
+                Column(Modifier.weight(1f).clickable(enabled = w.optString("best_link").isNotBlank()) {
+                    runCatching { ctx.startActivity(Intent(Intent.ACTION_VIEW, Uri.parse(w.optString("best_link")))) }
+                }) {
+                    Text("${w.optString("origin")} → ${w.optString("destination")} · ${w.optString("month")}" +
+                        if (w.optString("return_month").isNotBlank()) " (return ${w.optString("return_month")})" else "",
+                        color = Color.White, fontSize = 14.sp)
+                    val best = if (w.isNull("best")) "not checked yet" else
+                        "lowest seen ${amount(w.optDouble("best"), w.optString("currency"))} on ${w.optString("best_day")}"
+                    val tgt = if (w.isNull("target")) "" else " · target ${amount(w.optDouble("target"), w.optString("currency"))}"
+                    Text(best + tgt, color = TDim, fontSize = 12.sp)
+                }
+                Text("✕", color = TDim, modifier = Modifier.clickable {
+                    scope.launch { runCatching { TravelApi.unwatch(link, w.optInt("id")) }; onChanged() }
+                }.padding(8.dp))
+            }
+        }
+        Row(horizontalArrangement = Arrangement.spacedBy(6.dp)) {
+            OutlinedTextField(from, { from = it.uppercase().take(3) }, label = { Text("From") }, singleLine = true,
+                modifier = Modifier.weight(1f))
+            OutlinedTextField(to, { to = it.uppercase().take(3) }, label = { Text("To") }, singleLine = true,
+                modifier = Modifier.weight(1f))
+        }
+        Row(horizontalArrangement = Arrangement.spacedBy(6.dp)) {
+            OutlinedTextField(month, { month = it.take(7) }, label = { Text("Month YYYY-MM") }, singleLine = true,
+                modifier = Modifier.weight(1f))
+            OutlinedTextField(target, { target = it.filter { c -> c.isDigit() || c == '.' } }, label = { Text("Target (optional)") },
+                singleLine = true, modifier = Modifier.weight(1f))
+        }
+        OutlinedButton(onClick = {
+            scope.launch {
+                val body = JSONObject().put("origin", from).put("destination", to).put("month", month)
+                target.toDoubleOrNull()?.let { body.put("target", it) }
+                runCatching { TravelApi.watch(link, body) }
+                    .onSuccess { note = "Watching ${from} → ${to}."; from = ""; to = ""; month = ""; target = ""; onChanged() }
+                    .onFailure { note = "Couldn't add: ${it.message}" }
+            }
+        }) { Text("Watch this route") }
+        note?.let { Text(it, color = TDim, fontSize = 12.sp) }
     }
 }

@@ -6,7 +6,7 @@ import logging
 from datetime import datetime
 from collections.abc import Awaitable, Callable
 
-from . import advisor, finance, health, thinking
+from . import advisor, finance, health, thinking, travel
 from .agent import compose
 from .config import settings
 from .memory import Memory
@@ -141,6 +141,12 @@ async def run(memory: Memory, deliver: Deliver) -> None:
                 job_id, summary = json.loads(memory.get("finance:weekly_job"))
                 if await deliver("money_weekly", summary, job_id=job_id):
                     memory.set("finance:weekly", today)
+            if not in_quiet_hours() and local_now().hour >= 9 and memory.get("travel:watched") != today:
+                memory.set("travel:watched", today)  # once a day, in the morning
+                trips = travel.Travel(memory)
+                for alert in await asyncio.to_thread(trips.check_watches):
+                    if await deliver("travel", alert["text"]):
+                        trips.told(alert)
             if not in_quiet_hours():
                 fin = finance.Finance(memory)
                 for alert in fin.alerts():

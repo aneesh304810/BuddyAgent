@@ -60,6 +60,22 @@ CREATE TABLE IF NOT EXISTS travel_prices (  -- every price seen, for "below the 
     seen_at TEXT NOT NULL
 );
 CREATE INDEX IF NOT EXISTS travel_prices_route ON travel_prices (route, currency);
+CREATE TABLE IF NOT EXISTS travel_watches (  -- routes checked daily for a cheap fare (Travelpayouts, free)
+    id INTEGER PRIMARY KEY,
+    origin TEXT NOT NULL,
+    destination TEXT NOT NULL,
+    month TEXT NOT NULL,               -- YYYY-MM to fly in
+    return_month TEXT NOT NULL DEFAULT '',  -- '' = one way
+    target REAL,                       -- tell me at or under this
+    currency TEXT NOT NULL,
+    best REAL,                         -- lowest fare seen since watching
+    best_day TEXT,
+    best_link TEXT NOT NULL DEFAULT '',
+    alerted REAL,                      -- the fare last told, so a drop is said once
+    checked_at TEXT,
+    created_at TEXT NOT NULL,
+    UNIQUE (origin, destination, month, return_month)
+);
 CREATE TABLE IF NOT EXISTS travel_patterns (  -- what prices are like, without keeping every price
     route TEXT NOT NULL,
     month INTEGER NOT NULL,            -- travel month 1-12
@@ -620,15 +636,15 @@ class Travel:
         route = f"{q['origin']}-{q['destination']}"
         history = self._history(route, q["depart"], q["currency"],
                                 [o["true_total"] for o in ranked if o["source"] != "duffel" or not o.get("test")])
-        self._keep(route, q["depart"], q["currency"], ranked, insight.get("history") or [])
+        self._keep(route, q["depart"], q["currency"], ranked, insight.get("history") or [], "price", dates)
         insight.pop("history", None)
         cheapest_dates = sorted(dates, key=lambda d: d["price"])[:8]
         advice = flight_advice(ranked, q, insight, history, dates, profile)
         result_pattern: dict = {}
-        pick = min((o for o in ranked if not o.get("test")), key=lambda o: o["true_total"], default=None)
-        if pick:
-            result_pattern = self.pattern(route, q["depart"], q["currency"], pick["true_total"])
-            advice[:0] = pattern_advice(result_pattern, pick["true_total"], q["currency"], q["depart"])
+        pick = min((o for o in ranked if not o.get("test")), key=lambda o: o["price"], default=None)
+        if pick:  # patterns compare fares before extras, the way every source reports them
+            result_pattern = self.pattern(route, q["depart"], q["currency"], pick["price"])
+            advice[:0] = pattern_advice(result_pattern, pick["price"], q["currency"], q["depart"], " (fare before extras)")
         if learned["hour_value"]:
             advice.append(f"Ranked with what your past choices show: you usually pay about "
                           f"{learned['hour_value']:.0f} {q['currency']} to save an hour.")
@@ -756,7 +772,7 @@ class Travel:
         history = self._history(f"hotels:{place.lower()}", q["check_in"], q["currency"],
                                 [o["true_total"] / o["nights"] for o in ranked])
         self._keep(f"hotels:{place.lower()}", q["check_in"], q["currency"],
-                   [{**o, "true_total": o["true_total"] / o["nights"]} for o in ranked], [])
+                   [{**o, "true_total": o["true_total"] / o["nights"]} for o in ranked], [], "true_total")
         advice = hotel_advice(ranked, history)
         pat = {}
         if ranked:
@@ -853,6 +869,87 @@ class Travel:
         return sorted(self.tp.cheapest(_iata(origin), _iata(destination), month, self.profile()["currency"]),
                       key=lambda d: d["price"])[:15]
 
+    # --- route watching (Travelpayouts: free, so it can run every day) ---
+    def watch(self, origin: str, destination: str, month: str, target: float | None = None,
+              return_month: str = "") -> dict:
+        if not self.tp.configured():
+            raise ToolError("Route watching uses Travelpayouts: add BUDDY_TRAVELPAYOUTS_TOKEN on the server.")
+        for m in filter(None, (month, return_month)):
+            if not re.fullmatch(r"\d{4}-\d{2}", str(m)):
+                raise ToolError("Months as YYYY-MM, like 2026-12.")
+        o, d = _iata(origin), _iata(destination)
+        self.memory.db.execute(
+            "INSERT INTO travel_watches (origin, destination, month, return_month, target, currency, created_at) "
+            "VALUES (?, ?, ?, ?, ?, ?, ?) ON CONFLICT(origin, destination, month, return_month) DO UPDATE SET "
+            "target = excluded.target", (o, d, month, return_month or "", float(target) if target else None,
+                                         self.profile()["currency"], datetime.now(timezone.utc).isoformat()))
+        self.memory.db.commit()
+        return next(w for w in self.watches() if (w["origin"], w["destination"], w["month"]) == (o, d, month))
+
+    def watches(self) -> list[dict]:
+        return [dict(r) for r in self.memory.db.execute("SELECT * FROM travel_watches ORDER BY month, id")]
+
+    def unwatch(self, what) -> str:
+        what = str(what).strip().upper()
+        rows = [w for w in self.watches() if str(w["id"]) == what or f"{w['origin']}-{w['destination']}" == what
+                or f"{w['origin']}{w['destination']}" == what.replace(" ", "")]
+        if not rows:
+            raise ToolError("No watched route like that.")
+        for w in rows:
+            self.memory.db.execute("DELETE FROM travel_watches WHERE id = ?", (w["id"],))
+        self.memory.db.commit()
+        return f"Stopped watching {rows[0]['origin']} → {rows[0]['destination']}."
+
+    def check_watches(self) -> list[dict]:
+        """Each watched route once: the cheapest fares found lately go into the patterns, and a fare at the
+        target, well under the usual, or a new low gives an alert (once per drop). Months already past end."""
+        alerts = []
+        today = date.today().isoformat()[:7]
+        for w in self.watches():
+            if w["month"] < today:
+                self.memory.db.execute("DELETE FROM travel_watches WHERE id = ?", (w["id"],))
+                continue
+            try:
+                fares = self.tp.cheapest(w["origin"], w["destination"], w["month"], w["currency"],
+                                         not w["return_month"], w["return_month"])
+            except Exception as e:
+                log.warning("watch %s-%s failed: %s", w["origin"], w["destination"], e)
+                continue
+            route = f"{w['origin']}-{w['destination']}"
+            self._keep(route, f"{w['month']}-15", w["currency"], [], [], "price", fares)
+            fares = [f for f in fares if f["price"] > 0]
+            now = datetime.now(timezone.utc).isoformat()
+            if not fares:
+                self.memory.db.execute("UPDATE travel_watches SET checked_at = ? WHERE id = ?", (now, w["id"]))
+                continue
+            low = min(fares, key=lambda f: f["price"])
+            pat = self.pattern(route, low["depart"], w["currency"], low["price"])
+            reasons = []
+            if w["target"] and low["price"] <= w["target"]:
+                reasons.append(f"at or under your {w['target']:,.0f} target")
+            if pat.get("seen", 0) >= 8 and pat.get("cheaper_than_percent", 0) >= 85:
+                reasons.append(f"cheaper than {pat['cheaper_than_percent']}% of fares seen")
+            if w["best"] and low["price"] < w["best"] * 0.95:
+                reasons.append(f"a new low (was {w['best']:,.0f})")
+            told_before = w["alerted"] is not None and low["price"] >= w["alerted"] * 0.97
+            if reasons and not told_before:
+                stops = "nonstop" if low["stops"] == 0 else f"{low['stops']} stop{'s' if low['stops'] > 1 else ''}"
+                alerts.append({"watch": w["id"], "price": low["price"], "link": low["link"], "text": (
+                    f"Cheap fare: {w['origin']} → {w['destination']} on {low['depart']} for about "
+                    f"{low['price']:,.0f} {w['currency']} ({low['airline']}, {stops}), {', '.join(reasons)}. "
+                    "It's a fare travellers found lately: say 'check it live' and I'll search it properly.")})
+            best = min(low["price"], w["best"] or low["price"])
+            self.memory.db.execute(
+                "UPDATE travel_watches SET best = ?, best_day = CASE WHEN ? THEN ? ELSE best_day END, "
+                "best_link = CASE WHEN ? THEN ? ELSE best_link END, checked_at = ? WHERE id = ?",
+                (best, best == low["price"], low["depart"], best == low["price"], low["link"], now, w["id"]))
+        self.memory.db.commit()
+        return alerts
+
+    def told(self, alert: dict) -> None:
+        self.memory.db.execute("UPDATE travel_watches SET alerted = ? WHERE id = ?", (alert["price"], alert["watch"]))
+        self.memory.db.commit()
+
     # --- learning from what the user picks ---
     def learned(self) -> dict:
         try:
@@ -940,12 +1037,16 @@ class Travel:
         return {"id": r["id"], "kind": r["kind"], "title": r["title"], "query": json.loads(r["query"]),
                 "created_at": r["created_at"], "results": json.loads(r["results"])}
 
-    def _keep(self, route: str, day: str, currency: str, offers: list[dict], google_history: list) -> None:
+    def _keep(self, route: str, day: str, currency: str, offers: list[dict], google_history: list,
+              field: str = "price", cached: list[dict] | None = None) -> None:
         """Every price seen (not just the best), plus Google's recent price graph: data for spotting patterns
         (how far ahead, which weekday, which season) and, later, predicting prices."""
         now = datetime.now(timezone.utc).isoformat()
-        rows = [(route, day, f"{o['source']}:{(o.get('airline') or o.get('name') or '')[:40]}", round(o["true_total"], 2),
+        rows = [(route, day, f"{o['source']}:{(o.get('airline') or o.get('name') or '')[:40]}", round(o[field], 2),
                  currency, now) for o in offers[:25] if not o.get("test")]
+        for d in cached or []:  # Travelpayouts: fares travellers found in the last two days, for their own dates
+            if d.get("depart") and d.get("price"):
+                rows.append((route, d["depart"], "travelpayouts", round(d["price"], 2), currency, now))
         for ts, price in google_history[-90:]:
             seen = datetime.fromtimestamp(ts / 1000 if ts > 10 ** 11 else ts, timezone.utc).isoformat()
             rows.append((route, day, "google_history", round(price, 2), currency, seen))
@@ -1335,7 +1436,9 @@ TRAVEL_TOOL = {
     "carry_on, seat, cabin, max_stops, free_cancellation, currency, nearby_airports, flexible_days), chose (search_id, "
     "offer_id: the user booked or picked this one; Buddy learns what they trade for what), price_pattern (origin + "
     "destination, or place for hotels, and a date: what prices are usually like, when to book, cheaper weekdays and "
-    "months, from Buddy's own records). Results show in the app's Travel screen with links "
+    "months, from Buddy's own records), watch (origin, destination, month YYYY-MM, optional return_month and target "
+    "price: checked every day, Buddy speaks up when the fare hits the target, drops well below the usual or hits a "
+    "new low), watches (list), unwatch (what = route like MIA-LIM or its id). Results show in the app's Travel screen with links "
     "to book; you never book. Think like an experienced travel agent who works for the user: use 'advice' (the trade-offs "
     "worked out: headline traps, what flexibility or a nonstop costs, nearby airports, cheaper nearby dates, same "
     "flight cheaper elsewhere, how today's price compares) to recommend ONE option clearly with the reason, then the "
@@ -1343,8 +1446,9 @@ TRAVEL_TOOL = {
     "change? is the bag needed?), ask. Ask the user's travel style once (bags, seat) if the profile is still the default.",
     "input_schema": {"type": "object", "properties": {
         "action": {"type": "string", "enum": ["flights", "hotels", "cheapest_dates", "refresh", "profile", "set_profile",
-                                              "chose", "price_pattern"]},
+                                              "chose", "price_pattern", "watch", "watches", "unwatch"]},
         "origin": {"type": "string"}, "destination": {"type": "string"}, "depart": {"type": "string"},
+        "target": {"type": "number"}, "return_month": {"type": "string"}, "what": {"type": "string"},
         "return": {"type": "string"}, "adults": {"type": "integer"}, "place": {"type": "string"},
         "check_in": {"type": "string"}, "check_out": {"type": "string"}, "month": {"type": "string"},
         "search_id": {"type": "string"}, "offer_id": {"type": "string"},
@@ -1372,6 +1476,14 @@ async def run_tool(travel: Travel, args: dict) -> str:
     a = args.get("action")
     if a == "profile":
         return json.dumps({"profile": travel.profile(), "learned": travel.learned(), "sources": travel.sources()})
+    if a == "watch":
+        w = travel.watch(args.get("origin", ""), args.get("destination", ""), str(args.get("month", "")),
+                         args.get("target"), str(args.get("return_month") or ""))
+        return json.dumps({"watching": w, "say": "Checked every morning; I'll speak up when it's a good fare."})
+    if a == "watches":
+        return json.dumps(travel.watches()) if travel.watches() else "No routes watched yet."
+    if a == "unwatch":
+        return travel.unwatch(args.get("what") or "")
     if a == "price_pattern":
         route = f"hotels:{str(args.get('place', '')).strip().lower()}" if args.get("place") else \
             f"{_iata(args.get('origin', ''))}-{_iata(args.get('destination', ''))}"
