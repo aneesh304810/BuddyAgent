@@ -103,6 +103,18 @@ def _group(rows: list[dict], key) -> list[dict]:
     return sorted(out, key=lambda g: (-g["cost_usd"], -g["requests"]))
 
 
+def _apis(memory: Memory, since: str) -> dict:
+    """Outside APIs (travel sources, review checks): calls, failures, cost; SerpApi's searches left."""
+    from . import travel
+
+    try:
+        out = travel.api_overview(memory, since)
+        out["serpapi_account"] = travel.Travel(memory).google.account()
+        return out
+    except Exception:
+        return {"providers": [], "cost_usd": 0, "month_cost_usd": 0}
+
+
 def turn_rows(memory: Memory, since: str, until: str = "9999") -> list[dict]:
     return [dict(r) for r in memory.db.execute(
         "SELECT * FROM turns WHERE at >= ? AND at < ? ORDER BY at", (since, until))]
@@ -327,6 +339,7 @@ def report(memory: Memory, days: int = 7, recent: int = 60, model: str = "", pur
         "speed": speed(turns),
         "free_models": free_models_overview(memory, by_model),
         "tools": tools_overview(memory, since, rows),
+        "apis": _apis(memory, since),
         "web": webread.web_overview(memory),
         "speech": speech_overview(memory),
         "data_tools": data_tools_overview(memory),

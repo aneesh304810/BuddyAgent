@@ -36,7 +36,7 @@ from .health import HEALTH_TOOL, run_health_tool
 from . import cards, sandbox
 from .codejob import CODE_TOOL_NAMES, CODE_TOOLS, run_code_tool
 from .makers import MAKER_TOOL_NAMES, MAKER_TOOLS, run_maker_tool
-from . import advisor, brain, datatools, finance, plaid, thinking, formfill, library, prices, rides, selfcode, transcripts, tutor, vocabulary, voiceprint
+from . import advisor, brain, datatools, finance, plaid, travel, thinking, formfill, library, prices, rides, selfcode, transcripts, tutor, vocabulary, voiceprint
 from .lifelog import LIFELOG_TOOL, LifeLog, run_lifelog_tool
 from .mailbrain import MAIL_TOOL_NAMES, MAIL_TOOLS, MailManager, run_mail_tool
 from .money import MONEY_TOOL_NAMES, MONEY_TOOLS, Money, run_money_tool
@@ -491,7 +491,7 @@ class Conversation:
         spending += [REPLY_STYLE_TOOL, transcripts.TRANSCRIPT_TOOL, READ_TOOL, MODE_TOOL, voiceprint.VOICE_TOOL,
                      prices.NOTE_PRICE_TOOL, rides.RIDE_TOOL, formfill.FORM_TOOL, selfcode.CODE_TOOL,
                      library.LIBRARY_TOOL, brain.BRAIN_TOOL, finance.FINANCE_TOOL,
-                     advisor.ADVISOR_TOOL, plaid.BANK_TOOL]
+                     advisor.ADVISOR_TOOL, plaid.BANK_TOOL, travel.TRAVEL_TOOL]
         return (
             CLIENT_TOOLS + orchestration + job_tools + spending + [_expert_tool()]
             + agent_tools + web_tools()
@@ -580,6 +580,8 @@ class Conversation:
                                              self.open_links)
         if name == "brain":
             return await brain.run_tool(self.brain, args)
+        if name == "travel":
+            return await travel.run_tool(travel.Travel(self.memory), args)
         if name == "bank_link":
             return await plaid.run_tool(plaid.Plaid(self.memory), args, self.memory.get("server:base_url") or "",
                                         self.open_links, self.thrift)

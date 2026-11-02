@@ -386,6 +386,35 @@ fun InsightsScreen(link: ServerLink?) {
         if (tools.isEmpty()) item { Text("No tools used in this period.", color = Dim, fontSize = 13.sp) }
         items(tools) { t -> ToolRow(t) }
 
+        val apis = d.optJSONObject("apis")
+        if (apis != null) {
+            item { Heading("Travel and data APIs") }
+            item {
+                val acct = apis.optJSONObject("serpapi_account")
+                Text("${usd(apis.optDouble("cost_usd"))} in this period · ${usd(apis.optDouble("month_cost_usd"))} this month" +
+                    (if (acct != null && !acct.isNull("plan_searches_left"))
+                        " · SerpApi: ${acct.optInt("plan_searches_left")} of ${acct.optInt("searches_per_month")} searches left (${acct.optString("plan_name")})"
+                    else ""), color = Dim, fontSize = 12.sp)
+            }
+            val providers = apis.optJSONArray("providers")?.objects().orEmpty()
+            if (providers.isEmpty()) item { Text("No outside API calls in this period.", color = Dim, fontSize = 13.sp) }
+            val most = providers.maxOfOrNull { it.optInt("calls") }?.takeIf { it > 0 } ?: 1
+            items(providers) { p ->
+                val ends = p.optJSONObject("endpoints")
+                val endText = ends?.keys()?.asSequence()?.joinToString(", ") { "$it ×${ends.optInt(it)}" }.orEmpty()
+                val failed = p.optInt("failed")
+                BreakdownRow(
+                    title = p.optString("provider").replaceFirstChar { it.uppercase() },
+                    value = if (p.optDouble("cost_usd") > 0) usd(p.optDouble("cost_usd")) else "free",
+                    share = (p.optInt("calls").toFloat() / most),
+                    detail = "${p.optInt("calls")} calls" + (if (failed > 0) " · $failed failed" else "") +
+                        (if (endText.isNotBlank()) " · $endText" else "") +
+                        (if (p.optString("last_error").isNotBlank()) " · last error: ${p.optString("last_error").take(80)}" else ""),
+                    selected = false,
+                ) { }
+            }
+        }
+
         item {
             val filter = listOf(purpose, model).filter { it.isNotEmpty() }.joinToString(" · ")
             Heading(if (filter.isEmpty()) "Latest requests" else "Latest requests: $filter (tap again to clear)")

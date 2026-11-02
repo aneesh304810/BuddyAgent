@@ -54,7 +54,7 @@ from fastapi import Depends, FastAPI, Header, HTTPException, Request, WebSocket,
 from fastapi.staticfiles import StaticFiles
 
 from . import health as healthcheck
-from . import advisor, codejob, finance, plaid, insights, thinking, makers, proactive, research, tutor, usage, vocabulary, voiceprint
+from . import advisor, codejob, finance, plaid, travel, insights, thinking, makers, proactive, research, tutor, usage, vocabulary, voiceprint
 from .agent import FILLERS, Conversation
 from .agents import AgentRegistry, load_specs
 from .ambient import AmbientListener, is_think_cue
@@ -700,6 +700,59 @@ def api_finance_cancel_page(sub_id: int) -> dict:
         return finance.Finance(memory).cancel_page(str(sub_id))
     except ToolError as e:
         raise HTTPException(status_code=404, detail=str(e)) from e
+
+
+# --- Travel: the app's Travel screen
+@app.get("/api/travel", dependencies=[Depends(require_admin)])
+def api_travel() -> dict:
+    t = travel.Travel(memory)
+    return {"sources": t.sources(), "profile": t.profile(), "learned": t.learned(), "searches": t.searches()}
+
+
+@app.post("/api/travel/search", dependencies=[Depends(require_admin)])
+async def api_travel_search(body: dict) -> dict:
+    t = travel.Travel(memory)
+    try:
+        if body.get("kind") == "hotels":
+            result = await t.hotels(str(body.get("place", "")), str(body.get("check_in", "")),
+                                    str(body.get("check_out", "")), int(body.get("adults") or 2))
+        else:
+            result = await t.flights(str(body.get("origin", "")), str(body.get("destination", "")),
+                                     str(body.get("depart", "")), str(body.get("return", "") or ""),
+                                     int(body.get("adults") or 1))
+    except ToolError as e:
+        raise HTTPException(status_code=400, detail=str(e)) from e
+    return t.search(result["search_id"])
+
+
+@app.get("/api/travel/searches/{search_id}", dependencies=[Depends(require_admin)])
+def api_travel_get(search_id: str) -> dict:
+    try:
+        return travel.Travel(memory).search(search_id)
+    except ToolError as e:
+        raise HTTPException(status_code=404, detail=str(e)) from e
+
+
+@app.post("/api/travel/searches/{search_id}/offers/{offer_id}/refresh", dependencies=[Depends(require_admin)])
+async def api_travel_refresh(search_id: str, offer_id: str) -> dict:
+    try:
+        return await travel.Travel(memory).refresh(search_id, offer_id)
+    except (ToolError, travel.SourceError) as e:
+        raise HTTPException(status_code=400, detail=str(e)) from e
+
+
+@app.post("/api/travel/searches/{search_id}/offers/{offer_id}/chose", dependencies=[Depends(require_admin)])
+def api_travel_chose(search_id: str, offer_id: str) -> dict:
+    """The app's 'Open to book' tap: Buddy learns from the choice."""
+    try:
+        return travel.Travel(memory).chose(search_id, offer_id)
+    except ToolError as e:
+        raise HTTPException(status_code=404, detail=str(e)) from e
+
+
+@app.post("/api/travel/profile", dependencies=[Depends(require_admin)])
+def api_travel_profile(body: dict) -> dict:
+    return travel.Travel(memory).set_profile(**{k: body.get(k) for k in travel.DEFAULT_PROFILE})
 
 
 # --- Plaid: linking a bank (the page is opened in the phone's browser; its one-time state authenticates it)

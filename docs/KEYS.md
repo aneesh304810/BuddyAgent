@@ -107,6 +107,19 @@ bank or card, or say "connect my bank". You sign in inside Plaid's window; Buddy
 Once a bank is linked through Plaid, the SimpleFIN feed stands down so nothing is counted twice.
 Unlink in Money (or "unlink my bank"): access is revoked at Plaid and that bank's data deleted.
 
+## 5c. Travel (flights and hotels)
+
+```
+sudo bash /opt/buddy/deploy/set.sh BUDDY_DUFFEL_TOKEN          # duffel.com → Developers → Access tokens (read-write)
+sudo bash /opt/buddy/deploy/set.sh BUDDY_SERPAPI_KEY           # serpapi.com → dashboard (Google Flights and Hotels)
+sudo bash /opt/buddy/deploy/set.sh BUDDY_TRAVELPAYOUTS_TOKEN   # travelpayouts.com → API token (cheapest dates)
+```
+
+Any of them works alone; together they're compared on the true total. A Duffel test token
+(`duffel_test_...`) gives a pretend airline: Buddy says so. Costs shown in Insights → Travel and data
+APIs: set what a search costs you if you're on a paid plan, e.g. `BUDDY_SERPAPI_COST_PER_SEARCH`
+(0.025 on the $25 / 1,000 plan) and `BUDDY_DUFFEL_COST_PER_SEARCH` (0 within Duffel's allowance).
+
 ## 6. DigitalOcean token (cost report)
 1. Chrome → **cloud.digitalocean.com** → **API** → **Tokens** → **Generate New Token**.
 2. Name `Buddy costs`; choose **Custom scopes** → tick only **billing: read**

@@ -36,6 +36,7 @@ import androidx.compose.ui.text.withLink
 import androidx.compose.ui.text.withStyle
 import androidx.compose.animation.animateColorAsState
 import androidx.compose.foundation.background
+import androidx.compose.foundation.horizontalScroll
 import androidx.compose.foundation.clickable
 import androidx.compose.foundation.layout.Arrangement
 import androidx.compose.foundation.layout.Box
@@ -130,6 +131,7 @@ sealed interface Screen {
     data object Insights : Screen
     data object Library : Screen
     data object Money : Screen
+    data object Travel : Screen
     data class LibraryItem(val id: String) : Screen
     data class Card(val json: String) : Screen
     data class Report(val id: Int) : Screen
@@ -313,13 +315,7 @@ private fun BuddyScreen(
             )
             Spacer(Modifier.size(6.dp))
             Text(ui.connection, color = Muted, fontSize = 13.sp, modifier = Modifier.weight(1f))
-            if (screen == Screen.Talk) {
-                TextButton(onClick = { onNavigate(Screen.Money) }) { Text("Money") }
-                TextButton(onClick = { onNavigate(Screen.Library) }) { Text("Library") }
-                TextButton(onClick = { onNavigate(Screen.Insights) }) { Text("Insights") }
-                TextButton(onClick = { onNavigate(Screen.Reports) }) { Text("Reports") }
-                TextButton(onClick = { onNavigate(Screen.Settings) }) { Text("Settings") }
-            } else {
+            if (screen != Screen.Talk) {
                 TextButton(onClick = {
                     onNavigate(when (screen) {
                         is Screen.Report -> Screen.Reports
@@ -327,6 +323,14 @@ private fun BuddyScreen(
                         else -> Screen.Talk
                     })
                 }) { Text("Back") }
+            }
+        }
+        if (screen == Screen.Talk) {
+            // Scrolls sideways on the narrow outer screen.
+            Row(Modifier.fillMaxWidth().horizontalScroll(rememberScrollState())) {
+                listOf("Travel" to Screen.Travel, "Money" to Screen.Money, "Library" to Screen.Library,
+                    "Insights" to Screen.Insights, "Reports" to Screen.Reports, "Settings" to Screen.Settings)
+                    .forEach { (label, target) -> TextButton(onClick = { onNavigate(target) }) { Text(label) } }
             }
         }
 
@@ -341,6 +345,10 @@ private fun BuddyScreen(
             }
             Screen.Insights -> {
                 InsightsScreen(prefs.link)
+                return@Column
+            }
+            Screen.Travel -> {
+                TravelScreen(prefs.link)
                 return@Column
             }
             Screen.Money -> {

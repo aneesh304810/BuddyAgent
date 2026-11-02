@@ -1,0 +1,432 @@
+package app.buddy
+
+import android.content.Intent
+import android.net.Uri
+import androidx.compose.foundation.background
+import androidx.compose.foundation.clickable
+import androidx.compose.foundation.horizontalScroll
+import androidx.compose.foundation.layout.Arrangement
+import androidx.compose.foundation.layout.Column
+import androidx.compose.foundation.layout.Row
+import androidx.compose.foundation.layout.fillMaxSize
+import androidx.compose.foundation.layout.fillMaxWidth
+import androidx.compose.foundation.layout.padding
+import androidx.compose.foundation.layout.width
+import androidx.compose.foundation.lazy.LazyColumn
+import androidx.compose.foundation.lazy.items
+import androidx.compose.foundation.rememberScrollState
+import androidx.compose.foundation.shape.RoundedCornerShape
+import androidx.compose.material3.OutlinedButton
+import androidx.compose.material3.OutlinedTextField
+import androidx.compose.material3.Text
+import androidx.compose.runtime.Composable
+import androidx.compose.runtime.LaunchedEffect
+import androidx.compose.runtime.getValue
+import androidx.compose.runtime.mutableIntStateOf
+import androidx.compose.runtime.mutableStateListOf
+import androidx.compose.runtime.mutableStateOf
+import androidx.compose.runtime.remember
+import androidx.compose.runtime.rememberCoroutineScope
+import androidx.compose.runtime.setValue
+import androidx.compose.ui.Modifier
+import androidx.compose.ui.graphics.Color
+import androidx.compose.ui.platform.LocalContext
+import androidx.compose.ui.text.font.FontWeight
+import androidx.compose.ui.unit.dp
+import androidx.compose.ui.unit.sp
+import kotlinx.coroutines.Dispatchers
+import kotlinx.coroutines.launch
+import kotlinx.coroutines.withContext
+import okhttp3.MediaType.Companion.toMediaType
+import okhttp3.OkHttpClient
+import okhttp3.Request
+import okhttp3.RequestBody.Companion.toRequestBody
+import org.json.JSONArray
+import org.json.JSONObject
+import java.util.concurrent.TimeUnit
+
+private val TDim = Color(0xFF8A93B2)
+private val TTile = Color(0xFF151C33)
+private val TWarn = Color(0xFFFFC46B)
+private val TGood = Color(0xFF7BE0A5)
+private val TTrack = Color(0xFF222B47)
+
+/** Buddy's travel engine on the server: /api/travel. */
+object TravelApi {
+    private val http = OkHttpClient.Builder().callTimeout(90, TimeUnit.SECONDS).build()
+
+    private suspend fun call(link: ServerLink, path: String, body: JSONObject? = null): JSONObject =
+        withContext(Dispatchers.IO) {
+            val b = Request.Builder().url(link.baseUrl + path).header("Authorization", "Bearer ${link.token}")
+            if (body != null) b.post(body.toString().toRequestBody("application/json".toMediaType()))
+            http.newCall(b.build()).execute().use { r ->
+                val text = r.body?.string().orEmpty()
+                if (!r.isSuccessful) {
+                    error(runCatching { JSONObject(text).optString("detail") }.getOrNull()?.ifBlank { null }
+                        ?: "server said ${r.code}")
+                }
+                JSONObject(text)
+            }
+        }
+
+    suspend fun overview(link: ServerLink) = call(link, "/api/travel")
+    suspend fun search(link: ServerLink, body: JSONObject) = call(link, "/api/travel/search", body)
+    suspend fun get(link: ServerLink, id: String) = call(link, "/api/travel/searches/$id")
+    suspend fun refresh(link: ServerLink, sid: String, oid: String) =
+        call(link, "/api/travel/searches/$sid/offers/$oid/refresh", JSONObject())
+    suspend fun chose(link: ServerLink, sid: String, oid: String) =
+        call(link, "/api/travel/searches/$sid/offers/$oid/chose", JSONObject())
+    suspend fun profile(link: ServerLink, p: JSONObject) = call(link, "/api/travel/profile", p)
+}
+
+private fun JSONArray?.objs(): List<JSONObject> = if (this == null) emptyList() else (0 until length()).map { getJSONObject(it) }
+private fun JSONArray?.strs(): List<String> = if (this == null) emptyList() else (0 until length()).map { getString(it) }
+private fun amount(v: Double, cur: String) = "%,.0f %s".format(v, cur)
+
+@Composable
+fun TravelScreen(link: ServerLink?) {
+    var overview by remember { mutableStateOf<JSONObject?>(null) }
+    var current by remember { mutableStateOf<JSONObject?>(null) }
+    var problem by remember { mutableStateOf<String?>(null) }
+    var busy by remember { mutableStateOf(false) }
+    var refresh by remember { mutableIntStateOf(0) }
+    val scope = rememberCoroutineScope()
+    LaunchedEffect(link, refresh) {
+        if (link == null) { problem = "Set up your server first."; return@LaunchedEffect }
+        runCatching { TravelApi.overview(link) }.onSuccess { overview = it; problem = null }
+            .onFailure { problem = "Couldn't load (${it.message})." }
+    }
+    val cur = current
+    if (cur != null && link != null) {
+        SearchResults(link, cur, onBack = { current = null; refresh++ })
+        return
+    }
+    LazyColumn(Modifier.fillMaxSize(), verticalArrangement = Arrangement.spacedBy(10.dp)) {
+        problem?.let { item { Text(it, color = Color(0xFFFF8A80)) } }
+        val o = overview ?: run { if (problem == null) item { Text("Loading…", color = TDim) }; return@LazyColumn }
+        item {
+            SearchForm(busy) { body ->
+                busy = true
+                scope.launch {
+                    runCatching { TravelApi.search(link!!, body) }
+                        .onSuccess { current = it; problem = null }
+                        .onFailure { problem = "Search failed: ${it.message}" }
+                    busy = false
+                }
+            }
+        }
+        item { SourcesLine(o.optJSONObject("sources")) }
+        item { StylePanel(link!!, o.optJSONObject("profile") ?: JSONObject(), o.optJSONObject("learned")) { refresh++ } }
+        val searches = o.optJSONArray("searches").objs()
+        if (searches.isNotEmpty()) item { Text("Recent searches", color = TDim, fontSize = 13.sp) }
+        items(searches, key = { it.optString("id") }) { s ->
+            Column(Modifier.fillMaxWidth().background(TTile, RoundedCornerShape(12.dp)).clickable {
+                scope.launch { runCatching { TravelApi.get(link!!, s.optString("id")) }.onSuccess { current = it } }
+            }.padding(12.dp)) {
+                Text(s.optString("title"), color = Color.White)
+                Text("${if (s.optString("kind") == "hotels") "Hotels" else "Flights"} · ${s.optInt("offers")} options · " +
+                    s.optString("created_at").take(16).replace('T', ' ') + " UTC", color = TDim, fontSize = 12.sp)
+            }
+        }
+    }
+}
+
+@Composable
+private fun SearchForm(busy: Boolean, onSearch: (JSONObject) -> Unit) {
+    var hotels by remember { mutableStateOf(false) }
+    var from by remember { mutableStateOf("") }
+    var to by remember { mutableStateOf("") }
+    var depart by remember { mutableStateOf("") }
+    var back by remember { mutableStateOf("") }
+    var place by remember { mutableStateOf("") }
+    var checkIn by remember { mutableStateOf("") }
+    var checkOut by remember { mutableStateOf("") }
+    var people by remember { mutableStateOf("1") }
+    Column(Modifier.fillMaxWidth().background(TTile, RoundedCornerShape(12.dp)).padding(12.dp),
+        verticalArrangement = Arrangement.spacedBy(8.dp)) {
+        Row(horizontalArrangement = Arrangement.spacedBy(8.dp)) {
+            listOf(false to "✈ Flights", true to "🏨 Hotels").forEach { (h, label) ->
+                Text(label, color = if (hotels == h) Color.Black else Color.White,
+                    modifier = Modifier.background(if (hotels == h) Color.White else TTrack, RoundedCornerShape(50))
+                        .clickable { hotels = h; if (h && people == "1") people = "2" }.padding(horizontal = 14.dp, vertical = 6.dp))
+            }
+        }
+        if (!hotels) {
+            Row(horizontalArrangement = Arrangement.spacedBy(8.dp)) {
+                OutlinedTextField(from, { from = it.uppercase().take(3) }, label = { Text("From (MIA)") },
+                    singleLine = true, modifier = Modifier.weight(1f))
+                OutlinedTextField(to, { to = it.uppercase().take(3) }, label = { Text("To (LIM)") },
+                    singleLine = true, modifier = Modifier.weight(1f))
+            }
+            Row(horizontalArrangement = Arrangement.spacedBy(8.dp)) {
+                OutlinedTextField(depart, { depart = it.take(10) }, label = { Text("Depart YYYY-MM-DD") },
+                    singleLine = true, modifier = Modifier.weight(1f))
+                OutlinedTextField(back, { back = it.take(10) }, label = { Text("Return (optional)") },
+                    singleLine = true, modifier = Modifier.weight(1f))
+            }
+        } else {
+            OutlinedTextField(place, { place = it }, label = { Text("Where (Miraflores, Lima)") }, singleLine = true,
+                modifier = Modifier.fillMaxWidth())
+            Row(horizontalArrangement = Arrangement.spacedBy(8.dp)) {
+                OutlinedTextField(checkIn, { checkIn = it.take(10) }, label = { Text("Check-in YYYY-MM-DD") },
+                    singleLine = true, modifier = Modifier.weight(1f))
+                OutlinedTextField(checkOut, { checkOut = it.take(10) }, label = { Text("Check-out") },
+                    singleLine = true, modifier = Modifier.weight(1f))
+            }
+        }
+        Row(horizontalArrangement = Arrangement.spacedBy(8.dp)) {
+            OutlinedTextField(people, { people = it.filter(Char::isDigit).take(1) },
+                label = { Text(if (hotels) "Guests" else "Adults") }, singleLine = true, modifier = Modifier.width(110.dp))
+            OutlinedButton(onClick = {
+                val body = if (hotels) JSONObject().put("kind", "hotels").put("place", place).put("check_in", checkIn)
+                    .put("check_out", checkOut).put("adults", people.toIntOrNull() ?: 2)
+                else JSONObject().put("kind", "flights").put("origin", from).put("destination", to).put("depart", depart)
+                    .put("return", back).put("adults", people.toIntOrNull() ?: 1)
+                onSearch(body)
+            }, enabled = !busy, modifier = Modifier.weight(1f).padding(top = 6.dp)) {
+                Text(if (busy) "Searching all sources…" else "Search")
+            }
+        }
+        Text("Or just ask Buddy: \"flights Miami to Lima on 10 December\".", color = TDim, fontSize = 12.sp)
+    }
+}
+
+@Composable
+private fun SourcesLine(s: JSONObject?) {
+    if (s == null) return
+    val parts = listOf(
+        "Duffel" to s.optBoolean("duffel"), "Google Flights & Hotels" to s.optBoolean("google"),
+        "Travelpayouts" to s.optBoolean("travelpayouts"),
+    ).joinToString(" · ") { (n, on) -> if (on) "✓ $n" else "✗ $n" }
+    Text(parts + if (s.optBoolean("duffel_test_mode")) "  (Duffel in test mode: pretend prices)" else "",
+        color = TDim, fontSize = 12.sp)
+}
+
+/** How you travel (bags, seat...) and what Buddy has learned from your choices. */
+@Composable
+private fun StylePanel(link: ServerLink, p: JSONObject, learned: JSONObject?, onSaved: () -> Unit) {
+    var open by remember { mutableStateOf(false) }
+    val scope = rememberCoroutineScope()
+    Text((if (open) "▾ " else "▸ ") + "Your travel style", color = Color.White, fontWeight = FontWeight.SemiBold,
+        modifier = Modifier.fillMaxWidth().clickable { open = !open }.padding(vertical = 4.dp))
+    if (!open) return
+    fun save(key: String, value: Any) = scope.launch {
+        runCatching { TravelApi.profile(link, JSONObject().put(key, value)) }; onSaved()
+    }
+    Column(Modifier.fillMaxWidth().background(TTile, RoundedCornerShape(12.dp)).padding(12.dp),
+        verticalArrangement = Arrangement.spacedBy(8.dp)) {
+        ChoiceRow("Checked bags", listOf("0", "1", "2"), p.optInt("checked_bags").toString()) { save("checked_bags", it.toInt()) }
+        ChoiceRow("Carry-on", listOf("yes", "no"), if (p.optBoolean("carry_on", true)) "yes" else "no") { save("carry_on", it == "yes") }
+        ChoiceRow("Seat", listOf("any", "window", "aisle"), p.optString("seat", "any")) { save("seat", it) }
+        ChoiceRow("Nearby airports", listOf("yes", "no"), if (p.optBoolean("nearby_airports", true)) "yes" else "no") {
+            save("nearby_airports", it == "yes")
+        }
+        ChoiceRow("Hotels: free cancellation only", listOf("yes", "no"), if (p.optBoolean("free_cancellation")) "yes" else "no") {
+            save("free_cancellation", it == "yes")
+        }
+        if (learned != null && learned.optInt("choices") + learned.optInt("hotel_choices") > 0) {
+            val bits = mutableListOf<String>()
+            if (!learned.isNull("hour_value")) bits += "you pay about ${learned.optDouble("hour_value").toInt()} to save an hour"
+            if (!learned.isNull("pays_for_refundable")) bits += "about ${learned.optDouble("pays_for_refundable").toInt()} more for refundable"
+            if (!learned.isNull("nonstop_share")) bits += "nonstop ${(learned.optDouble("nonstop_share") * 100).toInt()}% of the time"
+            val airlines = learned.optJSONObject("airlines")
+            if (airlines != null && airlines.length() > 0) bits += "often ${airlines.keys().asSequence().take(2).joinToString()}"
+            Text("Learned from your choices: " + (bits.joinToString("; ").ifBlank { "a few more choices needed" }),
+                color = TGood, fontSize = 12.sp)
+        }
+    }
+}
+
+@Composable
+private fun ChoiceRow(label: String, options: List<String>, selected: String, onPick: (String) -> Unit) {
+    Row(Modifier.fillMaxWidth()) {
+        Text(label, color = Color.White, fontSize = 14.sp, modifier = Modifier.weight(1f))
+        options.forEach { o ->
+            Text(o, color = if (o == selected) Color.Black else TDim, fontSize = 13.sp,
+                modifier = Modifier.padding(start = 6.dp).background(if (o == selected) Color.White else TTrack, RoundedCornerShape(50))
+                    .clickable { onPick(o) }.padding(horizontal = 10.dp, vertical = 4.dp))
+        }
+    }
+}
+
+@Composable
+private fun SearchResults(link: ServerLink, search: JSONObject, onBack: () -> Unit) {
+    val results = search.optJSONObject("results") ?: JSONObject()
+    val hotel = search.optString("kind") == "hotels"
+    var sort by remember { mutableStateOf("value") }
+    val picked = remember { mutableStateListOf<String>() }
+    var comparing by remember { mutableStateOf(false) }
+    val offers = results.optJSONArray("offers").objs()
+    val sorted = when (sort) {
+        "cheapest" -> offers.sortedBy { it.optDouble("true_total") }
+        "fastest" -> offers.sortedBy { if (it.optInt("minutes") > 0) it.optInt("minutes") else Int.MAX_VALUE }
+        "rated" -> offers.sortedByDescending { it.optDouble("rating") }
+        else -> offers
+    }
+    LazyColumn(Modifier.fillMaxSize(), verticalArrangement = Arrangement.spacedBy(10.dp)) {
+        item {
+            Row(Modifier.fillMaxWidth()) {
+                Text(search.optString("title"), color = Color.White, fontSize = 17.sp, fontWeight = FontWeight.SemiBold,
+                    modifier = Modifier.weight(1f))
+                Text("New search", color = TDim, modifier = Modifier.clickable { onBack() }.padding(4.dp))
+            }
+        }
+        results.optString("note").takeIf { it.isNotBlank() }?.let { item { Text(it, color = TWarn, fontSize = 13.sp) } }
+        results.optJSONArray("problems").strs().forEach { p -> item { Text("Source problem: $p", color = TWarn, fontSize = 12.sp) } }
+        val advice = results.optJSONArray("advice").strs()
+        if (advice.isNotEmpty()) item {
+            Column(Modifier.fillMaxWidth().background(TTrack, RoundedCornerShape(12.dp)).padding(12.dp),
+                verticalArrangement = Arrangement.spacedBy(4.dp)) {
+                Text("Buddy's take", color = Color.White, fontWeight = FontWeight.SemiBold)
+                advice.forEach { Text("• $it", color = Color.White, fontSize = 13.sp) }
+            }
+        }
+        item {
+            Row(Modifier.horizontalScroll(rememberScrollState()), horizontalArrangement = Arrangement.spacedBy(8.dp)) {
+                (listOf("value" to "Best value", "cheapest" to "Cheapest") +
+                    if (hotel) listOf("rated" to "Best rated") else listOf("fastest" to "Fastest")).forEach { (k, l) ->
+                    Text(l, color = if (sort == k) Color.Black else Color.White, fontSize = 13.sp,
+                        modifier = Modifier.background(if (sort == k) Color.White else TTile, RoundedCornerShape(50))
+                            .clickable { sort = k }.padding(horizontal = 14.dp, vertical = 6.dp))
+                }
+                if (picked.size >= 2) {
+                    Text("Compare ${picked.size}", color = Color.Black, fontSize = 13.sp,
+                        modifier = Modifier.background(TGood, RoundedCornerShape(50)).clickable { comparing = !comparing }
+                            .padding(horizontal = 14.dp, vertical = 6.dp))
+                }
+            }
+        }
+        if (comparing && picked.size >= 2) item { CompareTable(offers.filter { it.optString("id") in picked }, hotel) }
+        if (offers.isEmpty()) item { Text("Nothing found: check the airport codes and dates.", color = TDim) }
+        items(sorted, key = { it.optString("id") }) { o ->
+            OfferCard(link, search.optString("id"), o, o.optString("id") in picked) { on ->
+                val id = o.optString("id")
+                if (on && id !in picked && picked.size < 3) picked.add(id) else if (!on) picked.remove(id)
+            }
+        }
+        val dates = results.optJSONArray("cheapest_dates").objs()
+        if (dates.isNotEmpty()) {
+            item { Text("Cheapest dates travellers found lately (check live)", color = TDim, fontSize = 13.sp) }
+            items(dates, key = { "d" + it.optString("depart") + it.optDouble("price") }) { d -> DateRow(d) }
+        }
+        val links = results.optJSONObject("links")
+        if (links != null) item {
+            val ctx = LocalContext.current
+            Row(horizontalArrangement = Arrangement.spacedBy(8.dp)) {
+                links.keys().forEach { k ->
+                    val url = links.optString(k)
+                    if (url.isNotBlank()) OutlinedButton(onClick = {
+                        runCatching { ctx.startActivity(Intent(Intent.ACTION_VIEW, Uri.parse(url))) }
+                    }) { Text("Open on ${k.replaceFirstChar { it.uppercase() }}") }
+                }
+            }
+        }
+    }
+}
+
+@Composable
+private fun OfferCard(link: ServerLink, searchId: String, o: JSONObject, picked: Boolean, onPick: (Boolean) -> Unit) {
+    val ctx = LocalContext.current
+    val scope = rememberCoroutineScope()
+    var recheck by remember { mutableStateOf<String?>(null) }
+    val cur = o.optString("currency")
+    Column(Modifier.fillMaxWidth().background(TTile, RoundedCornerShape(12.dp)).padding(12.dp),
+        verticalArrangement = Arrangement.spacedBy(4.dp)) {
+        val tags = o.optJSONArray("tags").strs()
+        if (tags.isNotEmpty()) Text(tags.joinToString(" · ").uppercase(), color = TGood, fontSize = 11.sp, fontWeight = FontWeight.SemiBold)
+        Row(Modifier.fillMaxWidth()) {
+            Column(Modifier.weight(1f)) {
+                Text(o.optString("title"), color = Color.White, fontWeight = FontWeight.SemiBold)
+                Text(o.optString("summary"), color = TDim, fontSize = 13.sp)
+            }
+            Column {
+                Text(amount(o.optDouble("true_total"), cur) + if (o.optBoolean("estimated")) "*" else "",
+                    color = Color.White, fontSize = 18.sp, fontWeight = FontWeight.SemiBold)
+                if (o.optDouble("true_total") != o.optDouble("price")) {
+                    Text("shown ${amount(o.optDouble("price"), cur)}", color = TDim, fontSize = 12.sp)
+                }
+            }
+        }
+        val parts = o.optJSONObject("parts")
+        if (parts != null && parts.length() > 1) {
+            Text(parts.keys().asSequence().joinToString(" + ") { "${it}: ${amount(parts.optDouble(it), "")}".trim() },
+                color = TDim, fontSize = 12.sp)
+        }
+        o.optJSONArray("flags").objs().forEach { f ->
+            val (mark, color) = when (f.optString("level")) { "warn" -> "⚠" to TWarn; "good" -> "✓" to TGood; else -> "•" to TDim }
+            Text("$mark ${f.optString("text")}", color = color, fontSize = 13.sp)
+        }
+        o.optJSONArray("also").objs().forEach { a ->
+            Text("Also on ${a.optString("source")}: ${amount(a.optDouble("price"), cur)}", color = TDim, fontSize = 12.sp)
+        }
+        recheck?.let { Text(it, color = TWarn, fontSize = 12.sp) }
+        if (o.optBoolean("estimated")) Text("* includes estimated bag or seat fees", color = TDim, fontSize = 11.sp)
+        Row(horizontalArrangement = Arrangement.spacedBy(8.dp)) {
+            OutlinedButton(onClick = {
+                scope.launch { runCatching { TravelApi.chose(link, searchId, o.optString("id")) } }  // Buddy learns from it
+                runCatching { ctx.startActivity(Intent(Intent.ACTION_VIEW, Uri.parse(o.optString("link")))) }
+            }, enabled = o.optString("link").isNotBlank()) { Text("Open to book") }
+            if (o.optString("source") == "duffel") {
+                OutlinedButton(onClick = {
+                    scope.launch {
+                        recheck = runCatching { TravelApi.refresh(link, searchId, o.optString("id")) }.fold(
+                            { r -> if (r.optBoolean("changed")) "Price now ${amount(r.optDouble("price"), cur)} (was ${amount(r.optDouble("was"), cur)})"
+                                   else "Price still ${amount(r.optDouble("price"), cur)}" },
+                            { "Couldn't re-check: ${it.message}" })
+                    }
+                }) { Text("Re-check") }
+            }
+            Text(if (picked) "☑ Compare" else "☐ Compare", color = Color.White, fontSize = 13.sp,
+                modifier = Modifier.clickable { onPick(!picked) }.padding(top = 12.dp))
+        }
+    }
+}
+
+/** Side by side: what you'd pay, how long, what's included, what could go wrong. */
+@Composable
+private fun CompareTable(offers: List<JSONObject>, hotel: Boolean) {
+    val cur = offers.firstOrNull()?.optString("currency") ?: ""
+    val rows: List<Pair<String, (JSONObject) -> String>> = if (hotel) listOf(
+        "Total stay" to { o -> amount(o.optDouble("true_total"), cur) },
+        "Per night" to { o -> if (o.isNull("per_night")) "?" else amount(o.optDouble("per_night"), cur) },
+        "Rating" to { o -> if (o.isNull("rating")) "?" else "${o.optDouble("rating")} (${o.optInt("reviews")})" },
+        "Cancellation" to { o -> if (o.optJSONArray("flags").objs().any { it.optString("text").startsWith("Free cancellation") }) "free" else "check" },
+        "Catches" to { o -> o.optJSONArray("flags").objs().count { it.optString("level") == "warn" }.toString() },
+    ) else listOf(
+        "True total" to { o -> amount(o.optDouble("true_total"), cur) + if (o.optBoolean("estimated")) "*" else "" },
+        "Shown price" to { o -> amount(o.optDouble("price"), cur) },
+        "Time" to { o -> o.optString("summary").split(" · ").getOrNull(1) ?: "" },
+        "Stops" to { o -> o.optInt("stops").toString() },
+        "Refund" to { o -> o.optJSONObject("refund")?.let { r -> if (!r.optBoolean("known")) "?" else if (r.optBoolean("allowed")) "yes" else "no" } ?: "?" },
+        "Changes" to { o -> o.optJSONObject("change")?.let { r -> if (!r.optBoolean("known")) "?" else if (r.optBoolean("allowed")) "yes" else "no" } ?: "?" },
+        "Catches" to { o -> o.optJSONArray("flags").objs().count { it.optString("level") == "warn" }.toString() },
+    )
+    Column(Modifier.fillMaxWidth().background(TTrack, RoundedCornerShape(12.dp)).padding(10.dp)) {
+        Row {
+            Text("", modifier = Modifier.weight(1f))
+            offers.forEach { o ->
+                Text((if (hotel) o.optString("name") else o.optString("title")).take(22), color = Color.White, fontSize = 12.sp,
+                    fontWeight = FontWeight.SemiBold, modifier = Modifier.weight(1.3f))
+            }
+        }
+        rows.forEach { (label, value) ->
+            Row(Modifier.padding(top = 4.dp)) {
+                Text(label, color = TDim, fontSize = 12.sp, modifier = Modifier.weight(1f))
+                offers.forEach { o -> Text(value(o), color = Color.White, fontSize = 12.sp, modifier = Modifier.weight(1.3f)) }
+            }
+        }
+    }
+}
+
+@Composable
+private fun DateRow(d: JSONObject) {
+    val ctx = LocalContext.current
+    Row(Modifier.fillMaxWidth().background(TTile, RoundedCornerShape(10.dp)).clickable(enabled = d.optString("link").isNotBlank()) {
+        runCatching { ctx.startActivity(Intent(Intent.ACTION_VIEW, Uri.parse(d.optString("link")))) }
+    }.padding(10.dp)) {
+        Text(d.optString("depart") + if (d.optString("return").isNotBlank()) " – ${d.optString("return")}" else "",
+            color = Color.White, fontSize = 14.sp, modifier = Modifier.weight(1f))
+        Text("${d.optString("airline")} · ${if (d.optInt("stops") == 0) "nonstop" else "${d.optInt("stops")} stop"} · " +
+            amount(d.optDouble("price"), d.optString("currency")), color = TDim, fontSize = 13.sp)
+    }
+}
