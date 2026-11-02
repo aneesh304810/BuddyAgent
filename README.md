@@ -123,3 +123,7 @@ Tests: `cd backend && pytest`
 | Later | English tutor, Oura Ring, call co-pilot, Outlook/Microsoft 365, learns your style, Galaxy Watch |
 
 The Android app's install guide is in [`android/README.md`](android/README.md).
+
+## Website
+
+The Buddy Labs company website lives in its own repo: https://github.com/aneesh304810/Buddywebsite
