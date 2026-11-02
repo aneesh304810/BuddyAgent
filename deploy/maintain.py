@@ -14,6 +14,8 @@ Checks (each finding says what to do):
   - anything listening outside localhost and the tailnet; firewall; SSH passwords; Tailscale Funnel
   - automatic updates on, reboot pending, backups recent, disk space
   - how locked down Buddy's service is (systemd-analyze security)
+  - access control (access.py): quarterly review due, accounts, SSH keys, sudoers, tailnet devices
+    and users not on the approved list, devices not seen for 60 days
 
 Writes /var/lib/buddy/security.json, which Buddy's daily health check and digest read, and
 appends a line to /var/log/buddy-maintain.log. Never prints a key.
@@ -262,6 +264,13 @@ def check_network() -> None:
                  funnel[:200], "sudo tailscale funnel reset (Buddy only needs tailscale serve)")
 
 
+def check_access() -> None:
+    sys.path.insert(0, str(Path(__file__).resolve().parent))
+    import access  # noqa: PLC0415
+
+    access.check(find)
+
+
 def check_system() -> None:
     auto = Path("/etc/apt/apt.conf.d/20auto-upgrades")
     if not auto.exists() or '"1"' not in auto.read_text():
@@ -322,7 +331,7 @@ def main() -> None:
             find("watch", "The sandbox update failed", type(e).__name__, "Run sandbox.sh again.")
     exposure = None
     for label, check in (("keys", lambda: check_secrets(settings())), ("logs", check_logs),
-                         ("network", check_network)):
+                         ("network", check_network), ("access", check_access)):
         try:
             check()
         except Exception as e:

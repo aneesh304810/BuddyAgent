@@ -44,6 +44,7 @@ for f in /etc/buddy/buddy.env /etc/buddy/buddy.env.cred /etc/buddy/key-dates; do
 done
 # Weekly patching and security check, auto-reboot for security updates, extra service lockdown.
 bash "$APP/deploy/security.sh" install
+bash "$APP/deploy/access.sh" install
 HARDENED=0
 if [ ! -f /etc/systemd/system/buddy.service.d/hardening.conf ] && [ ! -f /etc/buddy/no-hardening ]; then
   HARDENED=1

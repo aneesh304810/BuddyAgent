@@ -39,6 +39,15 @@ SEP = "__"  # Claude tool name = agent + SEP + tool
 APPROVAL_TTL_SECONDS = 600
 
 
+# Role boundary (docs/ACCESS_CONTROL.md): settings only Buddy's core service may hold.
+CORE_ONLY = ("BUDDY_PLAID_*", "BUDDY_SIMPLEFIN*", "BUDDY_DB_KEY", "BUDDY_TOKEN", "ANTHROPIC_API_KEY",
+             "BUDDY_DO_TOKEN", "BUDDY_TAILSCALE_*")
+
+
+def core_only(name: str) -> bool:
+    return any(fnmatchcase(name, p) for p in CORE_ONLY)
+
+
 @dataclass
 class AgentSpec:
     name: str
@@ -154,7 +163,9 @@ class AgentRegistry:
             target = spec.server
         elif spec.command:
             # env_from entries are names or patterns ("BUDDY_EMAIL_*" covers every account).
-            passed = {k: v for k, v in os.environ.items() if any(fnmatchcase(k, p) for p in spec.env_from)}
+            # Core-only secrets (bank, database, app token, Claude) never reach an agent, even by pattern.
+            passed = {k: v for k, v in os.environ.items()
+                      if any(fnmatchcase(k, p) for p in spec.env_from) and not core_only(k)}
             env = {**passed, **spec.env}
             target = StdioServerParameters(command=spec.command[0], args=spec.command[1:], env=env or None,
                                            cwd=spec.cwd)

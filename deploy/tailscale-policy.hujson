@@ -1,0 +1,30 @@
+// Tailscale access policy for Buddy: role-based network access (docs/ACCESS_CONTROL.md).
+// Paste into https://login.tailscale.com/admin/acls (Access controls → JSON editor), then tag the server:
+//   sudo tailscale up --ssh --advertise-tags=tag:buddy-server
+// Do it in that order: the policy first (it lets admins in to the tagged server), then the tag.
+// Keep an admin console tab open until you've checked you can still reach Buddy and SSH in.
+{
+	// Only admins (you) may put the server tag on a machine.
+	"tagOwners": {
+		"tag:buddy-server": ["autogroup:owner", "autogroup:admin"],
+	},
+
+	"acls": [
+		// Role "owner/admin": reach Buddy's app (HTTPS via tailscale serve) and Tailscale SSH.
+		{"action": "accept", "src": ["autogroup:owner", "autogroup:admin"], "dst": ["tag:buddy-server:443,22"]},
+		// Your own devices may still reach each other (phone ↔ laptop), but not anyone else's.
+		{"action": "accept", "src": ["autogroup:member"], "dst": ["autogroup:self:*"]},
+		// Everyone else (invited members, shared users): no access to the server at all.
+	],
+
+	"ssh": [
+		// Re-confirm your identity with your sign-in (Google, with two-step) every 12 hours.
+		{
+			"action":      "check",
+			"src":         ["autogroup:owner", "autogroup:admin"],
+			"dst":         ["tag:buddy-server"],
+			"users":       ["root", "autogroup:nonroot"],
+			"checkPeriod": "12h",
+		},
+	],
+}

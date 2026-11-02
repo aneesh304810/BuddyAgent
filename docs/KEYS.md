@@ -107,6 +107,11 @@ bank or card, or say "connect my bank". You sign in inside Plaid's window; Buddy
 Once a bank is linked through Plaid, the SimpleFIN feed stands down so nothing is counted twice.
 Unlink in Money (or "unlink my bank"): access is revoked at Plaid and that bank's data deleted.
 
+Plaid's security attestations (access reviews, offboarding, central sign-in, policy, roles) are backed
+by [ACCESS_CONTROL.md](ACCESS_CONTROL.md): do its one-time setup (section 10) before attesting.
+Optional, so offboarding can remove tailnet devices by itself (Tailscale → Settings → Keys → API key):
+`sudo bash /opt/buddy/deploy/set.sh BUDDY_TAILSCALE_API_KEY`
+
 ## 5c. Travel (flights and hotels)
 
 ```
