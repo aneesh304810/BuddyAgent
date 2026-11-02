@@ -222,6 +222,9 @@ class Ears(
         override fun onEvent(eventType: Int, params: Bundle?) {}
 
         override fun onError(error: Int) {
+            if (error != SpeechRecognizer.ERROR_NO_MATCH && error != SpeechRecognizer.ERROR_SPEECH_TIMEOUT) {
+                Diag.event("speech", "recognizer_error", "error" to errorName(error))
+            }
             when (error) {
                 SpeechRecognizer.ERROR_INSUFFICIENT_PERMISSIONS -> {
                     onProblem("Buddy needs microphone permission.")

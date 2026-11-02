@@ -185,10 +185,16 @@ class BuddyService : Service() {
 
     override fun onBind(intent: Intent?): IBinder? = null
 
+    private var diagMonitor: DiagMonitor? = null
+
     override fun onCreate() {
         super.onCreate()
         instance = this
         prefs = BuddyPrefs(this)
+        Diag.enabled = { BuddyPrefs(this).diagnostics }
+        Diag.event("background", if (prefs.serviceAlive) "service_restarted" else "service_started")
+        prefs.serviceAlive = true
+        diagMonitor = DiagMonitor(this) { message -> client?.send(message) ?: false }.also { it.start() }
         registerReceiver(screenWatch, android.content.IntentFilter().apply {
             addAction(Intent.ACTION_SCREEN_OFF)
             addAction(Intent.ACTION_SCREEN_ON)
@@ -281,6 +287,9 @@ class BuddyService : Service() {
     }
 
     override fun onDestroy() {
+        Diag.event("background", "service_stopped")
+        diagMonitor?.stop()
+        prefs.serviceAlive = false
         runCatching { unregisterReceiver(screenWatch) }
         phoneEars.destroy()
         serverEars.destroy()
@@ -323,6 +332,9 @@ class BuddyService : Service() {
                 )
             }
             refreshNotification()
+            if (status == BuddyClient.Status.ONLINE || status == BuddyClient.Status.OFFLINE) {
+                diagMonitor?.connection(status == BuddyClient.Status.ONLINE)
+            }
             if (status == BuddyClient.Status.ONLINE) {
                 checkWhisper(link)
                 PhoneBridge.flush()  // notifications that arrived while offline
@@ -515,6 +527,8 @@ class BuddyService : Service() {
             is ServerEvent.Heard -> voiceHeard(event)
             is ServerEvent.SpeechLimit -> speechLimit(event.seconds)
             ServerEvent.Waiting -> BuddyState.status("Go on…")
+            is ServerEvent.DiagPong -> diagMonitor?.pong(event.t)
+            ServerEvent.DiagOff -> Diag.serverOff = true
             is ServerEvent.VoiceStatus -> BuddyState.update {
                 it.copy(voiceInstalled = event.installed, voiceEnrolled = event.enrolled, voiceOn = event.on,
                         voiceSentences = event.sentences)
@@ -864,7 +878,7 @@ class BuddyService : Service() {
     /** Buddy's own voice coming back through the mic (loudspeaker): what it just said, heard again. */
     private fun ownEcho(text: String): Boolean {
         if (headsetConnected()) return false
-        if (mouth.speaking) return true
+        if (mouth.speaking) { Diag.event("speech", "echo_dropped"); return true }
         if (android.os.SystemClock.elapsedRealtime() - speechEndedAt > 2_500) return false
         val heardWords = words(text)
         if (heardWords.isEmpty()) return false

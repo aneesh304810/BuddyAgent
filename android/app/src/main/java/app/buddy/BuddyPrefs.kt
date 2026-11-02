@@ -38,6 +38,16 @@ class BuddyPrefs(context: Context) {
         set(value) = prefs.edit().putString("roomLanguage", value).apply()
 
     /** Talk mode: hear you through the earbud microphone instead of the phone's. */
+    /** Diagnostics: events and measurements (never audio or words) for finding what makes Buddy slow or deaf. */
+    var diagnostics: Boolean
+        get() = prefs.getBoolean("diagnostics", true)
+        set(value) = prefs.edit().putBoolean("diagnostics", value).apply()
+
+    /** True while the listening service runs: still true at its next start = Android stopped it. */
+    var serviceAlive: Boolean
+        get() = prefs.getBoolean("serviceAlive", false)
+        set(value) = prefs.edit().putBoolean("serviceAlive", value).apply()
+
     var earbudMic: Boolean
         get() = prefs.getBoolean("earbudMic", true)  // with earbuds in, hear you through them
         set(value) = prefs.edit().putBoolean("earbudMic", value).apply()

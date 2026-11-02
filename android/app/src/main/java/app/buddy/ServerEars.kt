@@ -103,6 +103,7 @@ class ServerEars(
         val minBuffer = AudioRecord.getMinBufferSize(RATE, AudioFormat.CHANNEL_IN_MONO, AudioFormat.ENCODING_PCM_16BIT)
         var recorder: AudioRecord? = runCatching { newRecorder(minBuffer) }.getOrNull()
         if (recorder == null || recorder.state != AudioRecord.STATE_INITIALIZED) {
+            Diag.event("mic", "recorder_failed", "mic" to if (earbudMic()) "headset" else "phone")
             main.post { onProblem("Couldn't open the microphone."); stop() }
             return
         }
@@ -118,6 +119,10 @@ class ServerEars(
         var speaking = false
         var silentMs = 0
         var speechMs = 0
+        var speechSq = 0.0  // diagnostics: this clip's loudness and peak
+        var speechFrames = 0
+        var peak = 0
+        var noiseAtStart = 300.0
         try {
             while (active && mine == generation) {
                 val n = recorder?.read(frame, 0, frame.size) ?: AudioRecord.ERROR_DEAD_OBJECT
@@ -125,6 +130,7 @@ class ServerEars(
                     // Another app or a call has the microphone (Android gives it to one app at a time):
                     // don't spin; wait, say so once, and reopen it when it's lost for good.
                     micErrors++
+                    if (micErrors == 15) Diag.event("mic", "busy", "error" to n)
                     if (micErrors == 15) main.post { onProblem("The microphone is busy (a call or another app " +
                         "is using it). I'll keep trying.") }
                     Thread.sleep(200)
@@ -164,6 +170,7 @@ class ServerEars(
                         speaking = true
                         silentMs = 0
                         speechMs = 0
+                        speechSq = 0.0; speechFrames = 0; peak = 0; noiseAtStart = noise
                         preRoll.forEach { utterance.write(it) }
                         preRoll.clear()
                         utterance.write(bytes)
@@ -175,10 +182,22 @@ class ServerEars(
                     continue
                 }
                 utterance.write(bytes)
+                if (loud) { speechSq += rms * rms; speechFrames++ }
+                for (i in 0 until n) { val a = kotlin.math.abs(frame[i].toInt()); if (a > peak) peak = a }
                 speechMs += FRAME_MS
                 silentMs = if (loud) 0 else silentMs + FRAME_MS
                 if (silentMs >= endSilenceMs() || speechMs >= MAX_UTTERANCE_MS) {
-                    if (speechMs - silentMs >= MIN_SPEECH_MS) sendUtterance(utterance.toByteArray())
+                    val voiceDb = Diag.db(if (speechFrames > 0) sqrt(speechSq / speechFrames) else rms)
+                    val noiseDb = Diag.db(noiseAtStart)
+                    val mic = if (earbudMic()) "headset" else "phone"
+                    if (speechMs - silentMs >= MIN_SPEECH_MS) {
+                        Diag.event("clip", "sent", "mic" to mic, "noise_db" to noiseDb, "speech_db" to voiceDb,
+                            "snr_db" to (voiceDb - noiseDb), "clipped" to (peak >= 32_000), "speech_ms" to (speechMs - silentMs),
+                            "vad" to (vad != null), "mode" to if (listen) "listen" else "talk")
+                        sendUtterance(utterance.toByteArray())
+                    } else {
+                        Diag.event("clip", "dropped", "reason" to "too_short", "mic" to mic, "speech_ms" to (speechMs - silentMs))
+                    }
                     utterance.reset()
                     speaking = false
                 }

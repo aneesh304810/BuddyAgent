@@ -54,7 +54,7 @@ from fastapi import Depends, FastAPI, Header, HTTPException, Request, WebSocket,
 from fastapi.staticfiles import StaticFiles
 
 from . import health as healthcheck
-from . import advisor, codejob, finance, plaid, travel, insights, thinking, makers, proactive, research, tutor, usage, vocabulary, voiceprint
+from . import advisor, codejob, diagnostics, finance, plaid, travel, insights, thinking, makers, proactive, research, tutor, usage, vocabulary, voiceprint
 from .agent import FILLERS, Conversation
 from .agents import AgentRegistry, load_specs
 from .ambient import AmbientListener, is_think_cue
@@ -849,6 +849,42 @@ async def plaid_exchange(body: dict) -> dict:
     return {"ok": True}
 
 
+# --- Diagnostics: experience health, setup test, export (diagnostics.py; BUDDY_DIAGNOSTICS=0 turns it off)
+@app.get("/api/diagnostics", dependencies=[Depends(require_admin)])
+def api_diagnostics(days: int = 7) -> dict:
+    since = (datetime.now(timezone.utc) - timedelta(days=max(1, min(days, 30)))).isoformat()
+    return diagnostics.health(memory, since)
+
+
+@app.get("/api/diagnostics/export", dependencies=[Depends(require_admin)])
+def api_diagnostics_export(days: int = 30, format: str = "csv"):
+    from fastapi.responses import Response
+
+    since = (datetime.now(timezone.utc) - timedelta(days=max(1, min(days, 30)))).isoformat()
+    body, kind = diagnostics.export(memory, since, "json" if format == "json" else "csv")
+    name = f"buddy-diagnostics-{datetime.now(timezone.utc):%Y%m%d}.{'json' if format == 'json' else 'csv'}"
+    return Response(body, media_type=kind, headers={"Content-Disposition": f'attachment; filename="{name}"'})
+
+
+@app.post("/api/diagnostics/stt", dependencies=[Depends(require_admin)])
+async def api_diagnostics_stt(body: dict) -> dict:
+    """'Test my setup': turn the test sentence into text and say how long it took (not kept)."""
+    started = time.monotonic()
+    meta: dict = {}
+    try:
+        text, lang = await speech_to_text.transcribe(base64.b64decode(str(body.get("pcm", ""))),
+                                                     str(body.get("lang", "")), "", mode="talk", meta=meta)
+    except speech_to_text.WhisperUnavailable as e:
+        raise HTTPException(status_code=503, detail=str(e)) from e
+    return {"text": text, "lang": lang, "ms": round((time.monotonic() - started) * 1000),
+            "engine": meta.get("engine", "local"), "confidence": meta.get("confidence")}
+
+
+@app.post("/api/diagnostics/test", dependencies=[Depends(require_admin)])
+def api_diagnostics_test(body: dict) -> dict:
+    return diagnostics.rate_test(memory, body)
+
+
 @app.get("/api/brain", dependencies=[Depends(require_admin)])
 def api_brain() -> dict:
     """What Buddy has learned about the user: preferences, dates it watches, questions waiting."""
@@ -909,6 +945,8 @@ async def talk(ws: WebSocket) -> None:
     await ws.accept()
     convo = Conversation(memory, registry, jobs, thrift, hub, finops, mail, watcher, builder)
     connections[ws] = convo
+    session_started = time.monotonic()
+    diagnostics.server_event(memory, "network", "phone_connected")
     with contextlib.suppress(Exception):  # the address the phone reaches Buddy at, for links like the Plaid page
         memory.set("server:base_url", _base_url(ws.headers))
     jobs.wake.set()  # results that finished while the phone was away go out now
@@ -1052,6 +1090,14 @@ async def talk(ws: WebSocket) -> None:
                 log.info("whisper: dropped an unsure %s clip (%.2f)", mode, meta.get("confidence") or 0)
                 heard = ""
             stt_ms = round((time.monotonic() - started) * 1000)
+            if msg.get("_got") and (started - msg["_got"]) > 0.3:  # diagnostics: waited behind other clips
+                diagnostics.server_event(memory, "server", "clip_queued", wait_ms=round((started - msg["_got"]) * 1000),
+                                         mode=mode)
+            diagnostics.server_event(memory, "speech", "stt", with_load=stt_ms > 1500, engine=meta.get("engine", "local"),
+                                     ms=stt_ms, confidence=meta.get("confidence"), lang=lang or "", mode=mode,
+                                     verdict=verdict or "", heard=bool(heard))
+            if meta.get("groq_skipped"):
+                diagnostics.server_event(memory, "speech", "groq_fallback", error=str(meta.get("groq_skipped"))[:40])
             if heard:
                 last_heard[0] = time.monotonic()
                 if verdict == "unsure":
@@ -1214,7 +1260,15 @@ async def talk(ws: WebSocket) -> None:
                     "DELETE FROM records WHERE source = 'phone_calendar' AND body LIKE ?", (f"[{device}]%",)
                 )
                 hub.ingest("phone_calendar", records)
+            elif msg.get("type") == "diag":  # the phone's diagnostics batch (no audio, no words)
+                if diagnostics.enabled():
+                    diagnostics.record_batch(memory, msg.get("events") or [])
+                else:
+                    await send({"type": "diag_off"})
+            elif msg.get("type") == "diag_ping":  # the phone times the round trip
+                await send({"type": "diag_pong", "t": msg.get("t")})
             elif msg.get("type") == "audio" and msg.get("pcm"):
+                msg["_got"] = time.monotonic()
                 # Speech recognition on this server (Whisper) runs beside the conversation, so the
                 # phone's other messages aren't held up. Room talk that's piling up is skipped
                 # (it's stale by then); what you say in Talk mode never is.
@@ -1248,6 +1302,8 @@ async def talk(ws: WebSocket) -> None:
     except WebSocketDisconnect as e:
         trace("·", {"type": "disconnected", "text": f"code {e.code}"})
     finally:
+        diagnostics.server_event(memory, "network", "phone_disconnected",
+                                 session_s=round(time.monotonic() - session_started))
         listener.stop()
         connections.pop(ws, None)
         await stop_current()

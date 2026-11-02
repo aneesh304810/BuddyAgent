@@ -174,11 +174,13 @@ class MainActivity : ComponentActivity() {
         BuddyService.instance?.claimEarbud() // opening Buddy takes the earbud button back from music apps
         Links.buddyInFront = true
         Links.resumed(this)
+        Diag.event("background", "app_foreground")
     }
 
     override fun onPause() {
         super.onPause()
         Links.buddyInFront = false
+        Diag.event("background", "app_background")
     }
 
     override fun onCreate(savedInstanceState: Bundle?) {
@@ -734,7 +736,17 @@ private fun SettingsPanel(
         if (granted) BuddyService.instance?.syncCalendar()
     }
 
+    var diagnosticsOn by remember { mutableStateOf(prefs.diagnostics) }
     Column(Modifier.verticalScroll(rememberScrollState()), verticalArrangement = Arrangement.spacedBy(12.dp)) {
+        SetupTestCard(prefs.link)
+        Row(verticalAlignment = Alignment.CenterVertically) {
+            Column(Modifier.weight(1f)) {
+                Text("Collect diagnostics", color = Color.White)
+                Text("Mic levels, connection, background and timing events (never audio or words) for Insights → " +
+                    "Experience health. Kept 30 days.", color = Muted, fontSize = 12.sp)
+            }
+            Switch(checked = diagnosticsOn, onCheckedChange = { diagnosticsOn = it; prefs.diagnostics = it })
+        }
         Text("Your server", color = Color.White, fontSize = 18.sp)
         Text(
             "Paste the link the server setup printed, like https://buddy.your-tailnet.ts.net/?token=… " +

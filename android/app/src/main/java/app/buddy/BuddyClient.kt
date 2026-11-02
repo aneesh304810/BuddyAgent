@@ -40,6 +40,8 @@ sealed interface ServerEvent {
     data class Form(val action: String, val id: String, val fills: String?) : ServerEvent
     /** You paused mid-sentence: Buddy is waiting for the rest. */
     data object Waiting : ServerEvent
+    data class DiagPong(val t: Long) : ServerEvent  // diagnostics: the round trip to the server
+    data object DiagOff : ServerEvent  // the server has diagnostics switched off
 
     companion object {
         fun parse(raw: String): ServerEvent? = runCatching {
@@ -65,6 +67,8 @@ sealed interface ServerEvent {
                 "speech_limit" -> SpeechLimit(msg.optLong("seconds", 600L))
                 "mode" -> SwitchMode(msg.optString("mode"))
                 "waiting" -> Waiting
+                "diag_pong" -> DiagPong(msg.optLong("t"))
+                "diag_off" -> DiagOff
                 "form" -> Form(msg.optString("action"), msg.optString("id"), msg.optJSONArray("fills")?.toString())
                 "open" -> msg.getJSONArray("links").let { a ->
                     OpenLinks((0 until a.length()).map { a.getJSONObject(it) }.map {

@@ -2,4 +2,5 @@
 <!-- Only the library folder in the app's cache is shared, and only with the app you open a file in. -->
 <paths>
     <cache-path name="library" path="library/" />
+    <cache-path name="diagnostics" path="diagnostics/" />
 </paths>

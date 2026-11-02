@@ -262,6 +262,12 @@ fun InsightsScreen(link: ServerLink?) {
             ModelTokens(m, picked = purpose) { p -> purpose = if (purpose == p) "" else p; model = "" }
         }
 
+        val experience = d.optJSONObject("experience")
+        if (experience != null && experience.optBoolean("on", true)) {
+            item { Heading("Experience health") }
+            item { ExperienceHealth(experience, link) }
+        }
+
         val voice = d.optJSONObject("voice")
         if (voice != null && voice.optInt("utterances") > 0) {
             item { Heading("Voice: from your last word to Buddy's first") }
@@ -526,6 +532,103 @@ private fun HealthCard(data: JSONObject?, checking: Boolean, onRun: () -> Unit) 
                     color = Bright, fontSize = 12.sp, fontFamily = FontFamily.Monospace)
             }
         }
+    }
+}
+
+/** Diagnostics: microphone, background, network and server, the tips they lead to, and the slowest moments. */
+@Composable
+private fun ExperienceHealth(h: JSONObject, link: ServerLink?) {
+    val warn = Color(0xFFFFC46B)
+    val context = androidx.compose.ui.platform.LocalContext.current
+    val scope = rememberCoroutineScope()
+    var shareProblem by remember { mutableStateOf<String?>(null) }
+    fun ms(v: Double) = if (v.isNaN()) "–" else if (v >= 1000) "%.1f s".format(v / 1000) else "%.0f ms".format(v)
+    Column(Modifier.fillMaxWidth().background(Card, RoundedCornerShape(12.dp)).padding(12.dp),
+        verticalArrangement = Arrangement.spacedBy(6.dp)) {
+        val tips = h.optJSONArray("tips")
+        if (tips != null && tips.length() > 0) {
+            for (i in 0 until tips.length()) Text("⚠ ${tips.getString(i)}", color = warn, fontSize = 13.sp)
+        } else {
+            Text("✓ Nothing stands out in this period (${h.optInt("events")} events).", color = Color(0xFF7BE0A5), fontSize = 13.sp)
+        }
+        val mic = h.optJSONObject("microphone")
+        val byMic = mic?.optJSONObject("by_mic")
+        if (byMic != null && byMic.length() > 0) {
+            Text("Microphone", color = Color.White, fontSize = 14.sp, fontWeight = FontWeight.SemiBold)
+            byMic.keys().forEach { m ->
+                val x = byMic.getJSONObject(m)
+                Text("$m: voice ${x.optDouble("snr_db").let { if (it.isNaN()) "–" else "%.0f".format(it) }} dB over background · " +
+                    "${x.optInt("low_snr_pct")}% noisy · ${x.optInt("clipped_pct")}% distorted · ${x.optInt("clips")} clips",
+                    color = Bright, fontSize = 12.sp)
+            }
+            val dropped = mic.optJSONObject("dropped_clips")
+            if (dropped != null && dropped.length() > 0) Text("Thrown away: " + dropped.keys().asSequence()
+                .joinToString { "${it.replace('_', ' ')} ${dropped.optInt(it)}" }, color = Dim, fontSize = 12.sp)
+            val ev = mic.optJSONObject("events")
+            if (ev != null && ev.length() > 0) Text("Mic events: " + ev.keys().asSequence()
+                .joinToString { "${it.replace('_', ' ')} ${ev.optInt(it)}" }, color = Dim, fontSize = 12.sp)
+        }
+        h.optJSONObject("network")?.let { n ->
+            Text("Network", color = Color.White, fontSize = 14.sp, fontWeight = FontWeight.SemiBold)
+            Text("Ping ${ms(n.optDouble("ping_ms"))} (slow ${ms(n.optDouble("ping_p95_ms"))}) · ${n.optInt("disconnects")} drops " +
+                "(${n.optDouble("disconnects_per_day")}/day) · back in ${ms(n.optDouble("reconnect_ms"))}", color = Bright, fontSize = 12.sp)
+        }
+        h.optJSONObject("background")?.let { b ->
+            val ev = b.optJSONObject("events")
+            if (ev != null && ev.length() > 0) {
+                Text("Background", color = Color.White, fontSize = 14.sp, fontWeight = FontWeight.SemiBold)
+                Text(ev.keys().asSequence().joinToString { "${it.replace('_', ' ')} ${ev.optInt(it)}" } +
+                    (if (!b.isNull("battery_saver_pct")) " · battery saver ${b.optInt("battery_saver_pct")}% of the time" else ""),
+                    color = Bright, fontSize = 12.sp)
+            }
+        }
+        h.optJSONObject("speech")?.let { sp ->
+            val eng = sp.optJSONObject("engines")
+            if (eng != null && eng.length() > 0) {
+                Text("Speech to text", color = Color.White, fontSize = 14.sp, fontWeight = FontWeight.SemiBold)
+                Text(eng.keys().asSequence().joinToString(" · ") { e ->
+                    val x = eng.getJSONObject(e); "$e ${ms(x.optDouble("ms"))} (slow ${ms(x.optDouble("p95_ms"))}, ${x.optInt("clips")}×)"
+                }, color = Bright, fontSize = 12.sp)
+            }
+            val err = sp.optJSONObject("errors")
+            if (err != null && err.length() > 0) Text(err.keys().asSequence().joinToString { "$it ${err.optInt(it)}" },
+                color = Dim, fontSize = 12.sp)
+        }
+        h.optJSONObject("server")?.let { sv ->
+            if (sv.optInt("slow_replies") > 0) {
+                Text("Server", color = Color.White, fontSize = 14.sp, fontWeight = FontWeight.SemiBold)
+                Text("${sv.optInt("slow_replies")} slow replies, ${sv.optInt("slow_while_busy")} while the server was busy",
+                    color = Bright, fontSize = 12.sp)
+            }
+        }
+        val slow = h.optJSONArray("slowest")?.objects().orEmpty()
+        if (slow.isNotEmpty()) {
+            Text("Slowest moments", color = Color.White, fontSize = 14.sp, fontWeight = FontWeight.SemiBold)
+            slow.take(10).forEach { m ->
+                val st = m.optJSONObject("steps") ?: JSONObject()
+                val parts = listOf("pause" to "pause", "network" to "net", "speech_to_text" to "stt", "to_buddy" to "to Buddy",
+                    "first_word" to "answer").filter { !st.isNull(it.first) }
+                    .joinToString(" + ") { "${it.second} ${ms(st.optDouble(it.first))}" }
+                val extra = listOfNotNull(m.optString("engine").takeIf { it.isNotBlank() },
+                    m.optString("mic").takeIf { it.isNotBlank() && it != "null" },
+                    if (!m.isNull("snr_db")) "voice ${"%.0f".format(m.optDouble("snr_db"))} dB" else null,
+                    if (!m.isNull("server_load")) "server load ${m.optDouble("server_load")}" else null,
+                    if (!m.isNull("ping_ms")) "ping ${ms(m.optDouble("ping_ms"))}" else null).joinToString(" · ")
+                Text((if (m.optString("missed").isNotBlank()) "✗ missed (${m.optString("missed")})" else "⏱ ${ms(m.optDouble("total_ms"))}") +
+                    " · ${m.optString("at").take(16).replace('T', ' ')} UTC", color = if (m.optString("missed").isNotBlank()) warn else Bright,
+                    fontSize = 12.sp)
+                if (parts.isNotBlank()) Text("   $parts", color = Dim, fontSize = 11.sp)
+                if (extra.isNotBlank()) Text("   $extra", color = Dim, fontSize = 11.sp)
+            }
+        }
+        Row(horizontalArrangement = Arrangement.spacedBy(8.dp)) {
+            listOf("csv" to "Export CSV", "json" to "Export JSON").forEach { (f, label) ->
+                androidx.compose.material3.OutlinedButton(enabled = link != null, onClick = {
+                    scope.launch { runCatching { DiagApi.share(context, link!!, f) }.onFailure { shareProblem = it.message } }
+                }) { Text(label) }
+            }
+        }
+        shareProblem?.let { Text("Couldn't export: $it", color = warn, fontSize = 12.sp) }
     }
 }
 

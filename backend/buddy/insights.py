@@ -103,6 +103,15 @@ def _group(rows: list[dict], key) -> list[dict]:
     return sorted(out, key=lambda g: (-g["cost_usd"], -g["requests"]))
 
 
+def _experience(memory: Memory, since: str) -> dict | None:
+    from . import diagnostics
+
+    try:
+        return diagnostics.health(memory, since) if diagnostics.enabled() else {"on": False}
+    except Exception:
+        return None
+
+
 def _apis(memory: Memory, since: str) -> dict:
     """Outside APIs (travel sources, review checks): calls, failures, cost; SerpApi's searches left."""
     from . import travel
@@ -407,6 +416,7 @@ def report(memory: Memory, days: int = 7, recent: int = 60, model: str = "", pur
         "web": webread.web_overview(memory),
         "speech": speech_overview(memory),
         "voice": voice_overview(memory, since),
+        "experience": _experience(memory, since),
         "data_tools": data_tools_overview(memory),
         "by_model": by_model,
         "by_purpose": by_purpose,

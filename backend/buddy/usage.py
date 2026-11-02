@@ -109,6 +109,12 @@ def log_turn(memory: Memory, *, turn: str, via: str, first_model: str, final_mod
     )
     memory.db.execute("DELETE FROM turns WHERE at < ?", ((now - timedelta(days=KEEP_CALLS_DAYS)).isoformat(),))
     memory.db.commit()
+    if (first_word or 0) * 1000 >= 4000 or outcome not in ("ok", "interrupted"):  # diagnostics: slow or failed
+        from . import diagnostics
+
+        diagnostics.server_event(memory, "server", "slow_reply", with_load=True,
+                                 first_word_ms=round((first_word or 0) * 1000), total_ms=round(total * 1000),
+                                 model=final_model[:30], rounds=rounds, tools=len(tools), outcome=outcome[:30], via=via)
 
 
 def log_tool(memory: Memory, tool: str, seconds: float, ok: bool, error: str = "") -> None:
