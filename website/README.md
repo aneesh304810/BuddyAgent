@@ -1,6 +1,6 @@
 # Company website
 
-A static site with no build step. The pages are Home, Buddy, Security, Privacy, Terms, Contact and 404.
+The public website for Buddy Labs and its first product, Buddy. A static site with no build step. The pages are Home, Buddy, Security, Privacy, Terms, Contact and 404.
 To have Claude change or rebuild it, use [CLAUDE_BUILD_INSTRUCTIONS.md](CLAUDE_BUILD_INSTRUCTIONS.md).
 
 ## Change the company name or email
@@ -26,7 +26,9 @@ bash website/rename.sh "Your Company Name" hello@yourdomain.com
 Other hosts that also work: Netlify (drag and drop the `website` folder) and GitHub Pages (needs a
 public repo, or a paid plan for a private one).
 
-## Then in the Plaid dashboard
+## Using the site elsewhere (Plaid and other services)
+
+The privacy and terms pages also serve services that ask for them, such as Plaid:
 
 - **Settings → Company profile**: company name, website `https://yourdomain.com`, and the legal
   entity if you form one.

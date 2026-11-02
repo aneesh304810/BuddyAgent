@@ -54,3 +54,6 @@ tr:last-child td { border-bottom: 0; }
 footer.site { border-top: 1px solid var(--line); padding: 28px 0 40px; color: var(--muted); font-size: 14px; }
 footer.site .wrap { display: flex; justify-content: space-between; gap: 16px; flex-wrap: wrap; }
 footer.site a { color: var(--muted); }
+table.compare td:first-child { font-weight: 600; white-space: nowrap; }
+table.compare td:last-child { color: var(--text); background: var(--brand-soft); }
+html { scroll-behavior: smooth; }
