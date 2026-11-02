@@ -859,7 +859,9 @@ class Travel:
         if rows:
             self.memory.db.executemany("INSERT INTO travel_prices (route, day, source, price, currency, seen_at) "
                                        "VALUES (?, ?, ?, ?, ?, ?)", rows)
-            self.memory.db.commit()
+        self.memory.db.execute("DELETE FROM travel_prices WHERE seen_at < ?",  # the privacy policy says 3 years
+                               ((datetime.now(timezone.utc) - timedelta(days=3 * 365)).isoformat(),))
+        self.memory.db.commit()
 
     def _history(self, route: str, day: str, currency: str, prices: list[float]) -> dict:
         db = self.memory.db
