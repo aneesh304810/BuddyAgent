@@ -36,7 +36,6 @@ import androidx.compose.ui.text.withLink
 import androidx.compose.ui.text.withStyle
 import androidx.compose.animation.animateColorAsState
 import androidx.compose.foundation.background
-import androidx.compose.foundation.horizontalScroll
 import androidx.compose.foundation.clickable
 import androidx.compose.foundation.layout.Arrangement
 import androidx.compose.foundation.layout.Box
@@ -315,7 +314,19 @@ private fun BuddyScreen(
             )
             Spacer(Modifier.size(6.dp))
             Text(ui.connection, color = Muted, fontSize = 13.sp, modifier = Modifier.weight(1f))
-            if (screen != Screen.Talk) {
+            if (screen == Screen.Talk) {
+                var menuOpen by remember { mutableStateOf(false) }
+                Box {
+                    TextButton(onClick = { menuOpen = true }) { Text("☰", fontSize = 24.sp, color = Color.White) }
+                    DropdownMenu(expanded = menuOpen, onDismissRequest = { menuOpen = false }) {
+                        listOf("✈  Travel" to Screen.Travel, "💳  Money" to Screen.Money, "📎  Library" to Screen.Library,
+                            "📊  Insights" to Screen.Insights, "📄  Reports" to Screen.Reports, "⚙  Settings" to Screen.Settings)
+                            .forEach { (label, target) ->
+                                DropdownMenuItem(text = { Text(label) }, onClick = { menuOpen = false; onNavigate(target) })
+                            }
+                    }
+                }
+            } else {
                 TextButton(onClick = {
                     onNavigate(when (screen) {
                         is Screen.Report -> Screen.Reports
@@ -323,14 +334,6 @@ private fun BuddyScreen(
                         else -> Screen.Talk
                     })
                 }) { Text("Back") }
-            }
-        }
-        if (screen == Screen.Talk) {
-            // Scrolls sideways on the narrow outer screen.
-            Row(Modifier.fillMaxWidth().horizontalScroll(rememberScrollState())) {
-                listOf("Travel" to Screen.Travel, "Money" to Screen.Money, "Library" to Screen.Library,
-                    "Insights" to Screen.Insights, "Reports" to Screen.Reports, "Settings" to Screen.Settings)
-                    .forEach { (label, target) -> TextButton(onClick = { onNavigate(target) }) { Text(label) } }
             }
         }
 
