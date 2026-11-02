@@ -405,6 +405,12 @@ async def nightly(memory: Memory, brain: Brain | None = None) -> dict:
             memory.set(FACT_MARK_KEY, str(top))  # what the night itself saved isn't news tomorrow
         news += schedule_dates(memory, found.get("dates", []))
     news += learn_from_choices(brain)
+    try:  # travel prices older than 90 days become patterns, even on days with no searches
+        from .travel import Travel
+
+        report["travel_prices_rolled"] = Travel(memory).roll_up()
+    except Exception:
+        log.exception("travel roll-up failed")
     report["news"] = news
     if news:
         old = json.loads(memory.get(NEWS_KEY) or "[]")

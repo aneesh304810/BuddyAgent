@@ -60,6 +60,21 @@ CREATE TABLE IF NOT EXISTS travel_prices (  -- every price seen, for "below the 
     seen_at TEXT NOT NULL
 );
 CREATE INDEX IF NOT EXISTS travel_prices_route ON travel_prices (route, currency);
+CREATE TABLE IF NOT EXISTS travel_patterns (  -- what prices are like, without keeping every price
+    route TEXT NOT NULL,
+    month INTEGER NOT NULL,            -- travel month 1-12
+    lead TEXT NOT NULL,                -- how far ahead it was priced: 0-7, 8-21, 22-60, 61-120, 120+
+    weekday INTEGER NOT NULL,          -- travel weekday, 0 = Monday
+    currency TEXT NOT NULL,
+    n REAL NOT NULL,                   -- weighted count (old prices fade: half weight after a year)
+    mean REAL NOT NULL,
+    m2 REAL NOT NULL,                  -- for the spread (Welford)
+    low REAL NOT NULL,
+    high REAL NOT NULL,
+    hist TEXT NOT NULL,                -- {band: weight}, bands 10% apart, for "cheaper than X% of prices"
+    updated_at TEXT NOT NULL,
+    PRIMARY KEY (route, month, lead, weekday, currency)
+);
 CREATE TABLE IF NOT EXISTS api_calls (      -- outside APIs (not AI models): for Insights
     id INTEGER PRIMARY KEY,
     at TEXT NOT NULL,
@@ -75,7 +90,13 @@ CREATE INDEX IF NOT EXISTS api_calls_at ON api_calls (at);
 """
 
 PROFILE_KEY = "travel:profile"
-LEARNED_KEY = "travel:learned"     # what the user's own choices say they value
+LEARNED_KEY = "travel:learned"
+RAW_DAYS = 90                      # raw prices kept this long, then rolled into travel_patterns
+HALF_LIFE_DAYS = 365               # a pattern's old prices count half after this long
+LEADS = ((0, 7, "0-7"), (8, 21, "8-21"), (22, 60, "22-60"), (61, 120, "61-120"), (121, 10 ** 5, "120+"))
+WEEKDAYS = ("Mondays", "Tuesdays", "Wednesdays", "Thursdays", "Fridays", "Saturdays", "Sundays")
+MONTHS = ("January", "February", "March", "April", "May", "June", "July", "August", "September", "October",
+          "November", "December")     # what the user's own choices say they value
 DEFAULT_PROFILE = {"checked_bags": 0, "carry_on": True, "seat": "any", "cabin": "economy", "max_stops": 2,
                    "free_cancellation": False, "currency": "USD", "nearby_airports": True, "flexible_days": 3}
 # What a fee the source doesn't price usually costs (USD, per flight direction): marked "estimate".
@@ -469,6 +490,66 @@ class Travelpayouts:
         return out
 
 
+# --- price patterns ------------------------------------------------------------------------------------
+import math as _math
+
+
+def _band(price: float) -> int:
+    return int(_math.floor(_math.log(max(price, 1.0)) / _math.log(1.1)))
+
+
+def _lead(days: int) -> str:
+    return next(name for lo, hi, name in LEADS if lo <= max(days, 0) <= hi)
+
+
+class Summary:
+    """Count, mean, spread, low, high and a banded histogram, mergeable (so raw prices can be dropped)."""
+
+    def __init__(self, n=0.0, mean=0.0, m2=0.0, low=float("inf"), high=0.0, hist=None):
+        self.n, self.mean, self.m2, self.low, self.high = n, mean, m2, low, high
+        self.hist = dict(hist or {})
+
+    def add(self, price: float, weight: float = 1.0) -> None:
+        self.merge(Summary(weight, price, 0.0, price, price, {str(_band(price)): weight}))
+
+    def merge(self, o: "Summary") -> None:
+        if o.n <= 0:
+            return
+        n = self.n + o.n
+        delta = o.mean - self.mean
+        self.mean += delta * o.n / n
+        self.m2 += o.m2 + delta * delta * self.n * o.n / n
+        self.n = n
+        self.low, self.high = min(self.low, o.low), max(self.high, o.high)
+        for k, v in o.hist.items():
+            self.hist[k] = self.hist.get(k, 0.0) + v
+
+    def fade(self, factor: float) -> None:
+        self.n *= factor
+        self.m2 *= factor
+        self.hist = {k: v * factor for k, v in self.hist.items() if v * factor > 1e-3}
+
+    def share_below(self, price: float) -> float | None:
+        """Share of prices seen that were higher than this one (0-1)."""
+        total = sum(self.hist.values())
+        if total <= 0:
+            return None
+        b = _band(price)
+        above = sum(v for k, v in self.hist.items() if int(k) > b) + 0.5 * self.hist.get(str(b), 0.0)
+        return above / total
+
+    def quantile(self, q: float) -> float | None:
+        total = sum(self.hist.values())
+        if total <= 0:
+            return None
+        acc = 0.0
+        for k in sorted(self.hist, key=int):
+            acc += self.hist[k]
+            if acc >= q * total:
+                return round(1.1 ** (int(k) + 0.5), 2)
+        return round(self.high, 2)
+
+
 # --- the engine -----------------------------------------------------------------------------------------
 class Travel:
     def __init__(self, memory: Memory, env=None, http=None):
@@ -543,6 +624,11 @@ class Travel:
         insight.pop("history", None)
         cheapest_dates = sorted(dates, key=lambda d: d["price"])[:8]
         advice = flight_advice(ranked, q, insight, history, dates, profile)
+        result_pattern: dict = {}
+        pick = min((o for o in ranked if not o.get("test")), key=lambda o: o["true_total"], default=None)
+        if pick:
+            result_pattern = self.pattern(route, q["depart"], q["currency"], pick["true_total"])
+            advice[:0] = pattern_advice(result_pattern, pick["true_total"], q["currency"], q["depart"])
         if learned["hour_value"]:
             advice.append(f"Ranked with what your past choices show: you usually pay about "
                           f"{learned['hour_value']:.0f} {q['currency']} to save an hour.")
@@ -552,6 +638,7 @@ class Travel:
             if mine and mine[0] is not ranked[0]:
                 advice.append(f"You often fly {fav}: their best here is {_money(mine[0]['true_total'], q['currency'])}.")
         result = {"offers": ranked, "advice": advice, "google_price_insight": insight, "history": history,
+                  "pattern": result_pattern,
                   "cheapest_dates": cheapest_dates, "problems": problems, "profile": profile,
                   "links": {"google": google_flights_link(q["origin"], q["destination"], q["depart"], q["return"]),
                             "kayak": kayak_link(q["origin"], q["destination"], q["depart"], q["return"], q["adults"])},
@@ -670,7 +757,13 @@ class Travel:
                                 [o["true_total"] / o["nights"] for o in ranked])
         self._keep(f"hotels:{place.lower()}", q["check_in"], q["currency"],
                    [{**o, "true_total": o["true_total"] / o["nights"]} for o in ranked], [])
-        result = {"offers": ranked, "advice": hotel_advice(ranked, history), "history": history, "problems": [],
+        advice = hotel_advice(ranked, history)
+        pat = {}
+        if ranked:
+            cheap = min(ranked, key=lambda o: o["true_total"])
+            pat = self.pattern(f"hotels:{place.lower()}", q["check_in"], q["currency"], cheap["true_total"] / cheap["nights"])
+            advice[:0] = pattern_advice(pat, cheap["true_total"] / cheap["nights"], q["currency"], q["check_in"], " a night")
+        result = {"offers": ranked, "advice": advice, "pattern": pat, "history": history, "problems": [],
                   "profile": profile, "links": {"google": ranked[0]["google_link"] if ranked else ""}}
         result["search_id"] = self._save("hotels", q, f"{place}, {q['check_in']} – {q['check_out']}", result)
         return result
@@ -859,9 +952,100 @@ class Travel:
         if rows:
             self.memory.db.executemany("INSERT INTO travel_prices (route, day, source, price, currency, seen_at) "
                                        "VALUES (?, ?, ?, ?, ?, ?)", rows)
-        self.memory.db.execute("DELETE FROM travel_prices WHERE seen_at < ?",  # the privacy policy says 3 years
-                               ((datetime.now(timezone.utc) - timedelta(days=3 * 365)).isoformat(),))
         self.memory.db.commit()
+        self.roll_up()
+
+    # --- patterns ---
+    def roll_up(self) -> int:
+        """Raw prices older than 90 days go into the patterns, then are deleted (the privacy policy says 90 days)."""
+        db = self.memory.db
+        cutoff = (datetime.now(timezone.utc) - timedelta(days=RAW_DAYS)).isoformat()
+        rows = db.execute("SELECT route, day, source, price, currency, seen_at FROM travel_prices WHERE seen_at < ? "
+                          "AND source != 'best'", (cutoff,)).fetchall()
+        groups: dict[tuple, Summary] = {}
+        for r in rows:
+            key = self._pattern_key(r["route"], r["day"], r["seen_at"], r["currency"])
+            if key:
+                groups.setdefault(key, Summary()).add(r["price"])
+        now = datetime.now(timezone.utc)
+        for key, new in groups.items():
+            old = db.execute("SELECT * FROM travel_patterns WHERE route = ? AND month = ? AND lead = ? AND weekday = ? "
+                             "AND currency = ?", key).fetchone()
+            summary = new
+            if old:
+                summary = Summary(old["n"], old["mean"], old["m2"], old["low"], old["high"], json.loads(old["hist"]))
+                age = (now - datetime.fromisoformat(old["updated_at"])).days
+                summary.fade(0.5 ** (age / HALF_LIFE_DAYS))
+                summary.merge(new)
+            db.execute("INSERT OR REPLACE INTO travel_patterns (route, month, lead, weekday, currency, n, mean, m2, low, "
+                       "high, hist, updated_at) VALUES (?,?,?,?,?,?,?,?,?,?,?,?)",
+                       (*key, round(summary.n, 4), round(summary.mean, 2), round(summary.m2, 2), round(summary.low, 2),
+                        round(summary.high, 2), json.dumps({k: round(v, 4) for k, v in summary.hist.items()}),
+                        now.isoformat()))
+        db.execute("DELETE FROM travel_prices WHERE seen_at < ?", (cutoff,))
+        db.commit()
+        return len(rows)
+
+    @staticmethod
+    def _pattern_key(route: str, day: str, seen_at: str, currency: str) -> tuple | None:
+        try:
+            travel = date.fromisoformat(day[:10])
+            seen = datetime.fromisoformat(seen_at).date()
+        except ValueError:
+            return None
+        return route, travel.month, _lead((travel - seen).days), travel.weekday(), currency
+
+    def pattern(self, route: str, travel_day: str, currency: str, price: float | None = None) -> dict:
+        """What prices on this route are like: the patterns plus the last 90 days of raw prices."""
+        db = self.memory.db
+        cells: list[tuple[tuple, Summary]] = []
+        for p in db.execute("SELECT * FROM travel_patterns WHERE route = ? AND currency = ?", (route, currency)):
+            cells.append(((p["month"], p["lead"], p["weekday"]),
+                          Summary(p["n"], p["mean"], p["m2"], p["low"], p["high"], json.loads(p["hist"]))))
+        for r in db.execute("SELECT day, price, seen_at FROM travel_prices WHERE route = ? AND currency = ? AND "
+                            "source != 'best'", (route, currency)):
+            key = self._pattern_key(route, r["day"], r["seen_at"], currency)
+            if key:
+                one = Summary()
+                one.add(r["price"])
+                cells.append(((key[1], key[2], key[3]), one))
+        if not cells:
+            return {"seen": 0}
+        try:
+            month = date.fromisoformat(travel_day[:10]).month
+        except ValueError:
+            month = 0
+
+        def combine(pick) -> Summary:
+            total = Summary()
+            for k, sm in cells:
+                if pick(k):
+                    total.merge(sm)
+            return total
+        this_month = combine(lambda k: k[0] == month)
+        base = this_month if this_month.n >= 8 else combine(lambda k: True)
+        out = {"seen": round(base.n), "for": MONTHS[month - 1] if base is this_month and month else "all months",
+               "typical": [base.quantile(0.25), base.quantile(0.75)], "low": round(base.low, 2),
+               "average": round(base.mean, 2)}
+        if price:
+            share = base.share_below(price)
+            if share is not None:
+                out["cheaper_than_percent"] = round(100 * share)
+        by_lead = {name: combine(lambda k, name=name: k[1] == name and (k[0] == month or base is not this_month))
+                   for _, _, name in LEADS}
+        leads = {k: round(v.mean, 2) for k, v in by_lead.items() if v.n >= 3}
+        if len(leads) >= 2:
+            out["by_lead"] = leads
+            out["best_lead"] = min(leads, key=leads.get)
+        days = {WEEKDAYS[i]: combine(lambda k, i=i: k[2] == i) for i in range(7)}
+        days = {k: round(v.mean, 2) for k, v in days.items() if v.n >= 3}
+        if len(days) >= 2:
+            out["by_weekday"] = days
+        months = {MONTHS[m - 1]: combine(lambda k, m=m: k[0] == m) for m in range(1, 13)}
+        months = {k: round(v.mean, 2) for k, v in months.items() if v.n >= 3}
+        if len(months) >= 2:
+            out["by_month"] = months
+        return out
 
     def _history(self, route: str, day: str, currency: str, prices: list[float]) -> dict:
         db = self.memory.db
@@ -884,6 +1068,41 @@ class Travel:
 
 def _money(v: float, cur: str) -> str:
     return f"{v:,.0f} {cur}"
+
+
+def pattern_advice(p: dict, price: float, cur: str, travel_day: str, what: str = "") -> list[str]:
+    """Plain-language lessons from the price patterns, once there's enough data."""
+    if p.get("seen", 0) < 8:
+        return []
+    out = []
+    if "cheaper_than_percent" in p:
+        pct = p["cheaper_than_percent"]
+        verdict = "a good price" if pct >= 70 else "an average price" if pct >= 35 else "on the high side"
+        out.append(f"{_money(price, cur)}{what} is {verdict}: cheaper than {pct}% of prices Buddy has seen for "
+                   f"{p['for']} (typical {_money(p['typical'][0] or 0, cur)}–{_money(p['typical'][1] or 0, cur)}).")
+    if p.get("best_lead"):
+        try:
+            lead_now = (date.fromisoformat(travel_day[:10]) - date.today()).days
+        except ValueError:
+            lead_now = -1
+        best = p["best_lead"]
+        if lead_now >= 0 and _lead(lead_now) != best:
+            out.append(f"On this route prices have been lowest when booked {best} days ahead; you're {lead_now} days out.")
+    days = p.get("by_weekday") or {}
+    if len(days) >= 3:
+        lo, hi = min(days, key=days.get), max(days, key=days.get)
+        if days[hi] and days[lo] < days[hi] * 0.92:
+            out.append(f"{lo} have been about {round(100 * (1 - days[lo] / days[hi]))}% cheaper than {hi}.")
+    months = p.get("by_month") or {}
+    if len(months) >= 3:
+        lo = min(months, key=months.get)
+        try:
+            mine = MONTHS[date.fromisoformat(travel_day[:10]).month - 1]
+        except ValueError:
+            mine = ""
+        if mine in months and lo != mine and months[lo] < months[mine] * 0.9:
+            out.append(f"{lo} has been about {round(100 * (1 - months[lo] / months[mine]))}% cheaper than {mine}.")
+    return out
 
 
 def flight_advice(offers: list[dict], q: dict, insight: dict, history: dict, dates: list[dict],
@@ -1114,7 +1333,9 @@ TRAVEL_TOOL = {
     "optional return, adults), hotels (place, check_in, check_out, adults), cheapest_dates (origin, destination, "
     "month YYYY-MM), refresh (search_id, offer_id: re-check a price), profile (show) / set_profile (checked_bags, "
     "carry_on, seat, cabin, max_stops, free_cancellation, currency, nearby_airports, flexible_days), chose (search_id, "
-    "offer_id: the user booked or picked this one; Buddy learns what they trade for what). Results show in the app's Travel screen with links "
+    "offer_id: the user booked or picked this one; Buddy learns what they trade for what), price_pattern (origin + "
+    "destination, or place for hotels, and a date: what prices are usually like, when to book, cheaper weekdays and "
+    "months, from Buddy's own records). Results show in the app's Travel screen with links "
     "to book; you never book. Think like an experienced travel agent who works for the user: use 'advice' (the trade-offs "
     "worked out: headline traps, what flexibility or a nonstop costs, nearby airports, cheaper nearby dates, same "
     "flight cheaper elsewhere, how today's price compares) to recommend ONE option clearly with the reason, then the "
@@ -1122,7 +1343,7 @@ TRAVEL_TOOL = {
     "change? is the bag needed?), ask. Ask the user's travel style once (bags, seat) if the profile is still the default.",
     "input_schema": {"type": "object", "properties": {
         "action": {"type": "string", "enum": ["flights", "hotels", "cheapest_dates", "refresh", "profile", "set_profile",
-                                              "chose"]},
+                                              "chose", "price_pattern"]},
         "origin": {"type": "string"}, "destination": {"type": "string"}, "depart": {"type": "string"},
         "return": {"type": "string"}, "adults": {"type": "integer"}, "place": {"type": "string"},
         "check_in": {"type": "string"}, "check_out": {"type": "string"}, "month": {"type": "string"},
@@ -1151,6 +1372,11 @@ async def run_tool(travel: Travel, args: dict) -> str:
     a = args.get("action")
     if a == "profile":
         return json.dumps({"profile": travel.profile(), "learned": travel.learned(), "sources": travel.sources()})
+    if a == "price_pattern":
+        route = f"hotels:{str(args.get('place', '')).strip().lower()}" if args.get("place") else \
+            f"{_iata(args.get('origin', ''))}-{_iata(args.get('destination', ''))}"
+        day = str(args.get("depart") or args.get("check_in") or date.today().isoformat())
+        return json.dumps(travel.pattern(route, day, travel.profile()["currency"]))
     if a == "chose":
         return json.dumps(travel.chose(str(args.get("search_id", "")), str(args.get("offer_id", "")), "told"))
     if a == "set_profile":

@@ -276,5 +276,32 @@ def test_every_price_and_googles_history_are_kept(mem):
     t, fake = make(mem)
     asyncio.run(t.flights("MIA", "LIM", "2026-12-10"))
     sources = {r["source"] for r in mem.db.execute("SELECT source FROM travel_prices WHERE route = 'MIA-LIM'")}
-    assert "google_history" in sources and any(s.startswith("duffel:") for s in sources) and "best" in sources
-    assert mem.db.execute("SELECT COUNT(*) FROM travel_prices WHERE source = 'google_history'").fetchone()[0] == 3
+    assert any(s.startswith("duffel:") for s in sources) and "best" in sources
+    # Google's history points are a year old: already rolled into patterns, raw rows gone (90 days)
+    assert mem.db.execute("SELECT COUNT(*) FROM travel_prices WHERE source = 'google_history'").fetchone()[0] == 0
+    assert mem.db.execute("SELECT SUM(n) FROM travel_patterns WHERE route = 'MIA-LIM'").fetchone()[0] == 3
+
+
+def test_patterns_answer_good_price_when_to_book_and_cheaper_days(mem):
+    from datetime import date, datetime, timedelta, timezone
+    t, fake = make(mem)
+    now = datetime.now(timezone.utc)
+    rows = []
+    for week in range(30):  # 30 weeks of old prices: cheap on Tuesdays and when booked 22-60 days ahead
+        travel_day = date(2026, 12, 1) + timedelta(days=week % 14)
+        for lead, price in ((10, 420), (40, 300), (90, 360)):
+            seen = datetime.combine(travel_day - timedelta(days=lead), datetime.min.time(), timezone.utc)
+            p = price * (0.85 if travel_day.weekday() == 1 else 1.0)
+            rows.append(("MIA-LIM", travel_day.isoformat(), "google:x", p, "USD", (min(seen, now - timedelta(days=120))).isoformat()))
+    mem.db.executemany("INSERT INTO travel_prices (route, day, source, price, currency, seen_at) VALUES (?,?,?,?,?,?)", rows)
+    mem.db.commit()
+    assert t.roll_up() == 90 and mem.db.execute("SELECT COUNT(*) FROM travel_prices").fetchone()[0] == 0
+    p = t.pattern("MIA-LIM", "2026-12-10", "USD", 290)
+    assert p["seen"] == 90 and p["cheaper_than_percent"] >= 70 and p["for"] == "December"
+    assert p["by_weekday"]["Tuesdays"] < p["by_weekday"]["Fridays"]
+    advice = " ".join(travel.pattern_advice(p, 290, "USD", "2026-12-10"))
+    assert "a good price" in advice and "Tuesdays have been" in advice
+    assert mem.db.execute("SELECT COUNT(*) FROM travel_patterns").fetchone()[0] <= 5 * 7  # tiny: no raw rows kept
+    out = json.loads(asyncio.run(travel.run_tool(t, {"action": "price_pattern", "origin": "MIA", "destination": "LIM",
+                                                     "depart": "2026-12-10"})))
+    assert out["seen"] == 90
