@@ -4,6 +4,7 @@ import asyncio
 import json
 import logging
 import os
+import time
 from datetime import datetime
 from collections.abc import Awaitable, Callable
 
@@ -62,7 +63,9 @@ async def morning_briefing(memory: Memory) -> str:
         f"Spending: {Thrift(memory).summary()}. "
         f"Buddy's own health check (mention in a few words only if there's something): "
         f"{health.morning_line(memory) or 'nothing'}. "
-        f"{thinking.morning_note(memory)}",
+        f"{thinking.morning_note(memory)}"
+        + (f" They asked for these in every briefing, say them briefly: {topics}" if (topics := await _topics_line(memory))
+           else ""),
         memory,
     )
 
@@ -103,7 +106,39 @@ def _due(memory: Memory, at: str, key: str) -> bool:
 
 
 def briefing_due(memory: Memory) -> bool:
+    from .customize import settings as custom  # "stop the morning briefing"
+
+    if custom(memory).get("briefing") == "off":
+        return False
     return _due(memory, settings.morning_brief_at, "last_briefing")
+
+
+async def _topics_line(memory: Memory) -> str:
+    """The extra things the user asked for in the briefing ("cricket scores"), looked up now (a few cents)."""
+    from .customize import briefing_topics
+
+    topics = briefing_topics(memory)
+    if not topics:
+        return ""
+    from .agent import fallback_kwargs
+    from .config import claude_client
+
+    client = claude_client()
+    started = time.monotonic()
+    try:
+        response = await client.beta.messages.create(
+            model=settings.fast_model, max_tokens=700,
+            messages=[{"role": "user", "content": f"Today is {local_now():%A %d %B %Y}. In one short line each, the latest "
+                       f"on: {'; '.join(topics)}. Facts only, from today's or yesterday's news or results."}],
+            tools=[{"type": "web_search_20260209", "name": "web_search", "max_uses": min(4, len(topics) + 1)}],
+            output_config={"effort": "low"}, **fallback_kwargs(settings.fast_model))
+    except Exception:
+        log.exception("briefing topics lookup failed")
+        return ""
+    if hasattr(response, "usage"):
+        from . import usage
+        usage.record(memory, response.model, response.usage, purpose="briefing", response=response, started=started)
+    return " ".join(b.text for b in response.content if getattr(b, "type", "") == "text").strip()[:900]
 
 
 def wrap_up_due(memory: Memory) -> bool:

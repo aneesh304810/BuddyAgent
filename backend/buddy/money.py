@@ -303,7 +303,9 @@ class Money:
     def bills_to_remind(self) -> list[dict]:
         """Open bills due within BILL_WARN_DAYS (or overdue) not yet reminded today."""
         today = local_now().date().isoformat()
-        return [b for b in self.open_bills(BILL_WARN_DAYS)
+        from .customize import bill_days  # the user can change how early ("remind me 5 days before")
+
+        return [b for b in self.open_bills(bill_days(self.memory, BILL_WARN_DAYS))
                 if self.memory.db.execute("SELECT reminded_on FROM bills WHERE id = ?",
                                           (b["id"],)).fetchone()["reminded_on"] != today]
 

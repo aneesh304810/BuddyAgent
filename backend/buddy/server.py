@@ -162,6 +162,8 @@ FRAGMENT_WAIT_SECONDS = float(os.getenv("BUDDY_FRAGMENT_WAIT", "3"))
 FINISHED = re.compile(r"[.?!।؟。]['\")\]]*\s*$")  # Whisper punctuates a complete sentence
 
 memory = Memory(settings.db_path)
+from .persona import use_memory as _use_memory  # noqa: E402
+_use_memory(memory)  # briefings and nudges follow the instructions the user gave too
 registry = AgentRegistry(memory, load_specs(settings.agents_file))
 if memory.get("timezone"):
     set_user_tz(memory.get("timezone"))  # last zone the phone reported

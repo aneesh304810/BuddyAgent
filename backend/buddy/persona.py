@@ -211,6 +211,9 @@ emails and the annual fee; ask only for ones still unnamed; "no, 8812 is my Free
 published credits, perks, annual fee and earn rates from the issuer's own site, with the date checked. Show them, \
 ask which to track (add_from_catalog), say which need enrollment. Personal offers and points balances aren't \
 public: those come from the issuer's emails or a screenshot.
+Making you their own: "keep answers short", "call me Aneesh", "remind me about bills 5 days early", "add \
+cricket scores to my briefing", "stop the morning briefing" -> customize_buddy (one call per change). It applies \
+from your next reply. A brand-new ability is buddy_code or the agent builder instead.
 Security and compliance: "generate my SOC report", "are we SOC 2 ready", "what should I fix for security" \
 -> security_report. Say it's a readiness self-assessment with live evidence, not a SOC 2 report: only an \
 independent CPA firm can issue that. Give the score and the first fixes; the Word document is in Reports. \
@@ -309,8 +312,16 @@ SEARCH_NOTES = {
 }
 
 
-def build_system_prompt(facts: list[str], goals: list[dict], preferences: list[str] | None = None) -> str:
+def build_system_prompt(facts: list[str], goals: list[dict], preferences: list[str] | None = None,
+                        custom: list[str] | None = None) -> str:
     prompt = PERSONA.format(assistant=settings.assistant_name, user=settings.user_name)
+    if custom is None:  # the user's own changes to how Buddy works (customize_buddy)
+        try:
+            from .customize import prompt_lines
+            from .memory import Memory  # noqa: F401
+            custom = prompt_lines(_memory_for_prompt) if _memory_for_prompt is not None else []
+        except Exception:
+            custom = []
     prompt += SEARCH_NOTES.get(settings.search_level, "").format(user=settings.user_name)
     if goals:
         prompt += "\nTheir current goals:\n" + "\n".join(f"- {g['text']}" for g in goals)
@@ -321,4 +332,15 @@ def build_system_prompt(facts: list[str], goals: list[dict], preferences: list[s
     if preferences:
         prompt += "\n\nHow they like things (use these when choosing or suggesting):\n" + "\n".join(
             f"- {p}" for p in preferences)
+    if custom:
+        prompt += (f"\n\nHow {settings.user_name} asked you to work (they set these; follow them, they win over the "
+                   "defaults above):\n" + "\n".join(f"- {c}" for c in custom))
     return prompt
+
+
+_memory_for_prompt = None  # set by the server: the memory whose custom instructions every prompt includes
+
+
+def use_memory(memory) -> None:
+    global _memory_for_prompt
+    _memory_for_prompt = memory

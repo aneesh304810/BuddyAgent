@@ -37,6 +37,7 @@ from . import cards, sandbox
 from .codejob import CODE_TOOL_NAMES, CODE_TOOLS, run_code_tool
 from .makers import MAKER_TOOL_NAMES, MAKER_TOOLS, run_maker_tool
 from .merchants import MERCHANTS_TOOL
+from .customize import CUSTOMIZE_TOOL
 from . import advisor, benefits, brain, compliance, datatools, finance, plaid, travel, thinking, formfill, library, prices, rides, selfcode, transcripts, tutor, vocabulary, voiceprint
 from .lifelog import LIFELOG_TOOL, LifeLog, run_lifelog_tool
 from .mailbrain import MAIL_TOOL_NAMES, MAIL_TOOLS, MailManager, run_mail_tool
@@ -186,8 +187,13 @@ class Conversation:
         self.via = "user"
         # Frozen for the whole session so the cached prompt prefix stays valid.
         self.brain = brain.Brain(memory)
-        self.system = build_system_prompt(memory.recall(""), memory.open_goals(),
-                                          [f"{p['topic']}: {p['text']}" for p in self.brain.preferences()[:25]])
+        self.system = self._system()
+
+    def _system(self) -> str:
+        from .customize import prompt_lines  # noqa: PLC0415
+        return build_system_prompt(self.memory.recall(""), self.memory.open_goals(),
+                                   [f"{p['topic']}: {p['text']}" for p in self.brain.preferences()[:25]],
+                                   prompt_lines(self.memory))
 
     async def reply(self, user_text: str, say: Say, via: str = "user") -> None:
         """Answer one user utterance, calling `say` with each sentence to speak.
@@ -493,7 +499,7 @@ class Conversation:
                      prices.NOTE_PRICE_TOOL, rides.RIDE_TOOL, formfill.FORM_TOOL, selfcode.CODE_TOOL,
                      library.LIBRARY_TOOL, brain.BRAIN_TOOL, finance.FINANCE_TOOL,
                      advisor.ADVISOR_TOOL, benefits.BENEFITS_TOOL, plaid.BANK_TOOL, travel.TRAVEL_TOOL,
-                     compliance.COMPLIANCE_TOOL, MERCHANTS_TOOL]
+                     compliance.COMPLIANCE_TOOL, MERCHANTS_TOOL, CUSTOMIZE_TOOL]
         return (
             CLIENT_TOOLS + orchestration + job_tools + spending + [_expert_tool()]
             + agent_tools + web_tools()
@@ -594,6 +600,12 @@ class Conversation:
             return advisor.run_tool(advisor.Advisor(self.memory), args)
         if name == "card_benefits":
             return await benefits.run_tool_async(benefits.Benefits(self.memory), args)
+        if name == "customize_buddy":
+            from . import customize  # noqa: PLC0415
+            out = customize.run_tool(self.memory, args)
+            if args.get("action") != "list":
+                self.system = self._system()  # follows the change from the next reply on
+            return out
         if name == "merchants":
             from . import merchants  # noqa: PLC0415
             return await asyncio.to_thread(merchants.run_tool, self.memory, args)
