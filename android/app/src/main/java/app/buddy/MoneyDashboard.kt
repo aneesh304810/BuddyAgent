@@ -36,6 +36,10 @@ fun MoneyDashboardScreen(link: ServerLink?) {
         modifier = Modifier.fillMaxSize(),
         factory = { context ->
             WebView(context).apply {
+                // Full size, not wrap-content: otherwise the page's viewport height is wrong and the
+                // drill-down panel (a share of the screen's height) opens only one row tall.
+                layoutParams = android.view.ViewGroup.LayoutParams(
+                    android.view.ViewGroup.LayoutParams.MATCH_PARENT, android.view.ViewGroup.LayoutParams.MATCH_PARENT)
                 setBackgroundColor(AndroidColor.parseColor(Pal.pageBg))
                 settings.javaScriptEnabled = true
                 settings.domStorageEnabled = true      // the page remembers the token and the period
