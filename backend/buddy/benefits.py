@@ -249,8 +249,96 @@ async def _search_issuer(memory: Memory, card: str) -> dict | None:
     return _last_json(text)
 
 
+DINING_WORDS = ("resy", "dining", "restaurant", "opentable", "tock", "dinner", "grubhub", "dine")
+HOTEL_WORDS = ("hotel", "fine hotels", "fhr", "hotel collection", "the edit", "resort", "stay", "lodging")
+SKIP_WORDS = ("uber", "lyft", "airline", "streaming", "entertainment", "clear", "global entry", "tsa", "walmart+",
+              "equinox", "cell phone", "wireless", "doordash", "instacart", "dashpass")
+PLACES_PROMPT = """Today is {today}. {user} has a ${left:.0f} {credit} to use by {ends}.
+{what} Near: {where}.{taste}
+Suggest {count} specific, named {kind} where this credit works (check on the program's or the place's own site
+that it is eligible: {program}), currently open, well reviewed, and that fit {user}'s tastes. For each: the name,
+the neighbourhood or city, why it's a good pick, a typical price, and a booking link (https). Never invent a place
+or a price; skip anything you can't confirm on a page.
+End with one line of JSON, exactly this shape:
+{{"sale": "", "deals": [{{"item": "name, neighbourhood", "price": 0, "url": "https://...", "note": "why, and what to
+book (e.g. dinner for two)"}}]}}"""
+
+
+def credit_kind(credit: dict) -> str:
+    """store (a shop: sales and items), dining (restaurants nearby), hotel (hotels), or skip (no deal to find)."""
+    text = f"{credit.get('benefit', '')} {credit.get('merchant', '')}".lower()
+    if any(w in text for w in SKIP_WORDS):
+        return "skip"
+    if any(w in text for w in DINING_WORDS):
+        return "dining"
+    if any(w in text for w in HOTEL_WORDS):
+        return "hotel"
+    return "store" if credit.get("merchant") else "skip"
+
+
+def _where(memory: Memory) -> str:
+    """The latest place the phone shared (area and city), or the city most of the user's spending is in."""
+    try:
+        here = json.loads(memory.get("location:current") or "null") or {}
+    except ValueError:
+        here = {}
+    label = ", ".join(p for p in (here.get("area"), here.get("city")) if p)
+    return label or (memory.get("user:city") or "")
+
+
+def _tastes(memory: Memory, category: str) -> str:
+    try:
+        from .taste import Taste
+
+        t = Taste(memory).get(category)
+    except Exception:
+        return ""
+    parts = []
+    if t["likes"]:
+        parts.append("likes " + ", ".join(t["likes"][:6]))
+    if t["dislikes"]:
+        parts.append("avoids " + ", ".join(t["dislikes"][:4]))
+    if t["budget"]:
+        parts.append(f"budget {t['budget']}")
+    return (" Their taste: " + "; ".join(parts) + ".") if parts else ""
+
+
+def _trips(memory: Memory) -> str:
+    try:
+        rows = memory.db.execute("SELECT destination, month FROM travel_watches ORDER BY month LIMIT 3").fetchall()
+    except Exception:
+        return ""
+    return "; ".join(f"{r['destination']} in {r['month']}" for r in rows)
+
+
+def _places_prompt(memory: Memory, credit: dict, kind: str) -> str | None:
+    from .config import settings
+
+    where = _where(memory)
+    if kind == "dining":
+        if not where:
+            return None
+        what = "It's a dining credit, used at restaurants in its program."
+        program = "Resy" if "resy" in credit["benefit"].lower() else "the card's dining program"
+        taste, label, count = _tastes(memory, "food"), "restaurants", 4
+    else:
+        trips = _trips(memory)
+        what = ("It's a hotel credit, used at hotels in the card's program (for example Fine Hotels + Resorts or The "
+                "Hotel Collection), usually for a stay booked through the card's travel site."
+                + (f" Upcoming trips: {trips}; prefer hotels there." if trips else ""))
+        if not (where or trips):
+            return None
+        where = where or trips
+        program = "the card issuer's hotel program"
+        taste, label, count = _tastes(memory, "hotels"), "hotels (in trip destinations first, else an easy drive away)", 3
+    return PLACES_PROMPT.format(today=local_now().strftime("%d %B %Y"), user=settings.user_name, left=credit["left"],
+                                credit=credit["benefit"], ends=_nice(credit["ends"]), what=what, where=where or "unknown",
+                                taste=taste, count=count, kind=label, program=program)
+
+
 async def _search_deals(memory: Memory, credit: dict, wishes: list[dict]) -> dict | None:
-    """Claude with web search: current sales and items that fit the credit at its merchant."""
+    """Claude with web search: current sales and items that fit the credit at its merchant; for dining and
+    hotel credits, named restaurants near the user or hotels at their trips, matched to their taste."""
     from . import usage
     from .agent import fallback_kwargs
     from .config import claude_client, settings
@@ -261,9 +349,15 @@ async def _search_deals(memory: Memory, credit: dict, wishes: list[dict]) -> dic
     wish_text = ("" if not wishes else " They want: " + "; ".join(
         f"{w['item']}" + (f" (about ${w['price']:.0f})" if w.get("price") else "") for w in wishes[:3]) +
         ". Check these first.")
-    prompt = DEALS_PROMPT.format(today=local_now().strftime("%d %B %Y"), user=settings.user_name, left=credit["left"],
-                                 credit=credit["benefit"], merchant=credit["merchant"].title(),
-                                 ends=_nice(credit["ends"]), count=3, wishes=wish_text)
+    kind = credit_kind(credit)
+    if kind in ("dining", "hotel"):
+        prompt = _places_prompt(memory, credit, kind)
+        if prompt is None:
+            return {"sale": "", "deals": [], "needs": "location"}
+    else:
+        prompt = DEALS_PROMPT.format(today=local_now().strftime("%d %B %Y"), user=settings.user_name, left=credit["left"],
+                                     credit=credit["benefit"], merchant=credit["merchant"].title(),
+                                     ends=_nice(credit["ends"]), count=3, wishes=wish_text)
     messages = [{"role": "user", "content": prompt}]
     response = None
     for _ in range(4):
@@ -318,7 +412,9 @@ class Benefits:
             if url.startswith("https://") and d.get("item") and price > 0:
                 deals.append({"item": str(d["item"])[:90], "price": price, "url": url,
                               "you_pay": round(max(0.0, price - credit["left"]), 2), "note": str(d.get("note") or "")[:140]})
-        data = {"sale": str(raw.get("sale") or "")[:200], "deals": deals[:4]}
+        data = {"sale": str(raw.get("sale") or "")[:200], "deals": deals[:4], "kind": credit_kind(credit)}
+        if raw.get("needs"):  # no location yet: not saved, so it's tried again once the phone shares one
+            return {**data, "needs": raw["needs"]}
         self.memory.db.execute("INSERT OR REPLACE INTO fin_credit_deals (benefit_id, period_end, found_at, data) "
                                "VALUES (?, ?, ?, ?)", (credit["id"], credit["ends"],
                                                        datetime.now(timezone.utc).isoformat(), json.dumps(data)))
@@ -332,7 +428,8 @@ class Benefits:
         for p in self.plan(today, within=DEALS_FROM_DAYS):
             if done >= per_day:
                 break
-            if p["period"] == "monthly" or not p["merchant"] or p["maybe_pending"]:
+            kind = credit_kind(p)
+            if p["maybe_pending"] or kind == "skip" or (p["period"] == "monthly" and kind == "store"):
                 continue
             if self.deals_for(p["id"], p["ends"]) is not None:
                 continue
@@ -732,11 +829,17 @@ class Benefits:
             found = self.deals_for(p["id"], p["ends"]) or {}
             if p["maybe_pending"]:
                 text += f" You spent ${p['spent_there']:.0f} there this period; the credit may not have posted yet."
+            elif credit_kind(p) == "dining" and not _where(self.memory):
+                text += (" Turn on Share my location in Settings and I'll suggest restaurants near you that take it.")
             elif found.get("deals") or found.get("sale"):
                 if found.get("sale"):
                     text += f" {p['merchant'].title()} has {found['sale']}."
                 picks = found.get("deals") or []
-                if picks:
+                if picks and found.get("kind") in ("dining", "hotel"):
+                    text += (" Places near you it covers: " if found["kind"] == "dining" else " Hotels it covers: ") + \
+                        "; ".join(f"{d['item']}, about ${d['price']:.0f}" + (f" ({d['note']})" if d["note"] else "")
+                                  + f" {d['url']}" for d in picks[:3]) + "."
+                elif picks:
                     text += " Good ways to use it: " + "; ".join(
                         f"{d['item']} ${d['price']:.0f} (you'd pay ${d['you_pay']:.0f}) {d['url']}" for d in picks[:3]) + "."
                 text += " You decide; I don't buy anything."

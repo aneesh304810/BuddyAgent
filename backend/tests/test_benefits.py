@@ -250,3 +250,39 @@ def test_monthly_credits_only_get_last_week_reminders_and_no_deal_search():
     assert b.alerts(date(2026, 12, 2)) == []           # 29 days left: no "1 month" note for a monthly credit
     assert "in 6 days" in b.alerts(date(2026, 12, 25))[0]["text"]
     assert _asyncio.run(b.prepare_deals(date(2026, 12, 25))) == 0 and calls == []
+
+
+def test_dining_and_hotel_credits_get_named_places_near_the_user():
+    import json as _json
+    mem, prompts = Memory(":memory:"), []
+    b = Benefits(mem)
+    b.add("Resy credit", 100, "quarterly", card="Amex Platinum")
+    b.add("Hotel credit", 200, "annual", card="Amex Platinum")
+    b.add("Uber Cash", 15, "monthly", card="Amex Platinum", merchant="uber")
+    credits = {c["benefit"]: c for c in b.overview(date(2026, 12, 2))}
+    assert bmod.credit_kind(credits["Amex Platinum Resy credit"]) == "dining"
+    assert bmod.credit_kind(credits["Amex Platinum Hotel credit"]) == "hotel"
+    assert bmod.credit_kind(credits["Amex Platinum Uber Cash"]) == "skip"
+    # no location yet: no search, and the reminder says how to get suggestions
+    assert bmod._places_prompt(mem, credits["Amex Platinum Resy credit"], "dining") is None
+    alert = next(a for a in b.alerts(date(2026, 12, 2)) if "Resy" in a["text"])
+    assert "Share my location" in alert["text"]
+    mem.set("location:current", _json.dumps({"area": "Jersey City Heights", "city": "Jersey City",
+                                             "at": "2026-12-02T10:00:00+00:00"}))
+    from buddy.taste import Taste
+    Taste(mem).update("food", like="Cuban")
+    prompt = bmod._places_prompt(mem, credits["Amex Platinum Resy credit"], "dining")
+    assert "Jersey City Heights, Jersey City" in prompt and "Cuban" in prompt and "Resy" in prompt
+
+    async def search(memory, credit, wishes):
+        prompts.append(credit["benefit"])
+        if "Resy" in credit["benefit"]:
+            return {"deals": [{"item": "Son Cubano, West New York", "price": 120, "url": "https://resy.com/son-cubano",
+                               "note": "Cuban, dinner for two"}]}
+        return {"deals": [{"item": "The Asbury Hotel, Asbury Park", "price": 260, "url": "https://www.americanexpress.com/h",
+                           "note": "an easy drive"}]}
+    b.search_deals = search
+    assert _asyncio.run(b.prepare_deals(date(2026, 12, 2))) == 2 and "Amex Platinum Uber Cash" not in prompts
+    texts = " ".join(a["text"] for a in b.alerts(date(2026, 12, 2)))
+    assert "Places near you it covers: Son Cubano, West New York, about $120 (Cuban, dinner for two)" in texts
+    assert "Hotels it covers: The Asbury Hotel" in texts

@@ -51,4 +51,8 @@ If one of these opens personal access, Buddy's agent builder can connect it.
 - About a month before a credit ends, Buddy searches in the background (a few cents each, up to 3 a day, once per
   credit period) for sales running now at that store and items that the credit covers, starting with your wish list.
   The 1-month reminder carries what it found, with links. Buddy never buys anything.
+- Dining credits (Resy and similar): named restaurants near you that take the credit, matched to your food tastes,
+  with a typical price and a booking link (needs Share my location, or Buddy says so in the reminder). Hotel credits
+  (Fine Hotels + Resorts, The Hotel Collection): named hotels at your watched trip destinations first, else an easy
+  drive away. Ride, airline, streaming and similar credits get reminders only.
 - "Find deals for my Saks credit" runs the search right away. Turn the background search off with `BUDDY_CREDIT_DEALS=0`.
