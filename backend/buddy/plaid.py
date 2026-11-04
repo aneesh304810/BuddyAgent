@@ -177,6 +177,7 @@ class Plaid:
         db.commit()
         if item.get("env") != "sandbox":  # test data never replaces the real charges read from emails
             self.memory.set("money:bank_feed", "1")  # charges now come from the bank; emails keep only bills
+            self._take_over_cards(item["item_id"])
         cards = 0
         if not item["last_liabilities"] or datetime.fromisoformat(item["last_liabilities"]) < \
                 datetime.now(timezone.utc) - timedelta(hours=20):
@@ -225,6 +226,24 @@ class Plaid:
                                    currency, tx.get("merchant_name") or tx.get("name") or "unknown", category, day,
                                    (account.get("mask") or "")[-4:] or account.get("name", ""), source)
         return True
+
+    def _take_over_cards(self, item_id: str) -> int:
+        """Plaid is the record for every account it covers: charges counted earlier from emails or SimpleFIN for
+        that card or account, from the start of Plaid's history for it, are removed (amounts that differ, like a
+        tip added later, would otherwise count twice). Other cards and hand-entered cash are untouched."""
+        db, removed = self.memory.db, 0
+        for acct in db.execute("SELECT name, mask FROM plaid_accounts WHERE item_id = ?", (item_id,)).fetchall():
+            mask, name = (acct["mask"] or "")[-4:], (acct["name"] or "").strip().lower()
+            first = db.execute("SELECT MIN(day) FROM transactions WHERE source LIKE ? AND card = ?",
+                               (f"plaid:{item_id}:%", mask or acct["name"])).fetchone()[0]
+            if not first or not (mask or name):
+                continue
+            removed += db.execute(
+                "DELETE FROM transactions WHERE (source LIKE 'email:%' OR source LIKE 'simplefin:%') AND day >= ? "
+                "AND ((? != '' AND card LIKE ?) OR (? != '' AND LOWER(TRIM(card)) = ?))",
+                (first, mask, f"%{mask}%", name, name)).rowcount
+        db.commit()
+        return removed
 
     def _replace_earlier_copy(self, amount: float, currency: str, day: str) -> None:
         """Remove ONE charge counted before from an email or SimpleFIN with the same amount and currency

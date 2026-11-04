@@ -234,3 +234,18 @@ def test_sandbox_never_replaces_real_rows(mem):
                    "VALUES (?, 15.49, 'USD', 'Netflix', 'other', 'email:1', ?)", (ago(10), ago(10)))
     p.sync(force=True)
     assert mem.db.execute("SELECT COUNT(*) FROM transactions WHERE source = 'email:1'").fetchone()[0] == 1
+
+
+def test_plaid_takes_over_each_linked_card(mem):
+    p, fake, _ = linked(mem)
+    mem.db.execute("UPDATE plaid_items SET env = 'production'")
+    rows = [(ago(9), 58.00, "Bistro (with tip)", "1004", "email:1"),      # differs from any Plaid amount
+            (ago(80), 20.00, "Before Plaid's history", "1004", "email:2"),  # older than Plaid's first charge
+            (ago(9), 33.00, "Other card", "9911", "email:3"),                # a card Plaid doesn't cover
+            (ago(9), 7.00, "Cash lunch", "1004", "manual:7:0")]              # cash is never touched
+    for day, amount, merchant, card, source in rows:
+        mem.db.execute("INSERT INTO transactions (day, amount, currency, merchant, category, card, source, created_at) "
+                       "VALUES (?, ?, 'USD', ?, 'food', ?, ?, ?)", (day, amount, merchant, card, source, day))
+    p.sync(force=True)
+    left = {r["source"] for r in mem.db.execute("SELECT source FROM transactions WHERE source NOT LIKE 'plaid:%'")}
+    assert left == {"email:2", "email:3", "manual:7:0"}

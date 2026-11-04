@@ -104,7 +104,10 @@ sudo bash /opt/buddy/deploy/set.sh BUDDY_PLAID_REDIRECT_URI   # https://<your se
 Add the same redirect address in the Plaid dashboard under API → Allowed redirect URIs; banks that sign
 in on their own site (Chase, Capital One, Wells Fargo...) need it. Then in the app: Money → Connect a
 bank or card, or say "connect my bank". You sign in inside Plaid's window; Buddy never sees the password.
-Once a bank is linked through Plaid, the SimpleFIN feed stands down so nothing is counted twice.
+Once a bank is linked through Plaid, the SimpleFIN feed stands down so nothing is counted twice. Plaid is then the record for every account it covers: earlier charges for those cards from emails or
+SimpleFIN are replaced by the bank's own, so nothing is counted twice. Emails still bring bills from non-bank
+billers (utilities, phone, insurance); cash and card benefits come from what you tell Buddy. Sandbox links are
+test data and never replace anything real.
 Unlink in Money (or "unlink my bank"): access is revoked at Plaid and that bank's data deleted.
 
 Plaid's security attestations (access reviews, offboarding, central sign-in, policy, roles) are backed
