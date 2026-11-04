@@ -103,7 +103,7 @@ function render() {
       <span class="muted">next ${esc(s.next)}</span><span class="amt">${money(s.amount)}</span></div>`).join("") || '<p class="muted">None found.</p>',
     d.subscriptions.price_up.length ? "Price rises: " + d.subscriptions.price_up.map(esc).join(", ") : ""));
   // waste and ways to save
-  if (d.waste.length) parts.push(card("Waste and leaks", d.waste.map((w) => `<div class="row"><span class="name">${esc(w.what)}
+  if (d.waste.length) parts.push(card("Waste and leaks", d.waste.map((w) => `<div class="row"><span class="name" style="white-space:normal">${esc(w.what)}
       <span class="muted"> · ${esc(w.why)}</span></span><span class="amt" style="color:var(--bad)">${money(w.amount)}</span></div>`).join("")));
   if (d.opportunities.length) parts.push(card(`Ways to save · ${money(d.possible_yearly_savings)} a year`,
     d.opportunities.map((o) => `<div class="save"><b>${money(o.yearly)}</b><span>${esc(o.do)}</span></div>`).join("")));
