@@ -47,3 +47,13 @@ and change when a new kind of data is collected.
 ## Waitlist
 
 The home page form saves signups in Cloudflare KV (binding `WAITLIST`) through `functions/api/waitlist.js`. Export: `/api/waitlist?key=<WAITLIST_ADMIN_KEY>`. The privacy page has a Waitlist section; update it if the form asks for anything new.
+
+## Trust Center (added 4 November 2026)
+
+Public pages: trust, security, subprocessors, vulnerability-disclosure, biometric-privacy (plus privacy).
+Every claim there must stay true. Before changing what Buddy does with data, update these pages.
+Rows marked "In progress": penetration test, 6-month vulnerability assessment, SOC 2 Type I/II, DPAs.
+Never write "SOC 2 compliant" or "certified" until a CPA firm issues a report.
+
+Regenerate the site: `cd <Buddywebsite clone> && python3 <BuddyAgent>/docs/website-src/mksite.py <BuddyAgent>/docs/website-src/pages.py`
+(writes every .html page; commit to Buddywebsite main, Cloudflare Pages deploys it).
