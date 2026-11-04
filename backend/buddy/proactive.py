@@ -130,6 +130,14 @@ async def run(memory: Memory, deliver: Deliver) -> None:
                 from . import voiceprint  # noqa: PLC0415
                 if voiceprint.purge_unused(memory):
                     log.info("voiceprint unused for 12 months: deleted")
+            if CARD_LOOKUP and memory.get("benefits:setup_requested"):  # "set up my card benefits": now
+                fresh = memory.get("benefits:setup_requested") == "fresh"
+                memory.set("benefits:setup_requested", "")
+                try:
+                    job_id, text = await benefits.Benefits(memory).setup(fresh)
+                    await deliver("money", text, **({"job_id": job_id} if job_id else {}))
+                except Exception:
+                    log.exception("card benefits setup failed")
             month_now = local_now().strftime("%Y-%m")
             if SOC_MONTHLY and memory.get("soc:monthly_saved") != month_now:
                 memory.set("soc:monthly_saved", month_now)  # once a month, even if it fails: no retry storm
@@ -179,11 +187,15 @@ async def run(memory: Memory, deliver: Deliver) -> None:
                     for alert in perks.alerts():
                         if await deliver("money", alert["text"]):
                             perks.told(alert)
-                    if CARD_LOOKUP and memory.get("benefits:cards_checked") != today:  # new cards: their published credits, offered once
+                    if CARD_LOOKUP and memory.get("benefits:cards_checked") != today:
                         memory.set("benefits:cards_checked", today)
                         try:
-                            for text in await perks.offer_new_cards() + await perks.recheck():
-                                await deliver("money", text)
+                            if not memory.get("benefits:setup_done") and perks.known_cards():
+                                job_id, text = await perks.setup()  # the first time: every card at once
+                                await deliver("money", text, **({"job_id": job_id} if job_id else {}))
+                            else:  # then only new cards, and the yearly refresh
+                                for text in await perks.offer_new_cards() + await perks.recheck():
+                                    await deliver("money", text)
                         except Exception:
                             log.exception("card benefits lookup failed")
                 money = Money(memory)

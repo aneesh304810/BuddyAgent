@@ -17,9 +17,11 @@ anything. Buddy never buys anything; issuers change benefits, so the user's card
 
 The public catalog ("look up my Platinum's benefits"): Claude searches only the issuers' own websites
 (ISSUER_DOMAINS) and returns the card's published credits, annual fee and earn rates as facts in Buddy's
-own words, each with its source page; anything not from an issuer page is dropped. Kept in
-fin_card_catalog for CATALOG_DAYS, then looked up again. Nothing is tracked until the user confirms
-(add_from_catalog). Each quarter the cards being tracked are re-checked and changes are reported.
+own words, each with its source page; anything not from an issuer page is dropped. Set up once
+for every card in the background (setup: a Card benefits report in Reports and one message), kept in
+fin_card_catalog and refreshed every REFRESH_DAYS (a year); a new card is looked up when it first appears.
+Nothing is tracked until the user confirms (add_from_catalog, or card "all"). At the yearly refresh,
+changes to tracked credits are reported.
 Personal offers (Amex Offers, Chase Offers) and points balances aren't public: email or screenshots.
 """
 
@@ -40,8 +42,10 @@ ISSUER_DOMAINS = ["americanexpress.com", "chase.com", "capitalone.com", "citi.co
                   "wellsfargo.com", "discover.com", "usbank.com", "barclaycardus.com", "barclays.us",
                   "synchrony.com", "navyfederal.org", "penfed.org", "apple.com", "goldman.com", "bilt.com",
                   "robinhood.com", "sofi.com"]
-CATALOG_DAYS = 30            # a looked-up card is reused this long
-RECHECK_DAYS = 90            # tracked catalog benefits are re-checked this often
+# Issuers usually change published benefits about once a year: looked up once (the setup), kept, refreshed yearly.
+REFRESH_DAYS = int(__import__("os").getenv("BUDDY_CARD_REFRESH_DAYS", "365") or 365)
+CATALOG_DAYS = REFRESH_DAYS  # a looked-up card is reused this long
+RECHECK_DAYS = REFRESH_DAYS  # and then looked up again; changes to tracked credits are reported
 CATALOG_SQL = """
 CREATE TABLE IF NOT EXISTS fin_card_catalog (
     card_key TEXT PRIMARY KEY,         -- "amex platinum"
@@ -350,6 +354,74 @@ class Benefits:
                          "before each one runs out? Issuers change these, so your card's terms win.")
         return texts
 
+    async def setup(self, fresh: bool = False) -> tuple[int | None, str]:
+        """The one-time setup (and the on-demand refresh): every known card looked up, a Card benefits report
+        saved in Reports, and one message that asks which credits to track."""
+        from .finance import purge_reports
+        from .jobs import SCHEMA as JOBS_SCHEMA
+
+        found = await self.lookup_all(fresh)
+        for card in self.known_cards():
+            self.memory.set(f"benefits:offered:{_key(card)}", local_now().date().isoformat())
+        self.memory.set("benefits:setup_done", local_now().date().isoformat())
+        good = [f for f in found if not f.get("not_found")]
+        if not good:
+            return None, ("I couldn't find published benefits for your cards on the issuers' websites yet. Tell me the "
+                          "card names (\"Amex Platinum\"), or share a screenshot of a card's benefits page.")
+        lines = [f"Published benefits of your cards, from each issuer's website. Saved and refreshed once a year "
+                 f"(next: {(local_now().date() + timedelta(days=REFRESH_DAYS)):%B %Y}). Issuers change these, so your "
+                 "card's terms win.", ""]
+        total_year = 0.0
+        for f in good:
+            data = self.cached(f["card"]) or {}
+            lines += [f"## {f['card_name'] or f['card']}", ""]
+            if f.get("annual_fee") is not None:
+                lines.append(f"Annual fee: ${f['annual_fee']:,.0f}")
+            lines += ["", "| Credit | Amount | Resets | Tracked |", "|---|---|---|---|"]
+            for b in data.get("benefits", []):
+                total_year += b["amount"] * {"monthly": 12, "quarterly": 4, "semiannual": 2}.get(b["period"], 1)
+                lines.append(f"| {b['name']}{' (enroll first)' if b['enrollment'] else ''} | ${b['amount']:,.0f} | "
+                             f"{b['period']}{', card anniversary' if b['resets'] == 'anniversary' else ''} | "
+                             f"{'yes' if b['name'] in f['tracked'] else 'no'} |")
+            if f["perks"]:
+                lines += ["", "Perks: " + "; ".join(f["perks"])]
+            if f["earn_rates"]:
+                lines += ["", "Earns: " + "; ".join(f["earn_rates"])]
+            sources = sorted({x["source"] for k in ("benefits", "perks", "earn_rates") for x in data.get(k, [])})
+            lines += ["", f"Checked {f['checked']}. Sources:"] + [f"- [{urllib.parse.urlparse(u).netloc}]({u})"
+                                                               for u in sources[:4]] + [""]
+        missing = [f["card"] for f in found if f.get("not_found")]
+        if missing:
+            lines.append("Not found on an issuer's website: " + ", ".join(missing) + ".")
+        summary = (f"Card benefits are set up for {len(good)} card{'s' if len(good) != 1 else ''}: up to about "
+                   f"${total_year:,.0f} a year in credits. The full list is in Reports. Which should I track and remind "
+                   "you about? Say \"track all\", or name them.")
+        now = datetime.now(timezone.utc).isoformat()
+        self.memory.db.executescript(JOBS_SCHEMA)
+        purge_reports(self.memory)
+        job_id = self.memory.db.execute(
+            "INSERT INTO jobs (kind, title, params, status, created_at, started_at, finished_at, summary, report, findings, "
+            "sources, delivered) VALUES ('card_benefits', ?, '{}', 'done', ?, ?, ?, ?, ?, '[]', '[]', 1)",
+            (f"Card benefits, {local_now():%B %Y}", now, now, now, summary, "\n".join(lines))).lastrowid
+        self.memory.db.commit()
+        return job_id, summary
+
+    def add_all(self, anniversaries: dict[str, str] | None = None) -> str:
+        """"Track all": every saved card's published credits; anniversary credits wait for the card's date."""
+        done, waiting = [], []
+        for row in self.memory.db.execute("SELECT * FROM fin_card_catalog ORDER BY card_name").fetchall():
+            data = json.loads(row["data"])
+            card = next((c for c in self.known_cards() if _key(c) == row["card_key"]), row["card_name"])
+            day = (anniversaries or {}).get(row["card_key"], "")
+            plain = [b["name"] for b in data["benefits"] if b["resets"] != "anniversary" or day]
+            if plain:
+                done.append(self.add_from_catalog(card, plain, day))
+            waiting += [f"{b['name']} ({card})" for b in data["benefits"] if b["resets"] == "anniversary" and not day]
+        if not done and not waiting:
+            raise ToolError("No cards are set up yet: say \"set up my card benefits\".")
+        return " ".join(done) + (f" These reset on the card's anniversary, so tell me each card's opening month and day "
+                                 f"to track them: {', '.join(waiting)}." if waiting else "")
+
     async def recheck(self, today: date | None = None) -> list[str]:
         """Quarterly: cards whose credits came from the catalog are looked up again; what changed is reported."""
         notes = []
@@ -357,11 +429,11 @@ class Benefits:
             if datetime.now(timezone.utc) - datetime.fromisoformat(row["checked_at"]) < timedelta(days=RECHECK_DAYS):
                 continue
             tracked = [b for b in self.all() if _key(b["card"]) == row["card_key"] and "Published by" in b["notes"]]
-            if not tracked:
-                continue
-            try:
+            try:  # every saved card is refreshed; only tracked credits get a message
                 new = await self.lookup(row["card_name"], fresh=True)
             except ToolError:
+                continue
+            if not tracked:
                 continue
             now = {b["name"].lower(): b for b in new["benefits"]}
             for b in tracked:
@@ -586,12 +658,14 @@ BENEFITS_TOOL = {
     "lookup (card; fresh to skip the saved copy): the card's published credits, perks, annual fee and earn rates "
     "from the issuer's own website, with source links and the date checked (a few cents; saved 30 days). Show "
     "them and ask which to track. lookup_all: the same for every card Buddy knows (bank connections, statements, "
-    "benefits), with what's already tracked; use it for 'what benefits do all my cards have?'. Then add_from_catalog (card, names; empty = all; anniversary MM-DD if any reset on "
+    "benefits), with what's already tracked; use it for 'what benefits do all my cards have?'. setup (fresh to "
+    "re-check now): looks up every card in the background, once; saved and refreshed yearly, a report in Reports. "
+    "Then add_from_catalog (card \"all\" for every saved card, when they say \"track all\") (card, names; empty = all; anniversary MM-DD if any reset on "
     "the card anniversary). Say which need enrollment. Personal offers (Amex Offers, Chase Offers) and points "
     "balances aren't public: they come from the issuer's emails or a screenshot the user shares.",
     "input_schema": {"type": "object", "properties": {
         "action": {"type": "string", "enum": ["add", "list", "used", "remove", "wish_add", "wishes", "wish_remove",
-                                              "plan", "lookup", "lookup_all", "add_from_catalog"]},
+                                              "plan", "lookup", "lookup_all", "setup", "add_from_catalog"]},
         "names": {"type": "array", "items": {"type": "string"}}, "fresh": {"type": "boolean"},
         "what": {"type": "string"}, "card": {"type": "string"}, "name": {"type": "string"},
         "amount": {"type": "number"}, "period": {"type": "string", "enum": list(PERIODS)},
@@ -613,6 +687,12 @@ async def run_tool_async(b: Benefits, args: dict) -> str:
         found = await b.lookup_all(bool(args.get("fresh")))
         return json.dumps(found, ensure_ascii=False) if found else ("No cards yet: connect a bank, share a statement, or "
                                                                     "tell me which cards you have.")
+    if a == "setup":
+        b.memory.set("benefits:setup_requested", "fresh" if args.get("fresh") else "1")
+        return ("Started in the background: every card's published benefits from the issuers' websites. It takes a "
+                "few minutes; the full list goes in Reports and I'll ask which credits to track.")
+    if a == "add_from_catalog" and str(args.get("card") or "").strip().lower() in ("all", "all cards", "every card"):
+        return b.add_all()
     if a == "add_from_catalog":
         return b.add_from_catalog(str(args.get("card") or ""), list(args.get("names") or []),
                                   str(args.get("anniversary") or ""))

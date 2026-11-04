@@ -1022,7 +1022,7 @@ def api_resolve(conflict_id: int, keep: str) -> dict:
 
 # --- background job reports: the phone apps show them -----------------------
 REPORT_TYPES = {"research": "Research", "money_weekly": "Money", "money_monthly": "Money", "money_review": "Money",
-                "tutor": "English", "soc_report": "Security",
+                "tutor": "English", "soc_report": "Security", "card_benefits": "Money",
                 "code": "Code", "build_agent": "Agents"}
 ARCHIVE_AFTER_DAYS = 7
 

@@ -736,7 +736,7 @@ class Finance:
         }
 
 
-REPORT_KEEP_DAYS = {"money_weekly": 365, "money_monthly": 730, "money_review": 730, "soc_report": 730}  # the privacy policy promises these
+REPORT_KEEP_DAYS = {"money_weekly": 365, "money_monthly": 730, "money_review": 730, "soc_report": 730, "card_benefits": 730}  # the privacy policy promises these
 
 
 def purge_reports(memory: Memory) -> None:

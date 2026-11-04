@@ -177,3 +177,41 @@ def test_a_changed_published_credit_is_reported_at_the_quarterly_recheck():
     b.search = _fake_search(changed, [])
     notes = _asyncio.run(b.recheck())
     assert notes == ["Amex Platinum: the Uber Cash is now $20 monthly (was $15 monthly)."]
+
+
+def test_one_setup_for_every_card_saves_a_report_and_track_all_follows():
+    mem, calls = Memory(":memory:"), []
+    from buddy.finance import Finance
+    Finance(mem)
+    mem.db.execute("INSERT INTO fin_cards (key, name, issuer, updated_at) VALUES ('amex|1004', 'Platinum Card®', "
+                   "'American Express', '2026-11-01')")
+    mem.db.commit()
+    b = Benefits(mem, search=_fake_search(PLAT, calls))
+    job_id, text = _asyncio.run(b.setup())
+    assert "set up for 1 card" in text and "track all" in text
+    report = mem.db.execute("SELECT * FROM jobs WHERE id = ?", (job_id,)).fetchone()
+    assert report["kind"] == "card_benefits" and "| Saks credit (enroll first) | $50 |" in report["report"]
+    assert "refreshed once a year" in report["report"] and "americanexpress.com" in report["report"]
+    assert _asyncio.run(b.offer_new_cards()) == []  # the setup covered it
+    out = b.add_all()
+    assert "Tracking 2 credits" in out and "Airline fee credit (American Express Platinum Card)" in out
+    assert len(calls) == 1  # one search per card, then the saved copy
+
+
+def test_saved_benefits_last_a_year_before_they_are_looked_up_again():
+    assert bmod.CATALOG_DAYS == bmod.RECHECK_DAYS == 365
+    mem, calls = Memory(":memory:"), []
+    b = Benefits(mem, search=_fake_search(PLAT, calls))
+    _asyncio.run(b.lookup("Amex Platinum"))
+    ten_months = (datetime.now(timezone.utc) - __import__("datetime").timedelta(days=300)).isoformat()
+    mem.db.execute("UPDATE fin_card_catalog SET checked_at = ?", (ten_months,))
+    _asyncio.run(b.lookup("Amex Platinum"))
+    assert _asyncio.run(b.recheck()) == [] and len(calls) == 1  # under a year: the saved copy, no search
+    mem.db.execute("UPDATE fin_card_catalog SET checked_at = '2020-01-01T00:00:00+00:00'")
+    assert _asyncio.run(b.recheck()) == [] and len(calls) == 2  # a year on: refreshed (untracked: no message)
+
+
+def test_setup_runs_in_the_background_when_asked():
+    mem = Memory(":memory:")
+    text = _asyncio.run(bmod.run_tool_async(Benefits(mem), {"action": "setup"}))
+    assert "background" in text and mem.get("benefits:setup_requested") == "1"
