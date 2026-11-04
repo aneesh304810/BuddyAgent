@@ -242,11 +242,11 @@ fun SetupTestCard(link: ServerLink?) {
     var running by remember { mutableStateOf(false) }
     val context = LocalContext.current
     val scope = rememberCoroutineScope()
-    Column(Modifier.fillMaxWidth().background(Color(0xFF151C33), RoundedCornerShape(12.dp)).padding(12.dp),
+    Column(Modifier.fillMaxWidth().background(Pal.panel, RoundedCornerShape(12.dp)).padding(12.dp),
         verticalArrangement = Arrangement.spacedBy(6.dp)) {
-        Text("Test my setup", color = Color.White, fontWeight = FontWeight.SemiBold)
+        Text("Test my setup", color = Pal.text, fontWeight = FontWeight.SemiBold)
         Text("About 15 seconds: checks the background noise, your voice level, the link to your server, speech to text " +
-            "and the phone's settings. Try it at home, outside, and with each pair of earbuds.", color = Color(0xFF8A93B2), fontSize = 12.sp)
+            "and the phone's settings. Try it at home, outside, and with each pair of earbuds.", color = Pal.dim, fontSize = 12.sp)
         OutlinedButton(enabled = !running && link != null, onClick = {
             running = true; result = null
             scope.launch {
@@ -287,16 +287,16 @@ fun SetupTestCard(link: ServerLink?) {
                 }
             }
         }) { Text(if (running) "Testing…" else "Start the test") }
-        if (step.isNotBlank()) Text(step, color = Color(0xFFFFC46B), fontSize = 14.sp)
+        if (step.isNotBlank()) Text(step, color = Pal.warn, fontSize = 14.sp)
         result?.let { r ->
-            Text("${r.optInt("passed")} of ${r.optInt("total")} good · ${r.optString("summary")}", color = Color.White, fontSize = 14.sp)
+            Text("${r.optInt("passed")} of ${r.optInt("total")} good · ${r.optString("summary")}", color = Pal.text, fontSize = 14.sp)
             val checks = r.optJSONArray("checks") ?: JSONArray()
             for (i in 0 until checks.length()) {
                 val c = checks.getJSONObject(i)
                 val ok = c.optBoolean("ok")
                 Text("${if (ok) "✓" else "⚠"} ${c.optString("name")}: ${c.optString("value")}",
-                    color = if (ok) Color(0xFF7BE0A5) else Color(0xFFFFC46B), fontSize = 13.sp)
-                if (!ok && c.optString("fix").isNotBlank()) Text("   ${c.optString("fix")}", color = Color(0xFF8A93B2), fontSize = 12.sp)
+                    color = if (ok) Pal.good else Pal.warn, fontSize = 13.sp)
+                if (!ok && c.optString("fix").isNotBlank()) Text("   ${c.optString("fix")}", color = Pal.dim, fontSize = 12.sp)
             }
         }
     }

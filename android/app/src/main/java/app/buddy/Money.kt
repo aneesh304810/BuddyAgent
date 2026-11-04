@@ -41,10 +41,10 @@ import org.json.JSONArray
 import org.json.JSONObject
 import java.util.concurrent.TimeUnit
 
-private val MDim = Color(0xFF8A93B2)
-private val MTile = Color(0xFF151C33)
-private val MWarn = Color(0xFFFFC46B)
-private val MGood = Color(0xFF7BE0A5)
+private val MDim: Color get() = Pal.dim
+private val MTile: Color get() = Pal.panel
+private val MWarn: Color get() = Pal.warn
+private val MGood: Color get() = Pal.good
 
 /** Buddy's finance module on the server: /api/finance. */
 object FinanceApi {
@@ -97,7 +97,7 @@ fun MoneyScreen(link: ServerLink?, onReports: () -> Unit = {}) {
     }
     val d = data
     LazyColumn(Modifier.fillMaxSize(), verticalArrangement = Arrangement.spacedBy(10.dp)) {
-        problem?.let { item { Text(it, color = Color(0xFFFF8A80)) } }
+        problem?.let { item { Text(it, color = Pal.bad) } }
         if (d == null) {
             if (problem == null) item { Text("Loading…", color = MDim) }
             return@LazyColumn
@@ -108,11 +108,11 @@ fun MoneyScreen(link: ServerLink?, onReports: () -> Unit = {}) {
                 Text("Subscriptions", color = MDim, fontSize = 13.sp)
                 if (totals == null || totals.length() == 0) {
                     Text("None found yet. Buddy finds them in your card charges: card emails, the bank feed, " +
-                        "or card statements shared to Buddy.", color = Color.White, fontSize = 14.sp)
+                        "or card statements shared to Buddy.", color = Pal.text, fontSize = 14.sp)
                 } else {
                     totals.keys().forEach { cur ->
                         val t = totals.getJSONObject(cur)
-                        Text("${money(t.optDouble("monthly"), cur)} a month", color = Color.White, fontSize = 22.sp,
+                        Text("${money(t.optDouble("monthly"), cur)} a month", color = Pal.text, fontSize = 22.sp,
                             fontWeight = FontWeight.SemiBold)
                         Text("${money(t.optDouble("yearly"), cur)} a year · ${t.optInt("count")} subscriptions",
                             color = MDim, fontSize = 13.sp)
@@ -128,8 +128,8 @@ fun MoneyScreen(link: ServerLink?, onReports: () -> Unit = {}) {
         item {
             Row(Modifier.horizontalScroll(rememberScrollState()), horizontalArrangement = Arrangement.spacedBy(8.dp)) {
                 listOf("all" to "All", "decide" to "To decide", "keep" to "Keep", "cancel" to "Cancel").forEach { (k, label) ->
-                    Text(label, color = if (filter == k) Color.Black else Color.White, fontSize = 13.sp,
-                        modifier = Modifier.background(if (filter == k) Color.White else MTile, RoundedCornerShape(50))
+                    Text(label, color = if (filter == k) Pal.onChip else Pal.text, fontSize = 13.sp,
+                        modifier = Modifier.background(if (filter == k) Pal.chip else MTile, RoundedCornerShape(50))
                             .clickable { filter = k }.padding(horizontal = 14.dp, vertical = 6.dp))
                 }
             }
@@ -179,7 +179,7 @@ fun MoneyScreen(link: ServerLink?, onReports: () -> Unit = {}) {
                     best.keys().forEach { cat ->
                         val b = best.getJSONObject(cat)
                         Row(Modifier.fillMaxWidth()) {
-                            Text(cat.replaceFirstChar { it.uppercase() }, color = Color.White, fontSize = 14.sp,
+                            Text(cat.replaceFirstChar { it.uppercase() }, color = Pal.text, fontSize = 14.sp,
                                 modifier = Modifier.weight(1f))
                             Text("${b.optString("card")} · ${"%.1f".format(b.optDouble("rate")).removeSuffix(".0")}x",
                                 color = MGood, fontSize = 14.sp)
@@ -227,7 +227,7 @@ private fun BanksPanel(link: ServerLink) {
         b.optJSONArray("banks")?.list().orEmpty().forEach { bank ->
             Row(Modifier.fillMaxWidth()) {
                 Column(Modifier.weight(1f)) {
-                    Text(bank.optString("institution").ifBlank { "Bank" }, color = Color.White, fontWeight = FontWeight.SemiBold)
+                    Text(bank.optString("institution").ifBlank { "Bank" }, color = Pal.text, fontWeight = FontWeight.SemiBold)
                     val accts = bank.optJSONArray("accounts")?.list().orEmpty()
                         .joinToString { it.optString("name") + if (it.optString("mask").isNotBlank()) " ••${it.optString("mask")}" else "" }
                     if (accts.isNotBlank()) Text(accts, color = MDim, fontSize = 12.sp)
@@ -271,7 +271,7 @@ private fun GoalRow(g: JSONObject) {
     val cur = g.optString("currency")
     Column(Modifier.fillMaxWidth().background(MTile, RoundedCornerShape(12.dp)).padding(12.dp),
         verticalArrangement = Arrangement.spacedBy(3.dp)) {
-        Text(g.optString("name"), color = Color.White, fontWeight = FontWeight.SemiBold)
+        Text(g.optString("name"), color = Pal.text, fontWeight = FontWeight.SemiBold)
         val line = when (g.optString("kind")) {
             "pay_off" -> if (g.isNull("left")) "Balance not known yet" else "${money(g.optDouble("left"), cur)} left"
             else -> {
@@ -293,10 +293,10 @@ private fun SubscriptionRow(s: JSONObject, onDecide: (String) -> Unit) {
     Column(Modifier.fillMaxWidth().background(MTile, RoundedCornerShape(12.dp)).padding(12.dp),
         verticalArrangement = Arrangement.spacedBy(4.dp)) {
         Row(Modifier.fillMaxWidth()) {
-            Text(s.optString("merchant"), color = Color.White, fontWeight = FontWeight.SemiBold,
+            Text(s.optString("merchant"), color = Pal.text, fontWeight = FontWeight.SemiBold,
                 modifier = Modifier.weight(1f))
             Text("${money(s.optDouble("amount"), s.optString("currency"))} / ${s.optString("cadence")}",
-                color = Color.White)
+                color = Pal.text)
         }
         val cards = s.optJSONArray("cards")?.let { a -> (0 until a.length()).map { "••" + a.getString(it) } }.orEmpty()
         Text("Next ${s.optString("next_charge")} · ${money(s.optDouble("yearly_cost"), s.optString("currency"))} a year" +
@@ -309,7 +309,7 @@ private fun SubscriptionRow(s: JSONObject, onDecide: (String) -> Unit) {
                     Text(label, color = when {
                         status == k && k == "keep" -> MGood
                         status == k && k == "cancel" -> MWarn
-                        status == k -> Color.White
+                        status == k -> Pal.text
                         else -> MDim
                     })
                 }
@@ -325,9 +325,9 @@ private fun CardRow(c: JSONObject) {
     Column(Modifier.fillMaxWidth().background(MTile, RoundedCornerShape(12.dp)).padding(12.dp),
         verticalArrangement = Arrangement.spacedBy(3.dp)) {
         Text(c.optString("name") + if (c.optString("last4").isNotBlank()) " ••${c.optString("last4")}" else "",
-            color = Color.White, fontWeight = FontWeight.SemiBold)
+            color = Pal.text, fontWeight = FontWeight.SemiBold)
         val due = c.optString("next_due")
-        Text(if (due.isNotBlank()) "Due $due" else "Due date not known yet", color = Color.White, fontSize = 14.sp)
+        Text(if (due.isNotBlank()) "Due $due" else "Due date not known yet", color = Pal.text, fontSize = 14.sp)
         val parts = mutableListOf<String>()
         if (!c.isNull("statement_balance")) parts += "balance ${money(c.optDouble("statement_balance"), cur)}"
         if (!c.isNull("minimum_due")) parts += "minimum ${money(c.optDouble("minimum_due"), cur)}"

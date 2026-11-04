@@ -53,9 +53,9 @@ import java.io.File
 import java.net.URLEncoder
 import java.util.concurrent.TimeUnit
 
-private val Dim = Color(0xFF8A93B2)
-private val Tile = Color(0xFF151C33)
-private val Vault = Color(0xFFFFC46B)
+private val Dim: Color get() = Pal.dim
+private val Tile: Color get() = Pal.panel
+private val Vault: Color get() = Pal.warn
 
 /** Buddy's library on the server: /api/library and /api/people. */
 object LibraryApi {
@@ -123,7 +123,7 @@ fun LibraryScreen(link: ServerLink?, onOpen: (String) -> Unit) {
             placeholder = { Text("Search by meaning: \"car insurance\", \"my lease\"…") },
             modifier = Modifier.fillMaxWidth(),
         )
-        problem?.let { Text(it, color = Color(0xFFFF8A80)) }
+        problem?.let { Text(it, color = Pal.bad) }
         if (query.isBlank() && link != null) BrainPanel(link)
         val people = data?.optJSONArray("people")?.objects().orEmpty()
         if (people.isNotEmpty()) {
@@ -132,7 +132,7 @@ fun LibraryScreen(link: ServerLink?, onOpen: (String) -> Unit) {
                 people.take(20).forEach { p ->
                     val relation = p.optString("relation")
                     Text(p.optString("name") + if (relation.isNotBlank()) " · $relation" else "",
-                        color = Color.White, fontSize = 13.sp,
+                        color = Pal.text, fontSize = 13.sp,
                         modifier = Modifier.background(Tile, RoundedCornerShape(50))
                             .clickable { query = p.optString("name") }.padding(horizontal = 12.dp, vertical = 6.dp))
                 }
@@ -153,13 +153,13 @@ fun LibraryScreen(link: ServerLink?, onOpen: (String) -> Unit) {
                         Row {
                             Text((if (item.optBoolean("vault")) "🔒 " else "") +
                                 item.optString("title").ifBlank { item.optString("file") },
-                                color = Color.White, fontSize = 16.sp, maxLines = 1, overflow = TextOverflow.Ellipsis,
+                                color = Pal.text, fontSize = 16.sp, maxLines = 1, overflow = TextOverflow.Ellipsis,
                                 modifier = Modifier.weight(1f))
                         }
                         Text(listOf(item.optString("type"), item.optString("file"), item.optString("added"))
                             .filter { it.isNotBlank() }.joinToString(" · "), color = Dim, fontSize = 12.sp, maxLines = 1)
                         item.optString("match").takeIf { it.isNotBlank() }?.let {
-                            Text(it, color = Color(0xFFC9D3E3), fontSize = 13.sp, maxLines = 3,
+                            Text(it, color = Pal.soft, fontSize = 13.sp, maxLines = 3,
                                 overflow = TextOverflow.Ellipsis, modifier = Modifier.padding(top = 4.dp))
                         }
                     }
@@ -185,26 +185,26 @@ fun LibraryItemScreen(link: ServerLink?, id: String, onGone: () -> Unit) {
     }
     val it = item
     Column(Modifier.fillMaxSize().verticalScroll(rememberScrollState()), verticalArrangement = Arrangement.spacedBy(8.dp)) {
-        problem?.let { p -> Text(p, color = Color(0xFFFF8A80)) }
+        problem?.let { p -> Text(p, color = Pal.bad) }
         if (it == null || link == null) {
             if (problem == null) Text("Loading…", color = Dim)
             return@Column
         }
         val locked = it.optBoolean("locked")
         Text((if (locked) "🔒 " else "") + it.optString("title").ifBlank { it.optString("file") },
-            color = Color.White, fontSize = 20.sp, fontWeight = FontWeight.SemiBold)
+            color = Pal.text, fontSize = 20.sp, fontWeight = FontWeight.SemiBold)
         Text(listOf(it.optString("type"), it.optString("file"), "added " + it.optString("added"))
             .filter { s -> s.isNotBlank() }.joinToString(" · "), color = Dim, fontSize = 13.sp)
-        if (it.optString("note").isNotBlank()) Text("Your note: " + it.optString("note"), color = Color(0xFFC9D3E3))
-        if (it.optString("summary").isNotBlank()) Text(it.optString("summary"), color = Color.White)
+        if (it.optString("note").isNotBlank()) Text("Your note: " + it.optString("note"), color = Pal.soft)
+        if (it.optString("summary").isNotBlank()) Text(it.optString("summary"), color = Pal.text)
         val facts = it.optJSONArray("facts")
         if (facts != null && facts.length() > 0) {
             Text("Facts", color = Dim, fontSize = 13.sp)
-            (0 until facts.length()).forEach { i -> Text("• " + facts.getString(i), color = Color.White, fontSize = 14.sp) }
+            (0 until facts.length()).forEach { i -> Text("• " + facts.getString(i), color = Pal.text, fontSize = 14.sp) }
         }
         it.optJSONArray("tables")?.objects()?.forEach { t ->
             Text("Sheet ${t.optString("sheet")}: ${t.optInt("rows")} rows · ${t.optJSONArray("columns")?.join(", ")?.replace("\"", "")}",
-                color = Color(0xFFC9D3E3), fontSize = 13.sp)
+                color = Pal.soft, fontSize = 13.sp)
         }
         Row(horizontalArrangement = Arrangement.spacedBy(8.dp)) {
             if (locked) OutlinedButton(onClick = {
@@ -224,12 +224,12 @@ fun LibraryItemScreen(link: ServerLink?, id: String, onGone: () -> Unit) {
                     }.onFailure { e -> problem = "Couldn't open the file (${e.message})." }
                 }
             }, enabled = !locked) { Text("Open file") }
-            TextButton(onClick = { confirmForget = true }) { Text("Forget", color = Color(0xFFFF8A80)) }
+            TextButton(onClick = { confirmForget = true }) { Text("Forget", color = Pal.bad) }
         }
         if (!locked && it.optString("text").isNotBlank()) {
             Spacer(Modifier.height(4.dp))
             Text("What's in it", color = Dim, fontSize = 13.sp)
-            SelectionContainer { Text(it.optString("text"), color = Color(0xFFC9D3E3), fontSize = 13.sp) }
+            SelectionContainer { Text(it.optString("text"), color = Pal.soft, fontSize = 13.sp) }
             it.optString("more").takeIf { m -> m.isNotBlank() }?.let { m -> Text("($m)", color = Dim, fontSize = 12.sp) }
         } else if (locked) {
             Text("In the vault: unlock to see the text, or ask Buddy (it asks before reading).", color = Vault, fontSize = 13.sp)
@@ -263,7 +263,7 @@ private fun BrainPanel(link: ServerLink) {
     LaunchedEffect(open, refresh) {
         if (open) brain = runCatching { LibraryApi.brain(link) }.getOrNull()
     }
-    Text((if (open) "▾ " else "▸ ") + "What Buddy knows about you", color = Color.White, fontWeight = FontWeight.SemiBold,
+    Text((if (open) "▾ " else "▸ ") + "What Buddy knows about you", color = Pal.text, fontWeight = FontWeight.SemiBold,
         modifier = Modifier.fillMaxWidth().clickable { open = !open }.padding(vertical = 4.dp))
     if (!open) return
     val b = brain ?: run { Text("Loading…", color = Dim); return }
@@ -277,7 +277,7 @@ private fun BrainPanel(link: ServerLink) {
             Row(Modifier.fillMaxWidth()) {
                 Text(p.optString("topic") + ": " + p.optString("text") +
                     if (p.optString("source") == "learned") "  (learned)" else "",
-                    color = Color.White, fontSize = 14.sp, modifier = Modifier.weight(1f))
+                    color = Pal.text, fontSize = 14.sp, modifier = Modifier.weight(1f))
                 Text("✕", color = Dim, modifier = Modifier.clickable {
                     scope.launch { runCatching { LibraryApi.forgetPreference(link, p.optInt("id")) }; refresh++ }
                 }.padding(horizontal = 8.dp))
@@ -288,14 +288,14 @@ private fun BrainPanel(link: ServerLink) {
             Spacer(Modifier.height(4.dp))
             Text("Dates I'm watching (reminders set ahead)", color = Dim, fontSize = 13.sp)
             dates.take(10).forEach { d ->
-                Text(d.optString("date") + "  " + d.optString("what"), color = Color.White, fontSize = 14.sp)
+                Text(d.optString("date") + "  " + d.optString("what"), color = Pal.text, fontSize = 14.sp)
             }
         }
         val questions = b.optJSONArray("questions")?.objects().orEmpty()
         if (questions.isNotEmpty()) {
             Spacer(Modifier.height(4.dp))
             Text("Questions for you (answer Buddy in the chat)", color = Vault, fontSize = 13.sp)
-            questions.forEach { q -> Text(q.optString("question"), color = Color.White, fontSize = 14.sp) }
+            questions.forEach { q -> Text(q.optString("question"), color = Pal.text, fontSize = 14.sp) }
         }
         val status = b.optJSONObject("status")
         if (status != null) {

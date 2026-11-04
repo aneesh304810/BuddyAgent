@@ -42,12 +42,12 @@ import org.json.JSONObject
 import java.util.Locale
 import java.util.concurrent.TimeUnit
 
-private val Card = Color(0xFF151C33)
-private val Dim = Color(0xFF8A93B2)
-private val Bright = Color(0xFFE0E6FF)
-private val Bar = Color(0xFF36C5F0)      // one series: magnitude only, so one hue
-private val BarTrack = Color(0xFF222B47)
-private val Bad = Color(0xFFFF8A80)
+private val Card: Color get() = Pal.panel
+private val Dim: Color get() = Pal.dim
+private val Bright: Color get() = Pal.bright
+private val Bar: Color get() = Pal.bar      // one series: magnitude only, so one hue
+private val BarTrack: Color get() = Pal.track
+private val Bad: Color get() = Pal.bad
 
 /** Reads the Insights dashboard (GET /admin/insights) and this month's all-in cost (GET /admin/costs). */
 object InsightsApi {
@@ -445,7 +445,7 @@ private fun FreeModelRow(p: JSONObject) {
         Row(verticalAlignment = Alignment.CenterVertically) {
             Box(Modifier.size(8.dp).background(if (on) Bar else Dim, RoundedCornerShape(4.dp)))
             Spacer(Modifier.size(8.dp))
-            Text(p.optString("name"), color = Color.White, fontSize = 15.sp, modifier = Modifier.weight(1f))
+            Text(p.optString("name"), color = Pal.text, fontSize = 15.sp, modifier = Modifier.weight(1f))
             Text(if (on) "on" else if (p.optBoolean("key_set")) "key set, off" else "no key", color = if (on) Bar else Dim,
                 fontSize = 12.sp)
         }
@@ -472,7 +472,7 @@ private fun ToolRow(t: JSONObject) {
     }
     Column(Modifier.fillMaxWidth().background(Card, RoundedCornerShape(12.dp)).padding(12.dp)) {
         Row(verticalAlignment = Alignment.CenterVertically) {
-            Text(t.optString("tool").replace('_', ' '), color = Color.White, fontSize = 15.sp, modifier = Modifier.weight(1f))
+            Text(t.optString("tool").replace('_', ' '), color = Pal.text, fontSize = 15.sp, modifier = Modifier.weight(1f))
             Text(if (t.optDouble("extra_usd") > 0) usd(t.optDouble("extra_usd")) else "no extra cost", color = Bright, fontSize = 12.sp)
         }
         Text("$who · ${t.optInt("calls")} calls" + (if (t.optInt("failed") > 0) " · ${t.optInt("failed")} failed" else "") +
@@ -495,10 +495,10 @@ private fun HealthCard(data: JSONObject?, checking: Boolean, onRun: () -> Unit) 
                 else -> "No check yet"
             }
             Box(Modifier.size(10.dp).background(
-                when (status) { "act" -> Bad; "watch" -> Color(0xFFFFC46B); "good" -> Bar; else -> Dim },
+                when (status) { "act" -> Bad; "watch" -> Pal.warn; "good" -> Bar; else -> Dim },
                 RoundedCornerShape(5.dp)))
             Spacer(Modifier.size(8.dp))
-            Text(label, color = Color.White, fontSize = 16.sp, fontWeight = FontWeight.SemiBold, modifier = Modifier.weight(1f))
+            Text(label, color = Pal.text, fontSize = 16.sp, fontWeight = FontWeight.SemiBold, modifier = Modifier.weight(1f))
             Chip(if (checking) "Checking…" else "Check now", false, onRun)
         }
         if (latest != null) {
@@ -511,11 +511,11 @@ private fun HealthCard(data: JSONObject?, checking: Boolean, onRun: () -> Unit) 
                 var open by remember(f.optString("title")) { mutableStateOf(false) }
                 Column(Modifier.fillMaxWidth().padding(top = 8.dp).clickable { open = !open }) {
                     Text((if (f.optString("severity") == "act") "● " else "○ ") + f.optString("title"),
-                        color = if (f.optString("severity") == "act") Bad else Color(0xFFFFC46B), fontSize = 14.sp)
+                        color = if (f.optString("severity") == "act") Bad else Pal.warn, fontSize = 14.sp)
                     Text(f.optString("area"), color = Dim, fontSize = 11.sp)
                     if (open) {
                         Text(f.optString("detail"), color = Bright, fontSize = 13.sp)
-                        Text("Fix: " + f.optString("fix"), color = Color.White, fontSize = 13.sp,
+                        Text("Fix: " + f.optString("fix"), color = Pal.text, fontSize = 13.sp,
                             modifier = Modifier.padding(top = 4.dp))
                     }
                 }
@@ -538,7 +538,7 @@ private fun HealthCard(data: JSONObject?, checking: Boolean, onRun: () -> Unit) 
 /** Diagnostics: microphone, background, network and server, the tips they lead to, and the slowest moments. */
 @Composable
 private fun ExperienceHealth(h: JSONObject, link: ServerLink?) {
-    val warn = Color(0xFFFFC46B)
+    val warn = Pal.warn
     val context = androidx.compose.ui.platform.LocalContext.current
     val scope = rememberCoroutineScope()
     var shareProblem by remember { mutableStateOf<String?>(null) }
@@ -549,12 +549,12 @@ private fun ExperienceHealth(h: JSONObject, link: ServerLink?) {
         if (tips != null && tips.length() > 0) {
             for (i in 0 until tips.length()) Text("⚠ ${tips.getString(i)}", color = warn, fontSize = 13.sp)
         } else {
-            Text("✓ Nothing stands out in this period (${h.optInt("events")} events).", color = Color(0xFF7BE0A5), fontSize = 13.sp)
+            Text("✓ Nothing stands out in this period (${h.optInt("events")} events).", color = Pal.good, fontSize = 13.sp)
         }
         val mic = h.optJSONObject("microphone")
         val byMic = mic?.optJSONObject("by_mic")
         if (byMic != null && byMic.length() > 0) {
-            Text("Microphone", color = Color.White, fontSize = 14.sp, fontWeight = FontWeight.SemiBold)
+            Text("Microphone", color = Pal.text, fontSize = 14.sp, fontWeight = FontWeight.SemiBold)
             byMic.keys().forEach { m ->
                 val x = byMic.getJSONObject(m)
                 Text("$m: voice ${x.optDouble("snr_db").let { if (it.isNaN()) "–" else "%.0f".format(it) }} dB over background · " +
@@ -569,14 +569,14 @@ private fun ExperienceHealth(h: JSONObject, link: ServerLink?) {
                 .joinToString { "${it.replace('_', ' ')} ${ev.optInt(it)}" }, color = Dim, fontSize = 12.sp)
         }
         h.optJSONObject("network")?.let { n ->
-            Text("Network", color = Color.White, fontSize = 14.sp, fontWeight = FontWeight.SemiBold)
+            Text("Network", color = Pal.text, fontSize = 14.sp, fontWeight = FontWeight.SemiBold)
             Text("Ping ${ms(n.optDouble("ping_ms"))} (slow ${ms(n.optDouble("ping_p95_ms"))}) · ${n.optInt("disconnects")} drops " +
                 "(${n.optDouble("disconnects_per_day")}/day) · back in ${ms(n.optDouble("reconnect_ms"))}", color = Bright, fontSize = 12.sp)
         }
         h.optJSONObject("background")?.let { b ->
             val ev = b.optJSONObject("events")
             if (ev != null && ev.length() > 0) {
-                Text("Background", color = Color.White, fontSize = 14.sp, fontWeight = FontWeight.SemiBold)
+                Text("Background", color = Pal.text, fontSize = 14.sp, fontWeight = FontWeight.SemiBold)
                 Text(ev.keys().asSequence().joinToString { "${it.replace('_', ' ')} ${ev.optInt(it)}" } +
                     (if (!b.isNull("battery_saver_pct")) " · battery saver ${b.optInt("battery_saver_pct")}% of the time" else ""),
                     color = Bright, fontSize = 12.sp)
@@ -585,7 +585,7 @@ private fun ExperienceHealth(h: JSONObject, link: ServerLink?) {
         h.optJSONObject("speech")?.let { sp ->
             val eng = sp.optJSONObject("engines")
             if (eng != null && eng.length() > 0) {
-                Text("Speech to text", color = Color.White, fontSize = 14.sp, fontWeight = FontWeight.SemiBold)
+                Text("Speech to text", color = Pal.text, fontSize = 14.sp, fontWeight = FontWeight.SemiBold)
                 Text(eng.keys().asSequence().joinToString(" · ") { e ->
                     val x = eng.getJSONObject(e); "$e ${ms(x.optDouble("ms"))} (slow ${ms(x.optDouble("p95_ms"))}, ${x.optInt("clips")}×)"
                 }, color = Bright, fontSize = 12.sp)
@@ -596,14 +596,14 @@ private fun ExperienceHealth(h: JSONObject, link: ServerLink?) {
         }
         h.optJSONObject("server")?.let { sv ->
             if (sv.optInt("slow_replies") > 0) {
-                Text("Server", color = Color.White, fontSize = 14.sp, fontWeight = FontWeight.SemiBold)
+                Text("Server", color = Pal.text, fontSize = 14.sp, fontWeight = FontWeight.SemiBold)
                 Text("${sv.optInt("slow_replies")} slow replies, ${sv.optInt("slow_while_busy")} while the server was busy",
                     color = Bright, fontSize = 12.sp)
             }
         }
         val slow = h.optJSONArray("slowest")?.objects().orEmpty()
         if (slow.isNotEmpty()) {
-            Text("Slowest moments", color = Color.White, fontSize = 14.sp, fontWeight = FontWeight.SemiBold)
+            Text("Slowest moments", color = Pal.text, fontSize = 14.sp, fontWeight = FontWeight.SemiBold)
             slow.take(10).forEach { m ->
                 val st = m.optJSONObject("steps") ?: JSONObject()
                 val parts = listOf("pause" to "pause", "network" to "net", "speech_to_text" to "stt", "to_buddy" to "to Buddy",
@@ -641,12 +641,12 @@ private fun VoiceTimings(v: JSONObject) {
     Column(Modifier.fillMaxWidth().background(Card, RoundedCornerShape(12.dp)).padding(12.dp),
         verticalArrangement = Arrangement.spacedBy(6.dp)) {
         Text("Typical ${s(v.optDouble("total_ms"))} · slow ones ${s(v.optDouble("total_p95_ms"))} · ${v.optInt("utterances")} times",
-            color = Color.White, fontSize = 15.sp, fontWeight = FontWeight.SemiBold)
+            color = Pal.text, fontSize = 15.sp, fontWeight = FontWeight.SemiBold)
         steps.forEach { st ->
             val ms = st.optDouble("ms", Double.NaN)
             Row(verticalAlignment = Alignment.CenterVertically) {
                 Text(st.optString("step"), color = Bright, fontSize = 13.sp, modifier = Modifier.weight(1f))
-                Text(s(ms), color = if (st.optString("step") == v.optString("slowest")) Color(0xFFFFC46B) else Bright, fontSize = 13.sp)
+                Text(s(ms), color = if (st.optString("step") == v.optString("slowest")) Pal.warn else Bright, fontSize = 13.sp)
             }
             Box(Modifier.fillMaxWidth().height(4.dp).background(BarTrack, RoundedCornerShape(2.dp))) {
                 Box(Modifier.fillMaxWidth(if (ms.isNaN()) 0.01f else (ms / most).toFloat().coerceIn(0.01f, 1f))
@@ -665,7 +665,7 @@ private fun VoiceTimings(v: JSONObject) {
             Text("Missed: " + missed.keys().asSequence().joinToString(" · ") { k ->
                 "${mapOf("timeout" to "no answer", "nothing" to "no words", "unclear" to "too unclear",
                     "not_you" to "not your voice")[k] ?: k} ${missed.optInt(k)}"
-            }, color = Color(0xFFFFC46B), fontSize = 12.sp)
+            }, color = Pal.warn, fontSize = 12.sp)
         }
         if (v.optString("slowest").isNotBlank()) {
             Text("Slowest step: ${v.optString("slowest")}", color = Dim, fontSize = 12.sp)
@@ -680,9 +680,9 @@ private fun ModelTokens(m: JSONObject, picked: String, onPick: (String) -> Unit)
     Column(Modifier.fillMaxWidth().background(Card, RoundedCornerShape(12.dp)).padding(12.dp),
         verticalArrangement = Arrangement.spacedBy(6.dp)) {
         Row(verticalAlignment = Alignment.CenterVertically) {
-            Text(m.optString("model"), color = Color.White, fontSize = 15.sp, fontWeight = FontWeight.SemiBold,
+            Text(m.optString("model"), color = Pal.text, fontSize = 15.sp, fontWeight = FontWeight.SemiBold,
                 modifier = Modifier.weight(1f))
-            Text(if (free) "free" else usd(m.optDouble("cost_usd")), color = Color.White, fontSize = 15.sp)
+            Text(if (free) "free" else usd(m.optDouble("cost_usd")), color = Pal.text, fontSize = 15.sp)
         }
         Text(m.optString("provider"), color = Dim, fontSize = 12.sp)
         Row(horizontalArrangement = Arrangement.spacedBy(8.dp)) {
@@ -692,7 +692,7 @@ private fun ModelTokens(m: JSONObject, picked: String, onPick: (String) -> Unit)
                 "Cached" to tokens(m.optLong("cache_read_tokens"))).forEach { (label, value) ->
                 Column(Modifier.weight(1f).background(BarTrack, RoundedCornerShape(8.dp)).padding(8.dp)) {
                     Text(label, color = Dim, fontSize = 11.sp)
-                    Text(value, color = Color.White, fontSize = 16.sp, fontWeight = FontWeight.SemiBold)
+                    Text(value, color = Pal.text, fontSize = 16.sp, fontWeight = FontWeight.SemiBold)
                 }
             }
         }
@@ -722,7 +722,7 @@ private fun ModelTokens(m: JSONObject, picked: String, onPick: (String) -> Unit)
 @Composable
 private fun Chip(label: String, on: Boolean, onClick: () -> Unit) {
     Text(
-        label, color = if (on) Color.Black else Bright, fontSize = 13.sp,
+        label, color = if (on) Pal.onChip else Bright, fontSize = 13.sp,
         modifier = Modifier
             .background(if (on) Bar else Card, RoundedCornerShape(50))
             .clickable(onClick = onClick)
@@ -732,7 +732,7 @@ private fun Chip(label: String, on: Boolean, onClick: () -> Unit) {
 
 @Composable
 private fun Heading(text: String) {
-    Text(text, color = Color.White, fontSize = 17.sp, fontWeight = FontWeight.SemiBold,
+    Text(text, color = Pal.text, fontSize = 17.sp, fontWeight = FontWeight.SemiBold,
         modifier = Modifier.padding(top = 8.dp))
 }
 
@@ -740,7 +740,7 @@ private fun Heading(text: String) {
 private fun Tile(label: String, value: String, modifier: Modifier, note: String = "") {
     Column(modifier.background(Card, RoundedCornerShape(12.dp)).padding(12.dp)) {
         Text(label, color = Dim, fontSize = 12.sp)
-        Text(value, color = Color.White, fontSize = 22.sp, fontWeight = FontWeight.SemiBold)
+        Text(value, color = Pal.text, fontSize = 22.sp, fontWeight = FontWeight.SemiBold)
         if (note.isNotEmpty()) Text(note, color = Dim, fontSize = 11.sp)
     }
 }
@@ -768,7 +768,7 @@ private fun DailyBars(days: List<JSONObject>) {
                         Modifier.fillMaxWidth()
                             .fillMaxHeight(maxOf(share, 0.02f))
                             .background(
-                                if (i == picked) Color.White else Bar,
+                                if (i == picked) Pal.text else Bar,
                                 RoundedCornerShape(topStart = 4.dp, topEnd = 4.dp),
                             )
                     )
@@ -793,8 +793,8 @@ private fun BreakdownRow(title: String, value: String, share: Float, detail: Str
             .padding(12.dp)
     ) {
         Row(verticalAlignment = Alignment.CenterVertically) {
-            Text(title, color = Color.White, fontSize = 15.sp, modifier = Modifier.weight(1f))
-            Text(value, color = Color.White, fontSize = 15.sp, fontWeight = FontWeight.SemiBold)
+            Text(title, color = Pal.text, fontSize = 15.sp, modifier = Modifier.weight(1f))
+            Text(value, color = Pal.text, fontSize = 15.sp, fontWeight = FontWeight.SemiBold)
         }
         Box(Modifier.fillMaxWidth().padding(vertical = 6.dp).height(6.dp).background(BarTrack, RoundedCornerShape(3.dp))) {
             Box(Modifier.fillMaxWidth(share.coerceIn(0.01f, 1f)).height(6.dp).background(Bar, RoundedCornerShape(3.dp)))
@@ -818,7 +818,7 @@ private fun CallRow(c: JSONObject) {
         Row(verticalAlignment = Alignment.CenterVertically) {
             Box(Modifier.size(8.dp).background(if (ok) Bar else Bad, RoundedCornerShape(4.dp)))
             Spacer(Modifier.size(8.dp))
-            Text(c.optString("purpose_label"), color = Color.White, fontSize = 14.sp, modifier = Modifier.weight(1f))
+            Text(c.optString("purpose_label"), color = Pal.text, fontSize = 14.sp, modifier = Modifier.weight(1f))
             Text("${if (c.optString("provider") == "claude") usd(c.optDouble("cost_usd")) else "free"} · ${secs(c, "seconds")}", color = Bright, fontSize = 13.sp)
         }
         Text("$at UTC · ${c.optString("model")}" + if (!ok) " · ${c.optString("stop")}" else "",

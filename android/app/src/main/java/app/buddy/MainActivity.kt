@@ -70,6 +70,7 @@ import androidx.compose.material3.Switch
 import androidx.compose.material3.Text
 import androidx.compose.material3.TextButton
 import androidx.compose.material3.darkColorScheme
+import androidx.compose.material3.lightColorScheme
 import androidx.compose.runtime.Composable
 import androidx.compose.runtime.LaunchedEffect
 import androidx.compose.runtime.collectAsState
@@ -114,13 +115,13 @@ val ROOM_LANGUAGES = listOf(
     "ta-IN" to "Tamil",
 )
 
-private val Ink = Color(0xFF0B1020)
-private val Panel = Color(0xFF151C33)
-private val Accent = Color(0xFF5B8CFF)
-private val Listening = Color(0xFF3DDC97)
-private val Talking = Color(0xFFFFB547)
-private val Thinking = Color(0xFFB98CFF)  // the question arrived; Buddy is working on it
-private val Muted = Color(0xFF8A93B2)
+private val Ink: Color get() = Pal.bg
+private val Panel: Color get() = Pal.panel
+private val Accent: Color get() = Pal.accent
+private val Listening: Color get() = Pal.listening
+private val Talking: Color get() = Pal.talking
+private val Thinking: Color get() = Pal.thinking  // the question arrived; Buddy is working on it
+private val Muted: Color get() = Pal.dim
 
 /** What fills the screen below the header. */
 sealed interface Screen {
@@ -199,12 +200,24 @@ class MainActivity : ComponentActivity() {
                 .build()
         )
         prefs = BuddyPrefs(this)
+        Theme.light = prefs.theme == Theme.LIGHT
         if (prefs.link == null) screen.value = Screen.Settings
         openJobFrom(intent)
         openRideFrom(intent)
         uploadSharedFrom(intent)
         setContent {
-            MaterialTheme(colorScheme = darkColorScheme(primary = Accent, background = Ink, surface = Panel)) {
+            val light = Theme.light
+            androidx.compose.runtime.LaunchedEffect(light) {  // dark status-bar icons on the light look
+                androidx.core.view.WindowCompat.getInsetsController(window, window.decorView).apply {
+                    isAppearanceLightStatusBars = light
+                    isAppearanceLightNavigationBars = light
+                }
+            }
+            val scheme = if (light) lightColorScheme(primary = Accent, background = Ink, surface = Ink,
+                surfaceVariant = Panel, onPrimary = Pal.onChip, onBackground = Pal.text, onSurface = Pal.text,
+                secondaryContainer = Pal.placeholder, outline = Pal.track)
+            else darkColorScheme(primary = Accent, background = Ink, surface = Panel)
+            MaterialTheme(colorScheme = scheme) {
                 BuddyScreen(
                     prefs = prefs,
                     screen = screen.value,
@@ -310,7 +323,7 @@ private fun BuddyScreen(
             .padding(horizontal = 16.dp),
     ) {
         Row(Modifier.fillMaxWidth().padding(vertical = 12.dp), verticalAlignment = Alignment.CenterVertically) {
-            Text("Buddy", color = Color.White, fontSize = 22.sp)
+            Text("Buddy", color = Pal.text, fontSize = 22.sp)
             Spacer(Modifier.size(10.dp))
             Box(
                 Modifier.size(8.dp).background(if (ui.online) Listening else Muted, CircleShape)
@@ -320,7 +333,7 @@ private fun BuddyScreen(
             if (screen == Screen.Talk) {
                 var menuOpen by remember { mutableStateOf(false) }
                 Box {
-                    TextButton(onClick = { menuOpen = true }) { Text("☰", fontSize = 24.sp, color = Color.White) }
+                    TextButton(onClick = { menuOpen = true }) { Text("☰", fontSize = 24.sp, color = Pal.text) }
                     DropdownMenu(expanded = menuOpen, onDismissRequest = { menuOpen = false }) {
                         listOf("✈  Travel" to Screen.Travel, "💳  Money" to Screen.Money, "📈  Money dashboard" to Screen.MoneyDashboard,
                             "📎  Library" to Screen.Library,
@@ -404,7 +417,7 @@ private fun ApprovalCard(question: String) {
         Modifier.fillMaxWidth().padding(top = 8.dp)
             .background(Panel, RoundedCornerShape(14.dp)).padding(12.dp),
     ) {
-        Text(question, color = Color.White, fontSize = 15.sp)
+        Text(question, color = Pal.text, fontSize = 15.sp)
         Row(Modifier.fillMaxWidth().padding(top = 8.dp), horizontalArrangement = Arrangement.spacedBy(8.dp)) {
             Button(onClick = { BuddyService.instance?.answerApproval(true) }, modifier = Modifier.weight(1f)) {
                 Text("Approve")
@@ -462,7 +475,7 @@ private fun TimeLabel(at: Long) {
 @Composable
 private fun UserBubble(line: Line) {
     Row(Modifier.fillMaxWidth(), horizontalArrangement = Arrangement.End) {
-        Text(line.text, color = Color.White, fontSize = 16.sp,
+        Text(line.text, color = Pal.text, fontSize = 16.sp,
             modifier = Modifier.widthIn(max = 520.dp)
                 .background(Accent.copy(alpha = 0.45f), RoundedCornerShape(18.dp, 18.dp, 4.dp, 18.dp))
                 .padding(horizontal = 14.dp, vertical = 10.dp))
@@ -480,7 +493,7 @@ private fun StatusLine(text: String) {
 
 @Composable
 private fun SystemNote(text: String) {
-    Text("ⓘ  $text", color = Color(0xFFFFA8A0), fontSize = 12.sp, textAlign = TextAlign.Center,
+    Text("ⓘ  $text", color = Pal.info, fontSize = 12.sp, textAlign = TextAlign.Center,
         modifier = Modifier.fillMaxWidth().padding(horizontal = 24.dp))
 }
 
@@ -505,7 +518,7 @@ private fun BuddyBubble(line: Line, onOpenInsights: () -> Unit, onOpenReport: (I
             Row(verticalAlignment = Alignment.Top) {
                 Box(Modifier.padding(top = 2.dp).size(28.dp).background(
                     if (special) Talking.copy(alpha = 0.3f) else Accent.copy(alpha = 0.25f), CircleShape),
-                    contentAlignment = Alignment.Center) { Text("B", color = Color.White, fontSize = 13.sp, fontWeight = FontWeight.Bold) }
+                    contentAlignment = Alignment.Center) { Text("B", color = Pal.text, fontSize = 13.sp, fontWeight = FontWeight.Bold) }
                 Spacer(Modifier.width(8.dp))
                 Column(
                     Modifier.widthIn(max = 560.dp)
@@ -550,7 +563,7 @@ private fun RichText(text: String, italic: Boolean = false) {
                     if (next === b) {
                         withStyle(SpanStyle(fontWeight = FontWeight.SemiBold)) { append(next.groupValues[1]) }
                     } else {
-                        withLink(LinkAnnotation.Url(next.value, TextLinkStyles(SpanStyle(color = Color(0xFF8FB0FF),
+                        withLink(LinkAnnotation.Url(next.value, TextLinkStyles(SpanStyle(color = Pal.link,
                             textDecoration = TextDecoration.Underline)))) {
                             append(next.value.removePrefix("https://").take(40))
                         }
@@ -561,7 +574,7 @@ private fun RichText(text: String, italic: Boolean = false) {
             Row {
                 if (bullet != null) Text(if (bullet.groupValues[1].isNotEmpty()) "${bullet.groupValues[1]}. " else "•  ",
                     color = Muted, fontSize = 16.sp)
-                Text(styled, color = Color.White, fontSize = 16.sp, lineHeight = 22.sp,
+                Text(styled, color = Pal.text, fontSize = 16.sp, lineHeight = 22.sp,
                     fontStyle = if (italic) FontStyle.Italic else FontStyle.Normal)
             }
         }
@@ -577,7 +590,7 @@ private fun Thumbs(turn: String, rating: Int?) {
             Text(
                 icon,
                 fontSize = 13.sp,
-                color = if (rating == null || on) Color.White else Color.White.copy(alpha = 0.3f),
+                color = if (rating == null || on) Pal.text else Pal.text.copy(alpha = 0.3f),
                 modifier = Modifier
                     .background(if (on) Accent.copy(alpha = 0.35f) else Color.Transparent, RoundedCornerShape(10.dp))
                     .clickable { BuddyService.instance?.rate(turn, if (on) null else value) }
@@ -631,10 +644,10 @@ private fun Controls(ui: UiState, prefs: BuddyPrefs) {
             Row(Modifier.background(Panel, RoundedCornerShape(50)).padding(3.dp)) {
                 listOf(Mode.TALK to "Talk", Mode.LISTEN_IN to "Listen-in").forEach { (mode, label) ->
                     val on = ui.mode == mode
-                    Text(label, color = if (on) Color.Black else Color.White, fontSize = 13.sp,
+                    Text(label, color = if (on) Pal.onChip else Pal.text, fontSize = 13.sp,
                         fontWeight = if (on) FontWeight.SemiBold else FontWeight.Normal,
                         modifier = Modifier.clip(RoundedCornerShape(50))
-                            .background(if (on) Color(0xFFE0E6FF) else Color.Transparent)
+                            .background(if (on) Pal.chipSoft else Color.Transparent)
                             .clickable { switchMode(mode, ui) }
                             .padding(horizontal = 12.dp, vertical = 6.dp))
                 }
@@ -651,7 +664,7 @@ private fun Controls(ui: UiState, prefs: BuddyPrefs) {
             } else {
                 Box {
                     Text("🌐 " + (ROOM_LANGUAGES.firstOrNull { it.first == roomLanguage }?.second ?: roomLanguage),
-                        color = Color.White, fontSize = 13.sp,
+                        color = Pal.text, fontSize = 13.sp,
                         modifier = Modifier.clip(RoundedCornerShape(50)).background(Panel)
                             .clickable { languageMenu = true }.padding(horizontal = 10.dp, vertical = 6.dp))
                     DropdownMenu(expanded = languageMenu, onDismissRequest = { languageMenu = false }) {
@@ -696,7 +709,7 @@ private fun Controls(ui: UiState, prefs: BuddyPrefs) {
                 contentAlignment = Alignment.Center,
             ) {
                 Text(if (sending) "➤" else if (ui.listening) "■" else "🎙️",
-                    color = Color.Black, fontSize = if (sending) 22.sp else 20.sp)
+                    color = Pal.onChip, fontSize = if (sending) 22.sp else 20.sp)
             }
         }
     }
@@ -745,15 +758,27 @@ private fun SettingsPanel(
     var diagnosticsOn by remember { mutableStateOf(prefs.diagnostics) }
     Column(Modifier.verticalScroll(rememberScrollState()), verticalArrangement = Arrangement.spacedBy(12.dp)) {
         SetupTestCard(prefs.link)
+        Text("Look", color = Pal.text, fontSize = 18.sp)
+        Text("Default is the dark look. Light matches the buddylabs.io website: white, with Buddy green.",
+            color = Muted, fontSize = 13.sp)
+        Row(horizontalArrangement = Arrangement.spacedBy(8.dp)) {
+            listOf(Theme.DEFAULT to "Default (dark)", Theme.LIGHT to "Light").forEach { (value, name) ->
+                FilterChip(
+                    selected = (if (Theme.light) Theme.LIGHT else Theme.DEFAULT) == value,
+                    onClick = { prefs.theme = value; Theme.light = value == Theme.LIGHT },
+                    label = { Text(name) },
+                )
+            }
+        }
         Row(verticalAlignment = Alignment.CenterVertically) {
             Column(Modifier.weight(1f)) {
-                Text("Collect diagnostics", color = Color.White)
+                Text("Collect diagnostics", color = Pal.text)
                 Text("Mic levels, connection, background and timing events (never audio or words) for Insights → " +
                     "Experience health. Kept 30 days.", color = Muted, fontSize = 12.sp)
             }
             Switch(checked = diagnosticsOn, onCheckedChange = { diagnosticsOn = it; prefs.diagnostics = it })
         }
-        Text("Your server", color = Color.White, fontSize = 18.sp)
+        Text("Your server", color = Pal.text, fontSize = 18.sp)
         Text(
             "Paste the link the server setup printed, like https://buddy.your-tailnet.ts.net/?token=… " +
                 "Tailscale must be on for this phone to reach it.",
@@ -774,7 +799,7 @@ private fun SettingsPanel(
             visualTransformation = PasswordVisualTransformation(),
             modifier = Modifier.fillMaxWidth(),
         )
-        problem?.let { Text(it, color = Color(0xFFFF8A80), fontSize = 14.sp) }
+        problem?.let { Text(it, color = Pal.bad, fontSize = 14.sp) }
         Button(onClick = {
             val link = ServerLink.parse(linkText, tokenText.trim().ifEmpty { saved?.token })
             if (link == null) {
@@ -790,7 +815,7 @@ private fun SettingsPanel(
         Spacer(Modifier.height(8.dp))
         Row(verticalAlignment = Alignment.CenterVertically) {
             Column(Modifier.weight(1f)) {
-                Text("Use the earbud microphone", color = Color.White)
+                Text("Use the earbud microphone", color = Pal.text)
                 Text(
                     "For talking to Buddy in a pocket or a noisy place. Earbuds switch to headset mode, " +
                         "so Buddy's voice sounds more like a phone call.",
@@ -799,7 +824,7 @@ private fun SettingsPanel(
             }
             Switch(checked = earbudMic, onCheckedChange = { earbudMic = it; prefs.earbudMic = it })
         }
-        Text("Listen-in microphone", color = Color.White)
+        Text("Listen-in microphone", color = Pal.text)
         Text(
             "Automatic (best): the phone's mic, which hears the whole room, quiet voices boosted; the headset's " +
                 "only while the phone is in your pocket (it switches after 3 s). Headset mics favour your own " +
@@ -817,7 +842,7 @@ private fun SettingsPanel(
         }
 
         Spacer(Modifier.height(8.dp))
-        Text("Speech recognition", color = Color.White)
+        Text("Speech recognition", color = Pal.text)
         Text(
             "Automatic: Whisper on your server whenever Buddy keeps listening (Talk, Listen-in, phone " +
                 "closed): no beeps, good with Malayalam and English. The phone's recognizer for single " +
@@ -835,7 +860,7 @@ private fun SettingsPanel(
             }
         }
         Spacer(Modifier.height(8.dp))
-        Text("When earbuds connect", color = Color.White)
+        Text("When earbuds connect", color = Pal.text)
         Text(
             "Listen-in: Buddy starts listening by itself; say \"Hey Buddy\" to talk to it, no tapping. " +
                 "Talk: everything you say goes to Buddy, so only for when you're alone.",
@@ -857,7 +882,7 @@ private fun SettingsPanel(
         VoiceMatch(prefs)
 
         Spacer(Modifier.height(8.dp))
-        Text("This phone", color = Color.White, fontSize = 18.sp)
+        Text("This phone", color = Pal.text, fontSize = 18.sp)
         OutlinedTextField(
             value = deviceName,
             onValueChange = { deviceName = it; prefs.deviceName = it },
@@ -867,7 +892,7 @@ private fun SettingsPanel(
             modifier = Modifier.fillMaxWidth(),
         )
         Column {
-            Text("Share notifications", color = Color.White)
+            Text("Share notifications", color = Pal.text)
             Text(
                 if (notificationsOn) "On. Buddy sees this phone's notifications (Teams, WhatsApp, bank alerts...). " +
                     "Codes and card numbers are masked; kept 7 days."
@@ -882,7 +907,7 @@ private fun SettingsPanel(
         }
         Column {
             val formsOn = FormHelper.enabled(context)
-            Text("Fill forms in the browser", color = Color.White)
+            Text("Fill forms in the browser", color = Pal.text)
             Text(
                 if (formsOn) "On. Say \"help me fill this form\" with a form open in Chrome: Buddy reads it, tells you " +
                     "its answers and fills them after you say yes. It never touches passwords or presses Submit."
@@ -897,7 +922,7 @@ private fun SettingsPanel(
         }
         Column {
             val readerOn = RideReader.enabled(context)
-            Text("Read Uber and Lyft prices", color = Color.White)
+            Text("Read Uber and Lyft prices", color = Pal.text)
             Text(
                 if (readerOn) "On. When you say \"compare Uber and Lyft\", Buddy opens each app, reads the prices " +
                     "and tells you which is cheaper. It only sees those two apps, and never taps Confirm."
@@ -912,7 +937,7 @@ private fun SettingsPanel(
         }
         Row(verticalAlignment = Alignment.CenterVertically) {
             Column(Modifier.weight(1f)) {
-                Text("Share my location", color = Color.White)
+                Text("Share my location", color = Pal.text)
                 Text(
                     "So \"a spa near me\" works. Sent only to your server, only when you open or talk to Buddy, " +
                         "and only the latest one is kept. Choose \"approximate\" for neighbourhood-level only.",
@@ -927,7 +952,7 @@ private fun SettingsPanel(
         }
         Row(verticalAlignment = Alignment.CenterVertically) {
             Column(Modifier.weight(1f)) {
-                Text("Share calendar", color = Color.White)
+                Text("Share calendar", color = Pal.text)
                 Text(
                     "This phone's calendars, including a work calendar that Outlook or Teams syncs here.",
                     color = Muted, fontSize = 13.sp,
@@ -941,7 +966,7 @@ private fun SettingsPanel(
         if (shareCalendar) {
             Row(verticalAlignment = Alignment.CenterVertically) {
                 Column(Modifier.weight(1f)) {
-                    Text("Work calendars: busy times only", color = Color.White)
+                    Text("Work calendars: busy times only", color = Pal.text)
                     Text(
                         "Buddy sees \"Busy 10:00–11:00\" but no meeting titles or places from Exchange/Outlook " +
                             "calendars, so work details stay off your server.",
@@ -958,7 +983,7 @@ private fun SettingsPanel(
 
         if (!batteryOk()) {
             Column {
-                Text("Keep Buddy awake", color = Color.White)
+                Text("Keep Buddy awake", color = Pal.text)
                 Text(
                     "Samsung phones put background apps to sleep, which would stop reminders and Listen-in.",
                     color = Muted, fontSize = 13.sp,
@@ -993,7 +1018,7 @@ private fun SpeechTuning(prefs: BuddyPrefs) {
     Column(Modifier.fillMaxWidth().padding(top = 12.dp)) {
         Row(verticalAlignment = Alignment.CenterVertically, modifier = Modifier.padding(bottom = 8.dp)) {
             Column(Modifier.weight(1f)) {
-                Text("Silence the listening beep", color = Color.White)
+                Text("Silence the listening beep", color = Pal.text)
                 Text("The phone's speech recognition beeps each time it starts listening again. While Buddy " +
                     "listens quietly, media and system sounds stay muted; they come back when Buddy talks or " +
                     "another app plays audio. The Server speech engine never beeps.", color = Muted, fontSize = 12.sp)
@@ -1002,14 +1027,14 @@ private fun SpeechTuning(prefs: BuddyPrefs) {
         }
         Row(verticalAlignment = Alignment.CenterVertically, modifier = Modifier.padding(bottom = 8.dp)) {
             Column(Modifier.weight(1f)) {
-                Text("Advanced phone recognition", color = Color.White)
+                Text("Advanced phone recognition", color = Pal.text)
                 Text("Lets the phone's recognizer switch between your languages and favour names Buddy knows. " +
                     "Some phones reject it and keep retrying (and beeping); Whisper on your server does both " +
                     "anyway.", color = Muted, fontSize = 12.sp)
             }
             Switch(checked = advanced, onCheckedChange = { advanced = it; prefs.simpleRecognition = !it })
         }
-        Text("My languages (Talk mode)", color = Color.White)
+        Text("My languages (Talk mode)", color = Pal.text)
         Text("Buddy listens for these and replies in the one you use.", color = Muted, fontSize = 12.sp)
         Column(Modifier.padding(vertical = 4.dp)) {
             TALK_LANGUAGES.forEach { (value, label) ->
@@ -1020,17 +1045,17 @@ private fun SpeechTuning(prefs: BuddyPrefs) {
                         BuddyService.instance?.let { if (BuddyState.ui.value.listening) it.startListening(BuddyState.ui.value.mode) }
                     }.padding(vertical = 2.dp)) {
                     RadioButton(selected = talkLanguage == value, onClick = null)
-                    Text(label, color = Color.White, modifier = Modifier.padding(start = 8.dp))
+                    Text(label, color = Pal.text, modifier = Modifier.padding(start = 8.dp))
                 }
             }
         }
-        Text("Buddy's voice speed: ${String.format(java.util.Locale.US, "%.1f", rate)}×", color = Color.White)
+        Text("Buddy's voice speed: ${String.format(java.util.Locale.US, "%.1f", rate)}×", color = Pal.text)
         Slider(value = rate, onValueChange = { rate = it }, valueRange = 0.7f..1.4f, steps = 6,
             onValueChangeFinished = {
                 prefs.voiceRate = rate
                 BuddyService.instance?.previewVoice()
             })
-        Text("Pauses when I talk", color = Color.White, modifier = Modifier.padding(top = 8.dp))
+        Text("Pauses when I talk", color = Pal.text, modifier = Modifier.padding(top = 8.dp))
         Text("Short if you talk fast and Buddy waits too long; long if it cuts you off mid-thought.",
             color = Muted, fontSize = 12.sp)
         Row(horizontalArrangement = Arrangement.spacedBy(8.dp), modifier = Modifier.padding(top = 4.dp)) {
@@ -1048,7 +1073,7 @@ private fun VoiceMatch(prefs: BuddyPrefs) {
     var closed by remember { mutableStateOf(prefs.closedListenIn) }
     var cleanUp by remember { mutableStateOf(prefs.noiseSuppress) }
     Column(Modifier.fillMaxWidth().padding(top = 16.dp)) {
-        Text("Voice match (Talk mode)", color = Color.White, fontSize = 18.sp)
+        Text("Voice match (Talk mode)", color = Pal.text, fontSize = 18.sp)
         Text(
             when {
                 !ui.voiceInstalled -> "Not installed on your server yet: run sudo bash /opt/buddy/deploy/update.sh."
@@ -1059,7 +1084,7 @@ private fun VoiceMatch(prefs: BuddyPrefs) {
             },
             color = Muted, fontSize = 13.sp,
         )
-        ui.enrollResult?.let { Text(it, color = Color.White, fontSize = 13.sp, modifier = Modifier.padding(top = 4.dp)) }
+        ui.enrollResult?.let { Text(it, color = Pal.text, fontSize = 13.sp, modifier = Modifier.padding(top = 4.dp)) }
         Row(horizontalArrangement = Arrangement.spacedBy(8.dp), verticalAlignment = Alignment.CenterVertically,
             modifier = Modifier.padding(top = 6.dp)) {
             Button(onClick = { BuddyService.instance?.teachVoice() },
@@ -1073,7 +1098,7 @@ private fun VoiceMatch(prefs: BuddyPrefs) {
         }
         Row(verticalAlignment = Alignment.CenterVertically, modifier = Modifier.padding(top = 10.dp)) {
             Column(Modifier.weight(1f)) {
-                Text("Phone closed → Listen-in", color = Color.White)
+                Text("Phone closed → Listen-in", color = Pal.text)
                 Text("With your headset on, folding the phone shut (or locking it) switches Talk to Listen-in; " +
                     "opening it switches back. Or say \"Talk mode\" / \"Listen-in mode\", or use the Buddy tile in " +
                     "Quick Settings.", color = Muted, fontSize = 12.sp)
@@ -1082,7 +1107,7 @@ private fun VoiceMatch(prefs: BuddyPrefs) {
         }
         Row(verticalAlignment = Alignment.CenterVertically, modifier = Modifier.padding(top = 10.dp)) {
             Column(Modifier.weight(1f)) {
-                Text("Clean up background noise", color = Color.White)
+                Text("Clean up background noise", color = Pal.text)
                 Text("The phone's own noise suppressor (fans, traffic, hum) on audio your server hears. It keeps all " +
                     "voices, the TV's too. Insights → Hearing you compares on and off; takes effect next time the " +
                     "mic starts.", color = Muted, fontSize = 12.sp)
@@ -1117,7 +1142,7 @@ private fun VoicePicker(prefs: BuddyPrefs) {
     var chosen by remember { mutableStateOf(prefs.voiceName) }
     var open by remember { mutableStateOf(false) }
     val voices = remember(open) { BuddyService.instance?.voices().orEmpty() }
-    Text("Buddy's voice", color = Color.White, fontSize = 18.sp)
+    Text("Buddy's voice", color = Pal.text, fontSize = 18.sp)
     Text(
         "Tap a voice to hear it. Voices come from the phone's speech engine; for more, open Android " +
             "Settings → Text-to-speech output → the engine's settings → Install voice data.",
@@ -1139,7 +1164,7 @@ private fun VoicePicker(prefs: BuddyPrefs) {
         ) {
             RadioButton(selected = chosen == voice.name, onClick = null)
             Spacer(Modifier.width(8.dp))
-            Text(voice.label, color = Color.White, fontSize = 15.sp)
+            Text(voice.label, color = Pal.text, fontSize = 15.sp)
         }
     }
 }

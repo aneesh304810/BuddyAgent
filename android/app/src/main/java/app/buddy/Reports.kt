@@ -94,8 +94,8 @@ object ReportsApi {
     }
 }
 
-private val RDim = Color(0xFF8A93B2)
-private val RTile = Color(0xFF151C33)
+private val RDim: Color get() = Pal.dim
+private val RTile: Color get() = Pal.panel
 
 private fun localTime(iso: String): java.time.ZonedDateTime? = runCatching {
     java.time.OffsetDateTime.parse(iso).atZoneSameInstant(java.time.ZoneId.systemDefault())
@@ -125,7 +125,7 @@ fun ReportsScreen(link: ServerLink?, onOpen: (Int) -> Unit) {
     }
     val all = jobs
     LazyColumn(Modifier.fillMaxSize(), verticalArrangement = Arrangement.spacedBy(8.dp)) {
-        problem?.let { item { Text(it, color = Color(0xFFFF8A80)) } }
+        problem?.let { item { Text(it, color = Pal.bad) } }
         if (all == null) {
             if (problem == null) item { Text("Loading…", color = RDim) }
             return@LazyColumn
@@ -145,8 +145,8 @@ fun ReportsScreen(link: ServerLink?, onOpen: (Int) -> Unit) {
             Row(Modifier.horizontalScroll(rememberScrollState()), horizontalArrangement = Arrangement.spacedBy(8.dp)) {
                 types.forEach { t ->
                     val n = if (t == "All") all.size else all.count { it.type == t }
-                    Text("$t $n", color = if (type == t) Color.Black else Color.White, fontSize = 13.sp,
-                        modifier = Modifier.background(if (type == t) Color.White else RTile, RoundedCornerShape(50))
+                    Text("$t $n", color = if (type == t) Pal.onChip else Pal.text, fontSize = 13.sp,
+                        modifier = Modifier.background(if (type == t) Pal.chip else RTile, RoundedCornerShape(50))
                             .clickable { type = t }.padding(horizontal = 14.dp, vertical = 6.dp))
                 }
             }
@@ -155,13 +155,13 @@ fun ReportsScreen(link: ServerLink?, onOpen: (Int) -> Unit) {
             (query.isBlank() || "${it.title} ${it.summary}".contains(query.trim(), ignoreCase = true)) }
         val recent = shown.filter { !it.archived }
         val archived = shown.filter { it.archived }
-        item { Text("This week", color = Color.White, fontSize = 16.sp, fontWeight = FontWeight.SemiBold) }
+        item { Text("This week", color = Pal.text, fontSize = 16.sp, fontWeight = FontWeight.SemiBold) }
         if (recent.isEmpty()) item { Text("Nothing in the last 7 days.", color = RDim, fontSize = 13.sp) }
         items(recent, key = { it.id }) { job -> ReportRow(job) { onOpen(job.id) } }
         if (archived.isNotEmpty()) {
             item {
                 Text((if (archiveOpen || query.isNotBlank()) "▾ " else "▸ ") + "Archive (${archived.size})",
-                    color = Color.White, fontSize = 16.sp, fontWeight = FontWeight.SemiBold,
+                    color = Pal.text, fontSize = 16.sp, fontWeight = FontWeight.SemiBold,
                     modifier = Modifier.fillMaxWidth().clickable { archiveOpen = !archiveOpen }.padding(top = 10.dp, bottom = 2.dp))
             }
             if (archiveOpen || query.isNotBlank()) {
@@ -181,12 +181,12 @@ fun ReportsScreen(link: ServerLink?, onOpen: (Int) -> Unit) {
 private fun ReportRow(job: JobSummary, onClick: () -> Unit) {
     Column(Modifier.fillMaxWidth().background(RTile, RoundedCornerShape(12.dp)).clickable(onClick = onClick).padding(12.dp)) {
         Row(Modifier.fillMaxWidth()) {
-            Text(job.type, color = Color(0xFF7BE0A5), fontSize = 12.sp, modifier = Modifier.weight(1f))
+            Text(job.type, color = Pal.good, fontSize = 12.sp, modifier = Modifier.weight(1f))
             Text(whenText(job), color = RDim, fontSize = 12.sp)
         }
-        Text(job.title, color = Color.White, fontSize = 16.sp)
+        Text(job.title, color = Pal.text, fontSize = 16.sp)
         if (job.status != "done") {
-            Text(job.status, color = if (job.status == "failed") Color(0xFFFF8A80) else Color(0xFFFFC46B), fontSize = 12.sp)
+            Text(job.status, color = if (job.status == "failed") Pal.bad else Pal.warn, fontSize = 12.sp)
         } else if (job.summary.isNotBlank()) {
             Text(job.summary, color = RDim, fontSize = 13.sp, maxLines = 2,
                 overflow = androidx.compose.ui.text.style.TextOverflow.Ellipsis)
@@ -206,15 +206,15 @@ fun ReportScreen(link: ServerLink?, id: Int) {
     }
     val r = report
     Column(Modifier.fillMaxSize().verticalScroll(rememberScrollState())) {
-        problem?.let { Text(it, color = Color(0xFFFF8A80)) }
+        problem?.let { Text(it, color = Pal.bad) }
         if (r == null) {
-            if (problem == null) Text("Loading…", color = Color(0xFF8A93B2))
+            if (problem == null) Text("Loading…", color = Pal.dim)
             return@Column
         }
-        Text(r.title, color = Color.White, fontSize = 20.sp, fontWeight = FontWeight.SemiBold)
+        Text(r.title, color = Pal.text, fontSize = 20.sp, fontWeight = FontWeight.SemiBold)
         Text(
             if (r.status == "done") r.summary else "${r.status}: ${r.error}",
-            color = Color.White, fontWeight = FontWeight.SemiBold,
+            color = Pal.text, fontWeight = FontWeight.SemiBold,
             modifier = Modifier.padding(vertical = 10.dp),
         )
         SelectionContainer { Column { Markdown(r.report, link?.baseUrl.orEmpty()) } }
@@ -233,7 +233,7 @@ private fun Markdown(md: String, base: String = "") {
         when {
             line.isBlank() -> Text("", fontSize = 6.sp)
             line.startsWith("#") -> Text(
-                clean(line.trimStart('#').trim()), color = Color.White,
+                clean(line.trimStart('#').trim()), color = Pal.text,
                 fontSize = 17.sp, fontWeight = FontWeight.SemiBold,
                 modifier = Modifier.padding(top = 8.dp),
             )
@@ -241,7 +241,7 @@ private fun Markdown(md: String, base: String = "") {
                 if (!Regex("""^\|[\s:|-]+\|$""").matches(line)) {
                     Text(
                         line.trim('|').split("|").joinToString("  ·  ") { it.trim() },
-                        color = Color(0xFFE0E6FF), fontFamily = FontFamily.Monospace, fontSize = 13.sp,
+                        color = Pal.bright, fontFamily = FontFamily.Monospace, fontSize = 13.sp,
                     )
                 }
             }
@@ -250,11 +250,11 @@ private fun Markdown(md: String, base: String = "") {
                 val body = bullet?.groupValues?.get(1) ?: line
                 val link = LINK.find(body)
                 Row {
-                    if (bullet != null) Text("•  ", color = Color.White)
+                    if (bullet != null) Text("•  ", color = Pal.text)
                     if (link != null && link.range.first == 0 && link.range.last == body.lastIndex) {
                         // A Sources line: open it in the browser.
                         Text(
-                            link.groupValues[1], color = Color(0xFF8FB0FF),
+                            link.groupValues[1], color = Pal.link,
                             textDecoration = TextDecoration.Underline,
                             modifier = Modifier.clickable {
                                 val target = link.groupValues[2]
@@ -262,7 +262,7 @@ private fun Markdown(md: String, base: String = "") {
                             },
                         )
                     } else {
-                        Text(clean(LINK.replace(body) { "${it.groupValues[1]} (${it.groupValues[2]})" }), color = Color.White)
+                        Text(clean(LINK.replace(body) { "${it.groupValues[1]} (${it.groupValues[2]})" }), color = Pal.text)
                     }
                 }
             }

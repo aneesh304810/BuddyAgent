@@ -2,6 +2,9 @@
 // Category -> type -> shop -> each transaction; also by card or account, month, and transfer recipient.
 
 const params = new URLSearchParams(location.search);
+// The app's look (Settings → Look): light is the buddylabs.io website's style; remembered for next time.
+if (params.get("theme")) storageSet("buddyTheme", params.get("theme") === "light" ? "light" : "default");
+if ((params.get("theme") || storageGet("buddyTheme")) === "light") document.documentElement.dataset.theme = "light";
 function storageGet(k) { try { return localStorage.getItem(k); } catch { return null; } }
 function storageSet(k, v) { try { localStorage.setItem(k, v); } catch {} }
 if (params.get("token")) storageSet("buddyToken", params.get("token"));
@@ -79,7 +82,7 @@ function render() {
   const maxCat = Math.max(...d.categories.map((c) => Math.max(c.total, c.usual_per_month || 0)), 1);
   parts.push(card("Spending by category", d.categories.map((c, i) => barRow(c.label, c.total, maxCat,
       { usual: c.usual_per_month, change: c.change, color: COLORS[c.group] || "var(--accent)", attrs: `data-cat="${i}"` })).join("")
-      || '<p class="muted">No spending in this period.</p>', "White mark = your usual month. Tap a category to drill down."));
+      || '<p class="muted">No spending in this period.</p>', "The thin mark = your usual month. Tap a category to drill down."));
   // trend
   parts.push(card("Six-month trend", trendSvg(d.trend), "Tap a month to open it."));
   // cards and accounts
@@ -111,7 +114,7 @@ function render() {
   const maxB = Math.max(...d.budget.map((b) => Math.max(b.now, b.budget)), 1);
   parts.push(card("This month against a suggested budget", d.budget.map((b) =>
       barRow(b.label, b.now, maxB, { usual: b.budget, color: b.now > b.budget * 1.05 ? "var(--warn)" : "var(--good)" })).join(""),
-    "White mark = suggested budget. " + esc(d.rule)));
+    "The thin mark = suggested budget. " + esc(d.rule)));
   $("main").innerHTML = parts.join("");
   // drill-down handlers
   document.querySelectorAll("[data-cat]").forEach((el) => el.onclick = () => {
@@ -137,7 +140,7 @@ function trendSvg(trend) {
   const bars = trend.map((t, i) => {
     const x = pad + i * ((w - pad) / n) + 5, on = t.id === period;
     return `<g data-month="${esc(t.id)}" style="cursor:pointer"><rect x="${x}" y="${y(t.spent)}" width="${bw}" height="${h - 20 - y(t.spent)}"
-      rx="4" fill="${on ? "var(--accent)" : "#3a4680"}"/><text x="${x + bw / 2}" y="${h - 6}" text-anchor="middle">${esc(t.month.slice(0, 3))}</text>
+      rx="4" fill="${on ? "var(--accent)" : "var(--spent)"}"/><text x="${x + bw / 2}" y="${h - 6}" text-anchor="middle">${esc(t.month.slice(0, 3))}</text>
       <rect x="${x - 4}" y="0" width="${bw + 8}" height="${h}" fill="transparent"/></g>`;
   }).join("");
   const pts = trend.map((t, i) => t.income == null ? null : `${pad + i * ((w - pad) / n) + 5 + bw / 2},${y(t.income)}`).filter(Boolean);
@@ -145,7 +148,7 @@ function trendSvg(trend) {
   const dots = pts.map((p) => `<circle cx="${p.split(",")[0]}" cy="${p.split(",")[1]}" r="3" fill="var(--good)"/>`).join("");
   return `<svg viewBox="0 0 ${w} ${h}" width="100%" role="img" aria-label="Spending by month">
     <text x="0" y="12">${money(max)}</text>${bars}${line}${dots}</svg>
-    <div class="legend"><span><i style="background:#3a4680"></i>Spent</span><span><i style="background:var(--good)"></i>Came in</span></div>`;
+    <div class="legend"><span><i style="background:var(--spent)"></i>Spent</span><span><i style="background:var(--good)"></i>Came in</span></div>`;
 }
 
 // --- drill-down: a stack of levels (category -> type -> shop -> transactions) -------------------------------------

@@ -25,16 +25,18 @@ import java.net.URLEncoder
 @Composable
 fun MoneyDashboardScreen(link: ServerLink?) {
     if (link == null) {
-        Text("Add your Buddy server link in Settings first.", color = Color.White, modifier = Modifier.padding(16.dp))
+        Text("Add your Buddy server link in Settings first.", color = Pal.text, modifier = Modifier.padding(16.dp))
         return
     }
     val base = Uri.parse(link.baseUrl)
-    val url = link.baseUrl.trimEnd('/') + "/money.html?token=" + URLEncoder.encode(link.token, "UTF-8")
+    val light = Theme.light
+    val url = link.baseUrl.trimEnd('/') + "/money.html?token=" + URLEncoder.encode(link.token, "UTF-8") +
+        "&theme=" + (if (light) "light" else "default")
     AndroidView(
         modifier = Modifier.fillMaxSize(),
         factory = { context ->
             WebView(context).apply {
-                setBackgroundColor(AndroidColor.parseColor("#0E1222"))
+                setBackgroundColor(AndroidColor.parseColor(Pal.pageBg))
                 settings.javaScriptEnabled = true
                 settings.domStorageEnabled = true      // the page remembers the token and the period
                 settings.allowFileAccess = false
@@ -47,7 +49,11 @@ fun MoneyDashboardScreen(link: ServerLink?) {
                     }
                 }
                 loadUrl(url)
+                tag = light
             }
+        },
+        update = { view ->  // the look changed in Settings: reload in the new one
+            if (view.tag != light) { view.tag = light; view.setBackgroundColor(AndroidColor.parseColor(Pal.pageBg)); view.loadUrl(url) }
         },
     )
 }

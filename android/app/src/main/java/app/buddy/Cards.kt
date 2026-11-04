@@ -45,12 +45,12 @@ import kotlin.math.floor
 import kotlin.math.ln
 import kotlin.math.tan
 
-private val CardBg = Color(0xFF151C33)
-private val CardDim = Color(0xFF8A93B2)
-private val CardText = Color(0xFFE0E6FF)
-private val Star = Color(0xFFFFC46B)
-private val Warn = Color(0xFFFF8A80)
-private val LinkBlue = Color(0xFF8FB0FF)
+private val CardBg: Color get() = Pal.panel
+private val CardDim: Color get() = Pal.dim
+private val CardText: Color get() = Pal.bright
+private val Star: Color get() = Pal.warn
+private val Warn: Color get() = Pal.bad
+private val LinkBlue: Color get() = Pal.link
 
 private fun JSONObject.str(key: String): String = if (isNull(key)) "" else optString(key)
 
@@ -114,14 +114,14 @@ private fun CardTile(c: JSONObject, onClick: () -> Unit) {
                 Text(if (c.str("ext") == "pptx") "\uD83D\uDCCA  PowerPoint" else "\uD83D\uDCDD  Word",
                     color = Color.White, fontSize = 18.sp, fontWeight = FontWeight.SemiBold)
             }
-            else -> Box(Modifier.fillMaxWidth().height(56.dp).background(Color(0xFF1E2747)),
+            else -> Box(Modifier.fillMaxWidth().height(56.dp).background(Pal.placeholder),
                 contentAlignment = Alignment.CenterStart) {
                 Text("  ${kindIcon(c.str("kind"))}  ${c.str("subtitle").ifEmpty { c.str("kind") }}",
                     color = CardDim, fontSize = 12.sp, maxLines = 1, overflow = TextOverflow.Ellipsis)
             }
         }
         Column(Modifier.padding(10.dp)) {
-            Text(c.str("title"), color = Color.White, fontSize = 15.sp, fontWeight = FontWeight.SemiBold,
+            Text(c.str("title"), color = Pal.text, fontSize = 15.sp, fontWeight = FontWeight.SemiBold,
                 maxLines = 2, overflow = TextOverflow.Ellipsis)
             val meta = listOf(ratingLine(c), c.str("price")).filter { it.isNotEmpty() }.joinToString("  ·  ")
             if (meta.isNotEmpty()) Text(meta, color = Star, fontSize = 13.sp)
@@ -158,7 +158,7 @@ private fun MapTile(lat: Double, lng: Double, modifier: Modifier = Modifier, zoo
     val tileY = floor(y).toInt()
     val fx = (x - tileX).toFloat()
     val fy = (y - tileY).toFloat()
-    BoxWithConstraints(modifier.fillMaxWidth().clip(RoundedCornerShape(0.dp)).background(Color(0xFF1E2747))) {
+    BoxWithConstraints(modifier.fillMaxWidth().clip(RoundedCornerShape(0.dp)).background(Pal.placeholder)) {
         // A square tile as wide as the box, shifted so the place sits in the middle row.
         val side = maxWidth
         AsyncImage(model = "https://tile.openstreetmap.org/$zoom/$tileX/$tileY.png", contentDescription = "Map",
@@ -184,7 +184,7 @@ fun CardScreen(json: String) {
                 modifier = Modifier.fillMaxWidth().then(if (picture) Modifier else Modifier.height(200.dp))
                     .clip(RoundedCornerShape(14.dp)).background(if (picture) Color.White else Color.Transparent))
         }
-        Text("${kindIcon(c.str("kind"))}  ${c.str("title")}", color = Color.White, fontSize = 20.sp,
+        Text("${kindIcon(c.str("kind"))}  ${c.str("title")}", color = Pal.text, fontSize = 20.sp,
             fontWeight = FontWeight.SemiBold)
         val meta = listOf(ratingLine(c), c.str("price"), c.str("subtitle")).filter { it.isNotEmpty() }
         if (meta.isNotEmpty()) Text(meta.joinToString("  ·  "), color = Star, fontSize = 14.sp)
@@ -215,7 +215,7 @@ fun CardScreen(json: String) {
                 val r = rows.getJSONObject(i)
                 Row(Modifier.fillMaxWidth()) {
                     Text(r.str("label"), color = CardText, modifier = Modifier.weight(1f))
-                    Text(r.str("value"), color = Color.White, fontWeight = FontWeight.SemiBold)
+                    Text(r.str("value"), color = Pal.text, fontWeight = FontWeight.SemiBold)
                 }
             }
         }
@@ -228,13 +228,13 @@ fun CardScreen(json: String) {
 
 @Composable
 private fun Section(title: String) {
-    Text(title, color = Color.White, fontSize = 16.sp, fontWeight = FontWeight.SemiBold, modifier = Modifier.padding(top = 6.dp))
+    Text(title, color = Pal.text, fontSize = 16.sp, fontWeight = FontWeight.SemiBold, modifier = Modifier.padding(top = 6.dp))
 }
 
 @Composable
 private fun Action(label: String, onClick: () -> Unit) {
-    Text(label, color = Color.Black, fontSize = 14.sp, fontWeight = FontWeight.SemiBold,
-        modifier = Modifier.clip(RoundedCornerShape(50)).background(Color(0xFF36C5F0)).clickable(onClick = onClick)
+    Text(label, color = Pal.onChip, fontSize = 14.sp, fontWeight = FontWeight.SemiBold,
+        modifier = Modifier.clip(RoundedCornerShape(50)).background(Pal.bar).clickable(onClick = onClick)
             .padding(horizontal = 14.dp, vertical = 8.dp))
 }
 
