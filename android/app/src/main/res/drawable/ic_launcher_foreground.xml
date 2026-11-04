@@ -1,13 +1,19 @@
 <?xml version="1.0" encoding="utf-8"?>
+<!-- The Buddy Labs "B" (as on buddylabs.io), white on Buddy green. Drawn on a 1024 grid, placed in the
+     adaptive icon's visible 72dp so launchers that crop to a circle, squircle or square all show it whole. -->
 <vector xmlns:android="http://schemas.android.com/apk/res/android"
     android:width="108dp"
     android:height="108dp"
     android:viewportWidth="108"
     android:viewportHeight="108">
-    <path
-        android:fillColor="#5B8CFF"
-        android:pathData="M54,30a24,24 0 1,1 0,48a24,24 0 1,1 0,-48z" />
-    <path
-        android:fillColor="#E8EEFF"
-        android:pathData="M54,44a10,10 0 1,1 0,20a10,10 0 1,1 0,-20z" />
+    <group
+        android:translateX="18"
+        android:translateY="18"
+        android:scaleX="0.0703125"
+        android:scaleY="0.0703125">
+        <path
+            android:fillColor="#FFFFFF"
+            android:fillType="evenOdd"
+            android:pathData="M353,293 H545 C632,293 682,340 682,410 C682,456 652,489 600,498 C660,506 700,550 700,610 C700,684 645,730 553,730 H353 Z M456,376 V472 H520 C556,472 577,453 577,424 C577,395 556,376 520,376 Z M456,540 V646 H527 C566,646 590,627 590,593 C590,560 566,540 527,540 Z" />
+    </group>
 </vector>
