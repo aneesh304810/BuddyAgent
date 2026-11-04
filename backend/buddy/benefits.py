@@ -179,6 +179,28 @@ CARD_CHOICES = {"chase": "Sapphire Preferred, Sapphire Reserve, Freedom Unlimite
                 "citi": "Strata Premier, Double Cash, Custom Cash", "capital": "Venture X, Venture, Savor, Quicksilver"}
 
 
+# The issuer's cards, most specific first, for spotting a card's name in emails and statements.
+CARD_NAMES = {
+    "chase": ["Sapphire Reserve", "Sapphire Preferred", "Freedom Unlimited", "Freedom Flex", "Freedom Rise", "Freedom",
+              "Ink Business Preferred", "Ink Business Unlimited", "Ink Business Cash", "Ink Preferred", "Ink Unlimited",
+              "Ink Cash", "Amazon Prime Visa", "United Explorer", "United Quest", "United Club", "Southwest Rapid Rewards",
+              "Marriott Bonvoy Boundless", "IHG One Rewards", "World of Hyatt", "Aeroplan"],
+    "american": ["Platinum", "Gold", "Green", "Blue Cash Everyday", "Blue Cash Preferred", "Delta SkyMiles Reserve",
+                 "Delta SkyMiles Platinum", "Delta SkyMiles Gold", "Hilton Honors Aspire", "Hilton Honors Surpass",
+                 "Marriott Bonvoy Brilliant", "Business Platinum", "Business Gold", "Blue Business Plus"],
+    "citi": ["Strata Elite", "Strata Premier", "Double Cash", "Custom Cash", "Costco Anywhere"],
+    "capital": ["Venture X", "Venture", "VentureOne", "Savor", "SavorOne", "Quicksilver"],
+}
+# Annual fees that point to one card (US, as published; issuers change them, so this is a clue, not proof).
+FEE_CLUES = {"chase": {95: "Sapphire Preferred", 550: "Sapphire Reserve", 795: "Sapphire Reserve"},
+             "american": {695: "Platinum", 895: "Platinum", 250: "Gold", 325: "Gold", 150: "Green"},
+             "capital": {395: "Venture X"}}
+# Statement credits only one card gives.
+CREDIT_CLUES = {"chase": [(r"travel credit", "Sapphire Reserve"), (r"hotel credit", "Sapphire Preferred")],
+                "american": [(r"airline fee|saks|uber cash|digital entertainment|platinum", "Platinum"),
+                             (r"dining credit|dunkin", "Gold")]}
+
+
 def is_generic(name: str, issuer: str = "") -> bool:
     """'Ultimate Rewards', 'CREDIT CARD', 'American Express': the bank's label, not which card it is."""
     rest = re.sub(r"[®™©]", "", name or "").strip()
@@ -564,6 +586,66 @@ class Benefits:
             return ""
         return f"a ${row['amount']:,.0f} annual fee was charged on {row['day']}" if row else ""
 
+    def identify(self, card: dict) -> tuple[str, str, str] | None:
+        """(name, how sure: sure|likely, the clue) for a connected card whose bank label doesn't say which card it is,
+        from Buddy's own data: a card email or statement naming it with these last 4, its annual fee, its credits."""
+        issuer = (card["issuer"] or "").lower().split()[0] if card["issuer"] else ""
+        names, last4 = CARD_NAMES.get(issuer, []), card["last4"]
+        if not last4:
+            return None
+        db = self.memory.db
+        try:  # a statement or card email Buddy read for these last 4 (finance.card saved its name)
+            for r in db.execute("SELECT name FROM fin_cards WHERE last4 = ?", (last4,)):
+                hit = next((n for n in names if n.lower() in (r["name"] or "").lower()), None)
+                if hit:
+                    return hit, "sure", "your card statements"
+        except Exception:
+            pass
+        try:  # emails that name the card and its last 4 ("Sapphire Preferred ending in 0457")
+            for r in db.execute("SELECT title, body FROM records WHERE source = 'email' AND (title LIKE ? OR body LIKE ?) "
+                                "ORDER BY id DESC LIMIT 50", (f"%{last4}%", f"%{last4}%")):
+                text = f"{r['title']} {r['body']}"
+                for n in names:
+                    if re.search(rf"(?i){re.escape(n)}[^.\n]{{0,60}}{last4}|{last4}[^.\n]{{0,60}}{re.escape(n)}", text):
+                        return n, "sure", f"{card['issuer']}'s emails"
+        except Exception:
+            pass
+        try:
+            fee = db.execute("SELECT amount FROM transactions WHERE card = ? AND amount > 0 AND (lower(merchant) LIKE "
+                             "'%annual%fee%' OR lower(merchant) LIKE '%membership fee%' OR lower(merchant_raw) LIKE "
+                             "'%annual%fee%') ORDER BY day DESC LIMIT 1", (last4,)).fetchone()
+        except Exception:
+            fee = None
+        if fee and FEE_CLUES.get(issuer, {}).get(int(round(fee["amount"]))):
+            return FEE_CLUES[issuer][int(round(fee["amount"]))], "likely", f"its ${fee['amount']:,.0f} annual fee"
+        try:
+            credits = [r["merchant"] + " " + (r["merchant_raw"] or "") for r in db.execute(
+                "SELECT merchant, merchant_raw FROM transactions WHERE card = ? AND amount < 0", (last4,))]
+        except Exception:
+            credits = []
+        for pattern, n in CREDIT_CLUES.get(issuer, []):
+            if any(re.search(pattern, c, re.I) for c in credits):
+                return n, "likely", "a statement credit only that card gives"
+        return None
+
+    def identify_all(self) -> list[str]:
+        """Names the generically labelled connected cards Buddy can work out, and says so once each."""
+        notes = []
+        for c in self.connected_cards():
+            if not c["generic"]:
+                continue
+            found = self.identify(c)
+            if not found:
+                continue
+            name, sure, clue = found
+            self.memory.set(f"card:name:{c['last4']}", name)
+            self.memory.set(f"card:name_how:{c['last4']}", f"{sure}: {clue}")
+            self.memory.set("benefits:check_new", "1")
+            notes.append(f"I worked out that your {c['issuer']} card ••{c['last4']} is the {name} (from {clue}). "
+                         + ("Say if it's a different card." if sure == "sure"
+                            else "That's my best guess, so say if it's a different card."))
+        return notes
+
     def unnamed_cards(self) -> list[str]:
         """Questions for connected cards whose bank name doesn't say which card they are."""
         out = []
@@ -651,7 +733,7 @@ class Benefits:
     async def offer_new_cards(self, per_day: int = 2) -> list[str]:
         """Daily: a card Buddy hasn't looked up yet is looked up once, and its published credits offered. A connected
         card whose bank name doesn't say which card it is gets one question instead."""
-        texts = []
+        texts = self.identify_all()  # cards Buddy can work out itself: named, and said once
         for c, q in zip([c for c in self.connected_cards() if c["generic"]], self.unnamed_cards()):
             mark = f"benefits:asked:{c['last4']}"
             if not self.memory.get(mark):
@@ -683,8 +765,9 @@ class Benefits:
         from .finance import purge_reports
         from .jobs import SCHEMA as JOBS_SCHEMA
 
+        worked_out = self.identify_all()
         found = await self.lookup_all(fresh)
-        questions = self.unnamed_cards()
+        questions = worked_out + self.unnamed_cards()
         for card in self.known_cards():
             self.memory.set(f"benefits:offered:{_key(card)}", local_now().date().isoformat())
         self.memory.set("benefits:setup_done", local_now().date().isoformat())

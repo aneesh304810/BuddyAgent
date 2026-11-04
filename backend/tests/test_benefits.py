@@ -356,10 +356,10 @@ def test_a_generically_named_connected_card_is_asked_about_then_looked_up():
     cards = b.cards_overview()
     chase = next(c for c in cards if c["last4"] == "0457")
     assert chase["needs_name"] and len([c for c in cards if "9001" in (c["last4"] or "")]) == 1
-    texts = _asyncio.run(b.offer_new_cards())
-    question = next(t for t in texts if "0457" in t)
-    assert "Ultimate Rewards" in question and "Sapphire Preferred" in question and "$95 annual fee" in question
-    assert not any("0457" in t for t in _asyncio.run(b.offer_new_cards()))  # asked once
+    texts = _asyncio.run(b.offer_new_cards())  # the $95 fee on 0457 says which card it is: worked out, not asked
+    note = next(t for t in texts if "0457" in t)
+    assert "••0457 is the Sapphire Preferred (from its $95 annual fee)" in note and "best guess" in note
+    assert not any("0457" in t for t in _asyncio.run(b.offer_new_cards()))  # said once
     out = bmod.run_tool(b, {"action": "name_card", "last4": "0457", "name": "Sapphire Preferred"}) \
         if False else _asyncio.run(bmod.run_tool_async(b, {"action": "name_card", "last4": "0457",
                                                            "name": "Sapphire Preferred"}))
@@ -384,3 +384,36 @@ def test_two_chase_cards_with_the_same_bank_label_are_both_listed_and_asked_abou
     b.name_card("0457", "Sapphire Preferred")
     b.name_card("8812", "Freedom Unlimited")
     assert set(b.known_cards()) == {"Chase Sapphire Preferred", "Chase Freedom Unlimited"}
+
+
+def _two_chase(mem):
+    from buddy.plaid import Plaid
+    from buddy.money import Money
+    Plaid(mem, env={})
+    Money(mem)
+    mem.db.executescript(
+        "INSERT INTO plaid_items (item_id, access_token, institution, added_at, env) VALUES "
+        "('c', 't', 'Chase', '2026-11-01', 'production');"
+        "INSERT INTO plaid_accounts (account_id, item_id, name, mask, type) VALUES "
+        "('c1', 'c', 'Ultimate Rewards®', '0457', 'credit'), ('c2', 'c', 'Ultimate Rewards®', '8812', 'credit'),"
+        "('c3', 'c', 'CREDIT CARD', '3300', 'credit');"
+        "CREATE TABLE IF NOT EXISTS records (id INTEGER PRIMARY KEY, source TEXT, external_id TEXT, title TEXT, "
+        "body TEXT, data TEXT, start_at TEXT);"
+        "INSERT INTO records (source, title, body) VALUES ('email', 'Your statement is ready', "
+        "'Your Chase Sapphire Preferred card ending in 0457 has a new statement.');")
+
+
+def test_buddy_works_out_which_card_a_bank_label_is():
+    mem = Memory(":memory:")
+    _two_chase(mem)
+    from buddy.money import Money
+    Money(mem).add_transaction(795, "USD", "ANNUAL MEMBERSHIP FEE", "fees", "2026-09-01", card="8812", source="t:f")
+    b = Benefits(mem)
+    texts = _asyncio.run(b.offer_new_cards())
+    assert any("••0457 is the Sapphire Preferred (from Chase's emails)" in t and "best guess" not in t for t in texts)
+    assert any("••8812 is the Sapphire Reserve (from its $795 annual fee)" in t and "best guess" in t for t in texts)
+    assert any("••3300" in t and "Which one is it" in t for t in texts)  # no clue: asked
+    assert {"Chase Sapphire Preferred", "Chase Sapphire Reserve"} <= set(b.known_cards())
+    assert _asyncio.run(b.offer_new_cards()) == []  # each said once
+    b.name_card("8812", "Freedom Unlimited")  # "no, that one's my Freedom Unlimited"
+    assert "Chase Freedom Unlimited" in b.known_cards() and "Chase Sapphire Reserve" not in b.known_cards()
