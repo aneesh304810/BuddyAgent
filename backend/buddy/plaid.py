@@ -166,7 +166,7 @@ class Plaid:
         while more:
             page = self.call("/transactions/sync", {"access_token": token, "cursor": cursor, "count": 500})
             for tx in page.get("added", []) + page.get("modified", []):
-                if self._transaction(item["item_id"], tx, accounts):
+                if self._transaction(item["item_id"], tx, accounts, real=item.get("env") != "sandbox"):
                     added += 1
             for tx in page.get("removed", []):
                 removed += db.execute("DELETE FROM transactions WHERE source = ?",
@@ -207,7 +207,7 @@ class Plaid:
         self.memory.db.commit()
         return out
 
-    def _transaction(self, item_id: str, tx: dict, accounts: dict) -> bool:
+    def _transaction(self, item_id: str, tx: dict, accounts: dict, real: bool = True) -> bool:
         if tx.get("pending"):
             return False  # it posts later with its final amount
         pfc = tx.get("personal_finance_category") or {}
@@ -217,12 +217,28 @@ class Plaid:
         account = accounts.get(tx.get("account_id"), {})
         source = f"plaid:{item_id}:{tx['transaction_id']}"
         self.memory.db.execute("DELETE FROM transactions WHERE source = ?", (source,))  # modified: replace it
+        day = str(tx.get("date") or tx.get("authorized_date"))[:10]
+        currency = tx.get("iso_currency_code") or "USD"
+        if real:  # the same purchase counted earlier from an email or SimpleFIN: the bank's record replaces it
+            self._replace_earlier_copy(float(tx["amount"]), currency, day)
         self.money.add_transaction(float(tx["amount"]),  # Plaid: positive = money out, same as Buddy
-                                   tx.get("iso_currency_code") or "USD",
-                                   tx.get("merchant_name") or tx.get("name") or "unknown", category,
-                                   str(tx.get("date") or tx.get("authorized_date"))[:10],
+                                   currency, tx.get("merchant_name") or tx.get("name") or "unknown", category, day,
                                    (account.get("mask") or "")[-4:] or account.get("name", ""), source)
         return True
+
+    def _replace_earlier_copy(self, amount: float, currency: str, day: str) -> None:
+        """Remove ONE charge counted before from an email or SimpleFIN with the same amount and currency
+        within 3 days. Cash entered by hand (manual:) is never touched."""
+        try:
+            d = date.fromisoformat(day)
+        except ValueError:
+            return
+        self.memory.db.execute(
+            "DELETE FROM transactions WHERE id = (SELECT id FROM transactions WHERE "
+            "(source LIKE 'email:%' OR source LIKE 'simplefin:%') AND currency = ? AND ABS(amount - ?) < 0.005 "
+            "AND day BETWEEN ? AND ? ORDER BY ABS(julianday(day) - julianday(?)) LIMIT 1)",
+            (currency.upper()[:3], round(amount, 2), (d - timedelta(days=3)).isoformat(),
+             (d + timedelta(days=3)).isoformat(), day))
 
     def liabilities(self, item: dict, accounts: dict) -> int:
         """Each credit card's statement, due date, minimum, APR and limit -> the card calendar."""

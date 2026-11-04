@@ -210,3 +210,27 @@ def test_link_page_and_exchange_endpoints(monkeypatch):
         banks = c.get("/api/plaid").json()
         assert banks["configured"] and banks["banks"][0]["institution"] == "Chase"
         assert "Unlinked" in c.delete("/api/plaid/item-1").json()["result"]
+
+
+def test_real_bank_replaces_earlier_copies_once(mem):
+    p, fake, _ = linked(mem)
+    mem.db.execute("UPDATE plaid_items SET env = 'production'")
+    rows = [(ago(41), 15.49, "NETFLIX.COM", "email:1"), (ago(9), 15.49, "Netflix", "simplefin:9"),
+            (ago(10), 15.49, "Netflix", "email:2"), (ago(25), 15.49, "Netflix", "email:3"),
+            (ago(10), 6.00, "Street tacos", "manual:1:0")]
+    for day, amount, merchant, source in rows:
+        mem.db.execute("INSERT INTO transactions (day, amount, currency, merchant, category, source, created_at) "
+                       "VALUES (?, ?, 'USD', ?, 'other', ?, ?)", (day, amount, merchant, source, day))
+    p.sync(force=True)
+    left = {r["source"] for r in mem.db.execute("SELECT source FROM transactions WHERE source NOT LIKE 'plaid:%'")}
+    # Plaid's two Netflix charges (40 and 10 days ago) each replace one copy within 3 days, the closest one;
+    # a charge 25 days ago has no Plaid match and stays; cash is never touched
+    assert left == {"simplefin:9", "email:3", "manual:1:0"}
+
+
+def test_sandbox_never_replaces_real_rows(mem):
+    p, fake, _ = linked(mem)
+    mem.db.execute("INSERT INTO transactions (day, amount, currency, merchant, category, source, created_at) "
+                   "VALUES (?, 15.49, 'USD', 'Netflix', 'other', 'email:1', ?)", (ago(10), ago(10)))
+    p.sync(force=True)
+    assert mem.db.execute("SELECT COUNT(*) FROM transactions WHERE source = 'email:1'").fetchone()[0] == 1
