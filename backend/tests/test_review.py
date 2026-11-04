@@ -119,7 +119,7 @@ def test_plaid_keeps_detail_labels_and_income(mem):
     assert inc["amount"] == 2500 and inc["kind"] == "Wages"
     coffee = mem.db.execute("SELECT category, detail FROM transactions WHERE merchant = 'Blue Bottle'").fetchone()
     assert coffee["category"] == "food" and coffee["detail"] == "Coffee"
-    assert mem.db.execute("SELECT category FROM transactions WHERE merchant = 'OVERDRAFT FEE'").fetchone()[0] == "fees"
+    assert mem.db.execute("SELECT category FROM transactions WHERE merchant = 'Overdraft Fee'").fetchone()[0] == "fees"
 
 
 def test_transfers_housing_and_cards(mem):

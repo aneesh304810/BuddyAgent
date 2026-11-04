@@ -19,7 +19,9 @@ sealed interface ServerEvent {
     data class Cards(val json: String) : ServerEvent  // results to show under the reply
     data class Words(val words: List<String>) : ServerEvent  // names and words to recognise
     data object Thinking : ServerEvent
-    data class Nudge(val kind: String, val text: String, val jobId: Int? = null, val cards: String? = null) : ServerEvent
+    /** text is spoken (and the notification); display, if any, is the structured version shown in the chat. */
+    data class Nudge(val kind: String, val text: String, val jobId: Int? = null, val cards: String? = null,
+                     val display: String? = null) : ServerEvent
     data class Whisper(val kind: String, val text: String) : ServerEvent
     data class Error(val text: String) : ServerEvent
     data class Approval(val question: String) : ServerEvent
@@ -59,6 +61,7 @@ sealed interface ServerEvent {
                     msg.getString("text"),
                     if (msg.has("job_id")) msg.getInt("job_id") else null,
                     msg.optJSONArray("cards")?.takeIf { it.length() > 0 }?.toString(),
+                    msg.optString("display").takeIf { it.isNotBlank() },
                 )
                 "whisper" -> Whisper(msg.optString("kind"), msg.getString("text"))
                 "error" -> Error(msg.getString("text"))

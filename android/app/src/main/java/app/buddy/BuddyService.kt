@@ -563,7 +563,7 @@ class BuddyService : Service() {
                 Notes.approval(this, event.question)
             }
             is ServerEvent.Nudge -> {
-                BuddyState.add(Line(event.text, Speaker.NUDGE, event.jobId, opensInsights = event.kind == "health",
+                BuddyState.add(Line(event.display ?: event.text, Speaker.NUDGE, event.jobId, opensInsights = event.kind == "health",
                     kind = event.kind, cards = event.cards))
                 if (event.kind != "ride") Notes.nudge(this, event.text, event.jobId)  // Uber / Lyft show their own
                 if (!BuddyState.ui.value.onCall) mouth.speak(event.text)

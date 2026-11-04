@@ -119,6 +119,7 @@ class Money:
         self.memory = memory
         memory.db.executescript(SCHEMA_SQL)
         _add_column(memory, "transactions", "detail", "TEXT NOT NULL DEFAULT ''")
+        _add_column(memory, "transactions", "merchant_raw", "TEXT NOT NULL DEFAULT ''")  # the bank's own text
         today = local_now().date()
         if _purged_on.get(id(memory.db)) != today.isoformat():  # once a day is plenty
             _purged_on[id(memory.db)] = today.isoformat()
@@ -129,8 +130,13 @@ class Money:
     # --- recording -----------------------------------------------------------
     def add_transaction(self, amount: float, currency: str, merchant: str, category: str,
                         day: str | None = None, card: str = "", source: str | None = None,
-                        detail: str = "") -> list[str]:
-        """Store one charge (or a refund as a negative amount). Returns limit warnings."""
+                        detail: str = "", raw: str = "", entity_id: str = "") -> list[str]:
+        """Store one charge (or a refund as a negative amount). Returns limit warnings. The merchant is
+        cleaned (merchants.py) so one place has one name; the bank's text is kept in merchant_raw."""
+        from .merchants import Merchants
+
+        raw = (raw or merchant or "").strip()
+        merchant = Merchants(self.memory).resolve(raw, entity_id, plaid_name=merchant if merchant != raw else "")
         category = category if category in CATEGORIES else "other"
         currency = (currency or "USD").upper()[:3]
         day = day or local_now().date().isoformat()
@@ -139,9 +145,9 @@ class Money:
             source = f"manual:{n + 1}:{datetime.now(timezone.utc).timestamp()}"
         cur = self.memory.db.execute(
             "INSERT OR IGNORE INTO transactions (day, amount, currency, merchant, category, card, source, created_at, "
-            "detail) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?)",
+            "detail, merchant_raw) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?)",
             (day, round(amount, 2), currency, merchant.strip()[:80] or "unknown", category, card[:20], source,
-             datetime.now(timezone.utc).isoformat(), detail[:40]),
+             datetime.now(timezone.utc).isoformat(), detail[:40], raw[:120]),
         )
         self.memory.db.commit()
         return self._limit_warnings(category, currency) if cur.rowcount and amount > 0 else []

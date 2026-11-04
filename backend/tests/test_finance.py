@@ -46,10 +46,11 @@ def test_subscriptions_are_found_with_totals_and_flags(mem):
     fin = finance.Finance(mem)
     fin.find_subscriptions()
     subs = {s["merchant"]: s for s in fin.subscriptions()["subscriptions"]}
-    assert set(subs) == {"NETFLIX.COM", "Amazon Prime*AB12", "Spotify USA", "Hulu"}  # not the grocery store
-    assert subs["NETFLIX.COM"]["cadence"] == "monthly" and "price up from 15.49" in subs["NETFLIX.COM"]["flags"]
-    assert subs["Amazon Prime*AB12"]["cadence"] == "yearly" and subs["Amazon Prime*AB12"]["yearly_cost"] == 139.0
-    assert "charged on more than one card" in subs["Spotify USA"]["flags"]
+    # bank spellings are cleaned first ("NETFLIX.COM" -> Netflix, "Amazon Prime*AB12" -> Amazon Prime)
+    assert set(subs) == {"Netflix", "Amazon Prime", "Spotify", "Hulu"}  # not the grocery store
+    assert subs["Netflix"]["cadence"] == "monthly" and "price up from 15.49" in subs["Netflix"]["flags"]
+    assert subs["Amazon Prime"]["cadence"] == "yearly" and subs["Amazon Prime"]["yearly_cost"] == 139.0
+    assert "charged on more than one card" in subs["Spotify"]["flags"]
     assert "probably a subscription (seen once)" in subs["Hulu"]["flags"]
     total = fin.subscriptions()["totals"]["USD"]
     assert total["count"] == 4 and total["yearly"] == round(17.99 * 12 + 139 + 11.99 * 12 + 9.99 * 12, 2)
@@ -138,7 +139,7 @@ def test_a_statement_upload_fills_the_calendar_and_finds_charges(mem):
     card = fin.cards()[0]
     assert card["name"] == "Sapphire Preferred" and card["next_due"] == due and card["apr"] == 24.99
     assert Money(mem).open_bills(30)[0]["biller"] == "Sapphire Preferred"  # the usual bill reminders take it
-    assert any(s["merchant"] == "NETFLIX.COM" for s in fin.subscriptions()["subscriptions"])
+    assert any(s["merchant"] == "Netflix" for s in fin.subscriptions()["subscriptions"])
     assert "statement balance 812.40" in finance.statement_line(got)
     assert finance.looks_like_statement({"doc_type": "credit card statement", "title": "", "summary": ""})
 
@@ -207,7 +208,7 @@ def test_the_weekly_report(mem):
     assert usd["total"] == round(180 + 45 + 18.4 + 12.99, 2) and usd["usual_week"] == pytest.approx(100, rel=0.2)
     assert any("Amex Gold payment due" == x["what"] for x in w["coming"])
     assert w["interest"] and w["actions"][0].startswith("You were charged 18.40 USD interest")
-    assert any("Spotify USA" in p for p in w["subscriptions"]["price"])
+    assert any("Spotify" in p for p in w["subscriptions"]["price"])
     text = fin.week_markdown(w)
     for heading in ("# Money this week", "## Do this week", "## Spending", "## Coming up", "## Cards",
                     "## Interest and fees", "## Subscriptions"):

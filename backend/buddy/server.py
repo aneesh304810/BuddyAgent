@@ -172,10 +172,15 @@ connections: dict[WebSocket, Conversation] = {}
 async def deliver(kind: str, text: str, **extra) -> bool:
     if not connections:
         return False
+    spoken, sep, shown = text.partition("||")  # "spoken || shown": short when read aloud, structured on screen
+    display = shown.strip() if sep and spoken.strip() and shown.strip() else ""
+    text = spoken.strip() if display else text.replace("||", " ").strip()
     for ws, convo in list(connections.items()):
         with contextlib.suppress(Exception):
             trace("→", {"type": "nudge", "kind": kind, "text": text})
             message = {"type": "nudge", "kind": kind, "text": text, **extra}
+            if display:
+                message["display"] = display
             if extra.get("cards"):
                 message["cards"] = _absolute(extra["cards"], ws)  # full links for this phone
             await ws.send_json(message)
@@ -309,6 +314,18 @@ async def lifespan(app: FastAPI):
     health_loop = asyncio.create_task(healthcheck.run(memory, finops, deliver))
     tutor_loop = asyncio.create_task(tutor.run(memory, jobs))
     brain_loop = asyncio.create_task(_index_brain())
+    if memory.get("merchants:cleaned") != "1":  # once: every stored transaction gets a clean merchant name
+        from .merchants import Merchants
+
+        async def _clean_merchants() -> None:
+            try:
+                Money(memory)  # adds the merchant_raw column on older databases
+                changed = await asyncio.to_thread(Merchants(memory).reclean)
+                memory.set("merchants:cleaned", "1")
+                log.info("merchant names cleaned: %d transactions regrouped", changed)
+            except Exception:
+                log.exception("merchant cleaning failed")
+        asyncio.create_task(_clean_merchants())
     if os.getenv("BUDDY_COMPANY_DOCS", "1") not in ("", "0"):
         from . import companydocs
 

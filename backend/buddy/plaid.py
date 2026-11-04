@@ -287,7 +287,8 @@ class Plaid:
         self.money.add_transaction(float(tx["amount"]),  # Plaid: positive = money out, same as Buddy
                                    currency, tx.get("merchant_name") or tx.get("name") or "unknown", category, day,
                                    (account.get("mask") or "")[-4:] or account.get("name", ""), source,
-                                   detail_label(primary, detailed))
+                                   detail_label(primary, detailed), raw=tx.get("name") or "",
+                                   entity_id=str(tx.get("merchant_entity_id") or ""))
         return True
 
     def _transfer(self, item_id: str, tx: dict, detailed: str, accounts: dict) -> None:

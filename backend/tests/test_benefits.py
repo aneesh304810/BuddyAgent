@@ -239,7 +239,10 @@ def test_a_month_before_a_credit_ends_buddy_finds_deals_and_puts_them_in_the_rem
     assert _asyncio.run(b.prepare_deals(today)) == 0  # one search per credit period
     alert = b.alerts(today)[0]
     assert "runs out in 29 days" in alert["text"] and "25% off coats" in alert["text"]
-    assert "Wool scarf $45 (you'd pay $0) https://www.saks.com/scarf" in alert["text"]
+    spoken, shown = alert["text"].split(" || ")
+    assert "on screen" in spoken and "https" not in spoken  # read aloud: short, no links
+    assert "**Amex Platinum Saks credit: $50 left, ends Dec 31 (29 days)**" in shown
+    assert "- Wool scarf: $45, you'd pay $0. https://www.saks.com/scarf" in shown
     assert "Made-up" not in alert["text"] and "No link" not in alert["text"] and "I don't buy anything" in alert["text"]
 
 
@@ -284,5 +287,5 @@ def test_dining_and_hotel_credits_get_named_places_near_the_user():
     b.search_deals = search
     assert _asyncio.run(b.prepare_deals(date(2026, 12, 2))) == 2 and "Amex Platinum Uber Cash" not in prompts
     texts = " ".join(a["text"] for a in b.alerts(date(2026, 12, 2)))
-    assert "Places near you it covers: Son Cubano, West New York, about $120 (Cuban, dinner for two)" in texts
-    assert "Hotels it covers: The Asbury Hotel" in texts
+    assert "**Places near you it covers**\n- Son Cubano, West New York: about $120. Cuban, dinner for two." in texts
+    assert "**Hotels it covers**\n- The Asbury Hotel" in texts

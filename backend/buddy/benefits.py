@@ -832,17 +832,25 @@ class Benefits:
             elif credit_kind(p) == "dining" and not _where(self.memory):
                 text += (" Turn on Share my location in Settings and I'll suggest restaurants near you that take it.")
             elif found.get("deals") or found.get("sale"):
+                # Spoken short; on screen a headline, the sale, then one line per suggestion (|| splits them).
+                picks, kind = found.get("deals") or [], found.get("kind")
+                heading = {"dining": "Places near you it covers", "hotel": "Hotels it covers"}.get(kind, "Good ways to use it")
+                where = {"dining": "places near you that take it", "hotel": "hotels it covers"}.get(kind, "ways to use it")
+                spoken = text + (f" I found {len(picks[:3])} {where}; they're on screen." if picks else "")
+                shown = [f"**{p['benefit']}: ${p['left']:.0f} left, ends {_nice(p['ends'])} "
+                         f"({'today' if p['days_left'] == 0 else str(p['days_left']) + ' days'})**"]
                 if found.get("sale"):
-                    text += f" {p['merchant'].title()} has {found['sale']}."
-                picks = found.get("deals") or []
-                if picks and found.get("kind") in ("dining", "hotel"):
-                    text += (" Places near you it covers: " if found["kind"] == "dining" else " Hotels it covers: ") + \
-                        "; ".join(f"{d['item']}, about ${d['price']:.0f}" + (f" ({d['note']})" if d["note"] else "")
-                                  + f" {d['url']}" for d in picks[:3]) + "."
-                elif picks:
-                    text += " Good ways to use it: " + "; ".join(
-                        f"{d['item']} ${d['price']:.0f} (you'd pay ${d['you_pay']:.0f}) {d['url']}" for d in picks[:3]) + "."
-                text += " You decide; I don't buy anything."
+                    shown.append(f"{(p['merchant'] or 'The store').title()} has {found['sale']}.")
+                if picks:
+                    shown.append(f"**{heading}**")
+                    for d in picks[:3]:
+                        if kind in ("dining", "hotel"):
+                            shown.append(f"- {d['item']}: about ${d['price']:.0f}." + (f" {d['note']}." if d["note"] else "")
+                                         + f" {d['url']}")
+                        else:
+                            shown.append(f"- {d['item']}: ${d['price']:.0f}, you'd pay ${d['you_pay']:.0f}. {d['url']}")
+                shown.append("You decide; I don't buy anything.")
+                text = spoken + " || " + "\n".join(shown)
             elif p["ideas"]:
                 i = p["ideas"][0]
                 if i.get("price"):
