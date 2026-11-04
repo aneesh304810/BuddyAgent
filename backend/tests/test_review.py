@@ -219,3 +219,16 @@ def test_rent_by_zelle_and_family_support(mem):
     assert "Family support" in md and "family support via **Remitly** (parents' maintenance)" in md
     assert not any("Remitly" in w["what"] for w in r["waste"])
     assert not any("Remitly" in o["what"] or "Family" in o["what"] for o in r["opportunities"])
+
+
+def test_one_label_for_every_remittance_service(mem):
+    p = Plaid(mem, env={})
+    for tid, name, merchant in (("a", "REMITLY* SEND", "Remitly"), ("b", "WISE US INC", "Wise"),
+                                ("c", "WESTERN UNION 123", "Western Union")):
+        p._transaction("i", {"transaction_id": tid, "account_id": "x", "amount": 300, "date": day_in(1, 5), "name": name,
+                             "merchant_name": merchant, "personal_finance_category": {
+                                 "primary": "TRANSFER_OUT", "detailed": "TRANSFER_OUT_OTHER_TRANSFER_OUT"}}, {})
+    out = review.Review(mem).label_transfer("remit", "family_support", "parents' maintenance")
+    assert "all remittances" in out
+    t = review.Review(mem).compute("last_month")["transfers"]
+    assert t["family"] == 900 and t["abroad"] == 0

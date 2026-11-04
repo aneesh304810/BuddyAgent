@@ -104,8 +104,12 @@ class Review:
             known = [r["recipient"] for r in self.memory.db.execute("SELECT DISTINCT recipient FROM fin_transfers")]
         except Exception:
             known = []
-        match = next((k for k in known if k.lower() == who), None) or next((k for k in known if who in k.lower()), None)
-        key = (match or who).lower()
+        if who in ("remit", "remits", "remittance", "remittances", "money sent abroad", "sent abroad", "abroad"):
+            match, key = "all remittances", "*abroad*"  # every service: Remitly, Wise, Western Union...
+        else:
+            match = next((k for k in known if k.lower() == who), None) or next(
+                (k for k in known if who in k.lower()), None)
+            key = (match or who).lower()
         self.memory.db.execute("INSERT OR REPLACE INTO fin_transfer_labels (who, label, note) VALUES (?, ?, ?)",
                                (key, label, note.strip()[:80]))
         self.memory.db.commit()
@@ -116,9 +120,10 @@ class Review:
         return f"Transfers to {match or who.title()} are {shown}" + (f" ({note.strip()})" if note.strip() else "") + \
             f": {how}."
 
-    def _label_for(self, recipient: str, name: str, labels: dict) -> dict | None:
+    def _label_for(self, recipient: str, name: str, labels: dict, kind: str = "") -> dict | None:
         rec, raw = recipient.lower(), name.lower()
-        return labels.get(rec) or next((v for k, v in labels.items() if k in rec or k in raw), None)
+        return labels.get(rec) or next((v for k, v in labels.items() if not k.startswith("*") and (k in rec or k in raw)),
+                                       None) or (labels.get("*abroad*") if kind == "abroad" else None)
 
     def _rent_rows(self, start: date, end: date) -> list[dict]:
         """Transfers the user said are rent, as housing spending rows (so they count everywhere rent should)."""
@@ -127,13 +132,13 @@ class Review:
             return []
         try:
             rows = self.memory.db.execute(
-                "SELECT day, amount, currency, name, recipient, account FROM fin_transfers WHERE day BETWEEN ? AND ?",
+                "SELECT day, amount, currency, name, recipient, account, kind FROM fin_transfers WHERE day BETWEEN ? AND ?",
                 (start.isoformat(), end.isoformat())).fetchall()
         except Exception:
             return []
         return [{"day": r["day"], "amount": r["amount"], "currency": r["currency"],
                  "merchant": f"Rent to {r['recipient']}", "category": "housing", "card": r["account"], "detail": "Rent"}
-                for r in rows if self._label_for(r["recipient"], r["name"], labels)]
+                for r in rows if self._label_for(r["recipient"], r["name"], labels, r["kind"])]
 
     # --- the numbers --------------------------------------------------------------------------------
     def _rows(self, start: date, end: date) -> list[dict]:
@@ -325,7 +330,7 @@ class Review:
         out = {"own": 0.0, "person": 0.0, "abroad": 0.0, "other": 0.0, "family": 0.0}
         people: dict[tuple, list] = {}
         for r in rows:
-            lab = self._label_for(r["recipient"], r["name"], labels)
+            lab = self._label_for(r["recipient"], r["name"], labels, r["kind"])
             if lab and lab["label"] == "rent":
                 continue  # counted as housing spending
             kind = "family" if lab and lab["label"] == "family_support" else \
@@ -354,7 +359,7 @@ class Review:
             return []
         groups: dict[str, list] = {}
         for r in rows:
-            if not self._label_for(r["recipient"], r["name"], labels):
+            if not self._label_for(r["recipient"], r["name"], labels, r["kind"]):
                 groups.setdefault(r["recipient"], []).append(r)
         out = []
         for who, rs in groups.items():

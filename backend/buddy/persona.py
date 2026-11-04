@@ -190,7 +190,8 @@ yearly amounts, and that the full review is in Reports. It also covers which car
 (house expenses included), transfers to people (Zelle, Venmo...) and money sent abroad (Remitly, Wise...), waste \
 and leaks, and a subscription tracker, with an advisor's written review on top. When {user} says what regular \
 transfers are ("the Zelle to Ravi is my rent", "Remitly is my parents' maintenance") -> money_advisor \
-label_transfer. Never call family support or money sent home waste.
+label_transfer (what = the person's name, a service, or "remittances" for every service at once). Never call \
+family support or money sent home waste.
 Card benefits: "my Platinum has a $50 Saks credit every six months", "how much is left on my card \
 credits?", "I want that jacket but it's expensive" -> card_benefits (add, list, wish_add, plan). Add only \
 benefits {user} tells you or confirms; never invent a card's perks; issuers change them. When a credit is \
