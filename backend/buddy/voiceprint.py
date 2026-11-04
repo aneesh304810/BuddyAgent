@@ -28,6 +28,15 @@ log = logging.getLogger(__name__)
 
 KEY = "voiceprint"
 ON_KEY = "voiceprint:on"
+# Biometric Information Privacy Policy (buddylabs.io/biometric-privacy): written consent before a voiceprint is
+# made; turning voice match off deletes it; deleted after 12 months unused (and never kept 3 years past the
+# user's last use of Buddy, which the 12-month rule already covers). The consent record (when and which policy
+# version, no biometric data) is kept as proof.
+POLICY_VERSION = "2026-11-04"
+POLICY_URL = "https://buddylabs.io/biometric-privacy"
+CONSENT_KEY = "voiceprint:consent"
+LAST_USED_KEY = "voiceprint:last_used"
+UNUSED_DAYS = 365
 SAMPLE_RATE = 16_000
 MODEL_FILE = "wespeaker_en_voxceleb_resnet34.onnx"
 MODEL_URL = ("https://github.com/k2-fsa/sherpa-onnx/releases/download/speaker-recongition-models/" + MODEL_FILE)
@@ -121,9 +130,65 @@ def _save(memory: Memory, vector: list[float], samples: int) -> None:
                                 "updated": time.strftime("%Y-%m-%d")}))
 
 
+def record_consent(memory: Memory, version: str) -> bool:
+    """The user ticked the box and tapped "I agree" on the consent screen for this policy version."""
+    if version != POLICY_VERSION:
+        return False
+    history = consents(memory)
+    history.append({"at": time.strftime("%Y-%m-%dT%H:%M:%SZ", time.gmtime()), "version": version})
+    memory.set(CONSENT_KEY, json.dumps(history[-20:]))
+    return True
+
+
+def consents(memory: Memory) -> list[dict]:
+    try:
+        return list(json.loads(memory.get(CONSENT_KEY) or "[]"))
+    except (json.JSONDecodeError, TypeError):
+        return []
+
+
+def consented(memory: Memory) -> bool:
+    history = consents(memory)
+    return bool(history) and history[-1].get("version") == POLICY_VERSION and not history[-1].get("withdrawn")
+
+
+def forget(memory: Memory, why: str = "forget") -> None:
+    """Destroy the voiceprint (secure delete is on, so the old value is overwritten on disk)."""
+    memory.set(KEY, "null")
+    memory.set(ON_KEY, "0")
+    memory.set(LAST_USED_KEY, "")
+    history = consents(memory)
+    if history and not history[-1].get("withdrawn"):
+        history[-1] = {**history[-1], "withdrawn": time.strftime("%Y-%m-%dT%H:%M:%SZ", time.gmtime()), "why": why}
+        memory.set(CONSENT_KEY, json.dumps(history))
+    try:
+        memory.db.execute("PRAGMA wal_checkpoint(TRUNCATE)")  # no old copy left in the write-ahead log
+    except Exception:
+        pass
+
+
+def purge_unused(memory: Memory, today: float | None = None) -> bool:
+    """Daily: a voiceprint unused for UNUSED_DAYS is destroyed. True if it was."""
+    print_ = stored(memory)
+    if not print_:
+        return False
+    last = memory.get(LAST_USED_KEY) or print_.get("updated") or ""
+    try:
+        age = ((today or time.time()) - time.mktime(time.strptime(last[:10], "%Y-%m-%d"))) / 86400
+    except ValueError:
+        return False
+    if age > UNUSED_DAYS:
+        forget(memory, "unused for 12 months")
+        return True
+    return False
+
+
 def enroll(memory: Memory, clips: list[bytes], embedder=embed) -> dict:
     """The voiceprint from the enrolment sentences. Clips that don't sound like the others (a cough,
-    someone else) are left out."""
+    someone else) are left out. Only after written consent to the current policy."""
+    if not consented(memory):
+        return {"ok": False, "why": "Voice match needs your consent first: in Settings, tap Teach Buddy my voice "
+                                    "and agree on the consent screen."}
     vectors = [embedder(c) for c in clips if len(c) >= SAMPLE_RATE * 2 * MIN_SECONDS]
     if len(vectors) < 3:
         return {"ok": False, "why": "Too little speech: read each sentence aloud, close to the phone."}
@@ -132,6 +197,7 @@ def enroll(memory: Memory, clips: list[bytes], embedder=embed) -> dict:
     mean = _unit([sum(col) / len(good) for col in zip(*good)])
     _save(memory, mean, len(good))
     memory.set(ON_KEY, "1")
+    memory.set(LAST_USED_KEY, time.strftime("%Y-%m-%d"))
     consistency = sum(similarity(v, mean) for v in good) / len(good)
     return {"ok": True, "used": len(good), "of": len(vectors), "consistency": round(consistency, 2)}
 
@@ -158,6 +224,8 @@ def check(memory: Memory, pcm: bytes, since_buddy_spoke: float, embedder=embed,
         return ("you" if since_buddy_spoke <= FOLLOW_UP_SECONDS else "short"), None
     vector = embedder(speech)
     score = similarity(vector, print_["vector"])
+    if memory.get(LAST_USED_KEY) != time.strftime("%Y-%m-%d"):
+        memory.set(LAST_USED_KEY, time.strftime("%Y-%m-%d"))
     bar = THRESHOLD + (SHORT_MARGIN if seconds < MIN_SECONDS else 0.0)
     if score >= bar:
         if score >= THRESHOLD + 0.15 and print_["samples"] < 200:  # clearly you: learn a little
@@ -182,8 +250,9 @@ def that_was_me(memory: Memory) -> str:
 
 VOICE_TOOL = {
     "name": "voice_match",
-    "description": "Voice match for Talk mode: Buddy only answers the user's own voice there. status; turn_off / "
-    "turn_on; forget (delete the voiceprint); that_was_me (the user says you ignored them: learn from the last "
+    "description": "Voice match for Talk mode: Buddy only answers the user's own voice there. status; turn_off and "
+    "forget both delete the voiceprint (biometric data: the policy says turning it off destroys it; say so); "
+    "turn_on (only if a voiceprint exists); that_was_me (the user says you ignored them: learn from the last "
     "ignored clip). To set it up, tell them: Settings -> Teach Buddy my voice.",
     "input_schema": {"type": "object", "properties": {
         "action": {"type": "string", "enum": ["status", "turn_on", "turn_off", "forget", "that_was_me"]}},
@@ -193,13 +262,10 @@ VOICE_TOOL = {
 
 def run_tool(memory: Memory, args: dict) -> str:
     action = args.get("action")
-    if action == "forget":
-        memory.set(KEY, "null")
-        memory.set(ON_KEY, "0")
-        return "Deleted the voiceprint: Talk mode answers any voice again until they teach Buddy their voice."
-    if action == "turn_off":
-        memory.set(ON_KEY, "0")
-        return "Voice match is off: Talk mode answers any voice."
+    if action in ("forget", "turn_off"):
+        forget(memory, action)
+        return ("Voice match is off and the voiceprint is deleted (encrypted backups age out within 14 days). Talk "
+                "mode answers any voice again until they teach Buddy their voice.")
     if action == "turn_on":
         if not stored(memory):
             return "There's no voiceprint yet: Settings -> Teach Buddy my voice."
@@ -210,4 +276,5 @@ def run_tool(memory: Memory, args: dict) -> str:
     print_ = stored(memory)
     return json.dumps({"installed": available(), "voiceprint": bool(print_), "on": on(memory),
                        "learned_from_clips": print_["samples"] if print_ else 0,
-                       "updated": print_["updated"] if print_ else None})
+                       "updated": print_["updated"] if print_ else None, "consent": consents(memory)[-1:] or None,
+                       "policy": POLICY_URL})

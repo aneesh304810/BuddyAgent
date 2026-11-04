@@ -14,6 +14,7 @@ def connect(path: Path | str):
         if str(path) != ":memory:":
             log.warning("BUDDY_DB_KEY is not set: the database is NOT encrypted (dev only)")
         conn = sqlite3.connect(str(path), check_same_thread=False)
+        conn.execute("PRAGMA secure_delete = ON")  # deleted data is overwritten, not just marked free
         conn.row_factory = sqlite3.Row
         return conn
 
@@ -25,5 +26,6 @@ def connect(path: Path | str):
         raise ValueError("BUDDY_DB_KEY must be 64 hex characters (openssl rand -hex 32)")
     conn.execute(f"PRAGMA key = \"x'{key}'\"")
     conn.execute("SELECT count(*) FROM sqlite_master")  # fails fast on a wrong key
+    conn.execute("PRAGMA secure_delete = ON")  # deleted data is overwritten, not just marked free
     conn.row_factory = sqlcipher3.Row
     return conn

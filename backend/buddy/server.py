@@ -1145,7 +1145,8 @@ async def talk(ws: WebSocket) -> None:
     async def send_voice_status() -> None:
         print_ = voiceprint.stored(memory)
         await send({"type": "voice", "installed": voiceprint.available(), "enrolled": bool(print_),
-                    "on": voiceprint.on(memory), "sentences": voiceprint.ENROLL_SENTENCES})
+                    "on": voiceprint.on(memory), "sentences": voiceprint.ENROLL_SENTENCES,
+                    "consent_version": voiceprint.POLICY_VERSION, "policy_url": voiceprint.POLICY_URL})
 
     async def switch_now(mode: str) -> None:
         await stop_current()
@@ -1307,6 +1308,8 @@ async def talk(ws: WebSocket) -> None:
                     await send_voice_status()
             elif msg.get("type") == "voice_enroll_start":
                 enroll_clips.clear()
+                if msg.get("consent"):  # the consent screen's "I agree", for this policy version
+                    voiceprint.record_consent(memory, str(msg["consent"]))
             elif msg.get("type") == "voice_set":  # Settings switch / forget button
                 voiceprint.run_tool(memory, {"action": "forget" if msg.get("forget") else
                                              ("turn_on" if msg.get("on") else "turn_off")})

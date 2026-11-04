@@ -32,7 +32,8 @@ sealed interface ServerEvent {
     data class SwitchMode(val mode: String) : ServerEvent
     /** Voice match status: installed on the server, a voiceprint made, switched on; the sentences to read. */
     data class VoiceStatus(val installed: Boolean, val enrolled: Boolean, val on: Boolean,
-                           val sentences: List<String>) : ServerEvent
+                           val sentences: List<String>, val consentVersion: String = "",
+                           val policyUrl: String = "") : ServerEvent
     data class VoiceEnrolled(val ok: Boolean, val text: String) : ServerEvent
     /** Open Uber / Lyft with a trip filled in (the second one when Buddy is back in front). */
     data class OpenLinks(val links: List<RideLink>, val compare: String = "") : ServerEvent
@@ -78,6 +79,7 @@ sealed interface ServerEvent {
                 "voice" -> VoiceStatus(
                     msg.optBoolean("installed"), msg.optBoolean("enrolled"), msg.optBoolean("on"),
                     msg.optJSONArray("sentences")?.let { a -> (0 until a.length()).map { a.getString(it) } } ?: emptyList(),
+                    msg.optString("consent_version"), msg.optString("policy_url"),
                 )
                 "voice_enrolled" -> VoiceEnrolled(
                     msg.optBoolean("ok"),

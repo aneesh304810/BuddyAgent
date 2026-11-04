@@ -1072,6 +1072,11 @@ private fun VoiceMatch(prefs: BuddyPrefs) {
     val ui by BuddyState.ui.collectAsState()
     var closed by remember { mutableStateOf(prefs.closedListenIn) }
     var cleanUp by remember { mutableStateOf(prefs.noiseSuppress) }
+    var askConsent by remember { mutableStateOf(false) }
+    if (askConsent) VoiceConsent(ui.voicePolicyUrl, onAgree = {
+        askConsent = false
+        BuddyService.instance?.teachVoice(ui.voiceConsentVersion)
+    }, onCancel = { askConsent = false })
     Column(Modifier.fillMaxWidth().padding(top = 16.dp)) {
         Text("Voice match (Talk mode)", color = Pal.text, fontSize = 18.sp)
         Text(
@@ -1087,13 +1092,15 @@ private fun VoiceMatch(prefs: BuddyPrefs) {
         ui.enrollResult?.let { Text(it, color = Pal.text, fontSize = 13.sp, modifier = Modifier.padding(top = 4.dp)) }
         Row(horizontalArrangement = Arrangement.spacedBy(8.dp), verticalAlignment = Alignment.CenterVertically,
             modifier = Modifier.padding(top = 6.dp)) {
-            Button(onClick = { BuddyService.instance?.teachVoice() },
+            Button(onClick = { askConsent = true },
                 enabled = ui.voiceInstalled && ui.voiceSentences.isNotEmpty() && ui.enrollStep < 0) {
                 Text(if (ui.voiceEnrolled) "Teach it again" else "Teach Buddy my voice")
             }
             if (ui.voiceEnrolled) {
-                Switch(checked = ui.voiceOn, onCheckedChange = { BuddyService.instance?.setVoice(on = it) })
-                TextButton(onClick = { BuddyService.instance?.setVoice(forget = true) }) { Text("Forget my voice") }
+                // Off deletes the voiceprint (the biometric policy promises it), so it's one button.
+                TextButton(onClick = { BuddyService.instance?.setVoice(forget = true) }) {
+                    Text("Turn off and forget my voice")
+                }
             }
         }
         Row(verticalAlignment = Alignment.CenterVertically, modifier = Modifier.padding(top = 10.dp)) {
@@ -1167,4 +1174,40 @@ private fun VoicePicker(prefs: BuddyPrefs) {
             Text(voice.label, color = Pal.text, fontSize = 15.sp)
         }
     }
+}
+
+
+/** Written notice and consent before a voiceprint is made (Biometric Information Privacy Policy, Illinois BIPA). */
+@Composable
+private fun VoiceConsent(policyUrl: String, onAgree: () -> Unit, onCancel: () -> Unit) {
+    var ticked by remember { mutableStateOf(false) }
+    val uri = androidx.compose.ui.platform.LocalUriHandler.current
+    androidx.compose.material3.AlertDialog(
+        onDismissRequest = onCancel,
+        title = { Text("Voice match uses your voiceprint") },
+        text = {
+            Column(Modifier.verticalScroll(rememberScrollState()), verticalArrangement = Arrangement.spacedBy(8.dp)) {
+                Text("To recognize your voice, Buddy will create a voiceprint: numbers describing how your voice " +
+                    "sounds, made from five sentences you read. This is biometric information.", fontSize = 14.sp)
+                Text("• Why: only to recognize your voice in Talk mode, so Buddy answers you and ignores other voices.",
+                    fontSize = 14.sp)
+                Text("• Where: stored encrypted on Buddy's server. Never sold or shared, and never used for ads.",
+                    fontSize = 14.sp)
+                Text("• How long: until you turn voice match off or say \"forget my voice\", after 12 months " +
+                    "without use, or at most 3 years after you last use Buddy. Whichever comes first.", fontSize = 14.sp)
+                Text("Voice match is optional. Buddy works without it.", fontSize = 14.sp)
+                if (policyUrl.isNotBlank()) {
+                    Text("Read the Biometric Information Privacy Policy", color = Pal.link, fontSize = 14.sp,
+                        modifier = Modifier.clickable { runCatching { uri.openUri(policyUrl) } })
+                }
+                Row(verticalAlignment = Alignment.CenterVertically, modifier = Modifier.clickable { ticked = !ticked }) {
+                    androidx.compose.material3.Checkbox(checked = ticked, onCheckedChange = { ticked = it })
+                    Text("I have read the Biometric Information Privacy Policy, and I consent to Buddy Labs " +
+                        "collecting, storing and using my voiceprint as described.", fontSize = 13.sp)
+                }
+            }
+        },
+        confirmButton = { Button(onClick = onAgree, enabled = ticked) { Text("I agree") } },
+        dismissButton = { TextButton(onClick = onCancel) { Text("Not now") } },
+    )
 }

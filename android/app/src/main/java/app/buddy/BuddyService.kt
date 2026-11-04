@@ -531,7 +531,8 @@ class BuddyService : Service() {
             ServerEvent.DiagOff -> Diag.serverOff = true
             is ServerEvent.VoiceStatus -> BuddyState.update {
                 it.copy(voiceInstalled = event.installed, voiceEnrolled = event.enrolled, voiceOn = event.on,
-                        voiceSentences = event.sentences)
+                        voiceSentences = event.sentences, voiceConsentVersion = event.consentVersion,
+                        voicePolicyUrl = event.policyUrl)
             }
             is ServerEvent.VoiceEnrolled -> {
                 BuddyState.update { it.copy(enrollStep = -1, enrollResult = event.text) }
@@ -655,14 +656,14 @@ class BuddyService : Service() {
     private var resumeAfterEnrol: Mode? = null
 
     /** Settings -> Teach Buddy my voice: record each sentence (5 s) and send it; the server makes the voiceprint. */
-    fun teachVoice() {
+    fun teachVoice(consent: String = "") {
         val sentences = BuddyState.ui.value.voiceSentences
         if (sentences.isEmpty() || BuddyState.ui.value.enrollStep >= 0) return
         resumeAfterEnrol = if (ears.active) activeMode else null
         stopListening()
         if (activeMode == Mode.TALK || resumeAfterEnrol == null) useEarbudMic(prefs.earbudMic)  // the mic Talk uses
         BuddyState.update { it.copy(enrollStep = 0, enrollResult = null) }
-        send(JSONObject().put("type", "voice_enroll_start"))
+        send(JSONObject().put("type", "voice_enroll_start").put("consent", consent))  // the consent screen's I agree
         Thread {
             for ((i, _) in sentences.withIndex()) {
                 BuddyState.update { it.copy(enrollStep = i) }

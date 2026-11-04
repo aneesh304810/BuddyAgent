@@ -124,6 +124,11 @@ async def run(memory: Memory, deliver: Deliver) -> None:
             if memory.get("finance:refreshed") != today:
                 await asyncio.to_thread(finance.Finance(memory).refresh)
                 memory.set("finance:refreshed", today)
+            if memory.get("voiceprint:purge_checked") != today:  # biometric retention schedule
+                memory.set("voiceprint:purge_checked", today)
+                from . import voiceprint  # noqa: PLC0415
+                if voiceprint.purge_unused(memory):
+                    log.info("voiceprint unused for 12 months: deleted")
             month_now = local_now().strftime("%Y-%m")
             if SOC_MONTHLY and memory.get("soc:monthly_saved") != month_now:
                 memory.set("soc:monthly_saved", month_now)  # once a month, even if it fails: no retry storm

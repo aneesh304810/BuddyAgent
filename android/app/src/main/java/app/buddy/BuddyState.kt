@@ -39,6 +39,8 @@ data class UiState(
     val voiceEnrolled: Boolean = false,
     val voiceOn: Boolean = false,
     val voiceSentences: List<String> = emptyList(),
+    val voiceConsentVersion: String = "",   // the biometric policy version the consent screen agrees to
+    val voicePolicyUrl: String = "",
     val enrollStep: Int = -1,         // -1 idle; 0..n-1 recording sentence; n: making the voiceprint
     val enrollResult: String? = null,
 )
