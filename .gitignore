@@ -8,3 +8,5 @@ backend/agents.yaml
 # Buddy's generated files (tests and makers write here)
 backend/files/
 /files/
+*.db-shm
+*.db-wal
