@@ -238,6 +238,9 @@ class Plaid:
         institution = item["institution"]
         for a in data.get("accounts", []):
             out[a["account_id"]] = a
+            if a.get("type") == "credit" and "sandbox" not in self.host and not self.memory.db.execute(
+                    "SELECT 1 FROM plaid_accounts WHERE account_id = ?", (a["account_id"],)).fetchone():
+                self.memory.set("benefits:check_new", "1")  # a new card: its published benefits, looked up soon
             name = a.get("official_name") or a.get("name") or "Account"
             mask = a.get("mask") or ""
             self.memory.db.execute("INSERT OR REPLACE INTO plaid_accounts (account_id, item_id, name, mask, type, subtype) "

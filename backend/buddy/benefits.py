@@ -454,7 +454,7 @@ class Benefits:
         return {**json.loads(row["data"]), "checked": row["checked_at"][:10]}
 
     async def lookup(self, card: str, fresh: bool = False) -> dict:
-        card = (card or "").strip()
+        card = self.resolve_card((card or "").strip())
         if not card:
             raise ToolError("Which card? For example: Amex Platinum, Chase Sapphire Reserve.")
         if not fresh and (hit := self.cached(card)):
@@ -504,9 +504,55 @@ class Benefits:
                 + " Issuers change benefits, so your card's terms win.")
 
     # --- every card the user has -----------------------------------------------------------
+    def connected_cards(self) -> list[dict]:
+        """Credit cards from the banks connected through Plaid (real banks, not sandbox), with issuer and last 4."""
+        try:
+            rows = self.memory.db.execute(
+                "SELECT a.name, a.mask, i.institution FROM plaid_accounts a JOIN plaid_items i ON i.item_id = a.item_id "
+                "WHERE a.type = 'credit' AND COALESCE(i.env, 'production') != 'sandbox' ORDER BY i.institution, a.name"
+            ).fetchall()
+        except Exception:
+            return []
+        out = []
+        for r in rows:
+            name = re.sub(r"[®™©]", "", r["name"] or "").strip()
+            issuer = (r["institution"] or "").strip()
+            full = name if issuer and issuer.lower().split()[0] in name.lower() else f"{issuer} {name}".strip()
+            out.append({"card": full, "issuer": issuer, "last4": r["mask"] or "", "account_name": name})
+        return out
+
+    def resolve_card(self, phrase: str) -> str:
+        """'my Platinum' / 'amex plat' -> the connected card's full name, when one matches."""
+        generic = {"my", "the", "card", "credit", "amex", "american", "express", "chase", "citi", "capital", "one",
+                   "bank", "of", "america"}
+        want = [w for w in _key(phrase).split() if w not in generic]
+        want = [w[:4] for w in want]
+        if not want:
+            return phrase
+        hits = [c["card"] for c in self.connected_cards()
+                if all(any(k.startswith(w) for k in _key(c["card"]).split()) for w in want)]
+        return hits[0] if len(hits) == 1 else phrase
+
+    def cards_overview(self) -> list[dict]:
+        """Each card Buddy knows: where it came from, last 4, published benefits saved, credits tracked."""
+        out, seen = [], set()
+        for c in self.connected_cards() + [{"card": n, "issuer": "", "last4": ""} for n in self.known_cards()]:
+            k = _key(c["card"])
+            if k in seen:
+                continue
+            seen.add(k)
+            saved = self.cached(c["card"], days=10 ** 5)
+            out.append({"card": c["card"], "last4": c.get("last4", ""),
+                        "connected": any(_key(x["card"]) == k for x in self.connected_cards()),
+                        "published_benefits_saved": bool(saved), "checked": (saved or {}).get("checked", ""),
+                        "credits_tracked": self._tracked_names(c["card"])})
+        return out
+
     def known_cards(self) -> list[str]:
-        """Every card Buddy knows: from the bank connections and statements (fin_cards), and named in benefits."""
+        """Every card Buddy knows: connected through Plaid, from statements (fin_cards), and named in benefits."""
         names: dict[str, str] = {}
+        for c in self.connected_cards():
+            names.setdefault(_key(c["card"]), c["card"])
         try:
             for r in self.memory.db.execute("SELECT name, issuer FROM fin_cards"):
                 name = re.sub(r"[®™©]", "", f"{r['issuer'] or ''} {r['name'] or ''}").strip()
@@ -890,6 +936,8 @@ BENEFITS_TOOL = {
     "remove (what). wish_add (item, merchant, price) when they say they want something but it's expensive; wishes; "
     "wish_remove (what). plan: credits running out within 60 days with wishes they could pay for. To watch a deal, "
     "use price_watch (it asks first). You suggest; the user buys. "
+    "cards: the user's cards (connected banks first, with last 4), whether their published benefits are saved and "
+    "which credits are tracked; use for 'what cards do I have?' and to know which card 'my Platinum' is. "
     "lookup (card; fresh to skip the saved copy): the card's published credits, perks, annual fee and earn rates "
     "from the issuer's own website, with source links and the date checked (a few cents; saved 30 days). Show "
     "them and ask which to track. lookup_all: the same for every card Buddy knows (bank connections, statements, "
@@ -902,7 +950,8 @@ BENEFITS_TOOL = {
     "balances aren't public: they come from the issuer's emails or a screenshot the user shares.",
     "input_schema": {"type": "object", "properties": {
         "action": {"type": "string", "enum": ["add", "list", "used", "remove", "wish_add", "wishes", "wish_remove",
-                                              "plan", "lookup", "lookup_all", "setup", "add_from_catalog", "deals"]},
+                                              "plan", "lookup", "lookup_all", "setup", "add_from_catalog", "deals",
+                                              "cards"]},
         "names": {"type": "array", "items": {"type": "string"}}, "fresh": {"type": "boolean"},
         "what": {"type": "string"}, "card": {"type": "string"}, "name": {"type": "string"},
         "amount": {"type": "number"}, "period": {"type": "string", "enum": list(PERIODS)},
@@ -920,6 +969,10 @@ async def run_tool_async(b: Benefits, args: dict) -> str:
     a = args.get("action")
     if a == "lookup":
         return json.dumps(await b.lookup(str(args.get("card") or ""), bool(args.get("fresh"))), ensure_ascii=False)
+    if a == "cards":
+        found = b.cards_overview()
+        return json.dumps(found, ensure_ascii=False) if found else ("No cards yet: connect a bank (\"connect my bank\"), "
+                                                                    "share a statement, or tell me your cards.")
     if a == "lookup_all":
         found = await b.lookup_all(bool(args.get("fresh")))
         return json.dumps(found, ensure_ascii=False) if found else ("No cards yet: connect a bank, share a statement, or "

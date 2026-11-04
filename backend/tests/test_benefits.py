@@ -1,4 +1,5 @@
 """Card benefits: periods, statement credits from the bank feed, wishes, and reminders before credits expire."""
+import json
 
 from datetime import date, datetime, timezone
 
@@ -289,3 +290,47 @@ def test_dining_and_hotel_credits_get_named_places_near_the_user():
     texts = " ".join(a["text"] for a in b.alerts(date(2026, 12, 2)))
     assert "**Places near you it covers**\n- Son Cubano, West New York: about $120. Cuban, dinner for two." in texts
     assert "**Hotels it covers**\n- The Asbury Hotel" in texts
+
+
+def _connect(mem, cards, env="production"):
+    from buddy.plaid import Plaid
+    Plaid(mem, env={})  # makes plaid_items and plaid_accounts
+    mem.db.execute("INSERT INTO plaid_items (item_id, access_token, institution, added_at, env) VALUES "
+                   "('i1', 't', 'American Express', '2026-11-01', ?)", (env,))
+    for n, (name, mask) in enumerate(cards):
+        mem.db.execute("INSERT INTO plaid_accounts (account_id, item_id, name, mask, type) VALUES (?, 'i1', ?, ?, 'credit')",
+                       (f"a{n}", name, mask))
+    mem.db.commit()
+
+
+def test_connected_cards_are_known_and_my_platinum_means_the_connected_one():
+    mem, calls = Memory(":memory:"), []
+    _connect(mem, [("Platinum Card®", "1004"), ("Blue Cash Everyday®", "2008")])
+    b = Benefits(mem, search=_fake_search(PLAT, calls))
+    assert {c["card"] for c in b.connected_cards()} == {"American Express Platinum Card",
+                                                       "American Express Blue Cash Everyday"}
+    assert b.resolve_card("my amex platinum") == "American Express Platinum Card"
+    assert b.resolve_card("Sapphire Reserve") == "Sapphire Reserve"  # not connected: as said
+    _asyncio.run(b.lookup("my Platinum"))
+    assert calls == ["American Express Platinum Card"]
+    cards = json.loads(_asyncio.run(bmod.run_tool_async(b, {"action": "cards"})))
+    plat = next(c for c in cards if c["last4"] == "1004")
+    assert plat["connected"] and plat["published_benefits_saved"] and plat["credits_tracked"] == []
+    assert set(b.known_cards()) >= {"American Express Platinum Card", "American Express Blue Cash Everyday"}
+
+
+def test_sandbox_cards_are_not_your_cards():
+    mem = Memory(":memory:")
+    _connect(mem, [("Plaid Credit Card", "3333")], env="sandbox")
+    assert Benefits(mem).connected_cards() == []
+
+
+def test_a_newly_connected_card_is_flagged_for_a_lookup():
+    from buddy.plaid import Plaid
+    mem = Memory(":memory:")
+    accounts = {"accounts": [{"account_id": "new1", "name": "Platinum Card", "mask": "1004", "type": "credit",
+                              "balances": {}}]}
+    p = Plaid(mem, env={"BUDDY_PLAID_CLIENT_ID": "x", "BUDDY_PLAID_SECRET": "y", "BUDDY_PLAID_ENV": "production"},
+              http=lambda url, body: accounts)
+    p._accounts({"item_id": "i9", "access_token": "t", "institution": "American Express"})
+    assert mem.get("benefits:check_new") == "1"

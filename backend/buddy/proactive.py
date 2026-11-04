@@ -131,6 +131,18 @@ async def run(memory: Memory, deliver: Deliver) -> None:
                 from . import voiceprint  # noqa: PLC0415
                 if voiceprint.purge_unused(memory):
                     log.info("voiceprint unused for 12 months: deleted")
+            if CARD_LOOKUP and memory.get("benefits:check_new") and not in_quiet_hours():  # a card just connected
+                memory.set("benefits:check_new", "")
+                try:
+                    perks = benefits.Benefits(memory)
+                    if not memory.get("benefits:setup_done"):
+                        job_id, text = await perks.setup()
+                        await deliver("money", text, **({"job_id": job_id} if job_id else {}))
+                    else:
+                        for text in await perks.offer_new_cards(per_day=10):
+                            await deliver("money", text)
+                except Exception:
+                    log.exception("new card benefits lookup failed")
             if CARD_LOOKUP and memory.get("benefits:setup_requested"):  # "set up my card benefits": now
                 fresh = memory.get("benefits:setup_requested") == "fresh"
                 memory.set("benefits:setup_requested", "")
