@@ -126,4 +126,5 @@ The Android app's install guide is in [`android/README.md`](android/README.md).
 
 ## Website
 
-The Buddy Labs company website lives in its own repo: https://github.com/aneesh304810/Buddywebsite
+The Buddy Labs company website lives in its own repo: https://github.com/aneesh304810/Buddywebsite.
+The brief for changing it, including what it must not reveal, is in [docs/WEBSITE.md](docs/WEBSITE.md).
