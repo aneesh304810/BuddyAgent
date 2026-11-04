@@ -97,9 +97,10 @@ class BankFeed:
         return self.url.startswith("https://") and not self._plaid_linked()
 
     def _plaid_linked(self) -> bool:
-        """With a bank linked through Plaid, SimpleFIN stands down so nothing is counted twice."""
+        """With a real bank linked through Plaid (not sandbox test data), SimpleFIN stands down so nothing is counted twice."""
         try:
-            return bool(self.memory.db.execute("SELECT 1 FROM plaid_items LIMIT 1").fetchone())
+            return bool(self.memory.db.execute(
+                "SELECT 1 FROM plaid_items WHERE COALESCE(env, '') != 'sandbox' LIMIT 1").fetchone())
         except Exception:
             return False
 

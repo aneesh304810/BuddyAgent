@@ -111,7 +111,7 @@ def test_sync_brings_transactions_balances_and_the_card_calendar(mem):
     rows = {r["merchant"]: r for r in mem.db.execute("SELECT * FROM transactions")}
     assert set(rows) == {"Netflix"}  # groceries removed by the second page; payment and pending skipped
     assert rows["Netflix"]["card"] == "1004" and rows["Netflix"]["category"] == "subscriptions"
-    assert mem.get("money:bank_feed") == "1"
+    assert not mem.get("money:bank_feed")  # sandbox test data never replaces the real charges from emails
     card = finance.Finance(mem).cards()[0]
     assert card["name"] == "Amex Gold Card" and card["last4"] == "1004" and card["apr"] == 27.49
     assert card["minimum_due"] == 40 and card["credit_limit"] == 10000 and card["next_due"] == fake.due
@@ -135,20 +135,51 @@ def test_login_required_is_reported_not_crashed(mem):
 
 
 def test_unlink_revokes_and_deletes(mem):
+    from buddy.advisor import Advisor
     p, fake, _ = linked(mem)
     p.sync(force=True)
+    Advisor(mem).set_reward("1004", "dining", 4)
     assert "Unlinked American Express" in p.unlink("american express")
     assert fake.removed and p.items() == []
     assert mem.db.execute("SELECT COUNT(*) FROM transactions WHERE source LIKE 'plaid:%'").fetchone()[0] == 0
     assert mem.db.execute("SELECT COUNT(*) FROM bank_accounts").fetchone()[0] == 0
     assert finance.Finance(mem).cards() == [] and mem.get("money:bank_feed") == ""
+    # nothing found in the deleted data lingers: its subscription and the card's reward rates are gone
+    assert finance.Finance(mem).subscriptions()["subscriptions"] == []
+    assert mem.db.execute("SELECT COUNT(*) FROM fin_rewards").fetchone()[0] == 0
 
 
-def test_simplefin_stands_down_when_plaid_is_linked(mem):
+def test_simplefin_stands_down_only_for_a_real_plaid_bank(mem):
     feed = BankFeed(mem, env={"BUDDY_SIMPLEFIN_URL": "https://user:pw@bridge.simplefin.org/simplefin"})
     assert feed.configured()
-    linked(mem)
+    p, _, _ = linked(mem)  # sandbox: SimpleFIN keeps running, emails keep counting
+    assert feed.configured() and p.status()[0]["test_data"]
+    mem.db.execute("UPDATE plaid_items SET env = 'production'")
     assert not feed.configured()
+    p.sync(force=True)
+    assert mem.get("money:bank_feed") == "1"  # a real bank replaces charges from emails
+
+
+def test_unlink_keeps_real_subscriptions(mem):
+    p, fake, _ = linked(mem)
+    p.sync(force=True)
+    for n, day in enumerate((ago(70), ago(40), ago(10))):  # a real subscription seen in emails
+        mem.db.execute("INSERT INTO transactions (day, amount, currency, merchant, category, source, created_at) "
+                       "VALUES (?, 11.99, 'USD', 'Spotify', 'subscriptions', ?, ?)", (day, f"email:{n}", day))
+    finance.Finance(mem).find_subscriptions()
+    p.unlink("american express")
+    names = {s["merchant"] for s in finance.Finance(mem).subscriptions()["subscriptions"]}
+    assert "Spotify" in names and "Netflix" not in names
+
+
+def test_old_databases_mark_existing_banks_as_real(tmp_path):
+    db_mem = Memory(":memory:")
+    db_mem.db.execute("CREATE TABLE plaid_items (item_id TEXT PRIMARY KEY, access_token TEXT NOT NULL, "
+                      "institution TEXT NOT NULL DEFAULT '', cursor TEXT NOT NULL DEFAULT '', last_sync TEXT, "
+                      "last_liabilities TEXT, error TEXT NOT NULL DEFAULT '', added_at TEXT NOT NULL)")
+    db_mem.db.execute("INSERT INTO plaid_items (item_id, access_token, added_at) VALUES ('i', 't', '2026-01-01')")
+    p = plaid.Plaid(db_mem, env=ENV, http=FakePlaid())
+    assert p.items()[0]["env"] == "production"
 
 
 def test_not_configured_says_how(mem):

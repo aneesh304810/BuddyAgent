@@ -44,7 +44,8 @@ CREATE TABLE IF NOT EXISTS plaid_items (
     last_sync TEXT,
     last_liabilities TEXT,
     error TEXT NOT NULL DEFAULT '',
-    added_at TEXT NOT NULL
+    added_at TEXT NOT NULL,
+    env TEXT NOT NULL DEFAULT ''      -- sandbox | production, as linked (sandbox = Plaid's test data)
 );
 CREATE TABLE IF NOT EXISTS plaid_accounts (
     account_id TEXT PRIMARY KEY,
@@ -75,6 +76,10 @@ class Plaid:
         self._http = http or _post
         memory.db.executescript(SCHEMA_SQL + ACCOUNTS_SQL)
         self.money = Money(memory)
+        cols = {r[1] for r in memory.db.execute("PRAGMA table_info(plaid_items)")}
+        if "env" not in cols:  # older databases: banks linked before this column were real (production)
+            memory.db.execute("ALTER TABLE plaid_items ADD COLUMN env TEXT NOT NULL DEFAULT 'production'")
+            memory.db.commit()
 
     def setting(self, key: str) -> str:
         return (self.env.get(key) or "").strip()
@@ -132,8 +137,9 @@ class Plaid:
             raise ToolError("That link expired: ask Buddy to connect the bank again.")
         got = self.call("/item/public_token/exchange", {"public_token": public_token})
         self.memory.db.execute(
-            "INSERT OR REPLACE INTO plaid_items (item_id, access_token, institution, added_at) VALUES (?, ?, ?, ?)",
-            (got["item_id"], got["access_token"], institution[:80], datetime.now(timezone.utc).isoformat()))
+            "INSERT OR REPLACE INTO plaid_items (item_id, access_token, institution, added_at, env) VALUES (?, ?, ?, ?, ?)",
+            (got["item_id"], got["access_token"], institution[:80], datetime.now(timezone.utc).isoformat(),
+             self.setting("BUDDY_PLAID_ENV") or "sandbox"))
         self.memory.db.commit()
         self.memory.set("plaid:link", "")
         return {"item_id": got["item_id"], "institution": institution}
@@ -148,7 +154,8 @@ class Plaid:
             accounts = [dict(a) for a in self.memory.db.execute(
                 "SELECT name, mask, type, subtype FROM plaid_accounts WHERE item_id = ?", (i["item_id"],))]
             out.append({"item_id": i["item_id"], "institution": i["institution"], "accounts": accounts,
-                        "last_sync": i["last_sync"] or "", "problem": i["error"] or ""})
+                        "last_sync": i["last_sync"] or "", "problem": i["error"] or "",
+                        "test_data": i.get("env") == "sandbox"})
         return out
 
     def sync_item(self, item: dict) -> dict:
@@ -168,7 +175,8 @@ class Plaid:
         db.execute("UPDATE plaid_items SET cursor = ?, last_sync = ?, error = '' WHERE item_id = ?",
                    (cursor, datetime.now(timezone.utc).isoformat(), item["item_id"]))
         db.commit()
-        self.memory.set("money:bank_feed", "1")  # charges now come from the bank; emails keep only bills
+        if item.get("env") != "sandbox":  # test data never replaces the real charges read from emails
+            self.memory.set("money:bank_feed", "1")  # charges now come from the bank; emails keep only bills
         cards = 0
         if not item["last_liabilities"] or datetime.fromisoformat(item["last_liabilities"]) < \
                 datetime.now(timezone.utc) - timedelta(hours=20):
@@ -296,9 +304,30 @@ class Plaid:
         db.execute("DELETE FROM plaid_accounts WHERE item_id = ?", (item["item_id"],))
         db.execute("DELETE FROM plaid_items WHERE item_id = ?", (item["item_id"],))
         db.commit()
-        if not self.items():
+        self._forget_derived()
+        if not any(i.get("env") != "sandbox" for i in self.items()):
             self.memory.set("money:bank_feed", "")  # back to reading charges from emails
         return f"Unlinked {item['institution'] or 'the bank'}: access revoked at Plaid and its data deleted here."
+
+    def _forget_derived(self) -> None:
+        """After a bank's data is deleted: drop subscriptions only its charges showed, and reward rates of
+        cards that are gone, so nothing found in (for example) sandbox test data lingers."""
+        from .finance import merchant_key
+        db = self.memory.db
+        since = (date.today() - timedelta(days=760)).isoformat()
+        keys = {merchant_key(r["merchant"]) for r in db.execute(
+            "SELECT merchant FROM transactions WHERE day >= ? AND amount > 0", (since,))}
+        try:
+            for sub in db.execute("SELECT id, key, last_charge FROM fin_subscriptions").fetchall():
+                if sub["last_charge"] >= since and sub["key"] not in keys:
+                    db.execute("DELETE FROM fin_subscriptions WHERE id = ?", (sub["id"],))
+        except Exception:
+            pass  # no subscriptions table yet
+        try:
+            db.execute("DELETE FROM fin_rewards WHERE card_id NOT IN (SELECT id FROM fin_cards)")
+        except Exception:
+            pass
+        db.commit()
 
     async def run(self, notify=None) -> None:
         """Every 15 minutes: sync whatever is due (each bank every 6 hours)."""
