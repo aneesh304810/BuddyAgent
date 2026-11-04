@@ -52,7 +52,7 @@ CREATE TABLE IF NOT EXISTS fin_transfer_labels (
 );
 """
 LABEL_NAMES = {"rent": "Rent", "family_support": "Family support", "savings": "Savings"}
-CANCELLABLE = ("subscriptions", "entertainment", "other", "shopping")  # recurring charges you could cancel
+CANCELLABLE = ("subscriptions", "entertainment")  # recurring charges you could cancel: services, not shops
 
 
 def _months_back(d: date, n: int) -> date:
@@ -136,9 +136,15 @@ class Review:
                 (start.isoformat(), end.isoformat())).fetchall()
         except Exception:
             return []
-        return [{"day": r["day"], "amount": r["amount"], "currency": r["currency"],
-                 "merchant": f"Rent to {r['recipient']}", "category": "housing", "card": r["account"], "detail": "Rent"}
-                for r in rows if self._label_for(r["recipient"], r["name"], labels, r["kind"])]
+        out = []
+        for r in rows:
+            lab = self._label_for(r["recipient"], r["name"], labels, r["kind"])
+            if lab:
+                note = f" ({lab['note']})" if lab.get("note") else ""
+                out.append({"day": r["day"], "amount": r["amount"], "currency": r["currency"],
+                            "merchant": f"Rent to {r['recipient']}{note}", "category": "housing", "card": r["account"],
+                            "detail": "Rent"})
+        return out
 
     # --- the numbers --------------------------------------------------------------------------------
     def _rows(self, start: date, end: date) -> list[dict]:
@@ -380,11 +386,14 @@ class Review:
             label = r["detail"] or ("Interest" if "interest" in r["merchant"].lower() else r["merchant"].title())
             kinds[label] = kinds.get(label, 0) + r["amount"]
         for label, amt in sorted(kinds.items(), key=lambda kv: -kv[1]):
-            out.append({"what": f"Fee: {label}", "amount": round(amt, 2), "why": "paid for nothing; usually avoidable"})
-        for d in debts:
-            if d["carrying_balance"] and d["interest_per_month"]:
-                out.append({"what": f"Interest on {d['card']}", "amount": round(d["interest_per_month"] * months, 2),
-                            "why": f"{d['apr']:g}% APR on {_money(d['balance'])}"})
+            why = "interest on a balance carried over: pay statements in full" if "interest" in label.lower() \
+                else "paid for nothing; usually avoidable"
+            out.append({"what": f"Fee: {label}", "amount": round(amt, 2), "why": why})
+        if not any("interest" in k.lower() for k in kinds):  # no interest charge seen yet: the estimate
+            for d in debts:
+                if d["carrying_balance"] and d["interest_per_month"]:
+                    out.append({"what": f"Interest on {d['card']}", "amount": round(d["interest_per_month"] * months, 2),
+                                "why": f"{d['apr']:g}% APR on {_money(d['balance'])}"})
         for s in active:
             if "charged on more than one card" in s["flags"]:
                 out.append({"what": f"{s['merchant']} on more than one card", "amount": s["amount"],
@@ -443,11 +452,15 @@ class Review:
             ops.append({"what": f"{s['merchant']} price rise", "yearly": round(extra, 2),
                         "do": f"{s['merchant']} went up to {_money(s['amount'])} ({prev}): about {_money(extra)} more a "
                               "year. Ask for the old price, switch plans, or cancel."})
-        fee_total = sum(r["amount"] for r in fees)
+        carrying = any(d["carrying_balance"] and d["interest_per_month"] for d in debts)
+        is_interest = lambda r: "interest" in (r["detail"] + " " + r["merchant"]).lower()  # noqa: E731
+        # with a card carrying a balance, its interest is its own line below: count it once
+        fee_total = sum(r["amount"] for r in fees if not (carrying and is_interest(r)))
         if fee_total:
             yearly = fee_total / months * 12
-            ops.append({"what": "Fees and interest", "yearly": round(yearly, 2),
-                        "do": f"You paid {_money(fee_total)} in fees and interest: about {_money(yearly)} a year. "
+            what = "Fees" if carrying else "Fees and interest"
+            ops.append({"what": what, "yearly": round(yearly, 2),
+                        "do": f"You paid {_money(fee_total)} in {what.lower()}: about {_money(yearly)} a year. "
                               "Autopay the full statement balance and ask the bank to waive fees."})
         for d in debts:
             if d["carrying_balance"] and d["interest_per_month"]:
@@ -483,6 +496,11 @@ class Review:
                             "do": f"Use your {p['benefit']} before {p['ends']}: {_money(p['left'])} left that you'd "
                                   "otherwise lose."})
         ops = [o for o in ops if o["yearly"] >= MIN_OPPORTUNITY or "running out" in o["what"]]
+        # one saving, one line: a price rise inside a category that's above usual is the same money
+        above = {o["what"].replace(" above your usual", "") for o in ops if o["what"].endswith("above your usual")}
+        cat_of = self._sub_categories()
+        ops = [o for o in ops if not (o["what"].endswith("price rise") and LABELS.get(
+            cat_of.get(merchant_key(o["what"].replace(" price rise", "")), ""), "") in above)]
         return sorted(ops, key=lambda o: -o["yearly"])
 
     @staticmethod
@@ -509,7 +527,7 @@ class Review:
         L += [head + ".", ""]
         t = r["transfers"]
         if r["income"] is not None or any(t[k] for k in ("to_savings", "to_people", "abroad", "other")):
-            L += ["## Money in and out", "| | Amount |", "| --- | --- |"]
+            L += ["## Money in and out", "| What | Amount |", "| --- | --- |"]
             if r["income"] is not None:
                 L.append(f"| Came in | {_money(r['income'])} |")
             L.append(f"| Spent | {_money(r['spent'])} |")
@@ -518,13 +536,15 @@ class Review:
                 if t[key]:
                     L.append(f"| {name} | {_money(t[key])} |")
             if r["left_over"] is not None:
-                L.append(f"| Left | {_money(r['left_over'])} |")
+                L.append(f"| Left{' (including savings)' if t['to_savings'] else ''} | {_money(r['left_over'])} |")
             L.append("")
         if r.get("notes"):
             L += ["## Advisor's review", r["notes"].strip(), ""]
         if r["transfers"]["questions"]:
             L += ["## Questions for you"] + [f"- {q}" for q in r["transfers"]["questions"]] + [""]
-        if r["possible_yearly_savings"]:
+        if r["possible_yearly_savings"] and r.get("notes"):  # the advisor's recommendations already say what to do
+            L += [f"You could save about **{_money(r['possible_yearly_savings'])} a year** (see Ways to save).", ""]
+        elif r["possible_yearly_savings"]:
             L += [f"You could save about **{_money(r['possible_yearly_savings'])} a year**. Start here:", ""]
             L += [f"{i}. {t}" for i, t in enumerate(r["todo"], 1)] + [""]
         if r["spent"]:
