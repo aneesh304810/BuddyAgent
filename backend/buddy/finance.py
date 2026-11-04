@@ -863,11 +863,12 @@ FINANCE_TOOL = {
     "report: the numbers for subscription advice (biggest, price rises, duplicates, monthly ones worth switching to "
     "yearly, undecided). refresh: scan again now. forget (what): remove a card or subscription from the lists. weekly: make this week's money report now (saved to "
     "Reports; say its summary). credit_use: each card's balance now, percent of limit used, and what to pay before the "
-    "statement closes to report under 30%.",
+    "statement closes to report under 30%. loans: mortgages and student loans from the connected banks: balance, "
+    "rate, next payment and due date, escrow, interest and principal paid this year, payoff date.",
     "input_schema": {"type": "object", "properties": {
         "action": {"type": "string", "enum": ["subscriptions", "decide", "cancel_help", "cards", "card",
                                               "import_statement", "report", "refresh", "forget", "weekly",
-                                              "credit_use"]},
+                                              "credit_use", "loans"]},
         "what": {"type": "string"}, "status": {"type": "string", "enum": ["new", "keep", "cancel", "unsure",
                                                                           "cancelled"]},
         "name": {"type": "string"}, "issuer": {"type": "string"}, "last4": {"type": "string"},
@@ -881,6 +882,11 @@ async def run_tool(fin: Finance, args: dict, open_links=None) -> str:
     import asyncio
 
     action = args.get("action")
+    if action == "loans":
+        from .plaid import Plaid  # noqa: PLC0415
+        found = Plaid(fin.memory, env={}).loans()
+        return json.dumps(found, ensure_ascii=False) if found else ("No mortgage or student loan from a connected bank "
+                                                                    "yet. They come with the next bank sync.")
     if action == "refresh":
         await asyncio.to_thread(fin.refresh)
         action = "subscriptions"

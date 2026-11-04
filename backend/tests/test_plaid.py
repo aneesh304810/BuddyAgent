@@ -276,3 +276,29 @@ def test_card_emails_are_early_signals_once_plaid_is_the_record(mem, monkeypatch
     assert [c for c, _ in fake.calls].count("/transactions/sync") > calls
     monkeypatch.setenv("BUDDY_CARD_ALERT_AMOUNT", "0")  # alerts off
     assert money.from_email(504, {"kind": "charge", "amount": 900, "currency": "USD", "merchant": "X"}, ago(0)) == []
+
+
+def test_a_chase_mortgage_from_liabilities_is_kept_with_its_next_payment_reminder():
+    from buddy.memory import Memory
+    from buddy.money import Money
+    from buddy.plaid import Plaid
+    mem = Memory(":memory:")
+    response = {"accounts": [{"account_id": "mtg1", "mask": "4321", "type": "loan", "subtype": "mortgage",
+                              "balances": {"current": 412345.67, "iso_currency_code": "USD"}}],
+                "liabilities": {"credit": [], "mortgage": [{
+                    "account_id": "mtg1", "interest_rate": {"percentage": 6.125, "type": "fixed"},
+                    "next_monthly_payment": 2950.12, "next_payment_due_date": "2099-12-01",
+                    "last_payment_amount": 2950.12, "last_payment_date": "2099-10-30", "escrow_balance": 3100.5,
+                    "ytd_interest_paid": 21000.0, "ytd_principal_paid": 6200.0, "origination_principal_amount": 450000,
+                    "maturity_date": "2053-06-01", "loan_term": "30 year", "has_pmi": False,
+                    "property_address": {"street": "1 Private Lane", "city": "Hoboken"}}]}}
+    p = Plaid(mem, env={"BUDDY_PLAID_CLIENT_ID": "x", "BUDDY_PLAID_SECRET": "y", "BUDDY_PLAID_ENV": "production"},
+              http=lambda url, body: response)
+    n = p.liabilities({"item_id": "i1", "access_token": "t", "institution": "Chase"}, {})
+    assert n == 1
+    loan = p.loans()[0]
+    assert loan["name"] == "Chase mortgage ••4321" and loan["rate"] == 6.125 and loan["rate_type"] == "fixed"
+    assert loan["next_payment"] == 2950.12 and loan["next_due"] == "2099-12-01" and loan["escrow"] == 3100.5
+    assert "Private Lane" not in json.dumps(loan)  # the property address isn't kept
+    bills = Money(mem).open_bills(days=40000)
+    assert any(b["biller"] == "Chase mortgage ••4321" and b["amount"] == 2950.12 for b in bills)

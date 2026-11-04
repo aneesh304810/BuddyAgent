@@ -66,6 +66,32 @@ CREATE TABLE IF NOT EXISTS fin_transfers (
     recipient TEXT NOT NULL DEFAULT '',  -- "Neha S", "Remitly"...
     account TEXT NOT NULL DEFAULT ''  -- last 4 of the account it left from
 );
+CREATE TABLE IF NOT EXISTS fin_loans (     -- mortgages and student loans from Plaid Liabilities (no property address)
+    account_id TEXT PRIMARY KEY,
+    item_id TEXT NOT NULL,
+    kind TEXT NOT NULL,                -- mortgage | student
+    name TEXT NOT NULL,                -- "Chase mortgage ••4321"
+    institution TEXT NOT NULL DEFAULT '',
+    last4 TEXT NOT NULL DEFAULT '',
+    currency TEXT NOT NULL DEFAULT 'USD',
+    balance REAL,                      -- what's still owed
+    rate REAL,                         -- interest rate, percent
+    rate_type TEXT NOT NULL DEFAULT '',-- fixed | variable
+    next_payment REAL,
+    next_due TEXT,
+    last_payment REAL,
+    last_paid TEXT,
+    escrow REAL,
+    past_due REAL,
+    ytd_interest REAL,
+    ytd_principal REAL,
+    original_amount REAL,
+    started TEXT,
+    ends TEXT,                         -- maturity / expected payoff date
+    term TEXT NOT NULL DEFAULT '',
+    pmi INTEGER,
+    updated_at TEXT NOT NULL
+);
 CREATE TABLE IF NOT EXISTS plaid_accounts (
     account_id TEXT PRIMARY KEY,
     item_id TEXT NOT NULL,
@@ -379,10 +405,53 @@ class Plaid:
                 if paid:
                     self.money.mark_paid(card["last4"] or card["name"])
             n += 1
+        n += self._loans(item, data, accts)
         self.memory.db.execute("UPDATE plaid_items SET last_liabilities = ? WHERE item_id = ?",
                                (datetime.now(timezone.utc).isoformat(), item["item_id"]))
         self.memory.db.commit()
         return n
+
+    def _loans(self, item: dict, data: dict, accts: dict) -> int:
+        """Mortgages and student loans: balance, rate, next payment and due date, escrow, this year's interest.
+        A bill reminder before each payment, like a card's. The property address is not kept."""
+        now = datetime.now(timezone.utc).isoformat()
+        liab = data.get("liabilities") or {}
+        n = 0
+        for kind, rows in (("mortgage", liab.get("mortgage") or []), ("student", liab.get("student") or [])):
+            for m in rows:
+                a = accts.get(m.get("account_id"), {})
+                bal = a.get("balances") or {}
+                mask = (a.get("mask") or "")[-4:]
+                label = {"mortgage": "mortgage", "student": "student loan"}[kind]
+                name = f"{item['institution']} {label}" + (f" ••{mask}" if mask else "")
+                rate = m.get("interest_rate") or {}
+                pct = rate.get("percentage") if isinstance(rate, dict) else m.get("interest_rate_percentage")
+                next_amount = m.get("next_monthly_payment") or m.get("minimum_payment_amount")
+                due = m.get("next_payment_due_date")
+                self.memory.db.execute(
+                    "INSERT OR REPLACE INTO fin_loans (account_id, item_id, kind, name, institution, last4, currency, balance, "
+                    "rate, rate_type, next_payment, next_due, last_payment, last_paid, escrow, past_due, ytd_interest, "
+                    "ytd_principal, original_amount, started, ends, term, pmi, updated_at) "
+                    "VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)",
+                    (m.get("account_id"), item["item_id"], kind, name, item["institution"], mask,
+                     (bal.get("iso_currency_code") or "USD")[:3], bal.get("current"), pct,
+                     (rate.get("type") if isinstance(rate, dict) else "") or "", next_amount, due,
+                     m.get("last_payment_amount"), m.get("last_payment_date"), m.get("escrow_balance"),
+                     m.get("past_due_amount"), m.get("ytd_interest_paid"), m.get("ytd_principal_paid"),
+                     m.get("origination_principal_amount"), m.get("origination_date"),
+                     m.get("maturity_date") or m.get("expected_payoff_date"), str(m.get("loan_term") or "")[:30],
+                     None if m.get("has_pmi") is None else int(bool(m.get("has_pmi"))), now))
+                if due and next_amount:
+                    self.money.add_bill(name, float(next_amount), (bal.get("iso_currency_code") or "USD")[:3], due, mask,
+                                        f"plaid:{m.get('account_id')}:{due}")
+                    last = m.get("last_payment_date") or ""
+                    if last and last >= (date.fromisoformat(due[:10]) - timedelta(days=20)).isoformat():
+                        self.money.mark_paid(name)
+                n += 1
+        return n
+
+    def loans(self) -> list[dict]:
+        return [dict(r) for r in self.memory.db.execute("SELECT * FROM fin_loans ORDER BY kind, name")]
 
     def sync(self, force: bool = False) -> dict:
         totals = {"added": 0, "removed": 0, "cards": 0, "problems": []}
