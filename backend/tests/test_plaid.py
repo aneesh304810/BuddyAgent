@@ -249,3 +249,30 @@ def test_plaid_takes_over_each_linked_card(mem):
     p.sync(force=True)
     left = {r["source"] for r in mem.db.execute("SELECT source FROM transactions WHERE source NOT LIKE 'plaid:%'")}
     assert left == {"email:2", "email:3", "manual:7:0"}
+
+
+def test_card_emails_are_early_signals_once_plaid_is_the_record(mem, monkeypatch):
+    from datetime import datetime, timezone
+    p, fake, _ = linked(mem)
+    mem.db.execute("UPDATE plaid_items SET env = 'production'")
+    p.sync(force=True)
+    money = Money(mem)
+    before = mem.db.execute("SELECT COUNT(*) FROM transactions").fetchone()[0]
+    big = money.from_email(501, {"kind": "charge", "amount": 412.5, "currency": "USD", "merchant": "Best Buy",
+                                 "card": "1004", "category": "shopping"}, ago(0))
+    assert big == ["Card alert: $412.50 at Best Buy on card 1004. It shows in Money once your bank posts it."]
+    assert money.from_email(502, {"kind": "charge", "amount": 12, "currency": "USD", "merchant": "Cafe"}, ago(0)) == []
+    assert money.from_email(503, {"kind": "refund", "amount": 45, "currency": "USD", "merchant": "Amazon"},
+                            ago(0)) == ["Refund on the way: $45.00 from Amazon."]
+    assert mem.db.execute("SELECT COUNT(*) FROM transactions").fetchone()[0] == before  # nothing stored twice
+    assert mem.get("plaid:sync_soon")
+    calls = [c for c, _ in fake.calls].count("/transactions/sync")
+    p.sync()  # synced just now: too soon, Plaid needs a little time
+    assert [c for c, _ in fake.calls].count("/transactions/sync") == calls
+    old = (datetime.now(timezone.utc) - timedelta(minutes=45)).isoformat()
+    mem.db.execute("UPDATE plaid_items SET last_sync = ?", (old,))
+    mem.set("plaid:sync_soon", datetime.now(timezone.utc).isoformat())
+    p.sync()  # a card email after a 45-minute-old sync: sync now, not in 6 hours
+    assert [c for c, _ in fake.calls].count("/transactions/sync") > calls
+    monkeypatch.setenv("BUDDY_CARD_ALERT_AMOUNT", "0")  # alerts off
+    assert money.from_email(504, {"kind": "charge", "amount": 900, "currency": "USD", "merchant": "X"}, ago(0)) == []

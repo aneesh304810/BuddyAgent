@@ -10,6 +10,7 @@ category warn at 80% and again at 100%. Amounts stay in their own currency
 """
 
 import json
+import os
 from datetime import date, datetime, timedelta, timezone
 
 from . import cards
@@ -159,11 +160,13 @@ class Money:
         amount = float(money.get("amount") or 0)
         if kind == "none" or (amount <= 0 and kind != "payment"):
             return []
+        merchant, currency, card = money.get("merchant", ""), money.get("currency", "USD"), money.get("card", "")
         if kind in ("charge", "refund") and self.memory.get("money:bank_feed"):
-            return []  # the bank feed already has every transaction, exactly
+            # The bank feed is the record; the email is an early signal: sync soon, and say so if it's big.
+            self.memory.set("plaid:sync_soon", datetime.now(timezone.utc).isoformat())
+            return self._email_alert(kind, amount, currency, merchant, card)
         source = f"email:{record_id}"
         day = (received or "")[:10] or None
-        merchant, currency, card = money.get("merchant", ""), money.get("currency", "USD"), money.get("card", "")
         if kind == "charge":
             return self.add_transaction(amount, currency, merchant, money.get("category", "other"), day, card, source)
         if kind == "refund":
@@ -172,6 +175,21 @@ class Money:
             self.add_bill(merchant, amount, currency, money.get("due_date", ""), card, source)
         elif kind == "payment":
             self.mark_paid(merchant) or (card and self.mark_paid(card))
+        return []
+
+    @staticmethod
+    def _email_alert(kind: str, amount: float, currency: str, merchant: str, card: str) -> list[str]:
+        try:
+            big = float(os.getenv("BUDDY_CARD_ALERT_AMOUNT", "200") or 0)
+        except ValueError:
+            big = 200.0
+        money_text = f"${amount:,.2f}" if (currency or "USD").upper() == "USD" else f"{amount:,.2f} {currency.upper()}"
+        where = f" at {merchant}" if merchant else ""
+        on = f" on card {card}" if card else ""
+        if kind == "charge" and big > 0 and amount >= big:
+            return [f"Card alert: {money_text}{where}{on}. It shows in Money once your bank posts it."]
+        if kind == "refund":
+            return [f"Refund on the way: {money_text}{' from ' + merchant if merchant else ''}{on}."]
         return []
 
     # --- limits ----------------------------------------------------------------

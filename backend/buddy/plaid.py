@@ -57,6 +57,7 @@ CREATE TABLE IF NOT EXISTS plaid_accounts (
 );
 """
 SYNC_HOURS = 6
+SOON_MINUTES = 30   # after a card email: sync again once the last sync is this old (Plaid needs a little time)
 LINK_MINUTES = 30
 # Plaid's categories -> Buddy's spending categories. None = not spending (payments, transfers, income).
 CATEGORY = {"FOOD_AND_DRINK": "food", "TRANSPORTATION": "transport", "TRAVEL": "travel",
@@ -297,9 +298,12 @@ class Plaid:
 
     def sync(self, force: bool = False) -> dict:
         totals = {"added": 0, "removed": 0, "cards": 0, "problems": []}
+        soon = self.memory.get("plaid:sync_soon") or ""  # a card email just arrived: the bank likely has it too
+        now = datetime.now(timezone.utc)
         for item in self.items():
-            due = force or not item["last_sync"] or \
-                datetime.fromisoformat(item["last_sync"]) < datetime.now(timezone.utc) - timedelta(hours=SYNC_HOURS)
+            last = datetime.fromisoformat(item["last_sync"]) if item["last_sync"] else None
+            due = force or last is None or last < now - timedelta(hours=SYNC_HOURS) or \
+                (soon > item["last_sync"] and last < now - timedelta(minutes=SOON_MINUTES))
             if not due:
                 continue
             try:

@@ -107,7 +107,9 @@ bank or card, or say "connect my bank". You sign in inside Plaid's window; Buddy
 Once a bank is linked through Plaid, the SimpleFIN feed stands down so nothing is counted twice. Plaid is then the record for every account it covers: earlier charges for those cards from emails or
 SimpleFIN are replaced by the bank's own, so nothing is counted twice. Emails still bring bills from non-bank
 billers (utilities, phone, insurance); cash and card benefits come from what you tell Buddy. Sandbox links are
-test data and never replace anything real.
+test data and never replace anything real. Card and refund emails still help: each one makes Buddy sync with Plaid within
+about half an hour, and a charge of $200 or more (`BUDDY_CARD_ALERT_AMOUNT`; 0 turns it off) gets an instant
+heads-up before the bank posts it.
 Unlink in Money (or "unlink my bank"): access is revoked at Plaid and that bank's data deleted.
 
 Plaid's security attestations (access reviews, offboarding, central sign-in, policy, roles) are backed
