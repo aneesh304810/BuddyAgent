@@ -592,7 +592,7 @@ class Conversation:
                 return await review.review_tool(self.memory, args)
             return advisor.run_tool(advisor.Advisor(self.memory), args)
         if name == "card_benefits":
-            return benefits.run_tool(benefits.Benefits(self.memory), args)
+            return await benefits.run_tool_async(benefits.Benefits(self.memory), args)
         if name == "security_report":
             return await asyncio.to_thread(compliance.run_tool, self.memory, args)
         if name == "finance":

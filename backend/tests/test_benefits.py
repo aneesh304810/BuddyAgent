@@ -8,6 +8,7 @@ from buddy import benefits as bmod
 from buddy.benefits import Benefits, period_bounds
 from buddy.memory import Memory
 from buddy.money import Money
+from buddy.tools import ToolError
 
 
 @pytest.fixture
@@ -98,3 +99,81 @@ def test_tool_is_offered_and_advice_includes_credits(setup):
     b.add("Saks credit", 50, "semiannual", merchant="saks")
     adv = advisor.Advisor(memory)
     assert adv.advice()["card_credits_running_out"][0]["benefit"] == "Saks credit"
+
+
+# --- the public catalog: published benefits from issuer websites ------------------------------------
+import asyncio as _asyncio
+
+PLAT = {"card_name": "The Platinum Card from American Express", "annual_fee": 895,
+        "benefits": [
+            {"name": "Saks credit", "amount": 50, "period": "semiannual", "resets": "calendar", "merchant": "saks",
+             "enrollment": True, "source": "https://www.americanexpress.com/us/credit-cards/card/platinum/"},
+            {"name": "Uber Cash", "amount": 15, "period": "monthly", "merchant": "uber",
+             "source": "https://www.americanexpress.com/us/credit-cards/card/platinum/"},
+            {"name": "Airline fee credit", "amount": 200, "period": "annual", "resets": "anniversary",
+             "source": "https://www.americanexpress.com/us/credit-cards/card/platinum/"},
+            {"name": "Made-up blog credit", "amount": 99, "period": "annual", "source": "https://someblog.com/plat"},
+            {"name": "Bad period", "amount": 10, "period": "weekly",
+             "source": "https://www.americanexpress.com/us/credit-cards/card/platinum/"}],
+        "perks": [{"name": "Lounge access", "source": "https://www.americanexpress.com/x"},
+                  {"name": "Rumoured perk", "source": "http://americanexpress.com/insecure"}],
+        "earn_rates": [{"category": "flights", "rate": 5, "unit": "points per dollar",
+                        "source": "https://www.americanexpress.com/x"}]}
+
+
+def _fake_search(result, calls):
+    async def search(memory, card):
+        calls.append(card)
+        return result
+    return search
+
+
+def test_catalog_keeps_only_issuer_backed_facts_and_saves_them():
+    mem, calls = Memory(":memory:"), []
+    b = Benefits(mem, search=_fake_search(PLAT, calls))
+    found = _asyncio.run(b.lookup("Amex Platinum"))
+    assert [x["name"] for x in found["benefits"]] == ["Saks credit", "Uber Cash", "Airline fee credit"]
+    assert [p["name"] for p in found["perks"]] == ["Lounge access"]  # http and non-issuer sources dropped
+    assert found["annual_fee"] == 895 and found["earn_rates"][0]["rate"] == 5
+    _asyncio.run(b.lookup("amex  platinum"))  # the same card: the saved copy, no new search
+    assert calls == ["Amex Platinum"]
+    assert b.all() == []  # nothing is tracked until the user confirms
+
+
+def test_confirmed_catalog_credits_are_tracked_with_their_source():
+    b = Benefits(Memory(":memory:"), search=_fake_search(PLAT, []))
+    _asyncio.run(b.lookup("Amex Platinum"))
+    with pytest.raises(ToolError, match="anniversary"):
+        b.add_from_catalog("Amex Platinum", [])
+    text = b.add_from_catalog("Amex Platinum", [], anniversary="03-15")
+    assert "Tracking 3 credits" in text and "Enroll in the issuer's app first for: Saks credit" in text
+    saks = next(x for x in b.all() if x["name"] == "Saks credit")
+    assert "Published by the issuer" in saks["notes"] and "americanexpress.com" in saks["notes"]
+    assert "already tracked" in b.add_from_catalog("Amex Platinum", ["saks"])
+
+
+def test_every_known_card_is_looked_up_and_new_ones_offered_once():
+    mem, calls = Memory(":memory:"), []
+    from buddy.finance import Finance
+    Finance(mem)  # makes fin_cards
+    mem.db.execute("INSERT INTO fin_cards (key, name, issuer, updated_at) VALUES ('amex|1004', 'Platinum Card®', 'American Express', '2026-11-01')")
+    mem.db.commit()
+    b = Benefits(mem, search=_fake_search(PLAT, calls))
+    assert b.known_cards() == ["American Express Platinum Card"]
+    texts = _asyncio.run(b.offer_new_cards())
+    assert len(texts) == 1 and "3 credits" in texts[0] and "Want me to track them" in texts[0]
+    assert _asyncio.run(b.offer_new_cards()) == []  # offered once
+    summary = _asyncio.run(b.lookup_all())
+    assert summary[0]["annual_fee"] == 895 and len(calls) == 1
+
+
+def test_a_changed_published_credit_is_reported_at_the_quarterly_recheck():
+    mem = Memory(":memory:")
+    b = Benefits(mem, search=_fake_search(PLAT, []))
+    _asyncio.run(b.lookup("Amex Platinum"))
+    b.add_from_catalog("Amex Platinum", ["uber"])
+    mem.db.execute("UPDATE fin_card_catalog SET checked_at = '2020-01-01T00:00:00+00:00'")
+    changed = {**PLAT, "benefits": [{**PLAT["benefits"][1], "amount": 20}]}
+    b.search = _fake_search(changed, [])
+    notes = _asyncio.run(b.recheck())
+    assert notes == ["Amex Platinum: the Uber Cash is now $20 monthly (was $15 monthly)."]

@@ -22,6 +22,7 @@ from .thrift import Thrift
 from .tools import format_local, local_now, user_tz
 
 log = logging.getLogger(__name__)
+CARD_LOOKUP = os.getenv("BUDDY_CARD_LOOKUP", "1") not in ("", "0")  # published card benefits, from issuer sites
 SOC_MONTHLY = os.getenv("BUDDY_SOC_MONTHLY", "1") not in ("", "0")
 
 CHECK_EVERY_SECONDS = 15
@@ -178,6 +179,13 @@ async def run(memory: Memory, deliver: Deliver) -> None:
                     for alert in perks.alerts():
                         if await deliver("money", alert["text"]):
                             perks.told(alert)
+                    if CARD_LOOKUP and memory.get("benefits:cards_checked") != today:  # new cards: their published credits, offered once
+                        memory.set("benefits:cards_checked", today)
+                        try:
+                            for text in await perks.offer_new_cards() + await perks.recheck():
+                                await deliver("money", text)
+                        except Exception:
+                            log.exception("card benefits lookup failed")
                 money = Money(memory)
                 for bill in money.bills_to_remind():
                     if await deliver("bill", bill_reminder_text(bill)):

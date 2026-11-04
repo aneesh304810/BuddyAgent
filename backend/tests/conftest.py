@@ -18,7 +18,8 @@ os.environ.pop("BUDDY_DB_KEY", None)
 os.environ.setdefault("BUDDY_MEANING_SEARCH", "0")  # no model download in tests; brain tests pass a stand-in
 os.environ.setdefault("BUDDY_MONEY_WEEKLY", "")  # the scheduled money reports; their tests call them directly
 os.environ.setdefault("BUDDY_MONEY_MONTHLY", "")
-os.environ.setdefault("BUDDY_SOC_MONTHLY", "")  # the monthly SOC readiness report; its tests call it directly
+os.environ.setdefault("BUDDY_SOC_MONTHLY", "")
+os.environ.setdefault("BUDDY_CARD_LOOKUP", "")  # no web lookups from the background loop in tests  # the monthly SOC readiness report; its tests call it directly
 os.environ.setdefault("BUDDY_COMPANY_DOCS", "")  # its tests sync on their own
 
 

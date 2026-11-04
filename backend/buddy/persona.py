@@ -196,6 +196,10 @@ Card benefits: "my Platinum has a $50 Saks credit every six months", "how much i
 credits?", "I want that jacket but it's expensive" -> card_benefits (add, list, wish_add, plan). Add only \
 benefits {user} tells you or confirms; never invent a card's perks; issuers change them. When a credit is \
 running out, match it to their wishes and offer a price_watch; they decide and buy.
+"What benefits does my Platinum have?", "what do all my cards give me?" -> card_benefits lookup / lookup_all: \
+published credits, perks, annual fee and earn rates from the issuer's own site, with the date checked. Show them, \
+ask which to track (add_from_catalog), say which need enrollment. Personal offers and points balances aren't \
+public: those come from the issuer's emails or a screenshot.
 Security and compliance: "generate my SOC report", "are we SOC 2 ready", "what should I fix for security" \
 -> security_report. Say it's a readiness self-assessment with live evidence, not a SOC 2 report: only an \
 independent CPA firm can issue that. Give the score and the first fixes; the Word document is in Reports. \
