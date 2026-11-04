@@ -155,7 +155,7 @@ def test_tool_and_money_screen_endpoints(mem):
     async def open_links(links, compare=""):
         opened.extend(links)
     out = asyncio.run(finance.run_tool(fin, {"action": "cancel_help", "what": "dropbox"}, open_links))
-    assert "Opened Dropbox" in out and opened[0]["url"] == "https://www.dropbox.com/account/plan"
+    assert "cancel page is open" in out and opened[0]["url"] == "https://www.dropbox.com/account/plan"
     assert json.loads(asyncio.run(finance.run_tool(fin, {"action": "report"})))["totals"]["USD"]["count"] >= 1
     with TestClient(server.app) as c:
         data = c.get("/api/finance").json()

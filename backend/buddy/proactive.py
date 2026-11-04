@@ -240,6 +240,11 @@ async def run(memory: Memory, deliver: Deliver) -> None:
                     for alert in perks.alerts():
                         if await deliver("money", alert["text"]):
                             perks.told(alert)
+                    from .cancelling import Cancelling  # noqa: PLC0415
+                    trials = Cancelling(memory)
+                    for alert in trials.trial_alerts():  # free trials about to start charging
+                        if await deliver("money", alert["text"]):
+                            trials.told_trial(alert)
                     if CARD_LOOKUP and not memory.get("benefits:setup_done") \
                             and memory.get("benefits:setup_tried") != today and perks.known_cards():
                         memory.set("benefits:setup_tried", today)  # the first time: every card at once

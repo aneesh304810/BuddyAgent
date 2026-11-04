@@ -1,6 +1,6 @@
 # Buddy Privacy and Data Retention Policy
 
-Source: https://claude.ai/artifact/MJVGZ7pWQvi26tg1MS914P, revision 28
+Source: https://claude.ai/artifact/MJVGZ7pWQvi26tg1MS914P, revision 29
 
 Nov 1, 2026 · @Aneesh
 
@@ -32,6 +32,7 @@ Buddy collects only the owner's own data, and only what its features need.
 | Credit card benefits (credits and perks, their amounts and reset dates) and a wish list of things the owner wants | What the owner tells Buddy; which credits were used is read from statement credits in the owner's own transactions | Stored on the server; Buddy never buys anything, it only suggests |
 | Access log: the time, network address, tailnet sign-in name, path and result of each request to Buddy's server, including failed sign-ins and lockouts | Buddy's server, for every app, web and API request | Security monitoring and audit evidence only; never message content, request bodies or keys; stored encrypted |
 | Mortgage and student loan details: balance, interest rate, next payment and due date, escrow, interest and principal paid this year, payoff date (never the property address) | Plaid (Liabilities), for the banks the owner links | Read-only; used for payment reminders and money reviews |
+| Cancellation confirmations (the service, the date and the email's subject) and free-trial end dates and prices | Found in the owner's own emails | Kept on the server as proof for disputes and for trial reminders; Buddy never cancels or disputes anything itself |
 
 Buddy never collects bank passwords. Bank sign-in happens inside Plaid Link (or the SimpleFIN Bridge site), between the owner and the bank. Buddy cannot move money, make payments or change accounts.
 

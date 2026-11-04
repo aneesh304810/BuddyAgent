@@ -278,6 +278,11 @@ class MailManager:
             if priority == "urgent":
                 urgent.append(v["reason"])
             money_notes += self.money.from_email(v["id"], v.get("money") or {}, email_row["start_at"])
+            try:  # cancellation confirmations (kept as proof) and free-trial signups (a reminder before it charges)
+                from .cancelling import Cancelling
+                money_notes += Cancelling(self.memory).scan_email(email_row, data.get("from", ""))
+            except Exception:
+                log.exception("cancel and trial check failed")
         self.memory.set("mailbrain:last_record", str(max(e["id"] for e in emails)))
         self.memory.db.commit()
         if urgent and not in_quiet_hours():

@@ -464,7 +464,8 @@ class Finance:
             if r["status"] == "cancel" and r["decided_at"] and r["last_charge"] > r["decided_at"] \
                     and f"still:{r['last_charge']}" not in told:
                 say.append((f"still:{r['last_charge']}", f"Heads up: {r['merchant']} charged {money} on "
-                            f"{r['last_charge']}, after you decided to cancel it. The cancellation may not have gone through."))
+                            f"{r['last_charge']}, after you decided to cancel it. The cancellation may not have gone "
+                            "through. Want me to write the dispute for your card company?"))
             out += [{"text": text, "mark": ("sub", r["id"], key)} for key, text in say]
         for c in self.cards():
             if not c["next_due"] or c["statement_balance"] in (None, 0):
@@ -856,8 +857,14 @@ FINANCE_TOOL = {
     "(emails, bank feed, uploaded statements). subscriptions: every recurring charge on every card with amount, "
     "how often, card, next charge, yearly cost, flags (new, price up, on two cards, renews soon) and totals per month "
     "and year; status filter optional. decide (what = name or id, status keep | cancel | unsure). cancel_help (what): "
-    "opens the service's cancel page on the phone when known; otherwise search how to cancel it. You never cancel "
-    "anything yourself. cards: each card's next due date, closing date, statement balance, minimum, limit, credit "
+    "cancel help, step by step: opens the service's cancel page on the phone and returns a script to ask "
+    "for a discount first, the usual traps, and next steps: then read the screen with fill_form read and say what to "
+    "tap at each step (never press the final Cancel or Confirm: they do). cancel_email (what, to, account_email): the "
+    "cancellation email for services without an online cancel; save it with the Gmail agent's create_draft or send it "
+    "with send_email after their yes. dispute_help (what): charges after they cancelled, a letter for the card issuer "
+    "with the proof, and where to file it in the issuer's app (they file it). trials: free trials Buddy noted from "
+    "signup emails (ends, price) and the cancellation proofs saved; keep_trial (what) stops a trial's reminders. "
+    "You never cancel anything yourself. cards: each card's next due date, closing date, statement balance, minimum, limit, credit "
     "used and APR. card (name, issuer, last4, due_day, closing_day, credit_limit, apr: add or correct a card the user "
     "tells you about; only ever the last four digits). import_statement (id of a card statement in the library). "
     "report: the numbers for subscription advice (biggest, price rises, duplicates, monthly ones worth switching to "
@@ -866,14 +873,17 @@ FINANCE_TOOL = {
     "statement closes to report under 30%. loans: mortgages and student loans from the connected banks: balance, "
     "rate, next payment and due date, escrow, interest and principal paid this year, payoff date.",
     "input_schema": {"type": "object", "properties": {
-        "action": {"type": "string", "enum": ["subscriptions", "decide", "cancel_help", "cards", "card",
+        "action": {"type": "string", "enum": ["subscriptions", "decide", "cancel_help", "cancel_email", "dispute_help",
+                                              "trials", "keep_trial", "cards", "card",
                                               "import_statement", "report", "refresh", "forget", "weekly",
                                               "credit_use", "loans"]},
         "what": {"type": "string"}, "status": {"type": "string", "enum": ["new", "keep", "cancel", "unsure",
                                                                           "cancelled"]},
         "name": {"type": "string"}, "issuer": {"type": "string"}, "last4": {"type": "string"},
         "due_day": {"type": "integer"}, "closing_day": {"type": "integer"}, "credit_limit": {"type": "number"},
-        "apr": {"type": "number"}, "id": {"type": "string"}},
+        "apr": {"type": "number"}, "id": {"type": "string"},
+        "to": {"type": "string", "description": "cancel_email: the service's cancellation address"},
+        "account_email": {"type": "string", "description": "cancel_email: the email their account is under"}},
         "required": ["action"], "additionalProperties": False},
 }
 
@@ -900,16 +910,18 @@ async def run_tool(fin: Finance, args: dict, open_links=None) -> str:
         sub = fin.decide(args.get("what") or args.get("id") or "", str(args.get("status") or ""))
         extra = " Offer to open its cancel page (cancel_help)." if sub["status"] == "cancel" else ""
         return f"Marked {sub['merchant']} as {sub['status']}.{extra}"
+    if action in ("cancel_email", "dispute_help", "trials", "keep_trial"):
+        from . import cancelling  # noqa: PLC0415
+        return cancelling.run_tool(fin.memory, {**args, "what": args.get("what") or args.get("id") or ""})
     if action == "cancel_help":
-        page = fin.cancel_page(args.get("what") or args.get("id") or "")
-        if not page["url"]:
-            return (f"No known cancel page for {page['merchant']}: search the web for how to cancel it and tell the "
-                    "user the steps. They cancel it themselves.")
-        if open_links is not None:
-            await open_links([{"app": "", "url": page["url"], "label": f"Cancel {page['merchant']}"}])
-            return (f"Opened {page['merchant']}'s subscription page on the phone ({page['url']}). They finish it "
-                    "there; Buddy watches that no charge comes after.")
-        return f"{page['merchant']}'s subscription page: {page['url']}. The phone isn't connected to open it."
+        from .cancelling import Cancelling  # noqa: PLC0415
+        guide = Cancelling(fin.memory).guide(args.get("what") or args.get("id") or "")
+        if guide["url"] and open_links is not None:
+            await open_links([{"app": "", "url": guide["url"], "label": f"Cancel {guide['merchant']}"}])
+            guide["opened"] = "the cancel page is open on the phone"
+        elif guide["url"]:
+            guide["opened"] = "the phone isn't connected: give them the link"
+        return json.dumps(guide, ensure_ascii=False)
     if action == "cards":
         found = fin.cards()
         return json.dumps(found, ensure_ascii=False) if found else (
