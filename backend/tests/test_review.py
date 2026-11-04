@@ -84,7 +84,7 @@ def test_report_is_saved_and_spoken(mem):
     job_id, summary, r = review.Review(mem).save("last_month")
     row = mem.db.execute("SELECT kind, title, report, summary FROM jobs WHERE id = ?", (job_id,)).fetchone()
     assert row["kind"] == "money_review" and row["title"].startswith("Money review")
-    for heading in ("## Where the money went", "## Six-month trend", "## Subscriptions", "## Ways to save",
+    for heading in ("## Where the money went", "## Six-month trend", "## Subscription tracker", "## Ways to save",
                     "## Suggested monthly budget", "## Fees and interest"):
         assert heading in row["report"]
     assert "a year you could save" in summary and "Reports" in summary
@@ -120,3 +120,102 @@ def test_plaid_keeps_detail_labels_and_income(mem):
     coffee = mem.db.execute("SELECT category, detail FROM transactions WHERE merchant = 'Blue Bottle'").fetchone()
     assert coffee["category"] == "food" and coffee["detail"] == "Coffee"
     assert mem.db.execute("SELECT category FROM transactions WHERE merchant = 'OVERDRAFT FEE'").fetchone()[0] == "fees"
+
+
+def test_transfers_housing_and_cards(mem):
+    from types import SimpleNamespace  # noqa: F401
+    p = Plaid(mem, env={})
+    mem.db.execute("INSERT INTO plaid_accounts (account_id, item_id, name, mask, type) VALUES "
+                   "('chk', 'i', 'Everyday Checking', '5678', 'depository'), ('amx', 'i', 'Amex Gold Card', '1004', 'credit')")
+    accounts = {"chk": {"mask": "5678", "name": "Everyday Checking"}, "amx": {"mask": "1004"}}
+    def t(tid, amount, name, primary, detailed, acct="chk", merchant=None):
+        p._transaction("i", {"transaction_id": tid, "account_id": acct, "amount": amount, "date": day_in(1, 10),
+                             "name": name, "merchant_name": merchant,
+                             "personal_finance_category": {"primary": primary, "detailed": detailed}}, accounts)
+    t("z1", 300, "Zelle payment to NEHA SHARMA Conf# 123", "TRANSFER_OUT", "TRANSFER_OUT_ACCOUNT_TRANSFER")
+    t("z2", 200, "Zelle payment to NEHA SHARMA Conf# 456", "TRANSFER_OUT", "TRANSFER_OUT_ACCOUNT_TRANSFER")
+    t("r1", 1000, "REMITLY* SEND", "TRANSFER_OUT", "TRANSFER_OUT_OTHER_TRANSFER_OUT", merchant="Remitly")
+    t("s1", 500, "Online Transfer to SAV ...9911", "TRANSFER_OUT", "TRANSFER_OUT_SAVINGS")
+    t("m1", 2100, "LOAN SERVICING MORTGAGE", "LOAN_PAYMENTS", "LOAN_PAYMENTS_MORTGAGE_PAYMENT")
+    t("cc", 900, "AMEX EPAYMENT", "LOAN_PAYMENTS", "LOAN_PAYMENTS_CREDIT_CARD_PAYMENT")
+    mem.db.commit()
+    kinds = {r["recipient"]: r["kind"] for r in mem.db.execute("SELECT recipient, kind FROM fin_transfers")}
+    assert kinds == {"Neha Sharma": "person", "Remitly": "abroad", "Savings and investments": "own"}
+    assert mem.db.execute("SELECT category FROM transactions WHERE merchant LIKE '%MORTGAGE%'").fetchone()[0] == "housing"
+    assert not mem.db.execute("SELECT 1 FROM transactions WHERE merchant = 'AMEX EPAYMENT'").fetchone()  # not spending
+    r = review.Review(mem).compute("last_month")
+    tr = r["transfers"]
+    assert tr["to_people"] == 500 and tr["abroad"] == 1000 and tr["to_savings"] == 500
+    neha = next(x for x in tr["recipients"] if x["to"] == "Neha Sharma")
+    assert neha["total"] == 500 and neha["count"] == 2 and neha["from"] == ["Everyday Checking ••5678"]
+    assert r["left_over"] == pytest.approx(4200 - r["spent"] - 1500)  # sent away is gone; savings still yours
+    house = dict(r["house_by_card"])
+    assert house["Everyday Checking ••5678"] == 2100 and house["Amex Gold Card ••1004"] == 1800
+    assert r["cards_used"][0]["card"].startswith("Amex Gold Card")
+    md = review.Review(mem).markdown(r)
+    for part in ("## Money in and out", "Sent to people", "Sent abroad", "## By card and account",
+                 "House expenses", "**Neha Sharma**", "abroad via **Remitly**", "## Waste and leaks",
+                 "## Subscription tracker", "Fee: "):
+        assert part in md, part
+
+
+def test_advisor_notes_use_the_numbers_and_never_block_the_report(mem, monkeypatch):
+    import asyncio
+    from types import SimpleNamespace
+    seen = {}
+
+    async def create(**kw):
+        seen.update(kw)
+        return SimpleNamespace(model="claude-sonnet-5-5", stop_reason="end_turn",
+                               usage=SimpleNamespace(input_tokens=900, output_tokens=300, cache_read_input_tokens=0,
+                                                     cache_creation_input_tokens=0, server_tool_use=None),
+                               content=[SimpleNamespace(type="text", text="**Overall** You kept 10%.")])
+    monkeypatch.setattr(review, "client", SimpleNamespace(beta=SimpleNamespace(messages=SimpleNamespace(create=create))))
+    job_id, summary, r = asyncio.run(review.Review(mem).save_full("last_month"))
+    report = mem.db.execute("SELECT report FROM jobs WHERE id = ?", (job_id,)).fetchone()[0]
+    assert "## Advisor's review" in report and "You kept 10%" in report
+    assert "ONLY the numbers" in seen["system"] and '"possible_yearly_savings"' in seen["messages"][0]["content"]
+
+    async def broken(**kw):
+        raise RuntimeError("down")
+    monkeypatch.setattr(review, "client", SimpleNamespace(beta=SimpleNamespace(messages=SimpleNamespace(create=broken))))
+    job_id, _, _ = asyncio.run(review.Review(mem).save_full("last_month"))
+    report = mem.db.execute("SELECT report FROM jobs WHERE id = ?", (job_id,)).fetchone()[0]
+    assert "## Where the money went" in report and "## Advisor's review" not in report
+
+
+def test_rent_by_zelle_and_family_support(mem):
+    p = Plaid(mem, env={})
+    mem.db.execute("INSERT INTO plaid_accounts (account_id, item_id, name, mask, type) VALUES "
+                   "('chk', 'i', 'Everyday Checking', '5678', 'depository')")
+    accounts = {"chk": {"mask": "5678", "name": "Everyday Checking"}}
+    for off in (4, 3, 2, 1):  # the same Zelle to the landlord and Remitly home every month
+        for tid, amount, name, merchant in ((f"z{off}", 1950, "Zelle payment to RAVI KUMAR Conf# 9", None),
+                                             (f"r{off}", 800, "REMITLY* SEND", "Remitly")):
+            p._transaction("i", {"transaction_id": tid, "account_id": "chk", "amount": amount, "date": day_in(off, 2),
+                                 "name": name, "merchant_name": merchant, "personal_finance_category": {
+                                     "primary": "TRANSFER_OUT", "detailed": "TRANSFER_OUT_ACCOUNT_TRANSFER"}}, accounts)
+    mem.db.commit()
+    rv = review.Review(mem)
+    before = rv.compute("last_month")
+    qs = " ".join(before["transfers"]["questions"])
+    assert "Ravi Kumar every month your rent?" in qs and "Remitly every month your parents'" in qs
+    assert before["transfers"]["to_people"] == 1950  # not yet known: shown as a transfer to a person
+
+    assert "counted as housing" in advisor.run_tool(advisor.Advisor(mem), {"action": "label_transfer",
+                                                                          "what": "ravi kumar", "label": "rent"})
+    out = advisor.run_tool(advisor.Advisor(mem), {"action": "label_transfer", "what": "remitly",
+                                                  "label": "family support", "name": "parents' maintenance"})
+    assert "never as waste" in out and "parents' maintenance" in out
+    r = review.Review(mem).compute("last_month")
+    housing = next(c for c in r["categories"] if c["category"] == "housing")
+    assert housing["total"] == 1950 and housing["usual_per_month"] == pytest.approx(1950)
+    assert dict(r["house_by_card"])["Everyday Checking ••5678"] == 1950
+    assert r["spent"] == pytest.approx(before["spent"] + 1950)
+    t = r["transfers"]
+    assert t["to_people"] == 0 and t["family"] == 800 and t["questions"] == []
+    assert r["left_over"] == pytest.approx(before["left_over"])  # same money out, now counted the right way
+    md = review.Review(mem).markdown(r)
+    assert "Family support" in md and "family support via **Remitly** (parents' maintenance)" in md
+    assert not any("Remitly" in w["what"] for w in r["waste"])
+    assert not any("Remitly" in o["what"] or "Family" in o["what"] for o in r["opportunities"])

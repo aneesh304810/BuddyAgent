@@ -18,7 +18,7 @@ from .memory import Memory
 from .tools import ToolError, local_now
 
 BILL_WARN_DAYS = 3
-CATEGORIES = ("food", "groceries", "transport", "travel", "shopping", "bills", "health",
+CATEGORIES = ("food", "groceries", "transport", "travel", "shopping", "housing", "bills", "loans", "health",
               "entertainment", "subscriptions", "cash", "fees", "other")
 
 SCHEMA_SQL = """

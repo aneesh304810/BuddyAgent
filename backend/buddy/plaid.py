@@ -22,6 +22,7 @@ import html
 import json
 import logging
 import os
+import re
 import secrets
 import time
 import urllib.request
@@ -55,6 +56,16 @@ CREATE TABLE IF NOT EXISTS fin_income (
     name TEXT NOT NULL,               -- "ACME CORP PAYROLL"
     kind TEXT NOT NULL DEFAULT ''     -- Wages, Interest earned, Tax refund...
 );
+CREATE TABLE IF NOT EXISTS fin_transfers (
+    source TEXT PRIMARY KEY,          -- plaid:<item>:<transaction id>
+    day TEXT NOT NULL,
+    amount REAL NOT NULL,             -- money out, positive
+    currency TEXT NOT NULL,
+    name TEXT NOT NULL,               -- as the bank shows it: "Zelle payment to NEHA S"
+    kind TEXT NOT NULL,               -- own | person | abroad | other
+    recipient TEXT NOT NULL DEFAULT '',  -- "Neha S", "Remitly"...
+    account TEXT NOT NULL DEFAULT ''  -- last 4 of the account it left from
+);
 CREATE TABLE IF NOT EXISTS plaid_accounts (
     account_id TEXT PRIMARY KEY,
     item_id TEXT NOT NULL,
@@ -69,13 +80,23 @@ SOON_MINUTES = 30   # after a card email: sync again once the last sync is this 
 LINK_MINUTES = 30
 # Plaid's categories -> Buddy's spending categories. None = not spending (payments, transfers, income).
 CATEGORY = {"FOOD_AND_DRINK": "food", "TRANSPORTATION": "transport", "TRAVEL": "travel",
-            "GENERAL_MERCHANDISE": "shopping", "HOME_IMPROVEMENT": "shopping", "RENT_AND_UTILITIES": "bills",
+            "GENERAL_MERCHANDISE": "shopping", "HOME_IMPROVEMENT": "housing", "RENT_AND_UTILITIES": "bills",
             "MEDICAL": "health", "PERSONAL_CARE": "health", "ENTERTAINMENT": "entertainment",
             "GENERAL_SERVICES": "bills", "GOVERNMENT_AND_NON_PROFIT": "bills", "BANK_FEES": "fees",
             "LOAN_PAYMENTS": None, "TRANSFER_IN": None, "TRANSFER_OUT": None, "INCOME": None}
 DETAILED = {"FOOD_AND_DRINK_GROCERIES": "groceries", "GENERAL_SERVICES_SUBSCRIPTION": "subscriptions",
             "ENTERTAINMENT_TV_AND_MOVIES": "subscriptions", "ENTERTAINMENT_MUSIC_AND_AUDIO": "subscriptions",
-            "BANK_FEES_INTEREST_CHARGE": "fees", "TRANSFER_OUT_WITHDRAWAL": "cash"}
+            "BANK_FEES_INTEREST_CHARGE": "fees", "TRANSFER_OUT_WITHDRAWAL": "cash",
+            "RENT_AND_UTILITIES_RENT": "housing", "LOAN_PAYMENTS_MORTGAGE_PAYMENT": "housing",
+            "LOAN_PAYMENTS_CAR_PAYMENT": "loans", "LOAN_PAYMENTS_STUDENT_LOAN_PAYMENT": "loans",
+            "LOAN_PAYMENTS_PERSONAL_LOAN_PAYMENT": "loans", "LOAN_PAYMENTS_OTHER_PAYMENT": "loans"}
+# Money leaving that isn't spending: to the user's own savings, to people, or abroad. Kept apart (fin_transfers).
+OWN_TRANSFER = ("TRANSFER_OUT_SAVINGS", "TRANSFER_OUT_INVESTMENT_AND_RETIREMENT_FUNDS")
+REMIT = re.compile(r"(?i)\b(remitly|wise|transferwise|western union|xoom|moneygram|worldremit|remit ?2 ?india|"
+                   r"ria money|sendwave|instarem|icici money2india|money2india|xe money|ofx)\b")
+P2P = re.compile(r"(?i)\b(zelle|venmo|cash ?app|square cash|paypal|apple cash)\b")
+TO_WHOM = re.compile(r"(?i)\b(?:payment|transfer|sent|send|paid)?\s*to\s+([a-z][a-z .'-]{1,40}?)(?:\s+(?:on|conf|id|ref|#|\d)|$)")
+OWN_WORDS = re.compile(r"(?i)\b(to|into)\s+(my\s+)?(savings|checking|chk|sav|brokerage|ira|401k|roth)\b")
 
 
 def detail_label(primary: str, detailed: str) -> str:
@@ -186,7 +207,9 @@ class Plaid:
             for tx in page.get("removed", []):
                 removed += db.execute("DELETE FROM transactions WHERE source = ?",
                                       (f"plaid:{item['item_id']}:{tx.get('transaction_id')}",)).rowcount
-                db.execute("DELETE FROM fin_income WHERE source = ?", (f"plaid:{item['item_id']}:{tx.get('transaction_id')}",))
+                for table in ("fin_income", "fin_transfers"):
+                    db.execute(f"DELETE FROM {table} WHERE source = ?",  # nosec B608 (fixed table names)
+                               (f"plaid:{item['item_id']}:{tx.get('transaction_id')}",))
             cursor, more = page.get("next_cursor", cursor), bool(page.get("has_more"))
         db.execute("UPDATE plaid_items SET cursor = ?, last_sync = ?, error = '' WHERE item_id = ?",
                    (cursor, datetime.now(timezone.utc).isoformat(), item["item_id"]))
@@ -236,6 +259,13 @@ class Plaid:
                  round(-float(tx["amount"]), 2), tx.get("iso_currency_code") or "USD",
                  (tx.get("merchant_name") or tx.get("name") or "Income")[:80], detail_label(primary, detailed)))
             return False
+        name = tx.get("merchant_name") or tx.get("name") or ""
+        amount_out = float(tx.get("amount") or 0)
+        is_transfer = primary == "TRANSFER_OUT" and detailed != "TRANSFER_OUT_WITHDRAWAL"
+        if amount_out > 0 and (is_transfer or REMIT.search(name) or (P2P.search(tx.get("name") or "")
+                                                                      and primary in ("TRANSFER_OUT", ""))):
+            self._transfer(item_id, tx, detailed, accounts)
+            return False
         category = DETAILED.get(detailed, CATEGORY.get(primary, "other"))
         if category is None or not tx.get("amount"):
             return False  # card payments, transfers between the user's own accounts, pay coming in
@@ -251,6 +281,28 @@ class Plaid:
                                    (account.get("mask") or "")[-4:] or account.get("name", ""), source,
                                    detail_label(primary, detailed))
         return True
+
+    def _transfer(self, item_id: str, tx: dict, detailed: str, accounts: dict) -> None:
+        """Money out that isn't spending: to the user's own savings or investments, to a person, or abroad."""
+        raw = tx.get("name") or tx.get("merchant_name") or "Transfer"
+        merchant = tx.get("merchant_name") or ""
+        if REMIT.search(raw) or REMIT.search(merchant):
+            kind, recipient = "abroad", (REMIT.search(merchant) or REMIT.search(raw)).group(1).title()
+        elif detailed in OWN_TRANSFER or OWN_WORDS.search(raw):
+            kind, recipient = "own", "Savings and investments"
+        elif P2P.search(raw) or P2P.search(merchant):
+            to = TO_WHOM.search(raw)
+            kind, recipient = "person", (to.group(1).strip().title() if to else P2P.search(raw or merchant).group(1).title())
+        else:
+            to = TO_WHOM.search(raw)
+            kind, recipient = "other", to.group(1).strip().title() if to else raw[:40]
+        account = accounts.get(tx.get("account_id"), {})
+        self.memory.db.execute(
+            "INSERT OR REPLACE INTO fin_transfers (source, day, amount, currency, name, kind, recipient, account) "
+            "VALUES (?, ?, ?, ?, ?, ?, ?, ?)",
+            (f"plaid:{item_id}:{tx['transaction_id']}", str(tx.get("date") or tx.get("authorized_date"))[:10],
+             round(float(tx["amount"]), 2), tx.get("iso_currency_code") or "USD", raw[:80], kind, recipient[:40],
+             (account.get("mask") or "")[-4:]))
 
     def _take_over_cards(self, item_id: str) -> int:
         """Plaid is the record for every account it covers: charges counted earlier from emails or SimpleFIN for
@@ -364,6 +416,7 @@ class Plaid:
             db.execute("DELETE FROM bills WHERE source LIKE ?", (f"plaid:{account}:%",))
         db.execute("DELETE FROM transactions WHERE source LIKE ?", (f"plaid:{item['item_id']}:%",))
         db.execute("DELETE FROM fin_income WHERE source LIKE ?", (f"plaid:{item['item_id']}:%",))
+        db.execute("DELETE FROM fin_transfers WHERE source LIKE ?", (f"plaid:{item['item_id']}:%",))
         db.execute("DELETE FROM fin_cards WHERE source = ?", (f"plaid:{item['item_id']}",))
         db.execute("DELETE FROM plaid_accounts WHERE item_id = ?", (item["item_id"],))
         db.execute("DELETE FROM plaid_items WHERE item_id = ?", (item["item_id"],))

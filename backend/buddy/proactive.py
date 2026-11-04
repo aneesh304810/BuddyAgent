@@ -128,7 +128,7 @@ async def run(memory: Memory, deliver: Deliver) -> None:
                 if memory.get("finance:monthly_saved") != month:
                     job_id, summary = adv.save_month()
                     try:  # the detailed review of last month goes to Reports alongside the check-in
-                        await asyncio.to_thread(review.Review(memory).save, "last_month")
+                        await review.Review(memory).save_full("last_month")
                         summary = summary.replace("The full check-in is in Reports.",
                                                   "The check-in and a detailed money review are in Reports.")
                     except Exception:

@@ -586,6 +586,9 @@ class Conversation:
             return await plaid.run_tool(plaid.Plaid(self.memory), args, self.memory.get("server:base_url") or "",
                                         self.open_links, self.thrift)
         if name == "money_advisor":
+            if args.get("action") == "review":
+                from . import review  # noqa: PLC0415 (review imports advisor)
+                return await review.review_tool(self.memory, args)
             return advisor.run_tool(advisor.Advisor(self.memory), args)
         if name == "card_benefits":
             return benefits.run_tool(benefits.Benefits(self.memory), args)

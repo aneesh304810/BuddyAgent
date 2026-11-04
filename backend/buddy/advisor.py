@@ -579,11 +579,14 @@ ADVISOR_TOOL = {
     "goals. monthly: make this month's check-in report now. review (period last_month | this_month | last_3_months | "
     "last_6_months | this_year | last_12_months): the detailed money review saved in Reports (where the money went "
     "against the usual, by category and type, trend, subscriptions, fees, cards, rewards, ways to save with yearly "
-    "amounts, a suggested budget); say the headline and the top two ways to save.",
+    "amounts, a suggested budget); say the headline and the top two ways to save, and ask its ask_the_user questions. "
+    "label_transfer (what = who the transfers go to, label rent | family_support | savings | other words, name = a "
+    "short note like \"parents' maintenance\") when the user says what regular transfers are.",
     "input_schema": {"type": "object", "properties": {
         "action": {"type": "string", "enum": ["advice", "best_card", "rewards", "set_reward", "confirm_rewards",
                                               "payoff", "payday", "income", "autopay", "goal_add", "goal_update",
-                                              "goal_remove", "goals", "monthly", "review"]},
+                                              "goal_remove", "goals", "monthly", "review", "label_transfer"]},
+        "label": {"type": "string", "description": "for label_transfer: rent | family_support | savings | other words"},
         "period": {"type": "string", "enum": ["last_month", "this_month", "last_3_months", "last_6_months",
                                                "this_year", "last_12_months"]},
         "what": {"type": "string"}, "card": {"type": "string"},
@@ -631,7 +634,11 @@ def run_tool(adv: Advisor, args: dict) -> str:
         return adv.remove_goal(args.get("what") or "")
     if a == "goals":
         return json.dumps(adv.goals()) if adv.goals() else "No goals yet."
-    if a == "review":
+    if a == "label_transfer":
+        from .review import Review  # here: review imports this module
+        return Review(adv.memory).label_transfer(str(args.get("what") or ""), str(args.get("label") or ""),
+                                                 str(args.get("name") or ""))
+    if a == "review":  # the chat calls review_tool (async, with the advisor's notes); this is the plain version
         from .review import Review  # here: review imports this module
         job_id, summary, r = Review(adv.memory).save(str(args.get("period") or "last_month"))
         return json.dumps({"saved_report": job_id, "summary": summary, "top_ways_to_save": r["todo"][:3],
