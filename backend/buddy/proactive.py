@@ -193,15 +193,19 @@ async def run(memory: Memory, deliver: Deliver) -> None:
                     for alert in perks.alerts():
                         if await deliver("money", alert["text"]):
                             perks.told(alert)
-                    if CARD_LOOKUP and memory.get("benefits:cards_checked") != today:
-                        memory.set("benefits:cards_checked", today)
+                    if CARD_LOOKUP and not memory.get("benefits:setup_done") \
+                            and memory.get("benefits:setup_tried") != today and perks.known_cards():
+                        memory.set("benefits:setup_tried", today)  # the first time: every card at once
                         try:
-                            if not memory.get("benefits:setup_done") and perks.known_cards():
-                                job_id, text = await perks.setup()  # the first time: every card at once
-                                await deliver("money", text, **({"job_id": job_id} if job_id else {}))
-                            else:  # then only new cards, and the yearly refresh
-                                for text in await perks.offer_new_cards() + await perks.recheck():
-                                    await deliver("money", text)
+                            job_id, text = await perks.setup()
+                            await deliver("money", text, **({"job_id": job_id} if job_id else {}))
+                        except Exception:
+                            log.exception("card benefits setup failed")
+                    elif CARD_LOOKUP and memory.get("benefits:cards_checked") != today:
+                        memory.set("benefits:cards_checked", today)
+                        try:  # then only new cards, and the yearly refresh
+                            for text in await perks.offer_new_cards() + await perks.recheck():
+                                await deliver("money", text)
                         except Exception:
                             log.exception("card benefits lookup failed")
                 money = Money(memory)

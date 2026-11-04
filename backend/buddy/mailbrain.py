@@ -283,7 +283,7 @@ class MailManager:
         if urgent and not in_quiet_hours():
             await self.notify("email", "Important email: " + " Also: ".join(urgent[:3]))
         if money_notes:
-            await self.notify("money", " ".join(money_notes))
+            await self.notify("money", " ".join(dict.fromkeys(money_notes)))  # no line twice
         return len(verdicts)
 
     async def _classify(self, emails: list[dict]) -> list[dict]:

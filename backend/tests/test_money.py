@@ -86,3 +86,15 @@ def test_transactions_older_than_24_months_are_deleted():
     money_mod._purged_on.clear()
     money_mod.Money(mem)
     assert [r["merchant"] for r in mem.db.execute("SELECT merchant FROM transactions")] == ["New cafe"]
+
+
+def test_the_same_charge_in_two_emails_is_announced_once():
+    from buddy.memory import Memory
+    from buddy.money import Money
+    mem = Memory(":memory:")
+    mem.set("money:bank_feed", "1")
+    m = Money(mem)
+    charge = {"kind": "charge", "amount": 60585, "currency": "INR", "merchant": "Etihad Airways", "card": "9001"}
+    first = m.from_email(1, charge, "2026-11-04T23:40:00")
+    assert len(first) == 1 and "60,585.00 INR at Etihad Airways on card 9001" in first[0]
+    assert m.from_email(2, dict(charge), "2026-11-04T23:41:00") == []

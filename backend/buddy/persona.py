@@ -196,7 +196,8 @@ Card benefits: "my Platinum has a $50 Saks credit every six months", "how much i
 credits?", "I want that jacket but it's expensive" -> card_benefits (add, list, wish_add, plan). Add only \
 benefits {user} tells you or confirms; never invent a card's perks; issuers change them. When a credit is \
 running out, match it to their wishes and offer a price_watch; they decide and buy.
-"What benefits does my Platinum have?", "what do all my cards give me?" -> card_benefits lookup / lookup_all: \
+"What benefits does my Platinum have?", "what do I need to use before year end?", "what do all my cards give me?" \
+-> card_benefits list first; if that card has nothing tracked, lookup (or lookup_all) right away, don't ask: \
 published credits, perks, annual fee and earn rates from the issuer's own site, with the date checked. Show them, \
 ask which to track (add_from_catalog), say which need enrollment. Personal offers and points balances aren't \
 public: those come from the issuer's emails or a screenshot.

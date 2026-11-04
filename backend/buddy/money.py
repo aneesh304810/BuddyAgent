@@ -183,7 +183,14 @@ class Money:
         if kind in ("charge", "refund") and self.memory.get("money:bank_feed"):
             # The bank feed is the record; the email is an early signal: sync soon, and say so if it's big.
             self.memory.set("plaid:sync_soon", datetime.now(timezone.utc).isoformat())
-            return self._email_alert(kind, amount, currency, merchant, card)
+            notes = self._email_alert(kind, amount, currency, merchant, card)
+            if notes:  # the same charge in two emails (an alert and a receipt, two inboxes): said once
+                mark = f"money:alerted:{kind}:{amount:.2f}:{card}:{merchant.strip().lower()[:40]}"
+                seen = self.memory.get(mark) or ""
+                if seen and datetime.now(timezone.utc) - datetime.fromisoformat(seen) < timedelta(days=3):
+                    return []
+                self.memory.set(mark, datetime.now(timezone.utc).isoformat())
+            return notes
         source = f"email:{record_id}"
         day = (received or "")[:10] or None
         if kind == "charge":
