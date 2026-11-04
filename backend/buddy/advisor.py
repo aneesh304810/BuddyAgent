@@ -576,11 +576,16 @@ ADVISOR_TOOL = {
     "smallest balance first, months and interest). payday (kind weekly|biweekly + anchor date, or monthly + days). "
     "income (amount a month after tax). autopay (card, mode full|minimum|none). goal_add (kind emergency_fund "
     "[target = months] | pay_off [card] | save [target, due]), goal_update (what, current), goal_remove (what), "
-    "goals. monthly: make this month's check-in report now.",
+    "goals. monthly: make this month's check-in report now. review (period last_month | this_month | last_3_months | "
+    "last_6_months | this_year | last_12_months): the detailed money review saved in Reports (where the money went "
+    "against the usual, by category and type, trend, subscriptions, fees, cards, rewards, ways to save with yearly "
+    "amounts, a suggested budget); say the headline and the top two ways to save.",
     "input_schema": {"type": "object", "properties": {
         "action": {"type": "string", "enum": ["advice", "best_card", "rewards", "set_reward", "confirm_rewards",
                                               "payoff", "payday", "income", "autopay", "goal_add", "goal_update",
-                                              "goal_remove", "goals", "monthly"]},
+                                              "goal_remove", "goals", "monthly", "review"]},
+        "period": {"type": "string", "enum": ["last_month", "this_month", "last_3_months", "last_6_months",
+                                               "this_year", "last_12_months"]},
         "what": {"type": "string"}, "card": {"type": "string"},
         "category": {"type": "string", "enum": list(REWARD_CATEGORIES)}, "rate": {"type": "number"},
         "amount": {"type": "number"}, "currency": {"type": "string"},
@@ -626,6 +631,11 @@ def run_tool(adv: Advisor, args: dict) -> str:
         return adv.remove_goal(args.get("what") or "")
     if a == "goals":
         return json.dumps(adv.goals()) if adv.goals() else "No goals yet."
+    if a == "review":
+        from .review import Review  # here: review imports this module
+        job_id, summary, r = Review(adv.memory).save(str(args.get("period") or "last_month"))
+        return json.dumps({"saved_report": job_id, "summary": summary, "top_ways_to_save": r["todo"][:3],
+                           "possible_yearly_savings": r["possible_yearly_savings"]}, ensure_ascii=False)
     if a == "monthly":
         job_id, summary = adv.save_month()
         return f"{summary} (Report {job_id} saved in Reports.)"

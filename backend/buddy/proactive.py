@@ -6,7 +6,7 @@ import logging
 from datetime import datetime
 from collections.abc import Awaitable, Callable
 
-from . import advisor, benefits, finance, health, thinking, travel
+from . import advisor, benefits, finance, review, health, thinking, travel
 from .agent import compose
 from .config import settings
 from .memory import Memory
@@ -127,6 +127,12 @@ async def run(memory: Memory, deliver: Deliver) -> None:
                 adv = advisor.Advisor(memory)
                 if memory.get("finance:monthly_saved") != month:
                     job_id, summary = adv.save_month()
+                    try:  # the detailed review of last month goes to Reports alongside the check-in
+                        await asyncio.to_thread(review.Review(memory).save, "last_month")
+                        summary = summary.replace("The full check-in is in Reports.",
+                                                  "The check-in and a detailed money review are in Reports.")
+                    except Exception:
+                        log.exception("monthly money review failed")
                     memory.set("finance:monthly_saved", month)
                     memory.set("finance:monthly_job", json.dumps([job_id, summary]))
                 job_id, summary = json.loads(memory.get("finance:monthly_job"))

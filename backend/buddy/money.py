@@ -19,7 +19,7 @@ from .tools import ToolError, local_now
 
 BILL_WARN_DAYS = 3
 CATEGORIES = ("food", "groceries", "transport", "travel", "shopping", "bills", "health",
-              "entertainment", "subscriptions", "cash", "other")
+              "entertainment", "subscriptions", "cash", "fees", "other")
 
 SCHEMA_SQL = """
 CREATE TABLE IF NOT EXISTS transactions (
@@ -31,7 +31,8 @@ CREATE TABLE IF NOT EXISTS transactions (
     category TEXT NOT NULL,
     card TEXT NOT NULL DEFAULT '',
     source TEXT NOT NULL UNIQUE,       -- email:<record id>, or manual:<n>
-    created_at TEXT NOT NULL
+    created_at TEXT NOT NULL,
+    detail TEXT NOT NULL DEFAULT ''    -- the bank's finer label: Restaurant, Coffee, Gas, Rideshare...
 );
 CREATE TABLE IF NOT EXISTS bills (
     id INTEGER PRIMARY KEY,
@@ -101,6 +102,9 @@ class Money:
     def __init__(self, memory: Memory):
         self.memory = memory
         memory.db.executescript(SCHEMA_SQL)
+        if "detail" not in {r[1] for r in memory.db.execute("PRAGMA table_info(transactions)")}:
+            memory.db.execute("ALTER TABLE transactions ADD COLUMN detail TEXT NOT NULL DEFAULT ''")
+            memory.db.commit()
         today = local_now().date()
         if _purged_on.get(id(memory.db)) != today.isoformat():  # once a day is plenty
             _purged_on[id(memory.db)] = today.isoformat()
@@ -110,7 +114,8 @@ class Money:
 
     # --- recording -----------------------------------------------------------
     def add_transaction(self, amount: float, currency: str, merchant: str, category: str,
-                        day: str | None = None, card: str = "", source: str | None = None) -> list[str]:
+                        day: str | None = None, card: str = "", source: str | None = None,
+                        detail: str = "") -> list[str]:
         """Store one charge (or a refund as a negative amount). Returns limit warnings."""
         category = category if category in CATEGORIES else "other"
         currency = (currency or "USD").upper()[:3]
@@ -119,10 +124,10 @@ class Money:
             n = self.memory.db.execute("SELECT COUNT(*) AS n FROM transactions").fetchone()["n"]
             source = f"manual:{n + 1}:{datetime.now(timezone.utc).timestamp()}"
         cur = self.memory.db.execute(
-            "INSERT OR IGNORE INTO transactions (day, amount, currency, merchant, category, card, source, created_at) "
-            "VALUES (?, ?, ?, ?, ?, ?, ?, ?)",
+            "INSERT OR IGNORE INTO transactions (day, amount, currency, merchant, category, card, source, created_at, "
+            "detail) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?)",
             (day, round(amount, 2), currency, merchant.strip()[:80] or "unknown", category, card[:20], source,
-             datetime.now(timezone.utc).isoformat()),
+             datetime.now(timezone.utc).isoformat(), detail[:40]),
         )
         self.memory.db.commit()
         return self._limit_warnings(category, currency) if cur.rowcount and amount > 0 else []

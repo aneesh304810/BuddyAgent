@@ -47,6 +47,14 @@ CREATE TABLE IF NOT EXISTS plaid_items (
     added_at TEXT NOT NULL,
     env TEXT NOT NULL DEFAULT ''      -- sandbox | production, as linked (sandbox = Plaid's test data)
 );
+CREATE TABLE IF NOT EXISTS fin_income (
+    source TEXT PRIMARY KEY,          -- plaid:<item>:<transaction id>
+    day TEXT NOT NULL,
+    amount REAL NOT NULL,             -- money in, positive
+    currency TEXT NOT NULL,
+    name TEXT NOT NULL,               -- "ACME CORP PAYROLL"
+    kind TEXT NOT NULL DEFAULT ''     -- Wages, Interest earned, Tax refund...
+);
 CREATE TABLE IF NOT EXISTS plaid_accounts (
     account_id TEXT PRIMARY KEY,
     item_id TEXT NOT NULL,
@@ -63,11 +71,17 @@ LINK_MINUTES = 30
 CATEGORY = {"FOOD_AND_DRINK": "food", "TRANSPORTATION": "transport", "TRAVEL": "travel",
             "GENERAL_MERCHANDISE": "shopping", "HOME_IMPROVEMENT": "shopping", "RENT_AND_UTILITIES": "bills",
             "MEDICAL": "health", "PERSONAL_CARE": "health", "ENTERTAINMENT": "entertainment",
-            "GENERAL_SERVICES": "bills", "GOVERNMENT_AND_NON_PROFIT": "bills", "BANK_FEES": "other",
+            "GENERAL_SERVICES": "bills", "GOVERNMENT_AND_NON_PROFIT": "bills", "BANK_FEES": "fees",
             "LOAN_PAYMENTS": None, "TRANSFER_IN": None, "TRANSFER_OUT": None, "INCOME": None}
 DETAILED = {"FOOD_AND_DRINK_GROCERIES": "groceries", "GENERAL_SERVICES_SUBSCRIPTION": "subscriptions",
             "ENTERTAINMENT_TV_AND_MOVIES": "subscriptions", "ENTERTAINMENT_MUSIC_AND_AUDIO": "subscriptions",
-            "BANK_FEES_INTEREST_CHARGE": "other", "TRANSFER_OUT_WITHDRAWAL": "cash"}
+            "BANK_FEES_INTEREST_CHARGE": "fees", "TRANSFER_OUT_WITHDRAWAL": "cash"}
+
+
+def detail_label(primary: str, detailed: str) -> str:
+    """'FOOD_AND_DRINK' + 'FOOD_AND_DRINK_RESTAURANT' -> 'Restaurant'; 'TRANSPORTATION_TAXIS_AND_RIDE_SHARES' -> 'Taxis and ride shares'."""
+    rest = detailed[len(primary) + 1:] if primary and detailed.startswith(primary + "_") else detailed
+    return rest.replace("_", " ").strip().capitalize()[:40]
 
 
 class Plaid:
@@ -172,6 +186,7 @@ class Plaid:
             for tx in page.get("removed", []):
                 removed += db.execute("DELETE FROM transactions WHERE source = ?",
                                       (f"plaid:{item['item_id']}:{tx.get('transaction_id')}",)).rowcount
+                db.execute("DELETE FROM fin_income WHERE source = ?", (f"plaid:{item['item_id']}:{tx.get('transaction_id')}",))
             cursor, more = page.get("next_cursor", cursor), bool(page.get("has_more"))
         db.execute("UPDATE plaid_items SET cursor = ?, last_sync = ?, error = '' WHERE item_id = ?",
                    (cursor, datetime.now(timezone.utc).isoformat(), item["item_id"]))
@@ -213,7 +228,15 @@ class Plaid:
         if tx.get("pending"):
             return False  # it posts later with its final amount
         pfc = tx.get("personal_finance_category") or {}
-        category = DETAILED.get(pfc.get("detailed", ""), CATEGORY.get(pfc.get("primary", ""), "other"))
+        primary, detailed = pfc.get("primary", ""), pfc.get("detailed", "")
+        if primary == "INCOME" and float(tx.get("amount") or 0) < 0:  # Plaid: negative = money in
+            self.memory.db.execute(
+                "INSERT OR REPLACE INTO fin_income (source, day, amount, currency, name, kind) VALUES (?, ?, ?, ?, ?, ?)",
+                (f"plaid:{item_id}:{tx['transaction_id']}", str(tx.get("date") or tx.get("authorized_date"))[:10],
+                 round(-float(tx["amount"]), 2), tx.get("iso_currency_code") or "USD",
+                 (tx.get("merchant_name") or tx.get("name") or "Income")[:80], detail_label(primary, detailed)))
+            return False
+        category = DETAILED.get(detailed, CATEGORY.get(primary, "other"))
         if category is None or not tx.get("amount"):
             return False  # card payments, transfers between the user's own accounts, pay coming in
         account = accounts.get(tx.get("account_id"), {})
@@ -225,7 +248,8 @@ class Plaid:
             self._replace_earlier_copy(float(tx["amount"]), currency, day)
         self.money.add_transaction(float(tx["amount"]),  # Plaid: positive = money out, same as Buddy
                                    currency, tx.get("merchant_name") or tx.get("name") or "unknown", category, day,
-                                   (account.get("mask") or "")[-4:] or account.get("name", ""), source)
+                                   (account.get("mask") or "")[-4:] or account.get("name", ""), source,
+                                   detail_label(primary, detailed))
         return True
 
     def _take_over_cards(self, item_id: str) -> int:
@@ -339,6 +363,7 @@ class Plaid:
             db.execute("DELETE FROM bank_accounts WHERE id = ?", (f"plaid:{account}",))
             db.execute("DELETE FROM bills WHERE source LIKE ?", (f"plaid:{account}:%",))
         db.execute("DELETE FROM transactions WHERE source LIKE ?", (f"plaid:{item['item_id']}:%",))
+        db.execute("DELETE FROM fin_income WHERE source LIKE ?", (f"plaid:{item['item_id']}:%",))
         db.execute("DELETE FROM fin_cards WHERE source = ?", (f"plaid:{item['item_id']}",))
         db.execute("DELETE FROM plaid_accounts WHERE item_id = ?", (item["item_id"],))
         db.execute("DELETE FROM plaid_items WHERE item_id = ?", (item["item_id"],))
