@@ -69,6 +69,26 @@ true, "note": "short condition", "source": "https://..."}}], "perks": [{{"name":
 
 PERIODS = ("monthly", "quarterly", "semiannual", "annual", "once")
 REMIND_DAYS = (60, 30, 14, 7, 2)
+# A monthly credit is always within 30 days of its end: it gets the last-week reminders only.
+REMIND_BY_PERIOD = {"monthly": (7, 2)}
+DEALS_FROM_DAYS = 31         # the background deal search runs this close to a credit's end (the 1-month notice)
+DEALS_PER_DAY = 3
+DEALS_SQL = """
+CREATE TABLE IF NOT EXISTS fin_credit_deals (
+    benefit_id INTEGER NOT NULL,
+    period_end TEXT NOT NULL,          -- one search per credit period
+    found_at TEXT NOT NULL,
+    data TEXT NOT NULL,                -- {"sale": "...", "deals": [{"item", "price", "url", "note"}]}
+    PRIMARY KEY (benefit_id, period_end)
+);
+"""
+DEALS_PROMPT = """Today is {today}. {user} has a ${left:.0f} {credit} that must be used at {merchant} by {ends}.
+Find the best current ways to use it: sales or promotions running now at {merchant}, and {count} specific items
+in stock that cost about ${left:.0f} or a little more (so the credit covers most or all of it).{wishes}
+Prefer the store's own website. Never invent a price or a sale; skip anything you can't confirm on a page.
+End with one line of JSON, exactly this shape:
+{{"sale": "a sale running now, with its end date, or empty", "deals": [{{"item": "...", "price": 0, "url":
+"https://...", "note": "why it's a good use of the credit"}}]}}"""
 WATCH_FROM_DAYS = 60
 
 SCHEMA_SQL = """
@@ -229,11 +249,103 @@ async def _search_issuer(memory: Memory, card: str) -> dict | None:
     return _last_json(text)
 
 
+async def _search_deals(memory: Memory, credit: dict, wishes: list[dict]) -> dict | None:
+    """Claude with web search: current sales and items that fit the credit at its merchant."""
+    from . import usage
+    from .agent import fallback_kwargs
+    from .config import claude_client, settings
+    from .tools import web_fetch
+
+    client = claude_client()
+    model = settings.chat_model
+    wish_text = ("" if not wishes else " They want: " + "; ".join(
+        f"{w['item']}" + (f" (about ${w['price']:.0f})" if w.get("price") else "") for w in wishes[:3]) +
+        ". Check these first.")
+    prompt = DEALS_PROMPT.format(today=local_now().strftime("%d %B %Y"), user=settings.user_name, left=credit["left"],
+                                 credit=credit["benefit"], merchant=credit["merchant"].title(),
+                                 ends=_nice(credit["ends"]), count=3, wishes=wish_text)
+    messages = [{"role": "user", "content": prompt}]
+    response = None
+    for _ in range(4):
+        started = time.monotonic()
+        response = await client.beta.messages.create(
+            model=model, max_tokens=2_500, messages=messages,
+            tools=[{"type": "web_search_20260209", "name": "web_search", "max_uses": 3}, web_fetch(3)],
+            output_config={"effort": "low"}, cache_control={"type": "ephemeral"}, **fallback_kwargs(model))
+        if hasattr(response, "usage"):
+            usage.record(memory, response.model, response.usage, purpose="credit_deals", response=response,
+                         started=started)
+        if response.stop_reason != "pause_turn":
+            break
+        messages.append({"role": "assistant", "content": response.content})
+    text = "\n".join(b.text for b in response.content if getattr(b, "type", "") == "text")
+    decoder, found = json.JSONDecoder(), None
+    for i, ch in enumerate(text):
+        if ch == "{":
+            try:
+                obj, _ = decoder.raw_decode(text[i:])
+            except ValueError:
+                continue
+            if isinstance(obj, dict) and "deals" in obj:
+                found = obj
+    return found
+
+
 class Benefits:
-    def __init__(self, memory: Memory, search=None):
+    def __init__(self, memory: Memory, search=None, search_deals=None):
         self.memory = memory
-        memory.db.executescript(SCHEMA_SQL + CATALOG_SQL)
+        memory.db.executescript(SCHEMA_SQL + CATALOG_SQL + DEALS_SQL)
         self.search = search or _search_issuer
+        self.search_deals = search_deals or _search_deals
+
+    # --- deals that make the most of a credit before it runs out ---------------------------
+    def deals_for(self, benefit_id: int, period_end: str) -> dict | None:
+        row = self.memory.db.execute("SELECT data FROM fin_credit_deals WHERE benefit_id = ? AND period_end = ?",
+                                     (benefit_id, period_end)).fetchone()
+        return json.loads(row["data"]) if row else None
+
+    async def find_deals(self, credit: dict) -> dict:
+        wishes = [w for w in self.wishes() if credit["merchant"] and w["merchant"]
+                  and _same_shop(credit["merchant"], w["merchant"])]
+        raw = await self.search_deals(self.memory, credit, wishes) or {}
+        deals = []
+        for d in raw.get("deals") or []:
+            url = str(d.get("url") or "")
+            try:
+                price = round(float(d.get("price")), 2)
+            except (TypeError, ValueError):
+                continue
+            if url.startswith("https://") and d.get("item") and price > 0:
+                deals.append({"item": str(d["item"])[:90], "price": price, "url": url,
+                              "you_pay": round(max(0.0, price - credit["left"]), 2), "note": str(d.get("note") or "")[:140]})
+        data = {"sale": str(raw.get("sale") or "")[:200], "deals": deals[:4]}
+        self.memory.db.execute("INSERT OR REPLACE INTO fin_credit_deals (benefit_id, period_end, found_at, data) "
+                               "VALUES (?, ?, ?, ?)", (credit["id"], credit["ends"],
+                                                       datetime.now(timezone.utc).isoformat(), json.dumps(data)))
+        self.memory.db.commit()
+        return data
+
+    async def prepare_deals(self, today: date | None = None, per_day: int = DEALS_PER_DAY) -> int:
+        """Background, daily: credits with money left that end within a month get one deal search per period,
+        before their 1-month reminder. Monthly credits and ones with no store are skipped."""
+        done = 0
+        for p in self.plan(today, within=DEALS_FROM_DAYS):
+            if done >= per_day:
+                break
+            if p["period"] == "monthly" or not p["merchant"] or p["maybe_pending"]:
+                continue
+            if self.deals_for(p["id"], p["ends"]) is not None:
+                continue
+            try:
+                await self.find_deals(p)
+            except Exception as e:
+                log.info("credit deal search failed: %s", type(e).__name__)
+                self.memory.db.execute("INSERT OR REPLACE INTO fin_credit_deals VALUES (?, ?, ?, ?)",
+                                       (p["id"], p["ends"], datetime.now(timezone.utc).isoformat(),
+                                        json.dumps({"sale": "", "deals": [], "failed": True})))
+                self.memory.db.commit()
+            done += 1
+        return done
 
     # --- the public catalog: an issuer's published benefits ------------------------------
     def cached(self, card: str, days: int = CATALOG_DAYS) -> dict | None:
@@ -608,7 +720,8 @@ class Benefits:
         today = today or local_now().date()
         out = []
         for p in self.plan(today, within=max(REMIND_DAYS)):
-            step = next((d for d in sorted(REMIND_DAYS) if p["days_left"] <= d), None)
+            steps = REMIND_BY_PERIOD.get(p["period"], REMIND_DAYS)
+            step = next((d for d in sorted(steps) if p["days_left"] <= d), None)
             if step is None:
                 continue
             mark = f"benefit:told:{p['id']}:{p['ends']}:{step}"
@@ -616,8 +729,17 @@ class Benefits:
                 continue
             when = "today" if p["days_left"] == 0 else f"in {p['days_left']} days ({_nice(p['ends'])})"
             text = f"Your {p['benefit']} has ${p['left']:.0f} left and runs out {when}."
+            found = self.deals_for(p["id"], p["ends"]) or {}
             if p["maybe_pending"]:
                 text += f" You spent ${p['spent_there']:.0f} there this period; the credit may not have posted yet."
+            elif found.get("deals") or found.get("sale"):
+                if found.get("sale"):
+                    text += f" {p['merchant'].title()} has {found['sale']}."
+                picks = found.get("deals") or []
+                if picks:
+                    text += " Good ways to use it: " + "; ".join(
+                        f"{d['item']} ${d['price']:.0f} (you'd pay ${d['you_pay']:.0f}) {d['url']}" for d in picks[:3]) + "."
+                text += " You decide; I don't buy anything."
             elif p["ideas"]:
                 i = p["ideas"][0]
                 if i.get("price"):
@@ -660,12 +782,14 @@ BENEFITS_TOOL = {
     "them and ask which to track. lookup_all: the same for every card Buddy knows (bank connections, statements, "
     "benefits), with what's already tracked; use it for 'what benefits do all my cards have?'. setup (fresh to "
     "re-check now): looks up every card in the background, once; saved and refreshed yearly, a report in Reports. "
+    "deals (what): search now for current sales and items that fit a credit's amount at its store (a few cents; "
+    "Buddy also does this by itself about a month before a credit runs out, and puts the deals in that reminder). "
     "Then add_from_catalog (card \"all\" for every saved card, when they say \"track all\") (card, names; empty = all; anniversary MM-DD if any reset on "
     "the card anniversary). Say which need enrollment. Personal offers (Amex Offers, Chase Offers) and points "
     "balances aren't public: they come from the issuer's emails or a screenshot the user shares.",
     "input_schema": {"type": "object", "properties": {
         "action": {"type": "string", "enum": ["add", "list", "used", "remove", "wish_add", "wishes", "wish_remove",
-                                              "plan", "lookup", "lookup_all", "setup", "add_from_catalog"]},
+                                              "plan", "lookup", "lookup_all", "setup", "add_from_catalog", "deals"]},
         "names": {"type": "array", "items": {"type": "string"}}, "fresh": {"type": "boolean"},
         "what": {"type": "string"}, "card": {"type": "string"}, "name": {"type": "string"},
         "amount": {"type": "number"}, "period": {"type": "string", "enum": list(PERIODS)},
@@ -687,6 +811,13 @@ async def run_tool_async(b: Benefits, args: dict) -> str:
         found = await b.lookup_all(bool(args.get("fresh")))
         return json.dumps(found, ensure_ascii=False) if found else ("No cards yet: connect a bank, share a statement, or "
                                                                     "tell me which cards you have.")
+    if a == "deals":
+        credit = next((s for s in b.overview() if s["id"] == b.find(args.get("what") or "")["id"]), None)
+        if not credit or credit["left"] <= 0:
+            return "That credit has nothing left this period."
+        found = await b.find_deals(credit)
+        return json.dumps({"credit": credit["benefit"], "left": credit["left"], "ends": credit["ends"], **found},
+                          ensure_ascii=False)
     if a == "setup":
         b.memory.set("benefits:setup_requested", "fresh" if args.get("fresh") else "1")
         return ("Started in the background: every card's published benefits from the issuers' websites. It takes a "

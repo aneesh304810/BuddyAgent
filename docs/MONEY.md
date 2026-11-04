@@ -43,3 +43,12 @@ or `sudo bash /opt/buddy/deploy/set.sh BUDDY_SIMPLEFIN_URL` and press Enter on a
 | **Monarch**, **Copilot**, **YNAB** | Apps with their own bank links; no official API for your own data. |
 
 If one of these opens personal access, Buddy's agent builder can connect it.
+
+## Card credits: reminders and deals
+
+- Reminders before a credit with money left runs out: 60, 30, 14, 7 and 2 days ahead (monthly credits such as Uber
+  Cash: 7 and 2 days, since they are always within a month of their end).
+- About a month before a credit ends, Buddy searches in the background (a few cents each, up to 3 a day, once per
+  credit period) for sales running now at that store and items that the credit covers, starting with your wish list.
+  The 1-month reminder carries what it found, with links. Buddy never buys anything.
+- "Find deals for my Saks credit" runs the search right away. Turn the background search off with `BUDDY_CREDIT_DEALS=0`.

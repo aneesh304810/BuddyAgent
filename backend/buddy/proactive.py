@@ -22,6 +22,7 @@ from .thrift import Thrift
 from .tools import format_local, local_now, user_tz
 
 log = logging.getLogger(__name__)
+CREDIT_DEALS = os.getenv("BUDDY_CREDIT_DEALS", "1") not in ("", "0")  # deal search before a credit runs out
 CARD_LOOKUP = os.getenv("BUDDY_CARD_LOOKUP", "1") not in ("", "0")  # published card benefits, from issuer sites
 SOC_MONTHLY = os.getenv("BUDDY_SOC_MONTHLY", "1") not in ("", "0")
 
@@ -184,6 +185,11 @@ async def run(memory: Memory, deliver: Deliver) -> None:
                         fin.told(alert)
                 if local_now().hour >= 9:  # card credits running out: in the morning, each step once
                     perks = benefits.Benefits(memory)
+                    if CREDIT_DEALS:  # deals for credits ending within a month, found before the 1-month reminder
+                        try:
+                            await perks.prepare_deals()
+                        except Exception:
+                            log.exception("credit deal search failed")
                     for alert in perks.alerts():
                         if await deliver("money", alert["text"]):
                             perks.told(alert)

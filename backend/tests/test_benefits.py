@@ -215,3 +215,38 @@ def test_setup_runs_in_the_background_when_asked():
     mem = Memory(":memory:")
     text = _asyncio.run(bmod.run_tool_async(Benefits(mem), {"action": "setup"}))
     assert "background" in text and mem.get("benefits:setup_requested") == "1"
+
+
+def _deals(result, calls):
+    async def search(memory, credit, wishes):
+        calls.append((credit["benefit"], [w["item"] for w in wishes]))
+        return result
+    return search
+
+
+def test_a_month_before_a_credit_ends_buddy_finds_deals_and_puts_them_in_the_reminder():
+    mem, calls = Memory(":memory:"), []
+    found = {"sale": "25% off coats until Dec 15", "deals": [
+        {"item": "Wool scarf", "price": 45, "url": "https://www.saks.com/scarf", "note": "covered by the credit"},
+        {"item": "Made-up", "price": "n/a", "url": "https://www.saks.com/x"},
+        {"item": "No link", "price": 20, "url": "http://insecure"}]}
+    b = Benefits(mem, search_deals=_deals(found, calls))
+    b.add("Saks credit", 50, "semiannual", card="Amex Platinum", merchant="saks")
+    b.wish_add("Cashmere gloves", merchant="saks", price=60)
+    today = date(2026, 12, 2)  # the July-December half ends Dec 31: 29 days left
+    assert _asyncio.run(b.prepare_deals(today)) == 1
+    assert calls == [("Amex Platinum Saks credit", ["Cashmere gloves"])] or calls[0][1] == ["Cashmere gloves"]
+    assert _asyncio.run(b.prepare_deals(today)) == 0  # one search per credit period
+    alert = b.alerts(today)[0]
+    assert "runs out in 29 days" in alert["text"] and "25% off coats" in alert["text"]
+    assert "Wool scarf $45 (you'd pay $0) https://www.saks.com/scarf" in alert["text"]
+    assert "Made-up" not in alert["text"] and "No link" not in alert["text"] and "I don't buy anything" in alert["text"]
+
+
+def test_monthly_credits_only_get_last_week_reminders_and_no_deal_search():
+    mem, calls = Memory(":memory:"), []
+    b = Benefits(mem, search_deals=_deals({"deals": []}, calls))
+    b.add("Uber Cash", 15, "monthly", card="Amex Platinum", merchant="uber")
+    assert b.alerts(date(2026, 12, 2)) == []           # 29 days left: no "1 month" note for a monthly credit
+    assert "in 6 days" in b.alerts(date(2026, 12, 25))[0]["text"]
+    assert _asyncio.run(b.prepare_deals(date(2026, 12, 25))) == 0 and calls == []
