@@ -43,3 +43,7 @@ product ideas or how features work.** Competitors and partners read it.
 Home, Security, Privacy Policy, Terms, Contact, 404. The privacy policy uses data categories, not
 feature details. It must stay consistent with the "Buddy Privacy and Data Retention Policy" document,
 and change when a new kind of data is collected.
+
+## Waitlist
+
+The home page form saves signups in Cloudflare KV (binding `WAITLIST`) through `functions/api/waitlist.js`. Export: `/api/waitlist?key=<WAITLIST_ADMIN_KEY>`. The privacy page has a Waitlist section; update it if the form asks for anything new.
