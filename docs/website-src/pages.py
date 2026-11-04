@@ -34,7 +34,7 @@ page("index.html", f"Buddy: 1,000 apps, one Buddy · {CO}", "One app to rule the
 <section class="block" id="glimpse"><div class="wrap demo-wrap">
   <div>
     <h2>A glimpse of Buddy</h2>
-    <p class="lead">Just talk to it, the way you'd talk to a friend who's great with money, plans and remembering things. It keeps an eye on your inbox as mail arrives, helps you understand people speaking another language, works on your tasks and research in the background, and when you need something new, it builds it for you.</p>
+    <p class="lead">Just talk to it, the way you'd talk to a friend who's great with money, plans and remembering things. It keeps an eye on your inbox as mail arrives, fills in forms for you to check, makes sure your card perks don't go to waste, shows where your money really goes, helps you understand people speaking another language, works on your tasks and research in the background, and when you need something new, it builds it for you. Want it to work differently? Just tell it, and it adapts to you.</p>
     <p><a class="btn" href="buddy-demo.mp4">Watch the demo video</a></p>
     <p class="fine">Illustrative demo. Names, cards and numbers are examples.</p>
   </div>
