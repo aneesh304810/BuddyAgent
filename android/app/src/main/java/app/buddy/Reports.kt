@@ -217,15 +217,16 @@ fun ReportScreen(link: ServerLink?, id: Int) {
             color = Color.White, fontWeight = FontWeight.SemiBold,
             modifier = Modifier.padding(vertical = 10.dp),
         )
-        SelectionContainer { Column { Markdown(r.report) } }
+        SelectionContainer { Column { Markdown(r.report, link?.baseUrl.orEmpty()) } }
     }
 }
 
-private val LINK = Regex("""\[([^\]]+)\]\((https?://[^)\s]+)\)""")
+// Web links, and Buddy's own downloads (/api/files/..., a signed link: opened on the server's address).
+private val LINK = Regex("""\[([^\]]+)\]\((https?://[^)\s]+|/api/files/[^)\s]+)\)""")
 
 /** Enough Markdown for a report: headings, bullets, tables, links. */
 @Composable
-private fun Markdown(md: String) {
+private fun Markdown(md: String, base: String = "") {
     val uri = LocalUriHandler.current
     md.lines().forEach { raw ->
         val line = raw.trimEnd()
@@ -255,7 +256,10 @@ private fun Markdown(md: String) {
                         Text(
                             link.groupValues[1], color = Color(0xFF8FB0FF),
                             textDecoration = TextDecoration.Underline,
-                            modifier = Modifier.clickable { uri.openUri(link.groupValues[2]) },
+                            modifier = Modifier.clickable {
+                                val target = link.groupValues[2]
+                                runCatching { uri.openUri(if (target.startsWith("/")) base.trimEnd('/') + target else target) }
+                            },
                         )
                     } else {
                         Text(clean(LINK.replace(body) { "${it.groupValues[1]} (${it.groupValues[2]})" }), color = Color.White)

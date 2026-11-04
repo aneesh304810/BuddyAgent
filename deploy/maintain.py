@@ -43,6 +43,8 @@ NO_PATCH = "--check-only" in sys.argv
 
 findings: list[dict] = []
 done: list[str] = []
+# Plain facts (no secrets) for the SOC 2 readiness report: Buddy reads them from security.json.
+facts: dict = {}
 
 
 def find(severity: str, title: str, detail: str, fix: str) -> None:
@@ -163,6 +165,10 @@ def check_secrets(env: dict) -> None:
                     pass
                 done.append(f"fixed permissions on {path}")
     token = env.get("BUDDY_TOKEN", "")
+    facts["keys_sealed"] = SEALED_ENV.exists()
+    facts["token_length"] = len(token)
+    facts["db_encrypted"] = len(env.get("BUDDY_DB_KEY", "")) == 64
+    facts["backup_key_set"] = bool(env.get("BUDDY_AGE_RECIPIENT", ""))
     if len(token) < 32:
         find("act", "Buddy's access token is short", f"{len(token)} characters.",
              "Make a new one: sudo bash /opt/buddy/deploy/security.sh rotate-token")
@@ -177,6 +183,10 @@ def check_secrets(env: dict) -> None:
             unknown.append(name)
         elif (datetime.date.today() - datetime.date.fromisoformat(when)).days > ROTATE_DAYS:
             old.append(name)
+    facts["keys"] = len(secret_names)
+    facts["keys_older_than_rotation"] = len(old)
+    facts["keys_without_date"] = len(unknown)
+    facts["rotate_days"] = ROTATE_DAYS
     if old:
         find("watch", f"{len(old)} keys are older than {ROTATE_DAYS} days", ", ".join(sorted(old)),
              "Make new ones at each provider, save each with sudo bash /opt/buddy/deploy/set.sh NAME, "
@@ -219,6 +229,7 @@ def check_logs() -> None:
             kinds[kind] = kinds.get(kind, 0) + 1
         newest = words[0][:16] if words else newest
     hits = sum(sources.values())
+    facts["log_lines_with_keys_7d"] = hits
     if hits:
         top = lambda d: ", ".join(f"{k} ({v})" for k, v in sorted(d.items(), key=lambda kv: -kv[1])[:4])
         find("act", f"{hits} log lines in the last week look like they contain keys",
@@ -245,20 +256,25 @@ def check_network() -> None:
             continue  # expected; the firewall keeps SSH off the internet (checked below)
         if host in ("0.0.0.0", "*", "::") or not host.startswith(("10.", "172.", "192.168.")):  # nosec B104 (a check)
             exposed.append(f"{parts[0]} {local} {parts[-1][:40] if 'users:' in parts[-1] else ''}".strip())
+    facts["exposed_listeners"] = len(exposed)
     if exposed:
         find("watch", "Something listens on all network interfaces", "; ".join(exposed[:6]),
              "The firewall blocks it from the internet, but check it's expected; Buddy itself only "
              "listens on 127.0.0.1.")
     status = sh("ufw", "status", "verbose").stdout
+    facts["firewall_deny_incoming"] = "Status: active" in status and "deny (incoming)" in status
     if "Status: active" not in status or "deny (incoming)" not in status:
         find("act", "The firewall isn't blocking incoming connections", status[:160],
              "sudo ufw default deny incoming && sudo ufw allow in on tailscale0 && sudo ufw --force enable")
     sshd = sh("sshd", "-T").stdout.lower()
+    facts["ssh_password_login"] = "passwordauthentication yes" in sshd
+    facts["ssh_root_password_login"] = "permitrootlogin yes" in sshd
     if "passwordauthentication yes" in sshd:
         find("watch", "SSH accepts passwords", "Only keys (or Tailscale SSH) should work.",
              "Set PasswordAuthentication no in /etc/ssh/sshd_config, then sudo systemctl restart ssh")
     if shutil.which("tailscale"):
         funnel = sh("tailscale", "funnel", "status").stdout
+        facts["tailscale_funnel_on"] = "Funnel on" in funnel
         if "Funnel on" in funnel or "(Funnel on)" in funnel:
             find("act", "Tailscale Funnel is on: Buddy may be reachable from the internet",
                  funnel[:200], "sudo tailscale funnel reset (Buddy only needs tailscale serve)")
@@ -269,10 +285,21 @@ def check_access() -> None:
     import access  # noqa: PLC0415
 
     access.check(find)
+    last = access.last_review() or {}
+    facts["access_review_last"] = str(last.get("at", ""))[:10]
+    facts["access_review_by"] = str(last.get("reviewer", ""))[:60]
+    facts["access_review_days"] = access.REVIEW_DAYS
+    facts["access_review_due"] = access.review_due() is not None
+    try:
+        facts["access_differences"] = len(access.differences(access.inventory(), access.approved() or {}))
+    except Exception:
+        facts["access_differences"] = None
 
 
 def check_system() -> None:
     auto = Path("/etc/apt/apt.conf.d/20auto-upgrades")
+    facts["auto_security_updates"] = auto.exists() and '"1"' in auto.read_text()
+    facts["reboot_required"] = Path("/var/run/reboot-required").exists()
     if not auto.exists() or '"1"' not in auto.read_text():
         find("act", "Automatic security updates are off", str(auto),
              "sudo dpkg-reconfigure -f noninteractive unattended-upgrades")
@@ -281,10 +308,14 @@ def check_system() -> None:
              "Ubuntu installed a kernel or system library update.",
              "It reboots automatically at 4:30am (set in security.sh install); or now: sudo reboot")
     pending = [l for l in sh("apt", "list", "--upgradable").stdout.splitlines()[1:] if "-security" in l]
+    facts["security_updates_waiting"] = len(pending)
     if pending:
         find("watch", f"{len(pending)} security updates are waiting", ", ".join(l.split("/")[0] for l in pending[:8]),
              "They usually install overnight; or now: sudo unattended-upgrade")
     backups = sorted(Path("/var/backups/buddy").glob("*.age"), key=lambda p: p.stat().st_mtime)
+    facts["backups"] = len(backups)
+    facts["backup_age_hours"] = round((time.time() - backups[-1].stat().st_mtime) / 3600, 1) if backups else None
+    facts["backups_encrypted"] = all(b.suffix == ".age" for b in backups) and bool(backups)
     if not backups or time.time() - backups[-1].stat().st_mtime > 2 * 86400:
         find("act", "No backup in the last 2 days", backups[-1].name if backups else "none found",
              "systemctl status buddy-backup.timer; run one now: sudo systemctl start buddy-backup")
@@ -292,11 +323,20 @@ def check_system() -> None:
         find("watch", "Graphviz isn't installed, so diagrams don't work", "The dot command is missing.",
              "sudo apt-get update && sudo apt-get install -y graphviz")
     usage = shutil.disk_usage("/")
+    facts["disk_used_pct"] = int(usage.used / usage.total * 100)
     if usage.used / usage.total > 0.85:
         find("watch", f"The disk is {int(usage.used / usage.total * 100)}% full", f"{usage.free // 2**30} GB free",
              "Old logs: sudo journalctl --vacuum-size=200M; Docker: sudo docker system prune")
     score = sh("systemd-analyze", "security", "buddy.service", "--no-pager").stdout
     m = re.search(r"Overall exposure level for buddy\.service:\s*([\d.]+)\s*(\w+)", score)
+    facts["service_exposure"] = float(m.group(1)) if m else None
+    facts["timers"] = {t: sh("systemctl", "is-active", t).stdout.strip() or "unknown"
+                       for t in ("buddy-maintain.timer", "buddy-backup.timer", "buddy-access.timer",
+                                 "unattended-upgrades.service")}
+    release = Path("/etc/os-release")
+    if release.exists():
+        facts["os"] = dict(l.split("=", 1) for l in release.read_text().splitlines() if "=" in l).get(
+            "PRETTY_NAME", "").strip('"')
     if m and float(m.group(1)) > 5.0:
         find("watch", f"Buddy's service exposure is {m.group(1)} ({m.group(2)})", "Lower is better (under 5 is good).",
              "Apply the hardening: sudo bash /opt/buddy/deploy/security.sh harden")
@@ -346,8 +386,10 @@ def main() -> None:
     findings.sort(key=lambda f: order.get(f["severity"], 3))
     status = "act" if any(f["severity"] == "act" for f in findings) else (
         "watch" if any(f["severity"] == "watch" for f in findings) else "good")
+    facts["vulnerabilities"] = len(vulns)
+    facts["patched_this_run"] = not NO_PATCH
     report = {"at": started.isoformat(), "status": status, "findings": findings, "done": done,
-              "vulnerabilities": vulns, "exposure": exposure}
+              "vulnerabilities": vulns, "exposure": exposure, "facts": facts}
     REPORT.parent.mkdir(parents=True, exist_ok=True)
     REPORT.write_text(json.dumps(report, indent=2))
     try:

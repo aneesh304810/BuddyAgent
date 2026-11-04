@@ -55,8 +55,8 @@ def sign(file_id: str, expires: int) -> str:
     return hmac.new(_secret(), f"{file_id}:{expires}".encode(), hashlib.sha256).hexdigest()[:32]
 
 
-def link(file_id: str) -> str:
-    expires = int(time.time()) + LINK_DAYS * 86400
+def link(file_id: str, days: int = LINK_DAYS) -> str:
+    expires = int(time.time()) + days * 86400
     return f"/api/files/{file_id}?exp={expires}&sig={sign(file_id, expires)}"
 
 

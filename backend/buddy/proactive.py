@@ -3,6 +3,7 @@
 import asyncio
 import json
 import logging
+import os
 from datetime import datetime
 from collections.abc import Awaitable, Callable
 
@@ -21,6 +22,7 @@ from .thrift import Thrift
 from .tools import format_local, local_now, user_tz
 
 log = logging.getLogger(__name__)
+SOC_MONTHLY = os.getenv("BUDDY_SOC_MONTHLY", "1") not in ("", "0")
 
 CHECK_EVERY_SECONDS = 15
 
@@ -122,6 +124,14 @@ async def run(memory: Memory, deliver: Deliver) -> None:
             if memory.get("finance:refreshed") != today:
                 await asyncio.to_thread(finance.Finance(memory).refresh)
                 memory.set("finance:refreshed", today)
+            month_now = local_now().strftime("%Y-%m")
+            if SOC_MONTHLY and memory.get("soc:monthly_saved") != month_now:
+                memory.set("soc:monthly_saved", month_now)  # once a month, even if it fails: no retry storm
+                try:  # SOC 2 readiness evidence, monthly: it lands in Reports (Type II needs controls over time)
+                    from . import compliance  # noqa: PLC0415
+                    await asyncio.to_thread(compliance.generate, memory)
+                except Exception:
+                    log.exception("monthly SOC readiness report failed")
             if advisor.monthly_due(memory):
                 month = local_now().strftime("%Y-%m")
                 adv = advisor.Advisor(memory)

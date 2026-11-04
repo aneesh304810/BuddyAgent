@@ -497,7 +497,11 @@ LIBRARY_TOOL = {
     "Buddy, or the paperclip). search (words: the passages that match, with file and id), list (recent, optional "
     "kind: document, image, table, data), open (an id: summary, facts, tables and text; part=N for more), unlock (a "
     "vault item: asks the user first), forget (asks first). For sums or questions over a spreadsheet, CSV or JSON "
-    "list, use process_data with source {kind: library, id} (table-query). Quote which document an answer came from.",
+    "list, use process_data with source {kind: library, id} (table-query). Quote which document an answer came from. "
+    "It also holds Buddy Labs' own documents (type 'Buddy Labs document'): the privacy policy, information security "
+    "program, biometric privacy policy, how Buddy is secured and every security check, access control policy, keys, "
+    "setup, money, sandbox and the latest SOC readiness report: search them for questions about the company, its "
+    "policies, security or compliance.",
     "input_schema": {"type": "object", "properties": {
         "action": {"type": "string", "enum": ["search", "list", "open", "unlock", "forget"]},
         "query": {"type": "string"}, "id": {"type": "string"},

@@ -54,6 +54,7 @@ from fastapi import Depends, FastAPI, Header, HTTPException, Request, WebSocket,
 from fastapi.staticfiles import StaticFiles
 
 from . import health as healthcheck
+from . import guard
 from . import advisor, codejob, diagnostics, finance, plaid, travel, insights, thinking, makers, proactive, research, tutor, usage, vocabulary, voiceprint
 from .agent import FILLERS, Conversation
 from .agents import AgentRegistry, load_specs
@@ -305,6 +306,15 @@ async def lifespan(app: FastAPI):
     health_loop = asyncio.create_task(healthcheck.run(memory, finops, deliver))
     tutor_loop = asyncio.create_task(tutor.run(memory, jobs))
     brain_loop = asyncio.create_task(_index_brain())
+    if os.getenv("BUDDY_COMPANY_DOCS", "1") not in ("", "0"):
+        from . import companydocs
+
+        async def _company_docs() -> None:  # Buddy Labs' documents into the library, for questions
+            try:
+                await asyncio.to_thread(companydocs.sync, memory)
+            except Exception:
+                log.exception("company documents sync failed")
+        asyncio.create_task(_company_docs())
     try:
         yield
     finally:
@@ -324,6 +334,31 @@ async def lifespan(app: FastAPI):
 
 # No public API docs: the only callers are Buddy's own apps.
 app = FastAPI(title="Buddy", lifespan=lifespan, docs_url=None, redoc_url=None, openapi_url=None)
+
+
+@app.middleware("http")
+async def protect(request: Request, call_next):
+    """Lockout, access log and security headers for every page and API call (guard.py)."""
+    from fastapi.responses import JSONResponse
+
+    path = request.url.path
+    ip, user = guard.client(request.client.host if request.client else None, request.headers)
+    started = time.monotonic()
+    wait = guard.guard.locked(ip) if path != "/health" else 0
+    if wait:
+        response = JSONResponse({"detail": "Too many failed sign-ins from this address. Try again later."},
+                                status_code=429, headers={"Retry-After": str(wait)})
+    else:
+        response = await call_next(request)
+    if response.status_code == 401 and not wait:
+        guard.guard.failed(ip, user, path)
+    if guard.wants_log(path, response.status_code):
+        guard.guard.record("http", ip, user, request.method, path, response.status_code,
+                           int((time.monotonic() - started) * 1000))
+    existing = {k.lower() for k in response.headers.keys()}
+    for name, value in guard.security_headers(path, request.headers.get("host", ""), existing).items():
+        response.headers[name] = value
+    return response
 
 
 class _HideTokens(logging.Filter):
@@ -477,6 +512,40 @@ async def admin_connector_action(name: str, action: str) -> dict:
 @app.get("/admin/audit", dependencies=[Depends(require_admin)])
 def admin_audit(limit: int = 100) -> list[dict]:
     return registry.audit_log(min(limit, 1000))
+
+
+@app.get("/admin/access-log", dependencies=[Depends(require_admin)])
+def admin_access_log(limit: int = 200, failures: bool = False) -> dict:
+    """Who called Buddy, from where, and the result (guard.py); failures=true: failed sign-ins and lockouts."""
+    return {"stats": guard.guard.stats(30), "entries": guard.guard.recent(limit, only_failures=failures)}
+
+
+# --- SOC 2 readiness: the assessment and its Word document (compliance.py) --------------------
+@app.get("/api/compliance", dependencies=[Depends(require_admin)])
+def api_compliance() -> dict:
+    """The controls and their status right now, without saving a report."""
+    from . import compliance
+
+    ev = compliance.evidence(memory)
+    items = compliance.controls(ev)
+    return {"score": compliance.score(items), "summary": compliance.summary(items), "controls": items,
+            "notice": compliance.NOTICE, "checked_at": ev["check_at"]}
+
+
+@app.post("/api/compliance/report", dependencies=[Depends(require_admin)])
+def api_compliance_report(request: Request) -> dict:
+    """Make the report: saved in Reports, with a link to download the Word document."""
+    from . import compliance
+
+    base = _base_url(request.headers)
+    if base.startswith("https://"):
+        with contextlib.suppress(Exception):
+            memory.set("server:base_url", base)
+    try:
+        out = compliance.generate(memory)
+    except ToolError as e:
+        raise HTTPException(status_code=503, detail=str(e)) from e
+    return {**out, "download": base + out["url"] if base else out["url"]}
 
 
 @app.get("/admin/usage", dependencies=[Depends(require_admin)])
@@ -950,7 +1019,7 @@ def api_resolve(conflict_id: int, keep: str) -> dict:
 
 # --- background job reports: the phone apps show them -----------------------
 REPORT_TYPES = {"research": "Research", "money_weekly": "Money", "money_monthly": "Money", "money_review": "Money",
-                "tutor": "English",
+                "tutor": "English", "soc_report": "Security",
                 "code": "Code", "build_agent": "Agents"}
 ARCHIVE_AFTER_DAYS = 7
 
@@ -983,9 +1052,17 @@ def authorized(token: str | None) -> bool:
 
 @app.websocket("/ws")
 async def talk(ws: WebSocket) -> None:
+    ip, user = guard.client(ws.client.host if ws.client else None, ws.headers)
+    if guard.guard.locked(ip):
+        guard.guard.record("ws", ip, user, "WS", "/ws", 429)
+        await ws.close(code=4429)
+        return
     if not authorized(ws.query_params.get("token")):
+        guard.guard.record("ws", ip, user, "WS", "/ws", 401)
+        guard.guard.failed(ip, user, "/ws")
         await ws.close(code=4401)
         return
+    guard.guard.record("ws", ip, user, "WS", "/ws", 101)
     await ws.accept()
     convo = Conversation(memory, registry, jobs, thrift, hub, finops, mail, watcher, builder)
     connections[ws] = convo

@@ -18,3 +18,17 @@ os.environ.pop("BUDDY_DB_KEY", None)
 os.environ.setdefault("BUDDY_MEANING_SEARCH", "0")  # no model download in tests; brain tests pass a stand-in
 os.environ.setdefault("BUDDY_MONEY_WEEKLY", "")  # the scheduled money reports; their tests call them directly
 os.environ.setdefault("BUDDY_MONEY_MONTHLY", "")
+os.environ.setdefault("BUDDY_SOC_MONTHLY", "")  # the monthly SOC readiness report; its tests call it directly
+os.environ.setdefault("BUDDY_COMPANY_DOCS", "")  # its tests sync on their own
+
+
+import pytest  # noqa: E402
+
+
+@pytest.fixture(autouse=True)
+def _no_lockouts():
+    """The brute-force lockout counts failed sign-ins across requests: each test starts clean."""
+    from buddy import guard
+
+    guard.guard.reset()
+    yield
