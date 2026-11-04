@@ -62,6 +62,8 @@ def _months_back(d: date, n: int) -> date:
 
 def calendar_months(period: str) -> int | None:
     """Whole calendar months in a period (None for one still running)."""
+    if period.startswith("month:"):
+        return 1
     return {"last_month": 1, "last_3_months": 3, "last_6_months": 6, "last_12_months": 12}.get(period)
 
 
@@ -78,7 +80,16 @@ def period_bounds(period: str, today: date) -> tuple[date, date, str]:
         return start, first - timedelta(days=1), f"{start:%b %Y} to {(first - timedelta(days=1)):%b %Y}"
     if period == "this_year":
         return date(today.year, 1, 1), today, f"{today.year} so far"
-    raise ToolError(f"Pick a period: {', '.join(PERIODS)}.")
+    if period.startswith("month:"):  # one calendar month, e.g. month:2026-08 (the dashboard's trend drill-down)
+        try:
+            start = date.fromisoformat(period[6:] + "-01")
+        except ValueError:
+            raise ToolError("A month looks like month:2026-08.") from None
+        end = _months_back(start, -1) - timedelta(days=1)
+        if start > today:
+            raise ToolError("That month hasn't started yet.")
+        return start, min(end, today), f"{start:%B %Y}" + (" so far" if end > today else "")
+    raise ToolError(f"Pick a period: {', '.join(PERIODS)}, or month:YYYY-MM.")
 
 
 def _money(v: float) -> str:
@@ -244,7 +255,7 @@ class Review:
             m_start = _months_back(first, n)
             m_end = (_months_back(first, n - 1) - timedelta(days=1)) if n else today
             m_rows = [r for r in self._rows(m_start, m_end) if r["currency"] == "USD"]
-            trend.append({"month": f"{m_start:%b %Y}" + (" (so far)" if not n else ""),
+            trend.append({"id": f"month:{m_start:%Y-%m}", "month": f"{m_start:%b %Y}" + (" (so far)" if not n else ""),
                           "spent": round(sum(r["amount"] for r in m_rows), 2), "income": self._income(m_start, m_end)})
 
         subs = self.fin.subscriptions()["subscriptions"]
@@ -738,3 +749,57 @@ async def review_tool(memory: Memory, args: dict) -> str:
                        "transfers": {k: r["transfers"][k] for k in ("to_people", "abroad", "family", "to_savings")},
                        "ask_the_user": r["transfers"]["questions"]},
                       ensure_ascii=False)
+
+
+def drill(memory: Memory, start: str, end: str, category: str = "", detail: str = "", merchant: str = "",
+          card: str = "", transfer: str = "", recipient: str = "", limit: int = 300) -> dict:
+    """The transactions behind one slice of the dashboard (newest first), with their total."""
+    rv = Review(memory)
+    try:
+        a, b = date.fromisoformat(start), date.fromisoformat(end)
+    except ValueError:
+        raise ToolError("Dates look like 2026-10-01.") from None
+    names = rv._account_names()
+    if transfer or recipient:
+        labels = rv.labels()
+        try:
+            rows = [dict(r) for r in memory.db.execute(
+                "SELECT day, amount, currency, name, kind, recipient, account FROM fin_transfers WHERE day BETWEEN ? AND ? "
+                "ORDER BY day DESC", (a.isoformat(), b.isoformat()))]
+        except Exception:
+            rows = []
+        out = []
+        for r in rows:
+            lab = rv._label_for(r["recipient"], r["name"], labels, r["kind"])
+            kind = {"rent": "rent", "family_support": "family", "savings": "own"}.get((lab or {}).get("label"), r["kind"])
+            if (transfer and kind != transfer) or (recipient and r["recipient"].lower() != recipient.lower()):
+                continue
+            out.append({"day": r["day"], "amount": r["amount"], "currency": r["currency"], "what": r["name"],
+                        "to": r["recipient"], "kind": kind,
+                        "account": names.get(r["account"], f"••{r['account']}" if r["account"] else "")})
+    else:
+        out = []
+        for r in sorted(rv._rows(a, b), key=lambda r: r["day"], reverse=True):
+            cat = "fees" if rv._is_fee(r) else r["category"]
+            if (category and cat != category) or (detail and r["detail"] != detail) or \
+                    (merchant and r["merchant"] != merchant) or (card and r["card"] != card):
+                continue
+            out.append({"day": r["day"], "amount": r["amount"], "currency": r["currency"], "what": r["merchant"],
+                        "category": LABELS.get(cat, cat), "detail": r["detail"],
+                        "account": names.get(r["card"], f"••{r['card']}" if r["card"].isdigit() else r["card"])})
+    return {"count": len(out), "total": round(sum(x["amount"] for x in out if x["currency"] == "USD"), 2),
+            "rows": out[:limit]}
+
+
+def dashboard(memory: Memory, period: str = "last_month") -> dict:
+    """Everything the dashboard draws, for one period (no AI: numbers only)."""
+    rv = Review(memory)
+    r = rv.compute(period)
+    names = rv._account_names()
+    masks = {v: k for k, v in names.items()}
+    for c in r["cards_used"]:
+        c["key"] = masks.get(c["card"], c["card"].replace("••", "") if c["card"].startswith("••") else c["card"])
+    r["periods"] = [{"id": p, "label": p.replace("_", " ").capitalize()} for p in PERIODS]
+    first = local_now().date().replace(day=1)
+    r["months"] = [f"month:{_months_back(first, n):%Y-%m}" for n in range(5, -1, -1)]
+    return json.loads(json.dumps(r, default=str))

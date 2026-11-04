@@ -801,6 +801,27 @@ def api_travel_profile(body: dict) -> dict:
     return travel.Travel(memory).set_profile(**{k: body.get(k) for k in travel.DEFAULT_PROFILE})
 
 
+# --- money dashboard (web/money.html): numbers per period, and the transactions behind any slice
+@app.get("/api/money/dashboard", dependencies=[Depends(require_admin)])
+async def api_money_dashboard(period: str = "last_month") -> dict:
+    from . import review
+    try:
+        return await asyncio.to_thread(review.dashboard, memory, period)
+    except ToolError as e:
+        raise HTTPException(status_code=400, detail=str(e)) from e
+
+
+@app.get("/api/money/transactions", dependencies=[Depends(require_admin)])
+async def api_money_transactions(start: str, end: str, category: str = "", detail: str = "", merchant: str = "",
+                                 card: str = "", transfer: str = "", recipient: str = "") -> dict:
+    from . import review
+    try:
+        return await asyncio.to_thread(review.drill, memory, start, end, category, detail, merchant, card, transfer,
+                                       recipient)
+    except ToolError as e:
+        raise HTTPException(status_code=400, detail=str(e)) from e
+
+
 # --- Plaid: linking a bank (the page is opened in the phone's browser; its one-time state authenticates it)
 @app.get("/api/plaid", dependencies=[Depends(require_admin)])
 def api_plaid() -> dict:

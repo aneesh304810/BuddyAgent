@@ -232,3 +232,22 @@ def test_one_label_for_every_remittance_service(mem):
     assert "all remittances" in out
     t = review.Review(mem).compute("last_month")["transfers"]
     assert t["family"] == 900 and t["abroad"] == 0
+
+
+def test_dashboard_endpoints_need_the_token_and_drill_down(mem, monkeypatch):
+    from fastapi.testclient import TestClient
+    from buddy import server
+    monkeypatch.setattr(server, "authorized", lambda t: t == "s3cret")
+    monkeypatch.setattr(server, "memory", mem)
+    h = {"Authorization": "Bearer s3cret"}
+    with TestClient(server.app) as c:
+        assert c.get("/api/money/dashboard").status_code == 401
+        d = c.get("/api/money/dashboard?period=last_month", headers=h).json()
+        assert d["label"] and d["categories"] and len(d["months"]) == 6 and d["trend"][-2]["id"].startswith("month:")
+        food = c.get("/api/money/transactions", headers=h,
+                     params={"start": d["from"], "end": d["to"], "category": "food"}).json()
+        assert food["count"] == 1 and food["rows"][0]["what"] == "Cafe Roma" and food["total"] == 520
+        assert c.get("/api/money/dashboard?period=month:2099-01", headers=h).status_code == 400
+        assert c.get("/api/money/transactions", headers=h, params={"start": "x", "end": "y"}).status_code == 400
+        page = c.get("/money.html")
+        assert page.status_code == 200 and "money.js" in page.text and 'name="referrer" content="no-referrer"' in page.text
