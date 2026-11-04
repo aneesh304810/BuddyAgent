@@ -303,6 +303,9 @@ class Plaid:
                                                                       and primary in ("TRANSFER_OUT", ""))):
             self._transfer(item_id, tx, detailed, accounts)
             return False
+        if detailed == "LOAN_PAYMENTS_CREDIT_CARD_PAYMENT" and amount_out > 0:
+            self._card_payment(item_id, tx, accounts)  # cash flow, not spending: the card's purchases count already
+            return False
         category = DETAILED.get(detailed, CATEGORY.get(primary, "other"))
         if category is None or not tx.get("amount"):
             return False  # card payments, transfers between the user's own accounts, pay coming in
@@ -341,6 +344,31 @@ class Plaid:
             (f"plaid:{item_id}:{tx['transaction_id']}", str(tx.get("date") or tx.get("authorized_date"))[:10],
              round(float(tx["amount"]), 2), tx.get("iso_currency_code") or "USD", raw[:80], kind, recipient[:40],
              (account.get("mask") or "")[-4:]))
+
+    def _card_payment(self, item_id: str, tx: dict, accounts: dict) -> None:
+        """A credit card bill paid from checking: which card, for the cash flow ('Paid Amex Platinum ••9001')."""
+        raw = tx.get("name") or tx.get("merchant_name") or "Card payment"
+        ending = re.search(r"(?:ending(?: in)?|x+|\*{2,}|#)\s*(\d{4})\b", raw, re.I)
+        card = ""
+        if ending:
+            row = self.memory.db.execute(
+                "SELECT a.name, i.institution FROM plaid_accounts a JOIN plaid_items i ON i.item_id = a.item_id "
+                "WHERE a.mask = ? AND a.type = 'credit'", (ending.group(1),)).fetchone()
+            card = (f"{row['institution']} {row['name']}" if row else "") + f" ••{ending.group(1)}"
+        if not card:
+            issuer = next((n for k, n in (("amex", "American Express"), ("american express", "American Express"),
+                                          ("chase", "Chase"), ("citi", "Citi"), ("capital one", "Capital One"),
+                                          ("discover", "Discover"), ("bank of america", "Bank of America"),
+                                          ("wells fargo", "Wells Fargo"), ("apple card", "Apple Card"))
+                           if k in raw.lower()), "")
+            card = issuer or raw[:40]
+        account = accounts.get(tx.get("account_id"), {})
+        self.memory.db.execute(
+            "INSERT OR REPLACE INTO fin_transfers (source, day, amount, currency, name, kind, recipient, account) "
+            "VALUES (?, ?, ?, ?, ?, 'card_payment', ?, ?)",
+            (f"plaid:{item_id}:{tx['transaction_id']}", str(tx.get("date") or tx.get("authorized_date"))[:10],
+             round(float(tx["amount"]), 2), tx.get("iso_currency_code") or "USD", raw[:80],
+             re.sub(r"[®™©]", "", card).strip()[:40], (account.get("mask") or "")[-4:]))
 
     def _take_over_cards(self, item_id: str) -> int:
         """Plaid is the record for every account it covers: charges counted earlier from emails or SimpleFIN for

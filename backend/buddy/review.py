@@ -163,6 +163,43 @@ class Review:
             "SELECT day, amount, currency, merchant, category, card, COALESCE(detail, '') AS detail FROM transactions "
             "WHERE day BETWEEN ? AND ? AND amount > 0", (start.isoformat(), end.isoformat()))] + self._rent_rows(start, end)
 
+    def cash_flow(self, start: date, end: date, transfers: dict, categories: list[dict] | None = None) -> dict | None:
+        """The accounts your pay lands in: what came in (salary, other income) and where it went (card bills,
+        housing, family, people, savings, debit spending), and what was left. USD only."""
+        db = self.memory.db
+        try:
+            masks = [r["mask"] for r in db.execute(
+                "SELECT a.mask FROM plaid_accounts a JOIN plaid_items i ON i.item_id = a.item_id WHERE a.type = "
+                "'depository' AND COALESCE(i.env, 'production') != 'sandbox' AND a.mask != ''")]
+            income = db.execute("SELECT kind, COALESCE(SUM(amount), 0) AS total FROM fin_income WHERE day BETWEEN ? AND ? "
+                                "AND currency = 'USD' GROUP BY kind", (start.isoformat(), end.isoformat())).fetchall()
+            cards = db.execute("SELECT recipient, COALESCE(SUM(amount), 0) AS total, COUNT(*) AS n FROM fin_transfers "
+                               "WHERE kind = 'card_payment' AND day BETWEEN ? AND ? AND currency = 'USD' "
+                               "GROUP BY recipient ORDER BY total DESC", (start.isoformat(), end.isoformat())).fetchall()
+        except Exception:
+            return None
+        if not masks and not income and not cards:
+            return None
+        marks = ",".join("?" * len(masks)) or "''"
+        debit = db.execute(f"SELECT category, COALESCE(SUM(amount), 0) AS total FROM transactions WHERE card IN ({marks}) "  # nosec B608 (placeholders)
+                           "AND day BETWEEN ? AND ? AND currency = 'USD' GROUP BY category",
+                           (*masks, start.isoformat(), end.isoformat())).fetchall()
+        rent = sum(r["amount"] for r in self._rent_rows(start, end))  # rent paid by transfer (e.g. Zelle, labelled)
+        housing = sum(r["total"] for r in debit if r["category"] == "housing") + rent
+        salary = sum(r["total"] for r in income if (r["kind"] or "").lower() in ("wages", "salary", "payroll"))
+        other_in = sum(r["total"] for r in income) - salary
+        out = {"card_payments": round(sum(c["total"] for c in cards), 2),
+               "housing": round(housing, 2),
+               "family": round(transfers.get("family", 0) + transfers.get("abroad", 0), 2),
+               "people": round(transfers.get("to_people", 0) + transfers.get("other", 0), 2),
+               "savings": round(transfers.get("to_savings", 0), 2),
+               "debit_spending": round(sum(r["total"] for r in debit if r["category"] != "housing"), 2)}
+        came_in = round(salary + other_in, 2)
+        went_out = round(sum(out.values()), 2)
+        return {"in": {"salary": round(salary, 2), "other": round(other_in, 2), "total": came_in},
+                "out": {**out, "total": went_out}, "left": round(came_in - went_out, 2),
+                "card_bills": [{"card": c["recipient"], "paid": round(c["total"], 2), "payments": c["n"]} for c in cards]}
+
     def _income(self, start: date, end: date) -> float | None:
         try:
             got = self.memory.db.execute(
@@ -314,7 +351,7 @@ class Review:
                          "items": [{"day": r["day"], "merchant": r["merchant"], "amount": r["amount"]} for r in fees][:10]},
                 "cards_used": cards_used,
                 "house_by_card": sorted(((k, round(v, 2)) for k, v in house.items()), key=lambda kv: -kv[1]),
-                "transfers": transfers, "waste": waste,
+                "transfers": transfers, "cash_flow": self.cash_flow(start, end, transfers), "waste": waste,
                 "subscription_tracker": [{"service": s["merchant"], "amount": s["amount"], "billing": s["cadence"],
                                           "yearly": s["yearly_cost"], "last": s["last_charge"], "next": s["next_charge"],
                                           "cards": [names.get(c, c) for c in s["cards"]], "status": s["status"],
@@ -347,6 +384,8 @@ class Review:
         out = {"own": 0.0, "person": 0.0, "abroad": 0.0, "other": 0.0, "family": 0.0}
         people: dict[tuple, list] = {}
         for r in rows:
+            if r["kind"] == "card_payment":
+                continue  # paying a card bill isn't money leaving: the card's purchases are counted (see cash flow)
             lab = self._label_for(r["recipient"], r["name"], labels, r["kind"])
             if lab and lab["label"] == "rent":
                 continue  # counted as housing spending
@@ -588,6 +627,20 @@ class Review:
         if r["house_by_card"]:
             L += ["House expenses (rent or mortgage, home, utilities) were paid with: " + ", ".join(
                 f"{k} {_money(v)}" for k, v in r["house_by_card"]) + ".", ""]
+        cf = r.get("cash_flow")
+        if cf and (cf["in"]["total"] or cf["out"]["total"]):
+            o = cf["out"]
+            L += ["## Cash flow", "", "| | Amount |", "| --- | --- |"]
+            L += [f"| {label} | {_money(v)} |" for label, v in (
+                ("Salary", cf["in"]["salary"]), ("Other income", cf["in"]["other"]), ("**Total in**", cf["in"]["total"]),
+                ("Credit card bills", o["card_payments"]), ("Housing (mortgage, rent)", o["housing"]),
+                ("Family and money sent abroad", o["family"]), ("Sent to people", o["people"]),
+                ("To savings and investments", o["savings"]), ("Debit card and account spending", o["debit_spending"]),
+                ("**Total out**", o["total"]), ("**Kept**" if cf["left"] >= 0 else "**Short**", abs(cf["left"]))) if v]
+            if cf["card_bills"]:
+                L.append("")
+                L.append("Card bills paid: " + ", ".join(f"{c['card']} {_money(c['paid'])}" for c in cf["card_bills"]) + ".")
+            L.append("")
         if t["recipients"] or t["to_savings"]:  # rent paid by transfer is under housing above
             L += ["## Transfers"]
             names = {"person": "to", "abroad": "abroad via", "other": "to", "family": "family support via"}
@@ -747,6 +800,7 @@ async def review_tool(memory: Memory, args: dict) -> str:
     return json.dumps({"saved_report": job_id, "summary": summary, "top_ways_to_save": r["todo"][:3],
                        "possible_yearly_savings": r["possible_yearly_savings"],
                        "transfers": {k: r["transfers"][k] for k in ("to_people", "abroad", "family", "to_savings")},
+                       "cash_flow": r.get("cash_flow"),
                        "ask_the_user": r["transfers"]["questions"]},
                       ensure_ascii=False)
 

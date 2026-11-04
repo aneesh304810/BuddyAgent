@@ -140,7 +140,8 @@ def test_transfers_housing_and_cards(mem):
     t("cc", 900, "AMEX EPAYMENT", "LOAN_PAYMENTS", "LOAN_PAYMENTS_CREDIT_CARD_PAYMENT")
     mem.db.commit()
     kinds = {r["recipient"]: r["kind"] for r in mem.db.execute("SELECT recipient, kind FROM fin_transfers")}
-    assert kinds == {"Neha Sharma": "person", "Remitly": "abroad", "Savings and investments": "own"}
+    assert kinds == {"Neha Sharma": "person", "Remitly": "abroad", "Savings and investments": "own",
+                     "American Express": "card_payment"}  # the card bill: cash flow, not spending
     assert mem.db.execute("SELECT category FROM transactions WHERE merchant LIKE '%MORTGAGE%'").fetchone()[0] == "housing"
     assert not mem.db.execute("SELECT 1 FROM transactions WHERE merchant = 'AMEX EPAYMENT'").fetchone()  # not spending
     r = review.Review(mem).compute("last_month")
@@ -251,3 +252,41 @@ def test_dashboard_endpoints_need_the_token_and_drill_down(mem, monkeypatch):
         assert c.get("/api/money/transactions", headers=h, params={"start": "x", "end": "y"}).status_code == 400
         page = c.get("/money.html")
         assert page.status_code == 200 and "money.js" in page.text and 'name="referrer" content="no-referrer"' in page.text
+
+
+def test_cash_flow_of_the_account_the_salary_lands_in():
+    from datetime import date as _date
+    from buddy.memory import Memory
+    m = Memory(":memory:")
+    p = Plaid(m, env={})
+    m.db.executescript(
+        "INSERT INTO plaid_items (item_id, access_token, institution, added_at, env) VALUES "
+        "('i', 't', 'Chase', '2026-10-01', 'production');"
+        "INSERT INTO plaid_accounts (account_id, item_id, name, mask, type) VALUES "
+        "('chk', 'i', 'TOTAL CHECKING', '5678', 'depository'), ('amx', 'i', 'Platinum Card', '9001', 'credit');")
+    accounts = {"chk": {"mask": "5678", "name": "TOTAL CHECKING"}}
+    day = "2026-10-15"
+
+    def tx(tid, amount, name, primary, detailed, merchant=""):
+        p._transaction("i", {"transaction_id": tid, "account_id": "chk", "amount": amount, "date": day, "name": name,
+                             "merchant_name": merchant, "personal_finance_category": {"primary": primary,
+                                                                                      "detailed": detailed}}, accounts)
+    tx("pay", -6000, "ACME CORP PAYROLL", "INCOME", "INCOME_WAGES")
+    tx("neha", 2400, "Zelle payment to NEHA S", "TRANSFER_OUT", "TRANSFER_OUT_ACCOUNT_TRANSFER")
+    tx("rem", 600, "REMITLY 12345", "TRANSFER_OUT", "TRANSFER_OUT_ACCOUNT_TRANSFER")
+    tx("amex", 1500, "AMERICAN EXPRESS ACH PMT", "LOAN_PAYMENTS", "LOAN_PAYMENTS_CREDIT_CARD_PAYMENT")
+    tx("mtg", 2950, "CHASE MORTGAGE PAYMENT", "LOAN_PAYMENTS", "LOAN_PAYMENTS_MORTGAGE_PAYMENT")
+    tx("sav", 500, "Transfer to SAV ...1234", "TRANSFER_OUT", "TRANSFER_OUT_SAVINGS")
+    tx("groc", 120, "SHOPRITE 123", "FOOD_AND_DRINK", "FOOD_AND_DRINK_GROCERIES")
+    rv = review.Review(m)
+    rv.label_transfer("Neha", "rent", "USA house expenses")
+    rv.label_transfer("*abroad*", "family_support", "parents' maintenance")
+    cf = rv.compute("month:2026-10", today=_date(2026, 11, 4))["cash_flow"]
+    assert cf["in"] == {"salary": 6000, "other": 0, "total": 6000}
+    assert cf["out"]["card_payments"] == 1500 and cf["card_bills"][0]["card"] == "American Express"
+    assert cf["out"]["housing"] == 2400 + 2950          # rent to Neha by Zelle and the mortgage
+    assert cf["out"]["family"] == 600 and cf["out"]["savings"] == 500 and cf["out"]["debit_spending"] == 120
+    assert cf["out"]["total"] == 1500 + 5350 + 600 + 500 + 120 and cf["left"] == 6000 - 8070
+    # paying the card isn't spending: the card's own purchases are what count
+    spent = rv.compute("month:2026-10", today=_date(2026, 11, 4))["spent"]
+    assert spent == 2400 + 2950 + 120

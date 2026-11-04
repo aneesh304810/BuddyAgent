@@ -13,7 +13,8 @@ if (params.get("token") && storageGet("buddyToken") === token) history.replaceSt
 
 const $ = (id) => document.getElementById(id);
 const esc = (s) => String(s ?? "").replace(/[&<>"']/g, (c) => ({ "&": "&amp;", "<": "&lt;", ">": "&gt;", '"': "&quot;", "'": "&#39;" }[c]));
-const money = (v) => v == null ? "–" : (Math.abs(v) >= 100 ? "$" + Math.round(v).toLocaleString() : "$" + Number(v).toFixed(2));
+const money = (v) => v == null ? "–" : (v < 0 ? "−" : "") +
+  (Math.abs(v) >= 100 ? "$" + Math.round(Math.abs(v)).toLocaleString() : "$" + Math.abs(Number(v)).toFixed(2));
 const COLORS = { needs: "var(--needs)", wants: "var(--wants)", fees: "var(--fees)", family: "var(--family)",
   sent: "var(--sent)", save: "var(--save)", left: "var(--left)" };
 let data = null, period = storageGet("moneyPeriod") || "last_month";
@@ -84,9 +85,27 @@ function render() {
       sect("Cash", g.cash, (x) => row(x, money(x.balance))) +
       sect("Investments", g.investments, (x) => row(x, money(x.balance))) +
       sect("Cards", g.cards, (x) => row(x, money(x.owed) + " owed")) +
-      sect("Mortgages and loans", g.loans, (x) => row(x, money(x.owed) + " owed" +
-        (x.rate != null ? ` · ${x.rate}%` : "") + (x.next_payment ? ` · next ${money(x.next_payment)}${x.next_due ? " on " + esc(x.next_due.slice(5)) : ""}` : ""))) +
+      sect("Mortgages and loans", g.loans, (x) => row(x, money(x.owed) + " owed") +
+        ((x.rate != null || x.next_payment) ? `<p class="muted" style="margin:-4px 0 6px">${[x.rate != null ? x.rate + "% " + esc(x.rate_type || "") : "",
+          x.next_payment ? "next payment " + money(x.next_payment) + (x.next_due ? " on " + esc(x.next_due) : "") : ""].filter(Boolean).join(" · ")}</p>` : "")) +
       (acc.note ? `<p class="muted" style="margin-top:8px">${esc(acc.note)}</p>` : "")));
+  }
+  // cash flow of the accounts the pay lands in
+  const cf = d.cash_flow;
+  if (cf && (cf.in.total || cf.out.total)) {
+    const line = (label, v, strong) => v ? `<div class="row" style="cursor:default"><span class="name">${strong ? "<b>" + esc(label) + "</b>" : esc(label)}</span>
+      <span class="amt">${strong ? "<b>" + money(v) + "</b>" : money(v)}</span></div>` : "";
+    const o = cf.out;
+    parts.push(card(`Cash flow · ${cf.left >= 0 ? "kept" : "short"} ${money(Math.abs(cf.left))}`,
+      `<p class="muted" style="margin:0 0 2px">Came in</p>` + line("Salary", cf.in.salary) + line("Other income", cf.in.other) +
+      line("Total in", cf.in.total, true) +
+      `<p class="muted" style="margin:10px 0 2px">Went out</p>` +
+      line("Credit card bills", o.card_payments) + line("Housing (mortgage, rent)", o.housing) +
+      line("Family and money sent abroad", o.family) + line("Sent to people (Zelle and others)", o.people) +
+      line("To savings and investments", o.savings) + line("Debit card and account spending", o.debit_spending) +
+      line("Total out", o.total, true) +
+      (cf.card_bills && cf.card_bills.length ? `<p class="muted" style="margin-top:8px">Card bills paid: ${cf.card_bills.map((c) =>
+        esc(c.card) + " " + money(c.paid)).join(" · ")}</p>` : "")));
   }
   // money flow
   const flow = [["Needs", d.split.needs, "needs"], ["Wants", d.split.wants, "wants"], ["Fees", d.split.fees, "fees"],
