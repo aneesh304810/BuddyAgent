@@ -302,3 +302,31 @@ def test_a_chase_mortgage_from_liabilities_is_kept_with_its_next_payment_reminde
     assert "Private Lane" not in json.dumps(loan)  # the property address isn't kept
     bills = Money(mem).open_bills(days=40000)
     assert any(b["biller"] == "Chase mortgage ••4321" and b["amount"] == 2950.12 for b in bills)
+
+
+def test_all_connected_accounts_and_net_worth():
+    from buddy.memory import Memory
+    from buddy.plaid import Plaid
+    mem = Memory(":memory:")
+    accounts = {"accounts": [
+        {"account_id": "chk", "name": "TOTAL CHECKING", "mask": "1111", "type": "depository", "subtype": "checking",
+         "balances": {"current": 8200, "iso_currency_code": "USD"}},
+        {"account_id": "sap", "name": "Sapphire Preferred", "mask": "2222", "type": "credit", "subtype": "credit card",
+         "balances": {"current": 1450.5, "iso_currency_code": "USD"}},
+        {"account_id": "m1", "name": "Home Mortgage", "mask": "3333", "type": "loan", "subtype": "mortgage",
+         "balances": {"current": 400000, "iso_currency_code": "USD"}},
+        {"account_id": "m2", "name": "Home Mortgage", "mask": "4444", "type": "loan", "subtype": "mortgage",
+         "balances": {"current": 150000, "iso_currency_code": "USD"}},
+        {"account_id": "brk", "name": "Brokerage", "mask": "5555", "type": "investment", "subtype": "brokerage",
+         "balances": {"current": 92000, "iso_currency_code": "USD"}}]}
+    p = Plaid(mem, env={"BUDDY_PLAID_CLIENT_ID": "x", "BUDDY_PLAID_SECRET": "y", "BUDDY_PLAID_ENV": "production"},
+              http=lambda url, body: accounts)
+    mem.db.execute("INSERT INTO plaid_items (item_id, access_token, institution, added_at, env) VALUES "
+                   "('i1', 't', 'Chase', '2026-11-01', 'production')")
+    p._accounts({"item_id": "i1", "access_token": "t", "institution": "Chase"})
+    o = p.accounts_overview()
+    assert o["accounts"] == 5 and set(o["groups"]) == {"cash", "cards", "loans", "investments"}
+    assert len(o["groups"]["loans"]) == 2  # both mortgages, each its own
+    assert o["totals"] == {"cash": 8200, "investments": 92000, "cards_owed": 1450.5, "loans_owed": 550000,
+                           "net_worth": round(8200 + 92000 - 1450.5 - 550000, 2)}
+    assert "Home value isn't included" in o["note"] and "Investments product" in o["note"]

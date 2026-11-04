@@ -68,6 +68,26 @@ function render() {
     <div class="kpi"><span>Kept (with savings)</span><b>${money(d.left_over)}</b></div>
     <div class="kpi"><span>Saved</span><b>${d.savings_rate == null ? "–" : d.savings_rate + "%"}</b></div>
     <div class="kpi"><span>Could save a year</span><b style="color:var(--good)">${money(d.possible_yearly_savings)}</b></div></div>`);
+  // all the connected accounts and net worth
+  const acc = d.accounts;
+  if (acc && acc.accounts) {
+    const g = acc.groups, tt = acc.totals;
+    const row = (x, right) => `<div class="row" style="cursor:default"><span class="name">${esc(x.name)}${x.last4 ? " ••" + esc(x.last4) : ""}
+      <small class="muted"> ${esc(x.institution || "")}</small></span><span class="amt">${right}</span></div>`;
+    const sect = (title, xs, fn) => xs && xs.length ? `<p class="muted" style="margin:10px 0 2px">${title}</p>` + xs.map(fn).join("") : "";
+    parts.push(card(`Your accounts · net worth ${money(tt.net_worth)}`,
+      `<div class="kpis" style="margin-bottom:6px">
+        <div class="kpi"><span>Cash</span><b>${money(tt.cash)}</b></div>
+        <div class="kpi"><span>Investments</span><b>${money(tt.investments)}</b></div>
+        <div class="kpi"><span>Cards owed</span><b>${money(tt.cards_owed)}</b></div>
+        <div class="kpi"><span>Loans owed</span><b>${money(tt.loans_owed)}</b></div></div>` +
+      sect("Cash", g.cash, (x) => row(x, money(x.balance))) +
+      sect("Investments", g.investments, (x) => row(x, money(x.balance))) +
+      sect("Cards", g.cards, (x) => row(x, money(x.owed) + " owed")) +
+      sect("Mortgages and loans", g.loans, (x) => row(x, money(x.owed) + " owed" +
+        (x.rate != null ? ` · ${x.rate}%` : "") + (x.next_payment ? ` · next ${money(x.next_payment)}${x.next_due ? " on " + esc(x.next_due.slice(5)) : ""}` : ""))) +
+      (acc.note ? `<p class="muted" style="margin-top:8px">${esc(acc.note)}</p>` : "")));
+  }
   // money flow
   const flow = [["Needs", d.split.needs, "needs"], ["Wants", d.split.wants, "wants"], ["Fees", d.split.fees, "fees"],
     ["Family support", t.family, "family"], ["Sent to people and abroad", t.to_people + t.abroad + t.other, "sent"],

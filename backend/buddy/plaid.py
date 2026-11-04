@@ -450,6 +450,39 @@ class Plaid:
                 n += 1
         return n
 
+    def accounts_overview(self) -> dict:
+        """Every connected account (real banks, not sandbox), grouped: cash, cards, loans, investments, and net worth.
+        Balances as the bank last reported them; brokerage shows its total value (holdings need Plaid Investments)."""
+        rows = self.memory.db.execute(
+            "SELECT a.account_id, a.name, a.mask, a.type, a.subtype, i.institution, b.balance, b.available, b.currency, "
+            "b.balance_date FROM plaid_accounts a JOIN plaid_items i ON i.item_id = a.item_id "
+            "LEFT JOIN bank_accounts b ON b.id = 'plaid:' || a.account_id "
+            "WHERE COALESCE(i.env, 'production') != 'sandbox' ORDER BY i.institution, a.type, a.name").fetchall()
+        loans = {l["account_id"]: l for l in self.loans()}
+        groups = {"cash": [], "cards": [], "loans": [], "investments": [], "other": []}
+        for r in rows:
+            kind = {"depository": "cash", "credit": "cards", "loan": "loans", "investment": "investments",
+                    "brokerage": "investments"}.get(r["type"], "other")
+            item = {"name": r["name"], "institution": r["institution"], "last4": r["mask"], "type": r["subtype"] or r["type"],
+                    "balance": r["balance"], "currency": r["currency"] or "USD", "as_of": r["balance_date"]}
+            if kind in ("cards", "loans") and r["balance"] is not None:
+                item["owed"] = round(abs(r["balance"]), 2)
+            if r["account_id"] in loans:
+                l = loans[r["account_id"]]
+                item.update({k: l[k] for k in ("rate", "rate_type", "next_payment", "next_due", "escrow", "ends")})
+            groups[kind].append(item)
+        usd = lambda xs, key: round(sum((x.get(key) if key in x else x["balance"]) or 0 for x in xs  # noqa: E731
+                                        if x["currency"] == "USD"), 2)
+        totals = {"cash": usd(groups["cash"], "balance"), "investments": usd(groups["investments"], "balance"),
+                  "cards_owed": usd(groups["cards"], "owed"), "loans_owed": usd(groups["loans"], "owed")}
+        totals["net_worth"] = round(totals["cash"] + totals["investments"] - totals["cards_owed"] - totals["loans_owed"], 2)
+        note = ("Home value isn't included (Buddy doesn't know it): net worth here is accounts minus what's owed."
+                if groups["loans"] else "")
+        if groups["investments"]:
+            note += (" Brokerage shows its total value only; the holdings inside it need Plaid's Investments product.")
+        return {"groups": {k: v for k, v in groups.items() if v}, "totals": totals, "accounts": len(rows),
+                "note": note.strip()}
+
     def loans(self) -> list[dict]:
         return [dict(r) for r in self.memory.db.execute("SELECT * FROM fin_loans ORDER BY kind, name")]
 
@@ -618,13 +651,13 @@ def error_page(text: str) -> str:
 
 BANK_TOOL = {
     "name": "bank_link",
-    "description": "The user's banks and cards connected through Plaid (read-only: Buddy can never move money). "
+    "description": "accounts: every connected account grouped (cash, cards owed, mortgages and loans with rate and next payment, brokerage value) with net worth; use for 'show all my accounts', 'what\'s my net worth'. The user's banks and cards connected through Plaid (read-only: Buddy can never move money). "
     "link: opens a page on the phone where they pick the bank and sign in inside Plaid's own window (Buddy never "
     "sees the password); a card's due date, minimum, APR, limit and every transaction then come in by themselves. "
     "status: linked banks, their accounts (last four digits) and any problem. sync: fetch now. unlink (what = the "
     "bank): revokes access at Plaid and deletes that bank's data here (asks the user first).",
     "input_schema": {"type": "object", "properties": {
-        "action": {"type": "string", "enum": ["link", "status", "sync", "unlink"]},
+        "action": {"type": "string", "enum": ["link", "status", "sync", "unlink", "accounts"]},
         "what": {"type": "string"}},
         "required": ["action"], "additionalProperties": False},
 }
@@ -632,6 +665,9 @@ BANK_TOOL = {
 
 async def run_tool(plaid: Plaid, args: dict, base_url: str = "", open_links=None, thrift=None) -> str:
     action = args.get("action")
+    if action == "accounts":
+        found = plaid.accounts_overview()
+        return json.dumps(found, ensure_ascii=False) if found["accounts"] else "No bank connected yet: say 'connect my bank'."
     if action == "status":
         found = plaid.status()
         if not plaid.configured():

@@ -799,6 +799,11 @@ def dashboard(memory: Memory, period: str = "last_month") -> dict:
     masks = {v: k for k, v in names.items()}
     for c in r["cards_used"]:
         c["key"] = masks.get(c["card"], c["card"].replace("••", "") if c["card"].startswith("••") else c["card"])
+    try:  # all the connected accounts and net worth, at the top of the dashboard
+        from .plaid import Plaid
+        r["accounts"] = Plaid(memory, env={}).accounts_overview()
+    except Exception:
+        r["accounts"] = None
     r["periods"] = [{"id": p, "label": p.replace("_", " ").capitalize()} for p in PERIODS]
     first = local_now().date().replace(day=1)
     r["months"] = [f"month:{_months_back(first, n):%Y-%m}" for n in range(5, -1, -1)]
