@@ -98,3 +98,61 @@ def test_the_same_charge_in_two_emails_is_announced_once():
     first = m.from_email(1, charge, "2026-11-04T23:40:00")
     assert len(first) == 1 and "60,585.00 INR at Etihad Airways on card 9001" in first[0]
     assert m.from_email(2, dict(charge), "2026-11-04T23:41:00") == []
+
+
+def test_new_columns_are_added_with_the_encrypted_databases_own_error_class():
+    """sqlcipher3 raises sqlcipher3.dbapi2.OperationalError, not sqlite3's: the check must not depend on the class."""
+    from buddy.memory import Memory
+    from buddy.money import _add_column
+
+    class OperationalError(Exception):  # stands in for sqlcipher3.dbapi2.OperationalError
+        pass
+
+    class Wrapped:
+        def __init__(self, db):
+            self.db = db
+
+        def execute(self, sql, *a):
+            try:
+                return self.db.execute(sql, *a)
+            except Exception as e:
+                raise OperationalError(str(e)) from None
+
+        def commit(self):
+            self.db.commit()
+
+    mem = Memory(":memory:")
+    mem.db.execute("CREATE TABLE old_tx (id INTEGER PRIMARY KEY, merchant TEXT)")
+    real, mem.db = mem.db, Wrapped(mem.db)
+    try:
+        _add_column(mem, "old_tx", "merchant_raw", "TEXT NOT NULL DEFAULT ''")
+        _add_column(mem, "old_tx", "merchant_raw", "TEXT NOT NULL DEFAULT ''")  # already there: nothing to do
+    finally:
+        mem.db = real
+    assert mem.db.execute("SELECT merchant_raw FROM old_tx").fetchall() == []
+
+
+def test_an_older_encrypted_database_starts_and_is_upgraded(tmp_path, monkeypatch):
+    """The real thing: SQLCipher, an old transactions table without the newer columns."""
+    import secrets
+    pytest_mod = __import__("pytest")
+    pytest_mod.importorskip("sqlcipher3")
+    from buddy import db
+    from buddy.memory import Memory
+    from buddy.merchants import Merchants
+    from buddy.money import Money
+    monkeypatch.setenv("BUDDY_DB_KEY", secrets.token_hex(32))
+    path = tmp_path / "old.db"
+    conn = db.connect(path)
+    conn.execute("CREATE TABLE transactions (id INTEGER PRIMARY KEY, day TEXT NOT NULL, amount REAL NOT NULL, "
+                 "currency TEXT NOT NULL, merchant TEXT NOT NULL, category TEXT NOT NULL, card TEXT NOT NULL DEFAULT '', "
+                 "source TEXT NOT NULL UNIQUE, created_at TEXT NOT NULL)")
+    conn.execute("INSERT INTO transactions (day, amount, currency, merchant, category, source, created_at) VALUES "
+                 "('2026-10-01', 38, 'USD', 'SQ *SON CUBANO', 'food', 'old:1', '2026-10-01')")
+    conn.commit()
+    conn.close()
+    mem = Memory(str(path))
+    Money(mem)  # adds detail and merchant_raw
+    Merchants(mem).reclean()
+    row = mem.db.execute("SELECT merchant, merchant_raw, detail FROM transactions").fetchone()
+    assert tuple(row) == ("Son Cubano", "SQ *SON CUBANO", "")

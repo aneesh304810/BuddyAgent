@@ -97,16 +97,17 @@ def _month_bounds(which: str) -> tuple[str, str]:
 def _add_column(memory: Memory, table: str, column: str, spec: str) -> None:
     """Add a column to an older database. Checked by selecting it (safe while other tasks share the connection),
     not by reading PRAGMA rows."""
-    import sqlite3
-
+    # Not sqlite3.OperationalError: the encrypted database (sqlcipher3) raises its own class of the same name.
     try:
         memory.db.execute(f"SELECT {column} FROM {table} LIMIT 0")  # nosec B608 (fixed names)
-    except sqlite3.OperationalError:
+    except Exception as e:
+        if "no such column" not in str(e).lower():
+            raise
         try:
             memory.db.execute(f"ALTER TABLE {table} ADD COLUMN {column} {spec}")
             memory.db.commit()
-        except sqlite3.OperationalError as e:
-            if "duplicate column" not in str(e).lower():  # another task added it first
+        except Exception as e2:
+            if "duplicate column" not in str(e2).lower():  # another task added it first
                 raise
 
 
