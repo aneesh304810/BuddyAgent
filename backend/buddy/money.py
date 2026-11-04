@@ -94,6 +94,22 @@ def _month_bounds(which: str) -> tuple[str, str]:
     return first.isoformat(), today.isoformat()  # this_month
 
 
+def _add_column(memory: Memory, table: str, column: str, spec: str) -> None:
+    """Add a column to an older database. Checked by selecting it (safe while other tasks share the connection),
+    not by reading PRAGMA rows."""
+    import sqlite3
+
+    try:
+        memory.db.execute(f"SELECT {column} FROM {table} LIMIT 0")  # nosec B608 (fixed names)
+    except sqlite3.OperationalError:
+        try:
+            memory.db.execute(f"ALTER TABLE {table} ADD COLUMN {column} {spec}")
+            memory.db.commit()
+        except sqlite3.OperationalError as e:
+            if "duplicate column" not in str(e).lower():  # another task added it first
+                raise
+
+
 KEEP_MONTHS = 24  # the privacy policy promises transactions are deleted after 24 months
 _purged_on: dict[int, str] = {}
 
@@ -102,9 +118,7 @@ class Money:
     def __init__(self, memory: Memory):
         self.memory = memory
         memory.db.executescript(SCHEMA_SQL)
-        if "detail" not in {r[1] for r in memory.db.execute("PRAGMA table_info(transactions)")}:
-            memory.db.execute("ALTER TABLE transactions ADD COLUMN detail TEXT NOT NULL DEFAULT ''")
-            memory.db.commit()
+        _add_column(memory, "transactions", "detail", "TEXT NOT NULL DEFAULT ''")
         today = local_now().date()
         if _purged_on.get(id(memory.db)) != today.isoformat():  # once a day is plenty
             _purged_on[id(memory.db)] = today.isoformat()

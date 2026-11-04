@@ -112,10 +112,9 @@ class Plaid:
         self._http = http or _post
         memory.db.executescript(SCHEMA_SQL + ACCOUNTS_SQL)
         self.money = Money(memory)
-        cols = {r[1] for r in memory.db.execute("PRAGMA table_info(plaid_items)")}
-        if "env" not in cols:  # older databases: banks linked before this column were real (production)
-            memory.db.execute("ALTER TABLE plaid_items ADD COLUMN env TEXT NOT NULL DEFAULT 'production'")
-            memory.db.commit()
+        from .money import _add_column  # older databases: banks linked before this column were real (production)
+
+        _add_column(memory, "plaid_items", "env", "TEXT NOT NULL DEFAULT 'production'")
 
     def setting(self, key: str) -> str:
         return (self.env.get(key) or "").strip()
