@@ -334,3 +334,53 @@ def test_a_newly_connected_card_is_flagged_for_a_lookup():
               http=lambda url, body: accounts)
     p._accounts({"item_id": "i9", "access_token": "t", "institution": "American Express"})
     assert mem.get("benefits:check_new") == "1"
+
+
+def test_a_generically_named_connected_card_is_asked_about_then_looked_up():
+    mem, calls = Memory(":memory:"), []
+    from buddy.plaid import Plaid
+    Plaid(mem, env={})
+    mem.db.executescript(
+        "INSERT INTO plaid_items (item_id, access_token, institution, added_at, env) VALUES "
+        "('c', 't', 'Chase', '2026-11-01', 'production'), ('a', 't', 'American Express', '2026-11-01', 'production');"
+        "INSERT INTO plaid_accounts (account_id, item_id, name, mask, type) VALUES "
+        "('c1', 'c', 'Ultimate Rewards®', '0457', 'credit'), ('a1', 'a', 'Platinum Card®', '9001', 'credit');")
+    from buddy.finance import Finance
+    Finance(mem)
+    mem.db.execute("INSERT INTO fin_cards (key, name, issuer, last4, updated_at) VALUES "
+                   "('amex|9001', 'American Express', 'American Express', '9001', '2026-11-01')")  # from Amex's emails
+    from buddy.money import Money
+    Money(mem).add_transaction(95, "USD", "ANNUAL MEMBERSHIP FEE", "fees", "2026-10-15", card="0457", source="t:fee")
+    b = Benefits(mem, search=_fake_search(PLAT, calls))
+    assert b.known_cards() == ["American Express Platinum Card"]  # the email card is the same 9001; 0457 needs a name
+    cards = b.cards_overview()
+    chase = next(c for c in cards if c["last4"] == "0457")
+    assert chase["needs_name"] and len([c for c in cards if "9001" in (c["last4"] or "")]) == 1
+    texts = _asyncio.run(b.offer_new_cards())
+    question = next(t for t in texts if "0457" in t)
+    assert "Ultimate Rewards" in question and "Sapphire Preferred" in question and "$95 annual fee" in question
+    assert not any("0457" in t for t in _asyncio.run(b.offer_new_cards()))  # asked once
+    out = bmod.run_tool(b, {"action": "name_card", "last4": "0457", "name": "Sapphire Preferred"}) \
+        if False else _asyncio.run(bmod.run_tool_async(b, {"action": "name_card", "last4": "0457",
+                                                           "name": "Sapphire Preferred"}))
+    assert "Sapphire Preferred" in out and mem.get("benefits:check_new") == "1"
+    assert "Chase Sapphire Preferred" in b.known_cards()
+    assert b.resolve_card("my sapphire") == "Chase Sapphire Preferred"
+
+
+def test_two_chase_cards_with_the_same_bank_label_are_both_listed_and_asked_about():
+    mem = Memory(":memory:")
+    from buddy.plaid import Plaid
+    Plaid(mem, env={})
+    mem.db.executescript(
+        "INSERT INTO plaid_items (item_id, access_token, institution, added_at, env) VALUES "
+        "('c', 't', 'Chase', '2026-11-01', 'production');"
+        "INSERT INTO plaid_accounts (account_id, item_id, name, mask, type) VALUES "
+        "('c1', 'c', 'Ultimate Rewards®', '0457', 'credit'), ('c2', 'c', 'Ultimate Rewards®', '8812', 'credit');")
+    b = Benefits(mem)
+    assert sorted(c["last4"] for c in b.cards_overview()) == ["0457", "8812"]
+    texts = _asyncio.run(b.offer_new_cards())
+    assert any("0457" in t for t in texts) and any("8812" in t for t in texts)
+    b.name_card("0457", "Sapphire Preferred")
+    b.name_card("8812", "Freedom Unlimited")
+    assert set(b.known_cards()) == {"Chase Sapphire Preferred", "Chase Freedom Unlimited"}

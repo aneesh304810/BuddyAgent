@@ -171,6 +171,22 @@ def _words(text: str) -> list[str]:
     return [w for w in re.split(r"[,;/]+|\s{2,}", (text or "").lower()) if w.strip()]
 
 
+GENERIC_CARD = re.compile(r"(?i)^(?:ultimate rewards|credit card|rewards card|rewards|card|visa|mastercard|"
+                          r"visa signature|visa infinite|world (?:elite )?mastercard|signature|cardmember|account|"
+                          r"american express|amex|chase|citi|capital one|bank of america|wells fargo|discover)?$")
+CARD_CHOICES = {"chase": "Sapphire Preferred, Sapphire Reserve, Freedom Unlimited, Freedom Flex, Ink",
+                "american": "Platinum, Gold, Green, Blue Cash Everyday, Blue Cash Preferred",
+                "citi": "Strata Premier, Double Cash, Custom Cash", "capital": "Venture X, Venture, Savor, Quicksilver"}
+
+
+def is_generic(name: str, issuer: str = "") -> bool:
+    """'Ultimate Rewards', 'CREDIT CARD', 'American Express': the bank's label, not which card it is."""
+    rest = re.sub(r"[®™©]", "", name or "").strip()
+    for word in (issuer or "").split():
+        rest = re.sub(rf"(?i)\b{re.escape(word)}\b", "", rest)
+    return bool(GENERIC_CARD.match(re.sub(r"\s+", " ", rest).strip()))
+
+
 def _key(card: str) -> str:
     return re.sub(r"\s+", " ", re.sub(r"[^a-z0-9 ]", " ", card.lower().replace("american express", "amex"))).strip()
 
@@ -517,8 +533,47 @@ class Benefits:
         for r in rows:
             name = re.sub(r"[®™©]", "", r["name"] or "").strip()
             issuer = (r["institution"] or "").strip()
+            mask = r["mask"] or ""
+            told = self.memory.get(f"card:name:{mask}") if mask else None  # "my Chase 0457 is a Sapphire Preferred"
+            if told:
+                name = told
             full = name if issuer and issuer.lower().split()[0] in name.lower() else f"{issuer} {name}".strip()
-            out.append({"card": full, "issuer": issuer, "last4": r["mask"] or "", "account_name": name})
+            out.append({"card": full, "issuer": issuer, "last4": mask, "account_name": name,
+                        "generic": not told and is_generic(name, issuer)})
+        return out
+
+    def name_card(self, last4: str, name: str) -> str:
+        """The user says which card a generically named connected account is."""
+        last4, name = re.sub(r"\D", "", str(last4 or ""))[-4:], re.sub(r"[®™©]", "", str(name or "")).strip()
+        match = [c for c in self.connected_cards() if c["last4"] == last4]
+        if not match or not name:
+            raise ToolError("Which card (its last 4 digits) and what is it called, e.g. 0457 Sapphire Preferred?")
+        self.memory.set(f"card:name:{last4}", name[:60])
+        self.memory.set(f"benefits:offered:{_key(match[0]['card'])}", "")
+        self.memory.set("benefits:check_new", "1")  # look the named card up now
+        return f"Got it: ••{last4} is your {match[0]['issuer']} {name}. I'm looking up its published benefits now."
+
+    def annual_fee_hint(self, last4: str) -> str:
+        """The annual fee charged on this card, from its own transactions: a hint for which card it is."""
+        try:
+            row = self.memory.db.execute(
+                "SELECT amount, day FROM transactions WHERE card = ? AND amount > 0 AND (lower(merchant) LIKE "
+                "'%annual%fee%' OR lower(merchant) LIKE '%membership fee%' OR lower(merchant_raw) LIKE '%annual%fee%') "
+                "ORDER BY day DESC LIMIT 1", (last4,)).fetchone()
+        except Exception:
+            return ""
+        return f"a ${row['amount']:,.0f} annual fee was charged on {row['day']}" if row else ""
+
+    def unnamed_cards(self) -> list[str]:
+        """Questions for connected cards whose bank name doesn't say which card they are."""
+        out = []
+        for c in self.connected_cards():
+            if c["generic"]:
+                hint = self.annual_fee_hint(c["last4"])
+                choices = CARD_CHOICES.get(c["issuer"].lower().split()[0] if c["issuer"] else "", "")
+                out.append(f"Your {c['issuer']} card ••{c['last4']} shows up as \"{c['account_name']}\", which doesn't say "
+                           f"which card it is{' (' + hint + ')' if hint else ''}. Which one is it" +
+                           (f": {choices}?" if choices else "?") + " Then I'll look up its benefits.")
         return out
 
     def resolve_card(self, phrase: str) -> str:
@@ -536,14 +591,16 @@ class Benefits:
     def cards_overview(self) -> list[dict]:
         """Each card Buddy knows: where it came from, last 4, published benefits saved, credits tracked."""
         out, seen = [], set()
-        for c in self.connected_cards() + [{"card": n, "issuer": "", "last4": ""} for n in self.known_cards()]:
+        connected = self.connected_cards()
+        for c in connected + [{"card": n, "issuer": "", "last4": ""} for n in self.known_cards()]:
             k = _key(c["card"])
-            if k in seen:
+            # two cards can share a bank label (both Chase cards say "Ultimate Rewards"): the last 4 tells them apart
+            if (k, c.get("last4", "")) in seen or (not c.get("last4") and any(x[0] == k for x in seen)):
                 continue
-            seen.add(k)
+            seen.add((k, c.get("last4", "")))
             saved = self.cached(c["card"], days=10 ** 5)
-            out.append({"card": c["card"], "last4": c.get("last4", ""),
-                        "connected": any(_key(x["card"]) == k for x in self.connected_cards()),
+            out.append({"card": c["card"], "last4": c.get("last4", ""), "needs_name": bool(c.get("generic")),
+                        "connected": any(_key(x["card"]) == k for x in connected),
                         "published_benefits_saved": bool(saved), "checked": (saved or {}).get("checked", ""),
                         "credits_tracked": self._tracked_names(c["card"])})
         return out
@@ -551,14 +608,19 @@ class Benefits:
     def known_cards(self) -> list[str]:
         """Every card Buddy knows: connected through Plaid, from statements (fin_cards), and named in benefits."""
         names: dict[str, str] = {}
-        for c in self.connected_cards():
-            names.setdefault(_key(c["card"]), c["card"])
+        connected = self.connected_cards()
+        masks = {c["last4"] for c in connected if c["last4"]}
+        for c in connected:
+            if not c["generic"]:  # "Chase Ultimate Rewards" isn't a card: asked about instead (unnamed_cards)
+                names.setdefault(_key(c["card"]), c["card"])
         try:
-            for r in self.memory.db.execute("SELECT name, issuer FROM fin_cards"):
+            for r in self.memory.db.execute("SELECT name, issuer, last4 FROM fin_cards"):
+                if r["last4"] and r["last4"] in masks:
+                    continue  # the same card as a connected one (emails, statements)
                 name = re.sub(r"[®™©]", "", f"{r['issuer'] or ''} {r['name'] or ''}").strip()
                 if r["issuer"] and r["issuer"].lower() in (r["name"] or "").lower():
                     name = re.sub(r"[®™©]", "", r["name"]).strip()
-                if len(_key(name)) >= 4:
+                if len(_key(name)) >= 4 and not is_generic(name, r["issuer"] or ""):
                     names.setdefault(_key(name), name)
         except Exception:
             pass
@@ -587,8 +649,14 @@ class Benefits:
         return [b["name"] for b in self.all() if _key(b["card"]) == _key(card)]
 
     async def offer_new_cards(self, per_day: int = 2) -> list[str]:
-        """Daily: a card Buddy hasn't looked up yet is looked up once, and its published credits offered."""
+        """Daily: a card Buddy hasn't looked up yet is looked up once, and its published credits offered. A connected
+        card whose bank name doesn't say which card it is gets one question instead."""
         texts = []
+        for c, q in zip([c for c in self.connected_cards() if c["generic"]], self.unnamed_cards()):
+            mark = f"benefits:asked:{c['last4']}"
+            if not self.memory.get(mark):
+                self.memory.set(mark, local_now().date().isoformat())
+                texts.append(q)
         for card in self.known_cards():
             mark = f"benefits:offered:{_key(card)}"
             if self.memory.get(mark) or self.cached(card, days=10 ** 5) or len(texts) >= per_day:
@@ -616,10 +684,13 @@ class Benefits:
         from .jobs import SCHEMA as JOBS_SCHEMA
 
         found = await self.lookup_all(fresh)
+        questions = self.unnamed_cards()
         for card in self.known_cards():
             self.memory.set(f"benefits:offered:{_key(card)}", local_now().date().isoformat())
         self.memory.set("benefits:setup_done", local_now().date().isoformat())
         good = [f for f in found if not f.get("not_found")]
+        if not good and questions:
+            return None, " ".join(questions)
         if not good:
             return None, ("I couldn't find published benefits for your cards on the issuers' websites yet. Tell me the "
                           "card names (\"Amex Platinum\"), or share a screenshot of a card's benefits page.")
@@ -650,7 +721,7 @@ class Benefits:
             lines.append("Not found on an issuer's website: " + ", ".join(missing) + ".")
         summary = (f"Card benefits are set up for {len(good)} card{'s' if len(good) != 1 else ''}: up to about "
                    f"${total_year:,.0f} a year in credits. The full list is in Reports. Which should I track and remind "
-                   "you about? Say \"track all\", or name them.")
+                   "you about? Say \"track all\", or name them." + ("" if not questions else " " + " ".join(questions)))
         now = datetime.now(timezone.utc).isoformat()
         self.memory.db.executescript(JOBS_SCHEMA)
         purge_reports(self.memory)
@@ -937,7 +1008,9 @@ BENEFITS_TOOL = {
     "wish_remove (what). plan: credits running out within 60 days with wishes they could pay for. To watch a deal, "
     "use price_watch (it asks first). You suggest; the user buys. "
     "cards: the user's cards (connected banks first, with last 4), whether their published benefits are saved and "
-    "which credits are tracked; use for 'what cards do I have?' and to know which card 'my Platinum' is. "
+    "which credits are tracked; use for 'what cards do I have?' and to know which card 'my Platinum' is. A card "
+    "marked needs_name (the bank only says 'Ultimate Rewards' or 'Credit card'): ask which card it is, then "
+    "name_card (last4, name). "
     "lookup (card; fresh to skip the saved copy): the card's published credits, perks, annual fee and earn rates "
     "from the issuer's own website, with source links and the date checked (a few cents; saved 30 days). Show "
     "them and ask which to track. lookup_all: the same for every card Buddy knows (bank connections, statements, "
@@ -951,7 +1024,8 @@ BENEFITS_TOOL = {
     "input_schema": {"type": "object", "properties": {
         "action": {"type": "string", "enum": ["add", "list", "used", "remove", "wish_add", "wishes", "wish_remove",
                                               "plan", "lookup", "lookup_all", "setup", "add_from_catalog", "deals",
-                                              "cards"]},
+                                              "cards", "name_card"]},
+        "last4": {"type": "string"},
         "names": {"type": "array", "items": {"type": "string"}}, "fresh": {"type": "boolean"},
         "what": {"type": "string"}, "card": {"type": "string"}, "name": {"type": "string"},
         "amount": {"type": "number"}, "period": {"type": "string", "enum": list(PERIODS)},
@@ -969,6 +1043,8 @@ async def run_tool_async(b: Benefits, args: dict) -> str:
     a = args.get("action")
     if a == "lookup":
         return json.dumps(await b.lookup(str(args.get("card") or ""), bool(args.get("fresh"))), ensure_ascii=False)
+    if a == "name_card":
+        return b.name_card(str(args.get("last4") or ""), str(args.get("name") or ""))
     if a == "cards":
         found = b.cards_overview()
         return json.dumps(found, ensure_ascii=False) if found else ("No cards yet: connect a bank (\"connect my bank\"), "

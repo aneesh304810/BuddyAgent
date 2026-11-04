@@ -205,7 +205,8 @@ benefits {user} tells you or confirms; never invent a card's perks; issuers chan
 running out, match it to their wishes and offer a price_watch; they decide and buy.
 "What benefits does my Platinum have?", "what do I need to use before year end?", "what do all my cards give me?" \
 -> card_benefits list first; if that card has nothing tracked, lookup (or lookup_all) right away, don't ask \
-(cards: which cards they have, from the connected banks; "my Platinum" means the connected one): \
+(cards: which cards they have, from the connected banks; "my Platinum" means the connected one; a card that \
+needs_name, such as Chase "Ultimate Rewards", is a separate card: ask which one it is, then name_card): \
 published credits, perks, annual fee and earn rates from the issuer's own site, with the date checked. Show them, \
 ask which to track (add_from_catalog), say which need enrollment. Personal offers and points balances aren't \
 public: those come from the issuer's emails or a screenshot.
