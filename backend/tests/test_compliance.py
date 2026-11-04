@@ -22,6 +22,8 @@ def srv(monkeypatch, tmp_path):
     monkeypatch.setattr(server, "memory", mem)
     monkeypatch.setattr(guard, "guard", guard.Guard(":memory:"))
     monkeypatch.setattr(makers, "FILES_DIR", tmp_path / "files")
+    from buddy import library
+    monkeypatch.setattr(library, "LIB_DIR", tmp_path / "library")
     return server, mem
 
 
