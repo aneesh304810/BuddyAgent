@@ -295,6 +295,9 @@ async def _index_brain() -> None:
 
 @contextlib.asynccontextmanager
 async def lifespan(app: FastAPI):
+    from . import social as social_module
+
+    social_module.METER = lambda provider, endpoint: travel.log_call(memory, provider, endpoint, True, 0.0, "search")
     await registry.start()
     task = asyncio.create_task(proactive.run(memory, deliver))
     job_loop = asyncio.create_task(jobs.run())

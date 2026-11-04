@@ -135,7 +135,16 @@ class Plaid:
                             "(sudo bash /opt/buddy/deploy/set.sh BUDDY_PLAID_CLIENT_ID).")
         payload = {"client_id": self.setting("BUDDY_PLAID_CLIENT_ID"), "secret": self.setting("BUDDY_PLAID_SECRET"),
                    **body}
+        started = time.monotonic()
         data = self._http(self.host + path, payload)
+        try:  # every Plaid call in Insights → Costs (no bank data: the endpoint, the result and the time)
+            from .travel import log_call
+            env = "sandbox" if "sandbox" in self.host else "production"
+            log_call(self.memory, "plaid", path, not data.get("error_code"), time.monotonic() - started,
+                     purpose=env, error=str(data.get("error_code") or ""),
+                     cost=0.0 if env == "sandbox" else _plaid_call_price(path))
+        except Exception:
+            pass
         if "error_code" in data and data.get("error_code"):
             raise PlaidError(data.get("error_code", ""), data.get("display_message") or data.get("error_message") or "")
         return data
@@ -471,6 +480,16 @@ def _dom(value) -> int | None:
         return date.fromisoformat(str(value)[:10]).day
     except ValueError:
         return None
+
+
+def _plaid_call_price(path: str) -> float:
+    """Per-request products (balance) at the price on your Plaid dashboard; the rest are billed per bank a month."""
+    if "balance" not in path:
+        return 0.0
+    try:
+        return float(os.getenv("BUDDY_PLAID_COST_PER_BALANCE_CALL_USD", "0") or 0)
+    except ValueError:
+        return 0.0
 
 
 def _post(url: str, payload: dict) -> dict:

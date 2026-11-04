@@ -9,6 +9,14 @@ forecast and where the number came from:
                 monthly price of whatever host you use; no line if neither is set
   Zapier        the plan price, plus Buddy's own count of Zapier calls against the
                 plan's task allowance (Zapier has no billing API)
+  Plaid         production banks connected x your per-bank monthly price, plus priced
+                per-call products (Plaid has no billing API); sandbox is free
+  AI models     speech to text (Groq) and the free-tier models (Gemini, OpenRouter, GitHub
+                Models...): Buddy's meter of every call
+  Outside APIs  web search (Serper), flight and hotel prices (SerpApi, Duffel, Travelpayouts):
+                every call logged with its price
+  Free services the ones Buddy uses at no charge (Tailscale, Cloudflare, GitHub, OpenStreetMap),
+                listed so the picture is complete
   Fixed costs   anything else you pay monthly (BUDDY_FIXED_COSTS)
 
 Network answers are cached for 30 minutes; the providers ask not to be polled hard.
@@ -227,6 +235,101 @@ class FinOps:
         return CostLine("Zapier", round(plan * fraction, 2), plan, "plan price",
                         f"about {tasks} of {allowance} tasks used in the last 30 days ({calls} calls)")
 
+    def _month_start(self) -> str:
+        first = local_now().replace(day=1, hour=0, minute=0, second=0, microsecond=0)
+        return first.astimezone(timezone.utc).isoformat()
+
+    def _api_calls(self) -> dict[str, dict]:
+        """This month's outside API calls by provider: calls, failures, priced cost, endpoints."""
+        out: dict[str, dict] = {}
+        try:
+            rows = self.memory.db.execute(
+                "SELECT provider, purpose, endpoint, ok, cost_usd FROM api_calls WHERE at >= ?", (self._month_start(),))
+        except Exception:
+            return out
+        for r in rows:
+            e = out.setdefault(r["provider"], {"calls": 0, "failed": 0, "cost": 0.0, "sandbox": 0, "endpoints": {}})
+            e["calls"] += 1
+            e["failed"] += 0 if r["ok"] else 1
+            e["cost"] += float(r["cost_usd"] or 0)
+            e["sandbox"] += 1 if r["purpose"] == "sandbox" else 0
+            e["endpoints"][r["endpoint"]] = e["endpoints"].get(r["endpoint"], 0) + 1
+        return out
+
+    def plaid(self, calls: dict | None = None) -> CostLine | None:
+        """Plaid bills Transactions and Liabilities per connected bank (Item) a month, and some products per
+        call. There's no billing API: Buddy counts the banks and calls and uses your prices from the Plaid
+        dashboard (Billing)."""
+        try:
+            rows = self.memory.db.execute("SELECT env FROM plaid_items").fetchall()
+        except Exception:
+            rows = []
+        live = sum(1 for r in rows if (r["env"] or "production") != "sandbox")
+        sandbox = len(rows) - live
+        info = (calls or {}).get("plaid", {"calls": 0, "cost": 0.0, "sandbox": 0})
+        if not rows and not info["calls"]:
+            return None
+        per_bank = self.setting("BUDDY_PLAID_COST_PER_BANK_USD")
+        fraction, _ = _month_progress()
+        monthly = float(per_bank or 0) * live
+        mtd = monthly * fraction + info["cost"]
+        note = (f"{live} bank{'s' if live != 1 else ''} connected (production)"
+                + (f", {sandbox} sandbox (free)" if sandbox else "") + f"; {info['calls']} calls this month")
+        if per_bank:
+            note += f"; ${float(per_bank):.2f} per bank a month"
+            source = "your price"
+        else:
+            note += ". Add your per-bank price from the Plaid dashboard (Billing): BUDDY_PLAID_COST_PER_BANK_USD"
+            source = "price not set"
+        return CostLine("Plaid", round(mtd, 2), round(monthly + _project(info["cost"]), 2), source, note)
+
+    API_NAMES = {"serper": "Serper (web search)", "serpapi": "SerpApi (Google Flights and Hotels)",
+                 "duffel": "Duffel (flight offers)", "travelpayouts": "Travelpayouts (cheapest dates)"}
+
+    def outside_apis(self, calls: dict) -> list[CostLine]:
+        lines = []
+        for name, e in sorted(calls.items()):
+            if name == "plaid":
+                continue
+            note = f"{e['calls']} calls this month" + (f", {e['failed']} failed" if e["failed"] else "")
+            if not e["cost"]:
+                note += "; free tier or no per-call price set"
+            lines.append(CostLine(self.API_NAMES.get(name, name.title()), round(e["cost"], 2), _project(e["cost"]),
+                                  "buddy meter", note))
+        return lines
+
+    MODEL_NAMES = {"groq": "Groq (speech to text and quick models)", "gemini": "Google Gemini",
+                   "openrouter": "OpenRouter", "github": "GitHub Models", "deepseek": "DeepSeek (OpenRouter)",
+                   "ollama": "Local models"}
+
+    def other_models(self) -> list[CostLine]:
+        """AI providers other than Claude (Claude is its own line), from Buddy's meter of every call."""
+        try:
+            rows = self.memory.db.execute(
+                "SELECT provider, COUNT(*) AS n, COALESCE(SUM(cost_usd), 0) AS cost, "
+                "SUM(CASE WHEN purpose = 'speech' THEN 1 ELSE 0 END) AS speech FROM model_calls "
+                "WHERE at >= ? AND provider != 'claude' GROUP BY provider", (self._month_start(),)).fetchall()
+        except Exception:
+            return []
+        lines = []
+        for r in rows:
+            note = f"{r['n']} calls this month" + (f" ({r['speech']} speech to text)" if r["speech"] else "")
+            if not r["cost"]:
+                note += "; free tier"
+            lines.append(CostLine(self.MODEL_NAMES.get(r["provider"], r["provider"].title()), round(r["cost"], 2),
+                                  _project(r["cost"]), "buddy meter", note))
+        return lines
+
+    FREE = [("Tailscale", "private network between your phone and the server", "Personal plan"),
+            ("Cloudflare", "buddylabs.io website, waitlist and email routing", "free plan"),
+            ("GitHub", "code, app builds and security scans", "free plan"),
+            ("OpenStreetMap", "addresses for places and rides", "free, with attribution")]
+
+    def free_services(self, named: set[str]) -> list[CostLine]:
+        """Services Buddy relies on at no charge; a fixed cost with the same name replaces its line."""
+        return [CostLine(name, 0.0, 0.0, "free", f"{what}; {plan}") for name, what, plan in self.FREE
+                if name.lower() not in named]
+
     def fixed(self) -> list[CostLine]:
         fraction, _ = _month_progress()
         return [CostLine(name, round(amount * fraction, 2), amount, "fixed")
@@ -236,9 +339,12 @@ class FinOps:
     async def report(self, fresh: bool = False) -> dict:
         if not fresh and self._cache and time.time() - self._cache[0] < CACHE_SECONDS:
             return self._cache[1]
+        calls = self._api_calls()
         lines = [await self.claude()]
-        lines += [line for line in (await self.server(), self.zapier()) if line]
-        lines += self.fixed()
+        lines += [line for line in (await self.server(), self.zapier(), self.plaid(calls)) if line]
+        lines += self.other_models() + self.outside_apis(calls)
+        fixed = self.fixed()
+        lines += fixed + self.free_services({l.provider.lower() for l in fixed})
         mtd = round(sum(l.month_to_date for l in lines), 2)
         forecast = round(sum(l.forecast for l in lines), 2)
         budget = float(self.setting("BUDDY_ALLIN_BUDGET_USD", "0"))
@@ -323,8 +429,9 @@ class FinOps:
 
 COST_TOOL = {
     "name": "cost_report",
-    "description": "What running Buddy costs this month, all in: Claude, the server (if any), "
-    "Zapier and fixed costs, each with month-to-date, end-of-month forecast and where the number "
+    "description": "What running Buddy costs this month, all in, service by service: Claude, the server "
+    "(DigitalOcean), Zapier, Plaid (banks connected and calls), speech to text and other AI models, web search and "
+    "travel price APIs, fixed costs, and the free services Buddy uses, each with month-to-date, end-of-month forecast and where the number "
     "comes from, plus where Claude money went (chat, Listen-in, expert, research), and DigitalOcean's "
     "invoices: last month's total and both months by product (droplets, backups...). Use for 'how much "
     "do you cost?', 'what's my bill?', 'what was last month's server bill?'. spending_status is only today's Claude allowances.",

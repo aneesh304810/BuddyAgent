@@ -59,8 +59,9 @@ def test_defaults_without_any_keys_show_only_what_buddy_meters():
     memory = Memory(":memory:")
     usage.record(memory, "claude-sonnet-5-5", fake_usage(searches=3), purpose="")
     report = asyncio.run(fo.FinOps(memory, env={}).report())
-    lines = {l["provider"]: l for l in report["lines"]}
-    assert set(lines) == {"Claude"}  # no server price, Zapier unused: no lines
+    lines = {l["provider"]: l for l in report["lines"] if l["source"] != "free"}
+    assert set(lines) == {"Claude"}  # no server price, Zapier unused: no paid lines
+    assert {l["provider"] for l in report["lines"] if l["source"] == "free"} >= {"Tailscale", "Cloudflare"}
     assert lines["Claude"]["source"] == "buddy meter" and lines["Claude"]["month_to_date"] == 2.03
     assert report["claude_by_purpose"]["web_searches"] == {"count": 3, "usd_included_above": 0.03}
     assert report["all_in_budget_usd"] is None and not report["over_budget"]
@@ -139,7 +140,7 @@ def test_buddy_can_answer_what_it_costs():
     assert "cost_report" in [t["name"] for t in convo.tools()]
     report = json.loads(asyncio.run(convo._dispatch("cost_report", {})))
     assert report["month"] == local_now().strftime("%B %Y")
-    assert [l["provider"] for l in report["lines"]] == ["Claude", "Domain"]
+    assert [l["provider"] for l in report["lines"] if l["source"] != "free"] == ["Claude", "Domain"]
 
 
 def test_any_host_by_name():
@@ -157,3 +158,44 @@ def test_agents_this_month():
     agents = {a["agent"]: a for a in fo.FinOps(memory, env={}).by_agent()}
     assert agents["zapier"]["calls_this_month"] == 2 and "4 Zapier tasks" in agents["zapier"]["note"]
     assert agents["gmail"]["calls_this_month"] == 1 and agents["gmail"]["external_cost_usd"] == 0
+
+
+def test_every_connected_service_has_a_cost_line():
+    from buddy import plaid, social, travel
+    memory = Memory(":memory:")
+    memory.db.executescript(travel.SCHEMA_SQL)
+    # Plaid: two production banks, one sandbox; calls logged by Plaid.call
+    memory.db.execute("CREATE TABLE plaid_items (item_id TEXT PRIMARY KEY, access_token TEXT, env TEXT)")
+    memory.db.executemany("INSERT INTO plaid_items VALUES (?, 't', ?)", [("a", "production"), ("b", "production"),
+                                                                          ("c", "sandbox")])
+    p = plaid.Plaid(memory, env={"BUDDY_PLAID_CLIENT_ID": "id", "BUDDY_PLAID_SECRET": "s", "BUDDY_PLAID_ENV": "production"},
+                    http=lambda url, body: {"accounts": []})
+    p.call("/accounts/get", {"access_token": "t"})
+    # speech to text and a free model, from the model meter
+    usage.log_call(memory, provider="groq", model="whisper-large-v3-turbo", purpose="speech", seconds=0.4, cost=0.0004)
+    usage.log_call(memory, provider="gemini", model="gemini-flash", purpose="general_task", seconds=1.0, cost=0.0)
+    # web search through Serper, metered by the server's hook
+    social.METER = lambda provider, endpoint: travel.log_call(memory, provider, endpoint, True, 0.0, "search")
+    try:
+        social._metered("serper", "search")
+    finally:
+        social.METER = None
+    env = {"BUDDY_PLAID_COST_PER_BANK_USD": "0.30", "BUDDY_FIXED_COSTS": "Cloudflare=0.85"}
+    report = asyncio.run(fo.FinOps(memory, env=env).report())
+    lines = {l["provider"]: l for l in report["lines"]}
+    plaid_line = lines["Plaid"]
+    assert plaid_line["forecast"] == 0.6 and "2 banks connected" in plaid_line["note"] and "1 sandbox" in plaid_line["note"]
+    assert "1 calls this month" in plaid_line["note"]
+    assert "speech to text" in lines["Groq (speech to text and quick models)"]["note"]
+    assert "free tier" in lines["Google Gemini"]["note"]
+    assert lines["Serper (web search)"]["month_to_date"] == 0.0 or lines["Serper (web search)"]["source"] == "buddy meter"
+    assert lines["Cloudflare"]["source"] == "fixed"  # your own amount replaces the free line
+    assert lines["Tailscale"]["source"] == "free"
+
+
+def test_plaid_without_a_price_says_where_to_find_it():
+    memory = Memory(":memory:")
+    memory.db.execute("CREATE TABLE plaid_items (item_id TEXT PRIMARY KEY, access_token TEXT, env TEXT)")
+    memory.db.execute("INSERT INTO plaid_items VALUES ('a', 't', 'production')")
+    line = fo.FinOps(memory, env={}).plaid({})
+    assert line.source == "price not set" and "BUDDY_PLAID_COST_PER_BANK_USD" in line.note

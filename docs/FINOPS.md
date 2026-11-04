@@ -10,6 +10,10 @@ end-of-month forecast, the biggest line first, and whether you're within budget.
 | Claude (exact bill) | Anthropic's cost report | Optional, **organizations only**: an Admin API key (`sk-ant-admin...`). Individual accounts can't get one; Buddy's own meter is then used and is close to the bill |
 | **Server** (only if you pay for one) | DigitalOcean: your live month-to-date bill. Any other host: the monthly price you set | DigitalOcean token, or `BUDDY_SERVER_PROVIDER` and `BUDDY_COST_SERVER_USD`. Not set: no server line |
 | **Zapier** | Your plan price, plus Buddy's count of Zapier calls (about 2 tasks each) against your monthly task allowance | Plan price and allowance (Zapier has no billing API) |
+| **Plaid** | Banks connected in production × your per-bank monthly price, plus priced per-call products; every Plaid call is counted. Sandbox is free | `BUDDY_PLAID_COST_PER_BANK_USD` (and optionally `BUDDY_PLAID_COST_PER_BALANCE_CALL_USD`) from the Plaid dashboard → Billing. Plaid has no billing API |
+| **Speech to text and other AI models** | Groq (speech to text), Gemini, OpenRouter, GitHub Models: Buddy meters every call; free tiers show $0 | Groq paid tier: `BUDDY_GROQ_PAID=1` |
+| **Web search and travel prices** | Serper, SerpApi, Duffel, Travelpayouts: every call logged with its price | Per-search prices: `BUDDY_SERPAPI_COST_PER_SEARCH`, `BUDDY_DUFFEL_COST_PER_SEARCH` |
+| **Free services** | Tailscale, Cloudflare, GitHub, OpenStreetMap are listed at $0 so the picture is complete | Paying for one? Add it to `BUDDY_FIXED_COSTS` with the same name and it replaces the free line |
 | **Anything else** | Fixed monthly amounts you list: Tailscale, Backblaze backups, a domain, Twilio, ElevenLabs, xAI... | One line in the settings file |
 
 Forecasts assume the rest of the month looks like the days so far. Answers from
@@ -32,7 +36,8 @@ DigitalOcean and Anthropic are cached for 30 minutes.
    # BUDDY_ANTHROPIC_ADMIN_KEY=sk-ant-admin...      # organizations only
    BUDDY_ZAPIER_PLAN_USD=0                        # 0 on the free plan
    BUDDY_ZAPIER_TASKS_PER_MONTH=100
-   BUDDY_FIXED_COSTS=Tailscale=0, Backblaze=0.50, Domain=1.25
+   BUDDY_PLAID_COST_PER_BANK_USD=0.30              # your price from Plaid Dashboard → Billing
+   BUDDY_FIXED_COSTS=Backblaze=0.50, Domain=1.25
    BUDDY_ALLIN_BUDGET_USD=60                      # Buddy warns when the forecast is over
    ```
 4. `sudo systemctl restart buddy`, then ask *"What do you cost to run?"*

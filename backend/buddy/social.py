@@ -49,6 +49,18 @@ def _country(value: str) -> str:
     return COUNTRIES.get(v, v.upper()[:2] or "US")
 
 
+
+# Set by the server: logs each paid outside call (provider, endpoint) for Insights → Costs. No query text.
+METER = None
+
+
+def _metered(provider: str, endpoint: str) -> None:
+    if METER is not None:
+        try:
+            METER(provider, endpoint)
+        except Exception:
+            pass
+
 class Social:
     def __init__(self, env=None, http=_http):
         self.env = os.environ if env is None else env
@@ -133,6 +145,7 @@ class Social:
         data = json.loads(self.http(f"https://google.serper.dev/{endpoint}", body.encode(),
                                     {"X-API-KEY": self.setting("BUDDY_SERPER_KEY"),
                                      "Content-Type": "application/json"}))
+        _metered("serper", endpoint)
         if news:
             return {"news": [{k: n.get(k) for k in ("title", "source", "date", "snippet", "link", "imageUrl")}
                              for n in data.get("news", [])]}
@@ -152,6 +165,7 @@ class Social:
         data = json.loads(self.http("https://google.serper.dev/places", body.encode(),
                                     {"X-API-KEY": self.setting("BUDDY_SERPER_KEY"),
                                      "Content-Type": "application/json"}))
+        _metered("serper", "places")
         keep = ("title", "category", "rating", "ratingCount", "priceLevel", "address", "openingHours",
                 "website", "phoneNumber", "description",
                 "thumbnailUrl", "latitude", "longitude", "cid")  # for the chat card only; Claude doesn't get these

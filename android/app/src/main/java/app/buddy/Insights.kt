@@ -128,6 +128,8 @@ fun InsightsScreen(link: ServerLink?) {
     var model by remember { mutableStateOf("") }
     var data by remember { mutableStateOf<JSONObject?>(null) }
     var monthAllIn by remember { mutableStateOf<String?>(null) }
+    var costLines by remember { mutableStateOf<List<JSONObject>>(emptyList()) }
+    var agentCosts by remember { mutableStateOf<List<JSONObject>>(emptyList()) }
     var problem by remember { mutableStateOf<String?>(null) }
     var healthData by remember { mutableStateOf<JSONObject?>(null) }
     var checking by remember { mutableStateOf(false) }
@@ -152,6 +154,8 @@ fun InsightsScreen(link: ServerLink?) {
         runCatching { InsightsApi.costs(link) }.onSuccess {
             monthAllIn = "${usd(it.optDouble("month_to_date_usd"))} so far this month, all in " +
                 "(heading for ${usd(it.optDouble("forecast_usd"))})"
+            costLines = it.optJSONArray("lines")?.objects().orEmpty()
+            agentCosts = it.optJSONArray("agents")?.objects().orEmpty()
         }
     }
 
@@ -390,6 +394,36 @@ fun InsightsScreen(link: ServerLink?) {
             item {
                 Text("${dataTools.optInt("runs")} runs in the sandbox · ${tokens(dataTools.optLong("tokens_saved"))} " +
                     "tokens the AI didn't have to read (exact numbers by code)", color = Dim, fontSize = 13.sp)
+            }
+        }
+
+        if (costLines.isNotEmpty()) {
+            item { Heading("What each service costs this month") }
+            item {
+                Text("Every service and agent Buddy is connected to. Live: the provider's own bill. Buddy meter: " +
+                    "Buddy counts each call at its price. Your price / plan price: the amount you set, because the " +
+                    "provider has no billing API.", color = Dim, fontSize = 12.sp)
+            }
+            val paid = costLines.filter { it.optString("source") != "free" }
+            val top = paid.maxOfOrNull { it.optDouble("forecast") }?.takeIf { it > 0 } ?: 1.0
+            items(paid) { c -> ServiceCost(c, (c.optDouble("forecast") / top).toFloat()) }
+            val free = costLines.filter { it.optString("source") == "free" }
+            if (free.isNotEmpty()) item {
+                Text("Free: " + free.joinToString(" · ") { it.optString("provider") }, color = Dim, fontSize = 12.sp)
+            }
+            if (agentCosts.isNotEmpty()) {
+                item { Text("Agents this month", color = Pal.text, fontSize = 14.sp, fontWeight = FontWeight.SemiBold) }
+                items(agentCosts) { a ->
+                    val cost = a.optDouble("external_cost_usd")
+                    BreakdownRow(
+                        title = a.optString("agent").replaceFirstChar { it.uppercase() },
+                        value = if (cost > 0) usd(cost) else "no extra cost",
+                        share = 0f,
+                        detail = "${a.optInt("calls_this_month")} calls" +
+                            a.optString("note").takeIf { it.isNotBlank() }?.let { " · $it" }.orEmpty(),
+                        selected = false, onClick = {},
+                    )
+                }
             }
         }
 
@@ -844,5 +878,25 @@ private fun CallRow(c: JSONObject) {
                 Text(c.optString("reply"), color = Bright, fontSize = 13.sp, fontFamily = FontFamily.Default)
             }
         }
+    }
+}
+
+
+/** One service in "What each service costs": month so far, the forecast, how it's measured and why. */
+@Composable
+private fun ServiceCost(c: JSONObject, share: Float) {
+    val source = c.optString("source")
+    Column(Modifier.fillMaxWidth().background(Card, RoundedCornerShape(12.dp)).padding(12.dp)) {
+        Row(verticalAlignment = Alignment.CenterVertically) {
+            Text(c.optString("provider"), color = Pal.text, fontSize = 15.sp, fontWeight = FontWeight.SemiBold,
+                modifier = Modifier.weight(1f))
+            Text(usd(c.optDouble("month_to_date")), color = Pal.text, fontSize = 15.sp, fontWeight = FontWeight.SemiBold)
+        }
+        Box(Modifier.fillMaxWidth().padding(vertical = 6.dp).height(6.dp).background(BarTrack, RoundedCornerShape(3.dp))) {
+            Box(Modifier.fillMaxWidth(share.coerceIn(0.01f, 1f)).height(6.dp).background(Bar, RoundedCornerShape(3.dp)))
+        }
+        Text("Heading for ${usd(c.optDouble("forecast"))} this month · $source", color =
+            if (source == "price not set") Pal.warn else Dim, fontSize = 12.sp)
+        c.optString("note").takeIf { it.isNotBlank() }?.let { Text(it, color = Dim, fontSize = 12.sp) }
     }
 }
