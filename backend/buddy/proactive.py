@@ -6,7 +6,7 @@ import logging
 from datetime import datetime
 from collections.abc import Awaitable, Callable
 
-from . import advisor, finance, health, thinking, travel
+from . import advisor, benefits, finance, health, thinking, travel
 from .agent import compose
 from .config import settings
 from .memory import Memory
@@ -152,6 +152,11 @@ async def run(memory: Memory, deliver: Deliver) -> None:
                 for alert in fin.alerts():
                     if await deliver("money", alert["text"]):
                         fin.told(alert)
+                if local_now().hour >= 9:  # card credits running out: in the morning, each step once
+                    perks = benefits.Benefits(memory)
+                    for alert in perks.alerts():
+                        if await deliver("money", alert["text"]):
+                            perks.told(alert)
                 money = Money(memory)
                 for bill in money.bills_to_remind():
                     if await deliver("bill", bill_reminder_text(bill)):

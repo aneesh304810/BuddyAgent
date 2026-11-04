@@ -20,6 +20,7 @@ import os
 import re
 from datetime import date, datetime, timedelta, timezone
 
+from .benefits import Benefits
 from .finance import Finance, _day, has_money_data, purge_reports
 from .memory import Memory
 from .tools import ToolError, local_now
@@ -460,7 +461,8 @@ class Advisor:
                 "missed_rewards_90_days": self.missed_rewards(),
                 "cards_carrying_a_balance": [d for d in debts if d["carrying_balance"]],
                 "payment_setup": self.payment_setup(), "goals": self.goals(),
-                "subscriptions": self.fin.report(), "rule": DISCLAIMER}
+                "subscriptions": self.fin.report(),
+                "card_credits_running_out": Benefits(self.memory).plan(), "rule": DISCLAIMER}
 
     def month(self, today: date | None = None) -> dict:
         today = today or local_now().date()
