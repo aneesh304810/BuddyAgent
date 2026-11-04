@@ -47,6 +47,17 @@ page("index.html", f"Buddy: 1,000 apps, one Buddy · {CO}", "One app to rule the
 </div></section>
 <script src="demo.js" defer></script>
 
+<section class="block" id="next"><div class="wrap">
+  <span class="eyebrow">Also coming soon from {CO}</span>
+  <h2>AI for restaurants, front to back.</h2>
+  <p class="lead">The same idea, built for the people who feed us: less guessing, fewer mistakes, faster service.</p>
+  <div class="grid wide">
+    <div class="card"><h3>Buddy Serve</h3><p>An AI point of sale your team wears, not one they walk back to. Smart glasses and a headset: orders go in hands-free, and nothing gets lost between the table and the kitchen.</p><p style="margin-top:14px"><a href="buddy-serve.mp4">Watch the teaser (35 s)</a></p></div>
+    <div class="card"><h3>Buddy Watch</h3><p>A second pair of eyes on every shift. Food safety, how fast guests are served, every order tracked from kitchen to table, and every pour at the bar.</p><p style="margin-top:14px"><a href="buddy-watch.mp4">Watch the teaser (35 s)</a></p></div>
+  </div>
+  <p class="fine">In development. Interested in an early pilot for your restaurant? Email <a href="mailto:{EMAIL}?subject=Restaurant%20pilot">{EMAIL}</a>.</p>
+</div></section>
+
 <section class="block cta" id="early"><div class="wrap">
   <h2>Be one of the first.</h2>
   <p class="lead">Early members get in first and help shape what Buddy becomes.</p>

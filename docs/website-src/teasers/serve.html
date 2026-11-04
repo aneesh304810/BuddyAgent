@@ -1,0 +1,28 @@
+<!doctype html><html lang="en"><head><meta charset="utf-8"><title>Buddy Serve teaser</title>
+<link rel="stylesheet" href="base.css"><style>
+body{background:#fff}
+.lens{width:620px;height:780px;border-radius:60px;background:radial-gradient(circle at 30% 20%,#3a3226,#15120e 70%);position:relative;
+  box-shadow:0 30px 80px rgba(0,0,0,.25);overflow:hidden;margin-top:60px}
+.lens:before{content:"";position:absolute;inset:0;background:repeating-linear-gradient(90deg,rgba(255,255,255,.02) 0 2px,transparent 2px 60px)}
+#feed{position:absolute;left:44px;right:44px;top:60px;display:flex;flex-direction:column;gap:18px}
+.line{font-size:30px;color:#e9fff6;background:rgba(31,111,92,.32);border:1px solid rgba(160,255,220,.35);border-radius:18px;padding:16px 22px;backdrop-filter:blur(2px)}
+.line.head{background:none;border:0;padding:0 4px;font-size:24px;color:#9fe6c9;letter-spacing:.04em;text-transform:uppercase}
+.line.warn{background:rgba(200,134,42,.35);border-color:rgba(255,210,140,.6);color:#fff4e0}
+.line.ok{background:rgba(27,122,75,.55)}
+.hud{position:absolute;bottom:28px;left:0;right:0;text-align:center;color:#9fe6c9;font-size:20px;letter-spacing:.1em}
+</style></head><body>
+<div class="stage" id="intro"><div class="tcard"><span class="tag">Coming soon</span><h1>Buddy Serve</h1><p>The point of sale your team wears.</p></div></div>
+<div class="stage hide" id="demo"><div id="caption"></div><div class="lens"><div id="feed"></div><div class="hud">● HEADSET ON · HANDS FREE</div></div>
+<div class="foot">Illustrative concept. In development.</div></div>
+<div class="stage hide" id="outro"><div class="tcard"><span class="tag">Buddy Labs</span><h1>Buddy Serve</h1><p>Coming soon. buddylabs.io</p></div></div>
+<script>
+window.SCENES = [
+  {caption: "Take the order. No notepad, no walking back.", lines: [
+    ["head", "Table 12 · 2 guests"], ["", "+ Margherita pizza"], ["", "+ Caesar salad, no croutons"],
+    ["warn", "⚠ Guest 2: nut allergy. Kitchen told."], ["ok", "✓ Sent to the kitchen"]]},
+  {caption: "Know the moment it's ready.", lines: [
+    ["ok", "Table 12 · pizza ready at the pass"], ["", "Table 5 is asking for the check"], ["", "Table 9: refill waters"]]},
+  {caption: "Pay right at the table.", lines: [
+    ["head", "Table 12 · check"], ["", "$48.20 · split 2 ways"], ["ok", "✓ Paid · 20% tip · receipt sent"]]},
+];
+</script><script src="player.js"></script></body></html>

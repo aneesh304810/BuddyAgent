@@ -1,0 +1,35 @@
+<!doctype html><html lang="en"><head><meta charset="utf-8"><title>Buddy Watch teaser</title>
+<link rel="stylesheet" href="base.css"><style>
+body{background:#fff}
+.board{width:640px;min-height:760px;border-radius:36px;background:#f6f4ef;border:1px solid #e6e3dc;box-shadow:0 30px 80px rgba(0,0,0,.12);
+  margin-top:60px;padding:30px;box-sizing:border-box}
+.board .top{display:flex;justify-content:space-between;font-size:22px;color:#5b616e;margin-bottom:22px}
+.board .top b{color:#16181d}
+.live{color:#1b7a4b;font-weight:700}
+#feed{display:flex;flex-direction:column;gap:16px}
+.line{font-size:27px;line-height:1.35;color:#16181d;background:#fff;border:1px solid #e6e3dc;border-left:8px solid #1f6f5c;border-radius:16px;padding:16px 20px}
+.line small{display:block;font-size:20px;color:#5b616e;margin-top:4px}
+.line.warn{border-left-color:#c8862a}.line.bad{border-left-color:#b3261e}.line.ok{border-left-color:#1b7a4b}
+</style></head><body>
+<div class="stage" id="intro"><div class="tcard"><span class="tag">Coming soon</span><h1>Buddy Watch</h1><p>A second pair of eyes on every shift.</p></div></div>
+<div class="stage hide" id="demo"><div id="caption"></div>
+<div class="board"><div class="top"><b>Friday dinner</b><span class="live">● Live</span></div><div id="feed"></div></div>
+<div class="foot">Illustrative concept. In development.</div></div>
+<div class="stage hide" id="outro"><div class="tcard"><span class="tag">Buddy Labs</span><h1>Buddy Watch</h1><p>Coming soon. buddylabs.io</p></div></div>
+<script>
+window.SCENES = [
+  {caption: "Food safety, all shift long.", lines: [
+    ["bad", "Walk-in cooler at 44°F<small>Above 41°F for 20 minutes. Check the door.</small>"],
+    ["warn", "Prep station 3<small>Raw chicken, then salad: change gloves first.</small>"],
+    ["ok", "Fryer oil changed<small>On schedule.</small>"]]},
+  {caption: "No guest waits unnoticed.", lines: [
+    ["warn", "Table 7 · no drinks yet<small>Seated 8 minutes ago.</small>"],
+    ["ok", "First drink tonight: 3 min 40 s on average<small>Faster than last Friday.</small>"]]},
+  {caption: "Every order, kitchen to table.", lines: [
+    ["", "Order #142<small>Placed 7:02 · cooked 7:14 · on the table 7:16</small>"],
+    ["warn", "Grill running 6 minutes behind<small>3 orders waiting.</small>"]]},
+  {caption: "Every pour at the bar.", lines: [
+    ["warn", "Bar 1 · 2.1 oz pours on a 1.5 oz spec<small>6 times tonight.</small>"],
+    ["", "About one bottle over by close<small>Worth a quick word with the team.</small>"]]},
+];
+</script><script src="player.js"></script></body></html>

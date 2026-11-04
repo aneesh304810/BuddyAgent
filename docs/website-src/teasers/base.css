@@ -1,0 +1,12 @@
+html,body{margin:0;height:100%;overflow:hidden;font-family:Inter,system-ui,-apple-system,"Segoe UI",Roboto,sans-serif}
+.stage{position:fixed;inset:0;display:grid;place-items:center;transition:opacity .6s}
+.hide{opacity:0;pointer-events:none}
+.tcard{text-align:center;padding:0 48px}
+.tcard .tag{display:inline-block;font-size:18px;font-weight:700;letter-spacing:.06em;text-transform:uppercase;color:#1f6f5c;background:#e5f2ee;padding:7px 16px;border-radius:999px;margin-bottom:26px}
+.tcard h1{font-size:76px;line-height:1.05;margin:0 0 18px;letter-spacing:-.02em;color:#16181d}
+.tcard p{font-size:28px;color:#5b616e;margin:0}
+#caption{position:fixed;top:80px;left:0;right:0;text-align:center;font-size:40px;font-weight:700;color:#16181d;opacity:0;transform:translateY(8px);transition:all .5s;padding:0 40px}
+#caption.in{opacity:1;transform:none}
+.line{opacity:0;transform:translateY(10px);transition:all .45s}
+.line.in{opacity:1;transform:none}
+.foot{position:fixed;bottom:40px;left:0;right:0;text-align:center;font-size:20px;color:#5b616e}
