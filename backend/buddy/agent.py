@@ -38,7 +38,7 @@ from .codejob import CODE_TOOL_NAMES, CODE_TOOLS, run_code_tool
 from .makers import MAKER_TOOL_NAMES, MAKER_TOOLS, run_maker_tool
 from .merchants import MERCHANTS_TOOL
 from .customize import CUSTOMIZE_TOOL
-from . import advisor, benefits, brain, compliance, datatools, finance, plaid, travel, thinking, formfill, library, prices, rides, selfcode, transcripts, tutor, vocabulary, voiceprint
+from . import advisor, benefits, brain, compliance, datatools, finance, plaid, travel, thinking, formfill, library, prices, rides, seats, selfcode, transcripts, tutor, vocabulary, voiceprint
 from .lifelog import LIFELOG_TOOL, LifeLog, run_lifelog_tool
 from .mailbrain import MAIL_TOOL_NAMES, MAIL_TOOLS, MailManager, run_mail_tool
 from .money import MONEY_TOOL_NAMES, MONEY_TOOLS, Money, run_money_tool
@@ -496,7 +496,7 @@ class Conversation:
         spending += [RATE_TOOL, HEALTH_TOOL, cards.SHOW_TOOL, tutor.TUTOR_TOOL, vocabulary.LEARN_TOOL] + MAKER_TOOLS
         spending += [ROOM_TOOL] if self.room else []
         spending += [REPLY_STYLE_TOOL, transcripts.TRANSCRIPT_TOOL, READ_TOOL, MODE_TOOL, voiceprint.VOICE_TOOL,
-                     prices.NOTE_PRICE_TOOL, rides.RIDE_TOOL, formfill.FORM_TOOL, selfcode.CODE_TOOL,
+                     prices.NOTE_PRICE_TOOL, rides.RIDE_TOOL, formfill.FORM_TOOL, seats.SEAT_TOOL, selfcode.CODE_TOOL,
                      library.LIBRARY_TOOL, brain.BRAIN_TOOL, finance.FINANCE_TOOL,
                      advisor.ADVISOR_TOOL, benefits.BENEFITS_TOOL, plaid.BANK_TOOL, travel.TRAVEL_TOOL,
                      compliance.COMPLIANCE_TOOL, MERCHANTS_TOOL, CUSTOMIZE_TOOL]
@@ -621,6 +621,8 @@ class Conversation:
             return await selfcode.run_tool(args, start_task if self.jobs and sandbox.available() else None)
         if name == "fill_form":
             return await formfill.run_form_tool(self.phone_request, self.thrift, self.form_state, args)
+        if name == "pick_seat":
+            return await seats.run_seat_tool(self.phone_request, self.thrift, self.form_state, self.memory, args)
         if name == "note_price":
             return prices.run_note_price(self.memory, args)
         if name == "switch_mode":

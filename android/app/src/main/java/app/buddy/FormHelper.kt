@@ -81,8 +81,11 @@ class FormHelper : AccessibilityService() {
                 .put("t", node.labeledBy?.text?.toString() ?: node.hintText?.toString().orEmpty())
             node.isCheckable -> item.put("kind", if (node.className?.contains("Radio") == true) "radio" else "check")
                 .put("checked", node.isChecked).put("t", own.ifEmpty { childText(node) })
-            node.isClickable && (own.isNotEmpty() || childText(node).isNotEmpty()) ->
+            node.isClickable && (own.isNotEmpty() || childText(node).isNotEmpty()) -> {
+                val box = Rect().also { node.getBoundsInScreen(it) }
                 item.put("kind", "button").put("t", own.ifEmpty { childText(node) }).put("checked", node.isSelected)
+                    .put("x", box.centerX()).put("off", !node.isEnabled)  // where it sits (seat maps), greyed out
+            }
             own.isNotEmpty() -> item.put("kind", "text").put("t", own.take(300))
         }
         if (item.has("kind")) {
@@ -206,7 +209,7 @@ class FormHelper : AccessibilityService() {
     }
 
     companion object {
-        private const val MAX_NODES = 350
+        private const val MAX_NODES = 700  // a seat map has a few hundred seats
         private const val STEP_MS = 450L  // between answers: the page reacts to each one
         private const val OPEN_MS = 900L  // a dropdown's list takes a moment to open
         val BROWSERS = setOf("com.android.chrome", "com.sec.android.app.sbrowser")
