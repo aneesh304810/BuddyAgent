@@ -24,6 +24,7 @@ from .tools import format_local, local_now, user_tz
 
 log = logging.getLogger(__name__)
 CREDIT_DEALS = os.getenv("BUDDY_CREDIT_DEALS", "1") not in ("", "0")  # deal search before a credit runs out
+MARKET_SCAN = os.getenv("BUDDY_MARKET_SCAN", "1") not in ("", "0")  # the daily trade-idea scan (markets.py)
 CARD_LOOKUP = os.getenv("BUDDY_CARD_LOOKUP", "1") not in ("", "0")  # published card benefits, from issuer sites
 SOC_MONTHLY = os.getenv("BUDDY_SOC_MONTHLY", "1") not in ("", "0")
 
@@ -233,6 +234,26 @@ async def run(memory: Memory, deliver: Deliver) -> None:
             except Exception:
                 log.exception("credit watch failed")
                 watch = None
+            try:  # markets: the daily scan after the US close (or when asked), and ideas checked in market hours
+                from . import markets as mkt  # noqa: PLC0415
+                trader = mkt.Markets(memory)
+                if memory.get("markets:scan_requested") or (MARKET_SCAN and mkt.scan_due(memory)):
+                    asked = bool(memory.get("markets:scan_requested"))
+                    memory.set("markets:scan_requested", "")
+                    memory.set("markets:scanned", local_now().date().isoformat())
+                    _, text = await trader.scan()
+                    for alert in await asyncio.to_thread(trader.close_check):
+                        text += " " + alert["text"]
+                    if asked or not in_quiet_hours():
+                        await deliver("money", text)
+                if (trader.positions() or memory.get("markets:scanned")) and \
+                        memory.get("markets:checked") != local_now().strftime("%Y-%m-%dT%H:") + str(local_now().minute // 15):
+                    memory.set("markets:checked", local_now().strftime("%Y-%m-%dT%H:") + str(local_now().minute // 15))
+                    for alert in await asyncio.to_thread(trader.check):
+                        if not in_quiet_hours():
+                            await deliver("money", alert["text"])
+            except Exception:
+                log.exception("markets failed")
             if not in_quiet_hours():
                 if watch is not None:
                     for alert in watch.alerts():  # new hard inquiries, accounts, late payments; a score drop

@@ -1,6 +1,6 @@
 # Buddy Privacy and Data Retention Policy
 
-Source: https://claude.ai/artifact/MJVGZ7pWQvi26tg1MS914P, revision 33
+Source: https://claude.ai/artifact/MJVGZ7pWQvi26tg1MS914P, revision 34
 
 Nov 1, 2026 · @Aneesh
 
@@ -34,6 +34,7 @@ Buddy collects only the owner's own data, and only what its features need.
 | Mortgage and student loan details: balance, interest rate, next payment and due date, escrow, interest and principal paid this year, payoff date (never the property address) | Plaid (Liabilities), for the banks the owner links | Read-only; used for payment reminders and money reviews |
 | Cancellation confirmations (the service, the date and the email's subject) and free-trial end dates and prices | Found in the owner's own emails | Kept on the server as proof for disputes and for trial reminders; Buddy never cancels or disputes anything itself |
 | Credit scores (score, bureau, scoring model, date) and credit report changes (hard inquiries, new or closed accounts, late payments, collections, address changes, fraud alerts: the date, the lender and a few words); and, when the owner asks, a detailed credit report (each account's lender, type, opening month, limit, balance and payment record, inquiries, negative items and score factors; never names, addresses, birth date or ID numbers) | The owner's credit monitoring emails and phone notifications (such as Credit Karma, Chase Credit Journey, Amex MyCredit Guide, Experian); the screen of the owner's credit app, read only when the owner opens it and asks Buddy to read it; new cards seen at banks the owner links; and scores the owner tells Buddy | Read-only; Buddy never signs in to these services, and never freezes, disputes or applies for anything itself |
+| Market watchlist, trade ideas Buddy found (setups with entry, stop and targets), and trades the owner tells Buddy they made (symbol, price, size, stop) | Buddy's daily market scan, and what the owner tells Buddy | Ideas only, never financial advice; Buddy never places, changes or cancels a trade |
 
 Buddy never collects bank passwords. Bank sign-in happens inside Plaid Link (or the SimpleFIN Bridge site), between the owner and the bank. Buddy cannot move money, make payments or change accounts.
 
@@ -88,6 +89,7 @@ Buddy uses a few service providers to work. Each sees only what its job needs, u
 | DigitalOcean | Hosts the server | Encrypted data at rest |
 | Tailscale | Private network between the phone and the server | Encrypted traffic it cannot read |
 | Duffel, SerpApi, Travelpayouts | Flight offers, Google Flights and Hotels prices, cheapest travel dates | Airports or place, dates and number of travellers only |
+| Alpaca (market data), Stooq, Coinbase, Yahoo Finance (public chart data), Reddit, StockTwits | Prices, charts, option prices and news for trade ideas; what people post about a stock or coin | Ticker symbols and search words only; never the owner's trades, holdings or account details. Buddy uses Alpaca's market data only and never places trades |
 
 No provider receives data for its own marketing or advertising.
 
@@ -104,6 +106,7 @@ Data is kept only as long as it is useful, then deleted automatically.
 | Subscription list and card calendar | Until the owner removes them; the transactions behind them are deleted after 24 months |
 | Card benefits and wish list | Until the owner removes them |
 | Credit scores and credit report changes | Until the owner asks Buddy to forget them; detailed credit reports 24 months, then deleted automatically |
+| Market watchlist, trade ideas and tracked trades; market scan reports | Watchlist and trades until the owner removes them; market scan reports 90 days, then deleted automatically |
 | Uploaded documents and photos, with their text, summaries, facts and search index | Until the owner tells Buddy to forget them; forgetting deletes the file, its text, its index entries and the facts taken from it |
 | People and things noted from the owner's data | Until the owner edits or deletes them |
 | Preferences and dates being watched | Until the owner removes them (in the app under Library, What Buddy knows about you, or by asking Buddy) |
