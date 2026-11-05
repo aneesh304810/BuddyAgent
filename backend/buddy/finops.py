@@ -259,7 +259,8 @@ class FinOps:
     def plaid(self, calls: dict | None = None) -> CostLine | None:
         """Plaid bills Transactions and Liabilities per connected bank (Item) a month, and some products per
         call. There's no billing API: Buddy counts the banks and calls and uses your prices from the Plaid
-        dashboard (Billing)."""
+        dashboard (Plans page; actual usage on the Production Usage page). Subscriptions aren't pro-rated: a bank
+        connected on any day of the month is billed the whole month."""
         try:
             rows = self.memory.db.execute("SELECT env FROM plaid_items").fetchall()
         except Exception:
@@ -272,14 +273,15 @@ class FinOps:
         per_bank = self.setting("BUDDY_PLAID_COST_PER_BANK_USD")
         fraction, _ = _month_progress()
         monthly = float(per_bank or 0) * live
-        mtd = monthly * fraction + info["cost"]
+        mtd = monthly + info["cost"]  # not pro-rated: the month's subscription is owed from its first day
         note = (f"{live} bank{'s' if live != 1 else ''} connected (production)"
                 + (f", {sandbox} sandbox (free)" if sandbox else "") + f"; {info['calls']} calls this month")
         if per_bank:
             note += f"; ${float(per_bank):.2f} per bank a month"
             source = "your price"
         else:
-            note += ". Add your per-bank price from the Plaid dashboard (Billing): BUDDY_PLAID_COST_PER_BANK_USD"
+            note += (". Add your per-bank price (Transactions + Liabilities a month, from the Plaid dashboard's Plans "
+                     "page; 0 on the free Trial plan): BUDDY_PLAID_COST_PER_BANK_USD")
             source = "price not set"
         return CostLine("Plaid", round(mtd, 2), round(monthly + _project(info["cost"]), 2), source, note)
 

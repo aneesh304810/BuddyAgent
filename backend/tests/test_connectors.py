@@ -248,3 +248,13 @@ def test_two_phones_calendars_and_work_busy_only():
     titles = sorted(r["title"] for r in server.hub.search("", source="phone_calendar"))
     assert titles == ["Busy", "Dentist"]  # Gym replaced; work title never stored
     assert "layoffs" not in str(server.hub.search("", source="phone_calendar"))
+
+
+def test_search_puts_the_best_match_first_not_the_newest():
+    hub = make_hub()
+    promos = [item(i, title=f"Weekend booking deals {i}", body="book now", hours=-i) for i in range(10, 22)]
+    etihad = item(1, title="Your Etihad booking confirmation", body="Booking reference 8OEFY8, EY 3", hours=-20)
+    hub.connectors["fake"].items = promos + [etihad]
+    asyncio.run(hub.sync("fake"))
+    found = hub.search("etihad booking")
+    assert found[0]["title"] == "Your Etihad booking confirmation"
