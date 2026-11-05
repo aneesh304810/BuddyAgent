@@ -853,6 +853,11 @@ def drill(memory: Memory, start: str, end: str, category: str = "", detail: str 
 
 def dashboard(memory: Memory, period: str = "last_month") -> dict:
     """Everything the dashboard draws, for one period (no AI: numbers only)."""
+    try:  # once: returned card payments an older Buddy counted as fees move out, before anything is added up
+        from .plaid import Plaid
+        Plaid(memory, env={})
+    except Exception:
+        pass
     rv = Review(memory)
     r = rv.compute(period)
     names = rv._account_names()
