@@ -624,7 +624,7 @@ class Conversation:
             return await formfill.run_form_tool(self.phone_request, self.thrift, self.form_state, args)
         if name == "credit":
             from . import credit  # noqa: PLC0415
-            return await asyncio.to_thread(credit.run_tool, self.memory, args)
+            return await credit.run_tool_async(self.memory, args, self.phone_request)
         if name == "pick_seat":
             return await seats.run_seat_tool(self.phone_request, self.thrift, self.form_state, self.memory, args)
         if name == "note_price":

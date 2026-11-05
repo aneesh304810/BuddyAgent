@@ -18,7 +18,8 @@ import org.json.JSONArray
 import org.json.JSONObject
 
 /**
- * Reads and fills forms in the browser when the user asks Buddy to ("help me fill this form").
+ * Reads and fills forms in the browser when the user asks Buddy to ("help me fill this form"), and reads
+ * (never fills or taps) the credit apps in READ_ONLY_APPS when asked ("read my credit").
  * Turned on by the user in Android's Accessibility settings; Android only gives it Chrome's and
  * Samsung Internet's screens (res/xml/form_helper.xml). It does nothing on its own: it reads the
  * screen only when the server asks, and types or taps only the answers the user said yes to. It
@@ -27,6 +28,7 @@ import org.json.JSONObject
 class FormHelper : AccessibilityService() {
     private val main = Handler(Looper.getMainLooper())
     private var fields = mutableMapOf<String, AccessibilityNodeInfo>()
+    private var lastApp = ""
 
     override fun onServiceConnected() {
         instance = this
@@ -57,10 +59,11 @@ class FormHelper : AccessibilityService() {
         val root = rootInActiveWindow
         val app = root?.packageName?.toString().orEmpty()
         val reply = JSONObject().put("type", "form_screen").put("id", id)
-        if (root == null || app !in BROWSERS) {
+        if (root == null || (app !in BROWSERS && app !in READ_ONLY_APPS)) {
             PhoneBridge.send(reply.put("error", "not_browser").put("app", app))
             return
         }
+        lastApp = app
         fields = mutableMapOf()
         val nodes = JSONArray()
         collect(root, nodes)
@@ -117,6 +120,11 @@ class FormHelper : AccessibilityService() {
     private fun fill(id: String, fills: JSONArray) {
         val done = JSONArray()
         val skipped = JSONArray()
+        if (lastApp !in BROWSERS) {  // credit and bank apps are read, never typed into or tapped
+            PhoneBridge.send(JSONObject().put("type", "form_result").put("id", id).put("done", done)
+                .put("skipped", skipped).put("error", "read_only_app"))
+            return
+        }
         fun step(i: Int) {
             if (i >= fills.length()) {
                 PhoneBridge.send(JSONObject().put("type", "form_result").put("id", id).put("done", done)
@@ -213,6 +221,10 @@ class FormHelper : AccessibilityService() {
         private const val STEP_MS = 450L  // between answers: the page reacts to each one
         private const val OPEN_MS = 900L  // a dropdown's list takes a moment to open
         val BROWSERS = setOf("com.android.chrome", "com.sec.android.app.sbrowser")
+        // Credit apps whose screen Buddy may read when the user asks ("read my credit"): read only, never
+        // typed into or tapped. The user signs in to them themselves; Buddy never sees a password.
+        val READ_ONLY_APPS = setOf("com.creditkarma.mobile", "com.experian.android", "com.chase.sig.android",
+            "com.americanexpress.android.acctsvcs.us", "com.konylabs.capitalone")
         private val NEVER_TAP = Regex("""\b(submit|send|pay|purchase|buy|place order|checkout|check out|confirm|transfer|""" +
             """delete|remove|sign in|log in|login|sign up|register|accept all|agree and|book now|order)\b""",
             RegexOption.IGNORE_CASE)

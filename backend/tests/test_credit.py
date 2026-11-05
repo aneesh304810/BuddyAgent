@@ -107,3 +107,41 @@ def test_a_new_card_at_a_connected_bank_is_a_new_account_but_the_first_look_only
     c.watch_connected_cards()
     ev = c.events()
     assert len(ev) == 1 and ev[0]["kind"] == "new_account" and "9911" in ev[0]["detail"]
+
+
+def test_a_teaser_email_asks_to_open_the_app_and_read_my_credit_reads_it():
+    mem = Memory(":memory:")
+    synced(mem, [rec(1, "email", "Something changed on your credit report", "Log in to Credit Karma to see what changed.",
+                     {"from": "Credit Karma <notifications@creditkarma.com>"})])
+
+    async def ask(memory, prompt):
+        if "credit app" in prompt and "Screen:" in prompt:
+            assert "TransUnion 742" in prompt
+            return {"scores": [{"score": 742, "bureau": "TransUnion", "model": "VantageScore 3.0"}],
+                    "events": [{"kind": "hard_inquiry", "day": "2026-11-02", "lender": "Discover", "bureau": "TransUnion"}]}
+        return {"credit_email": True, "service": "Credit Karma", "teaser": True,
+                "teaser_says": "something changed on your TransUnion report", "events": []}
+    c = Credit(mem, ask=ask)
+    asyncio.run(c.scan_emails())
+    alerts = c.alerts()
+    assert len(alerts) == 1 and 'say "Buddy, read my credit"' in alerts[0]["text"]
+    c.told(alerts[0])
+
+    sent = []
+
+    async def phone(msg):
+        sent.append(msg)
+        return {"app": "com.creditkarma.mobile", "can_scroll": False,
+                "nodes": [{"kind": "text", "t": "TransUnion 742"}, {"kind": "text", "t": "Hard inquiry: Discover"}]}
+    out = asyncio.run(c.read_screen(phone))
+    assert "Saved: 742 on TransUnion" in out and "1 new item" in out
+    assert all(m["action"] in ("read", "scroll") for m in sent)       # never a fill or a tap
+    texts = " ".join(a["text"] for a in c.alerts())
+    assert "new hard inquiry from Discover" in texts and "Credit Karma app" in texts
+
+
+def test_read_my_credit_with_another_app_in_front_says_what_to_open():
+    async def phone(msg):
+        return {"error": "not_browser", "app": "com.whatsapp"}
+    out = asyncio.run(Credit(Memory(":memory:")).read_screen(phone))
+    assert "Open your credit app" in out and "com.whatsapp" in out

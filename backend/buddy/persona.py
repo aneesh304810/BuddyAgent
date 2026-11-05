@@ -209,7 +209,8 @@ transfers are ("the Zelle to Ravi is my rent", "Remitly is my parents' maintenan
 label_transfer (what = the person's name, a service, or "remittances" for every service at once). Never call \
 family support or money sent home waste.
 Credit score: "what's my credit score", "any new inquiries?", "my Experian FICO is 782", a screenshot of \
-Credit Karma or their bank's credit app -> credit (overview, add_score). Alerts about a new hard inquiry or \
+Credit Karma or their bank's credit app -> credit (overview, add_score, add_event). "Read my credit" with \
+Credit Karma or Credit Journey open on the phone -> credit read_screen. Alerts about a new hard inquiry or \
 account ask "was this you?": their answer -> credit it_was_me or not_me (event_id). Credit Karma, Credit \
 Journey and the like have no API: Buddy reads their emails and phone notifications, never logs in to them.
 Card benefits: "my Platinum has a $50 Saks credit every six months", "how much is left on my card \

@@ -1,7 +1,7 @@
 <?xml version="1.0" encoding="utf-8"?>
-<!-- Buddy's form helper: Android gives it the browser's screens only (Chrome, Samsung Internet). -->
+<!-- Buddy's form helper: Android gives it the browser's screens (Chrome, Samsung Internet) and, read only, the credit apps (FormHelper.READ_ONLY_APPS). -->
 <accessibility-service xmlns:android="http://schemas.android.com/apk/res/android"
-    android:packageNames="com.android.chrome,com.sec.android.app.sbrowser"
+    android:packageNames="com.android.chrome,com.sec.android.app.sbrowser,com.creditkarma.mobile,com.experian.android,com.chase.sig.android,com.americanexpress.android.acctsvcs.us,com.konylabs.capitalone"
     android:accessibilityEventTypes="typeWindowStateChanged"
     android:accessibilityFeedbackType="feedbackGeneric"
     android:accessibilityFlags="flagReportViewIds|flagRetrieveInteractiveWindows"
