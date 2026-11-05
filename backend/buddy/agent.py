@@ -447,13 +447,20 @@ class Conversation:
         """Simple, general, timeless questions ("what is a black hole", "how do you say thanks in
         Portuguese") go straight to a free model: no Claude call. True if it answered; anything
         personal, or a model that isn't sure, falls through to Claude."""
-        kind = free_kind(user_text) if settings.free_direct and self.free.enabled() else ""
+        from . import routing  # noqa: PLC0415
+        if not (settings.free_direct and self.free.enabled()):
+            return False
+        if not hasattr(self, "_free_learner"):
+            self._free_learner = routing.Learner()
+        routing.note_correction(self.memory, self.previous_turn, user_text)
+        kind, _why = routing.free_kind(user_text, self.memory, self._free_learner)
         if not kind:
             return False
         started = time.monotonic()
         try:
             result = await self.free.direct(kind, mask(user_text))
         except ToolError:  # personal details, not sure, or every free model busy
+            routing.log_free(self.memory, self.turn_key, kind, "free", handed_back=True)
             return False
         except Exception:
             log.exception("free turn failed")
@@ -465,6 +472,7 @@ class Conversation:
             await say(sentence)
             first = first if first is not None else time.monotonic() - started
         self._note_exchange(user_text, answer)
+        routing.log_free(self.memory, self.turn_key, kind, result["model"])
         usage.count(self.memory, "router:free")
         usage.log_turn(self.memory, turn=self.turn_key, via=via, first_model=result["model"],
                        final_model=result["model"], first_word=first, total=time.monotonic() - started, rounds=1,

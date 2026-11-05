@@ -50,3 +50,33 @@ def test_decisions_are_logged_and_a_task_the_quick_model_keeps_missing_moves_up(
     view = routing.overview(mem)
     row = next(t for t in view["tasks"] if t["task"] == "reminder")
     assert row["fast"] == 8 and row["missed_on_fast"] == 5 and view["moved_up"] == ["reminder"]
+
+
+def test_simple_general_requests_go_to_a_free_model_and_hard_or_personal_ones_to_a_paid_one():
+    mem = Memory(":memory:")
+    fk = lambda t: routing.free_kind(t, mem)[0]   # noqa: E731
+    assert fk("thanks buddy") == "small_talk"
+    assert fk("what is a black hole") == "explain"
+    assert fk("write a short poem about the monsoon") == "brainstorm"
+    assert fk("give me some names for a golden retriever puppy") == "brainstorm"
+    assert fk("how do I reverse a list in python") == "code"
+    assert fk("who wrote the Odyssey") == "explain"
+    assert fk("how far is the moon from earth") == "quick_answer"
+    # personal, needs Buddy's tools, high stakes, current or hard: a paid model
+    for text in ("how much did I spend on food", "remind me to call mum", "should I buy NVDA calls",
+                 "what's the weather today", "what is my credit score",
+                 "compare the trade-offs of Kafka and Pulsar step by step for a bank's event platform and explain why"):
+        assert fk(text) == "", text
+    Customize(mem).set("routing", "best")
+    assert fk("what is a black hole") == "" and fk("thanks") == "small_talk"
+
+
+def test_a_kind_the_free_models_keep_missing_goes_to_claude():
+    mem = Memory(":memory:")
+    for i in range(6):
+        routing.log_free(mem, f"f{i}", "code", "gemini/x", handed_back=i < 3)
+    for i in range(3):
+        routing.log_free(mem, f"ok{i}", "code", "gemini/x")
+    kind, why = routing.free_kind("how do I reverse a list in python", mem)
+    assert kind == "" and "getting code wrong lately" in why
+    assert routing.overview(mem)["kept_off_free"] == ["free:code"]

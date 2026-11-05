@@ -14,7 +14,11 @@
   3. Learning: every decision is logged (route_log) with its task and reason. A task where the quick model
      often fails (handed over, an error, a thumbs down, or "that's wrong" right after) over the last 14 days
      is moved to the main model automatically; it's tried on the quick model again after 14 days.
-Free models (small talk, general explanations, translations) are still chosen first in agent._free_turn.
+  0. Free models first (free_kind): small talk, and simple, general, timeless requests with nothing personal and no
+     tool needed (a fact, an explanation, a translation, a poem or caption, ideas, rewording, a short coding
+     how-to). Anything personal, current, needing Buddy's tools, high stakes or hard goes to a paid model. A free
+     model that isn't sure hands it back; hand-backs, thumbs down and "that's wrong" count as misses, and a kind the
+     free models keep missing goes to Claude for two weeks.
 """
 
 import json
@@ -108,11 +112,13 @@ class Learner:
     def __init__(self):
         self._at, self._weak = None, set()
 
-    def weak(self, memory) -> set[str]:
+    def weak(self, memory, tier: str = "fast") -> set[str]:
+        """Tasks this tier (fast = Haiku, free = the free models) got wrong too often in the last two weeks."""
         if memory is None:
             return set()
-        if self._at is not None and time.monotonic() - self._at < 600:
-            return self._weak
+        cached = self._weak if isinstance(self._weak, dict) else {}
+        if self._at is not None and time.monotonic() - self._at < 600 and tier in cached:
+            return cached[tier]
         since = (datetime.now(timezone.utc) - timedelta(days=LEARN_DAYS)).isoformat()
         weak = set()
         try:
@@ -120,14 +126,79 @@ class Learner:
                 "SELECT r.task, COUNT(*) AS n, SUM(CASE WHEN r.corrected = 1 OR t.final_model != t.first_model OR "
                 "t.outcome NOT IN ('ok', 'interrupted') OR (SELECT MIN(rating) FROM model_calls m WHERE m.turn = r.turn) "
                 "= -1 THEN 1 ELSE 0 END) AS bad FROM route_log r LEFT JOIN turns t ON t.turn = r.turn "
-                "WHERE r.at >= ? AND r.tier = 'fast' GROUP BY r.task", (since,)).fetchall()
+                "WHERE r.at >= ? AND r.tier = ? GROUP BY r.task", (since, tier)).fetchall()
             for r in rows:
                 if r["n"] >= MIN_SAMPLES and (r["bad"] or 0) / r["n"] >= FAIL_RATE and r["task"] not in ("closer",):
                     weak.add(r["task"])
         except Exception:
             weak = set()
-        self._at, self._weak = time.monotonic(), weak
+        cached[tier] = weak
+        self._at, self._weak = time.monotonic(), cached
         return weak
+
+
+# --- the free models: simple, general requests, before any paid model --------------------------------------
+FREE_WRITE = re.compile(r"(?i)^(write|compose|make up|give me) (a |an |me a |me an )?(short |funny |little )?(poem|haiku|"
+                        r"limerick|joke|riddle|story|toast|caption|slogan|tagline|tweet|quote|rhyme)\b")
+FREE_IDEAS = re.compile(r"(?i)^(give me|suggest|list|brainstorm|any|some)\b.{0,25}\b(ideas?|names?|suggestions|tips|"
+                        r"ways|examples|words|synonyms|questions)\b")
+FREE_REWORD = re.compile(r"(?i)^(rephrase|reword|rewrite|paraphrase|make (this|it) (sound|more)|fix the grammar|proofread|"
+                         r"shorten|simplify)\b")
+FREE_CODE = re.compile(r"(?i)\b(how (do|can) (i|you)|what'?s the (syntax|command)|regex for|one-?liner|example of)\b.{0,60}"
+                       r"\b(python|javascript|typescript|sql|bash|shell|regex|css|html|java|kotlin|go|rust|excel|"
+                       r"git|linux|json)\b")
+FREE_FACT = re.compile(r"(?i)^(who|what|when|where|which|how (many|much|far|long|big|tall|old)|is it true|can you tell me)\b")
+PERSONAL_REF = re.compile(r"(?i)\b(my|mine|our|ours|we|us|i'm|i've|i'd|i was|i am|i have|i had|i did|i spent|i bought|"
+                          r"i owe|i need to|me and)\b")
+CURRENT = re.compile(r"(?i)\b(today|tonight|tomorrow|yesterday|right now|current(ly)?|latest|recent|news|this (week|month|"
+                     r"year)|price|weather|score|stock|near|nearby|open now)\b")
+NEEDS_TOOLS = {"reminder", "memory", "money", "credit", "investing", "email", "travel", "places", "planning", "research",
+               "health_legal_tax", "quick_fact"}
+
+
+def free_kind(text: str, memory=None, learner: "Learner | None" = None) -> tuple[str, str]:
+    """(free model kind, why) when a free model can answer the whole message, else ('', why not). Only general,
+    timeless, simple requests with nothing personal: those need Claude (personal data stays on Claude) or Buddy's
+    tools (email, money, reminders...). Hard ones go to a paid model; the free models' guard checks again."""
+    from .router import NOT_FOR_FREE, free_kind as basic  # noqa: PLC0415
+    t = text.strip()
+    m = mode(memory)
+    kind = basic(t)
+    if kind == "small_talk":
+        return kind, "small talk"
+    if m == "best":
+        return "", "best mode: paid models only"
+    task, _, stakes = task_of(t)
+    hard = difficulty(t)
+    if stakes or task in NEEDS_TOOLS:
+        return "", f"{task.replace('_', ' ')} needs Buddy's tools or care"
+    if not kind and (PERSONAL_REF.search(t) or CURRENT.search(t)):
+        return "", "personal or current"  # "how do I", "give me" and "tell me" are fine; "my", "we", "today" aren't
+    if kind and NOT_FOR_FREE.search(t):
+        return "", "personal, current or needs a tool"
+    if hard > (2 if m == "saver" else 1) or len(t.split()) > (80 if m == "saver" else 50):
+        return "", "too involved for a free model"
+    if not kind:
+        kind = ("rewrite" if FREE_REWORD.search(t) else "brainstorm" if FREE_WRITE.search(t) or FREE_IDEAS.search(t)
+                else "code" if FREE_CODE.search(t) else "quick_answer" if FREE_FACT.search(t) and len(t.split()) <= 20
+                else "")
+    if not kind:
+        return "", "not a kind of request the free models take"
+    if f"free:{kind}" in (learner or Learner()).weak(memory, "free"):
+        return "", f"the free models have been getting {kind.replace('_', ' ')} wrong lately"
+    return kind, f"simple and general ({kind.replace('_', ' ')}): a free model"
+
+
+def log_free(memory, turn: str, kind: str, model: str, handed_back: bool = False) -> None:
+    """A free model answered (or handed it back to Claude, which counts as a miss for that kind)."""
+    log(memory, f"{turn}:free" if handed_back else turn,
+        Decision(model, "free", f"free:{kind}", "handed back to Claude" if handed_back else f"free model ({kind})"))
+    if handed_back and memory is not None:
+        try:
+            memory.db.execute("UPDATE route_log SET corrected = 1 WHERE turn = ?", (f"{turn}:free",))
+            memory.db.commit()
+        except Exception:
+            pass
 
 
 def mode(memory) -> str:
@@ -153,7 +224,7 @@ def decide(text: str, *, closer: bool, simple: bool, recent_main: bool, memory=N
         return Decision(main, "main", task, "routing off", signals)
     if closer:
         return Decision(fast, "fast", task, "a closer: the quick model", signals)
-    weak = (learner or Learner()).weak(memory)
+    weak = (learner or Learner()).weak(memory, "fast")
 
     def done(t: str, why: str) -> Decision:
         hint = stakes and hard >= 2 and t == "main"
@@ -223,15 +294,18 @@ def overview(memory, days: int = 30) -> dict:
                                  "WHERE at >= ? GROUP BY task, tier", (since,)).fetchall()
     tasks: dict[str, dict] = {}
     for r in rows:
-        t = tasks.setdefault(r["task"], {"task": r["task"], "fast": 0, "main": 0, "missed_on_fast": 0, "cost_usd": 0.0})
+        t = tasks.setdefault(r["task"], {"task": r["task"], "free": 0, "fast": 0, "main": 0, "missed_on_fast": 0,
+                                         "missed_on_free": 0, "cost_usd": 0.0})
         t[r["tier"]] = r["n"]
-        if r["tier"] == "fast":
-            t["missed_on_fast"] = r["missed"] or 0
+        if r["tier"] in ("fast", "free"):
+            t[f"missed_on_{r['tier']}"] = r["missed"] or 0
         t["cost_usd"] = round(t["cost_usd"] + (r["cost"] or 0), 4)
     out = sorted(tasks.values(), key=lambda t: -(t["fast"] + t["main"]))
     return {"mode": mode(memory), "days": days, "tasks": out,
-            "moved_up": sorted(Learner().weak(memory)),
-            "models": {"fast": settings.fast_model, "main": settings.chat_model, "expert": "ask_expert (Opus)"}}
+            "moved_up": sorted(Learner().weak(memory, "fast")),
+            "kept_off_free": sorted(Learner().weak(memory, "free")),
+            "models": {"free": "free models (Gemini, Groq...) when set up", "fast": settings.fast_model,
+                       "main": settings.chat_model, "expert": "ask_expert (Opus)"}}
 
 
 ROUTING_TOOL = {

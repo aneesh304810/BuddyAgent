@@ -344,6 +344,11 @@ class FreeModels:
             system += (" This is small talk (a greeting, thanks, goodbye, a joke): reply warmly and casually in one "
                        "short sentence, like a friend. Don't ask about their plans or life, and don't offer help "
                        f"with tasks. If it's really a request or question, reply only: {UNSURE}")
+        if kind in ("brainstorm", "rewrite", "code"):
+            system = (f"You are {settings.assistant_name}, a friendly assistant. Do what's asked, briefly: a poem, "
+                      "caption or a few ideas as a short list; reworded text on its own; a coding answer as a short "
+                      "explanation and one small code block. Be accurate. If it depends on the person's own life, "
+                      f"recent events or where they are, or you're not sure, reply only: {UNSURE}")
         return await self.run(kind, question, system=system, purpose="chat_free", claude_fallback=False)
 
     def _call(self, name: str, system: str, prompt: str, timeout: float = 30,
