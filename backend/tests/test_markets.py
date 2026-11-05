@@ -155,3 +155,18 @@ def test_symbols_and_the_tool():
     assert "Scanning now" in mk.run_tool(mem, {"action": "scan"}) and mem.get("markets:scan_requested") == "1"
     dash = json.loads(mk.run_tool(mem, {"action": "ideas"}))
     assert dash["watchlist"][0]["symbol"] == "PLTR" and "not financial advice" in dash["note"]
+
+
+def test_daily_bars_use_the_whole_market_feed_and_fall_back_to_iex():
+    import urllib.error
+    mem = Memory(":memory:")
+    seen = []
+
+    def fetch(url, headers=None, data=None):
+        seen.append(url)
+        if "feed=sip" in url:
+            raise urllib.error.HTTPError(url, 403, "subscription does not permit querying recent SIP data", {}, None)
+        return {"bars": {"AAPL": [{"t": "2026-11-04T05:00:00Z", "o": 1, "h": 1, "l": 1, "c": 1, "v": 1}]}}
+    got = mk.Data(mem, ENV, fetch).bars("us", ["AAPL"])
+    assert got["AAPL"] and "feed=sip" in seen[0] and "end=" in seen[0] and "feed=iex" in seen[1]
+    assert mem.get("markets:feed") == "iex"

@@ -169,18 +169,27 @@ class Data:
             return out
         if self.alpaca:
             path = "v1beta3/crypto/us/bars" if market == "crypto" else "v2/stocks/bars"
+            # Daily bars from every US exchange (SIP) when the plan allows it: the free plan gives SIP history up to
+            # 15 minutes ago, so volume is the whole market's, not just IEX's few percent. Else the IEX feed.
+            feed = self.memory.get("markets:feed") or "sip"
             for i in range(0, len(symbols), 40):
                 group, token = symbols[i:i + 40], ""
                 for _ in range(40):
                     q = {"symbols": ",".join(group), "timeframe": "1Day", "start": start, "limit": 10000}
                     if market != "crypto":
-                        q.update({"adjustment": "split", "feed": "iex"})
+                        q.update({"adjustment": "split", "feed": feed})
+                        if feed == "sip":
+                            q["end"] = (datetime.now(timezone.utc) - timedelta(minutes=16)).strftime("%Y-%m-%dT%H:%M:%SZ")
                     if token:
                         q["page_token"] = token
                     try:
                         got = self._json("alpaca", f"https://data.alpaca.markets/{path}?{urllib.parse.urlencode(q)}",
                                          self.alpaca)
                     except Exception as e:
+                        if market != "crypto" and feed == "sip" and getattr(e, "code", None) in (401, 403, 422):
+                            feed = "iex"  # this plan can't read SIP: IEX from now on
+                            self.memory.set("markets:feed", "iex")
+                            continue
                         log.info("alpaca bars: %s", type(e).__name__)
                         break
                     for sym, rows in (got.get("bars") or {}).items():
