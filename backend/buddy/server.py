@@ -187,7 +187,7 @@ async def deliver(kind: str, text: str, **extra) -> bool:
             if extra.get("cards"):
                 message["cards"] = _absolute(extra["cards"], ws)  # full links for this phone
             await ws.send_json(message)
-            convo.note_proactive(text)
+            convo.note_proactive(text, kind)
     return True
 
 
@@ -1183,6 +1183,11 @@ async def talk(ws: WebSocket) -> None:
             replies.pop(request_id, None)
 
     convo.phone_request = phone_request
+
+    async def say_now(text: str) -> None:  # "Open Credit Karma now", while the tool waits for it
+        await send({"type": "whisper", "kind": "info", "text": text})
+
+    convo.say_now = say_now
 
     pending: dict = {"text": "", "task": None}  # a sentence cut off by a pause, waiting for its end
     last_heard = [-1e9]  # when Whisper last sent text back

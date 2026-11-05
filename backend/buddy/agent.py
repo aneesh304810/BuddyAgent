@@ -185,6 +185,7 @@ class Conversation:
         self.switch_mode = None  # async (mode) -> None: tells the app to change mode (server sets it)
         self.open_links = None  # async (links) -> None: the phone opens Uber or Lyft (server sets it)
         self.phone_request = None  # async (message) -> reply: ask the phone something (server sets it)
+        self.say_now = None  # async (text) -> None: a short line to the user in the middle of a turn (server sets it)
         self.form_state: dict = {}  # the form last read off the browser
         self.via = "user"
         # Frozen for the whole session so the cached prompt prefix stays valid.
@@ -628,7 +629,7 @@ class Conversation:
             return await asyncio.to_thread(markets.run_tool, self.memory, args)
         if name == "credit":
             from . import credit  # noqa: PLC0415
-            return await credit.run_tool_async(self.memory, args, self.phone_request)
+            return await credit.run_tool_async(self.memory, args, self.phone_request, self.say_now)
         if name == "pick_seat":
             return await seats.run_seat_tool(self.phone_request, self.thrift, self.form_state, self.memory, args)
         if name == "note_price":
@@ -692,12 +693,18 @@ class Conversation:
                 return await self.registry.call(name, args, self.turn)
         return run_tool(self.memory, name, args)
 
-    def note_proactive(self, text: str) -> None:
+    def note_proactive(self, text: str, kind: str = "") -> None:
         """Record something Buddy said unprompted (a whisper, a nudge), so a follow-up
-        like "why?" or "tell me more" has it as context."""
+        like "why?" or "tell me more" has it as context. It came from Buddy's own background work (a finished
+        market scan, a credit alert, a reminder), so it's marked as real: the model must never disown it."""
         if self.messages and self.messages[-1]["role"] == "user":
             return  # a reply is on its way; don't split the user's turn
-        self.messages.append({"role": "user", "content": "(Buddy spoke up on its own; no question asked.)"})
+        what = {"money": "money and markets watch", "job_done": "a finished background job", "travel": "travel watch",
+                "reminder": "a reminder", "briefing": "the morning briefing", "email": "email watch"}.get(kind, kind)
+        self.messages.append({"role": "user", "content": (
+            f"(Buddy spoke up on its own; no question asked. This message came from Buddy's background work"
+            f"{' (' + what + ')' if what else ''}: real results from Buddy's tools, such as a market scan saved in "
+            "Reports. Never call it made up; check the tool (markets ideas, credit overview...) for details.)")})
         self.messages.append({"role": "assistant", "content": text})
 
 

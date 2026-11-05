@@ -583,7 +583,8 @@ def _nice(day: str) -> str:
 
 CREDIT_TOOL = {
     "name": "credit",
-    "description": "The user's credit score and credit report changes. read_screen: 'read my credit' - reads the "
+    "description": "The user's credit score and credit report changes. read_screen: 'read my credit' (call it even "
+    "when they ask from inside Buddy: it tells them to switch to the credit app and waits for it) - reads the "
     "credit app they have open on the phone (Credit Karma, Chase Credit Journey, Amex MyCredit Guide, Experian, "
     "CreditWise; read only, never a tap) and saves the scores and report items; the monitoring emails often only "
     "say something changed, so this is how the detail comes in. add_event (kind, day, lender, bureau, detail): an "
@@ -608,13 +609,44 @@ CREDIT_TOOL = {
 }
 
 
-async def run_tool_async(memory: Memory, args: dict, phone_request=None) -> str:
+async def run_tool_async(memory: Memory, args: dict, phone_request=None, say_now=None) -> str:
+    if args.get("action") in ("read_screen", "full_report") and phone_request is not None and \
+            not args.get("document_id"):
+        phone_request = await wait_for_credit_app(phone_request, say_now)
     if args.get("action") == "read_screen":
         return await Credit(memory).read_screen(phone_request)
     if args.get("action") == "full_report":
         return await Credit(memory).full_report(phone_request, str(args.get("document_id") or ""))
     import asyncio  # noqa: PLC0415
     return await asyncio.to_thread(run_tool, memory, args)
+
+
+async def wait_for_credit_app(phone_request, say_now=None, seconds: int = 45, every: float = 3.0, sleep=None):
+    """'Read my credit' said in Buddy itself: ask them to switch to the credit app, and wait until it's in front.
+    Returns a phone_request whose first read is the credit app's screen (or the last answer, if it never came)."""
+    import asyncio  # noqa: PLC0415
+    sleep = sleep or asyncio.sleep
+    first = await phone_request({"type": "form", "action": "read"})
+    if not (first.get("error") == "not_browser" and str(first.get("app") or "") not in APPS):
+        reply = first
+    else:
+        if say_now is not None:
+            await say_now("Open Credit Karma (or Credit Journey, MyCredit Guide, Experian) and go to the page to read: "
+                          "I'll start as soon as it's on screen. Keep Hands-free on to talk to me there.")
+        reply = first
+        for _ in range(int(seconds / every)):
+            await sleep(every)
+            reply = await phone_request({"type": "form", "action": "read"})
+            if str(reply.get("app") or "") in APPS or not reply.get("error"):
+                break
+    used = {"first": False}
+
+    async def wrapped(message: dict) -> dict:
+        if message.get("action") == "read" and not used["first"]:
+            used["first"] = True
+            return reply  # the screen already read
+        return await phone_request(message)
+    return wrapped
 
 
 def run_tool(memory: Memory, args: dict) -> str:

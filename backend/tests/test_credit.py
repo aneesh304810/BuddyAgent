@@ -193,3 +193,31 @@ def test_model_answers_are_read_whole_for_every_kind_of_reply():
     assert last_json('{"ideas": [{"symbol": "NVDA"}]}')["ideas"][0]["symbol"] == "NVDA"
     assert last_json('{"links": [{"n": 0, "credit_id": 3}]}')["links"][0]["credit_id"] == 3
     assert last_json("no json here") is None
+
+
+def test_read_my_credit_from_inside_buddy_asks_to_switch_and_waits_for_the_app():
+    screens = [{"error": "not_browser", "app": "app.buddy"}, {"error": "not_browser", "app": "app.buddy"},
+               {"app": "com.creditkarma.mobile", "can_scroll": False, "nodes": [{"kind": "text", "t": "TransUnion 742"}]}]
+    sent, said = [], []
+
+    async def phone(msg):
+        sent.append(msg)
+        return screens.pop(0) if screens else {"app": "com.creditkarma.mobile", "nodes": []}
+
+    async def say(text):
+        said.append(text)
+
+    async def no_wait(_):
+        return None
+    wrapped = asyncio.run(credit.wait_for_credit_app(phone, say, sleep=no_wait))
+    assert said and "Open Credit Karma" in said[0]
+    first = asyncio.run(wrapped({"type": "form", "action": "read"}))
+    assert first["app"] == "com.creditkarma.mobile" and len(sent) == 3   # waited, then read once
+
+
+def test_buddys_own_background_messages_are_marked_real_in_the_conversation():
+    from buddy.agent import Conversation
+    convo = Conversation.__new__(Conversation)
+    convo.messages = []
+    convo.note_proactive("Market scan: 8 ideas worth watching: MSFT ...", "money")
+    assert "Never call it made up" in convo.messages[0]["content"] and "market scan" in convo.messages[0]["content"]

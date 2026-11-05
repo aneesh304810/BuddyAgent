@@ -64,6 +64,7 @@ class FormHelper : AccessibilityService() {
             return
         }
         lastApp = app
+        reply.put("app", app)  // which app was read (the server names it: "Credit Karma")
         fields = mutableMapOf()
         val nodes = JSONArray()
         collect(root, nodes)
