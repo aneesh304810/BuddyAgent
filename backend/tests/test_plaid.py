@@ -330,3 +330,35 @@ def test_all_connected_accounts_and_net_worth():
     assert o["totals"] == {"cash": 8200, "investments": 92000, "cards_owed": 1450.5, "loans_owed": 550000,
                            "net_worth": round(8200 + 92000 - 1450.5 - 550000, 2)}
     assert "Home value isn't included" in o["note"] and "Investments product" in o["note"]
+
+
+def test_card_statement_credits_are_kept_with_the_card_not_counted_as_income(mem):
+    p, fake, _ = linked(mem)
+    accounts = {"acc-card": {"account_id": "acc-card", "type": "credit", "mask": "1004"}}
+    credit = {"transaction_id": "c1", "account_id": "acc-card", "amount": -100, "date": ago(4),
+              "name": "PLATINUM RESY CREDIT", "iso_currency_code": "USD",
+              "personal_finance_category": {"primary": "INCOME", "detailed": "INCOME_OTHER_INCOME"}}
+    payment = {"transaction_id": "c2", "account_id": "acc-card", "amount": -900, "date": ago(4),
+               "name": "AUTOPAY PAYMENT - THANK YOU", "iso_currency_code": "USD",
+               "personal_finance_category": {"primary": "TRANSFER_IN", "detailed": "TRANSFER_IN_ACCOUNT_TRANSFER"}}
+    assert p._transaction("item-1", credit, accounts) is True
+    assert p._transaction("item-1", payment, accounts) is False
+    rows = mem.db.execute("SELECT amount, card, merchant_raw, detail FROM transactions WHERE source LIKE '%:c%'").fetchall()
+    assert [(r["amount"], r["card"], r["merchant_raw"], r["detail"]) for r in rows] == \
+        [(-100, "1004", "PLATINUM RESY CREDIT", "Statement credit")]
+    assert mem.db.execute("SELECT COUNT(*) FROM fin_income").fetchone()[0] == 0
+
+
+def test_history_is_read_again_once_so_credits_dropped_before_come_back(mem):
+    p, fake, _ = linked(mem)
+    p.sync(force=True)
+    mem.db.execute("UPDATE plaid_items SET cursor = 'c2'")
+    mem.db.execute("DELETE FROM kv WHERE key LIKE 'plaid:replayed:%'")
+    mem.db.commit()
+    fake.calls.clear()
+    p.sync(force=True)
+    cursors = [c[1]["cursor"] for c in fake.calls if c[0] == "/transactions/sync"]
+    assert cursors[0] == ""
+    fake.calls.clear()
+    p.sync(force=True)
+    assert [c[1]["cursor"] for c in fake.calls if c[0] == "/transactions/sync"][0] == "c2"

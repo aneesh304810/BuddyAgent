@@ -5,9 +5,13 @@
   "I want the Lululemon Define jacket but it's pricey"    -> wish_add (item, merchant, price)
   "what should I use my credits on?"                      -> plan: credits running out, matched to wishes
 
-How "used" is known: statement credits in the bank feed (Plaid or email), i.e. refunds whose description
-names the benefit's merchant and says "credit" (or the words the user gave in match), within the current
-period. Purchases at that merchant this period are shown too, since a credit can take weeks to post.
+How "used" is known: the card's own statement. Money back on the card the credit belongs to (its connected
+last 4) that says credit or reimbursement goes to the tracked credit on that card it names best ("PLATINUM UBER
+ONE CREDIT" -> the Uber One credit, not Uber Cash); lines whose wording names none ("AMEX PLATINUM BENEFIT") are
+sorted by Claude once a day (link_credits). Plaid often labels these credits income or a transfer in: plaid.py
+keeps them with the card's charges. Purchases at that merchant this period are shown too, since a credit can
+take weeks to post. Reminders say what the statement shows ("no statement credit through Oct 2"), and several
+due the same morning are one message.
 The user can also say "I used my Saks credit" (used).
 
 Reminders (once a day, from the proactive loop): when a credit still has money left, at 60, 30, 14, 7
@@ -165,6 +169,45 @@ def period_bounds(b: dict, today: date) -> tuple[date, date]:
     created = datetime.fromisoformat(b["created_at"]).date()
     end = date.fromisoformat(b["expires"]) if b.get("expires") else created + timedelta(days=365)
     return created, end
+
+
+# Words in a credit's name that don't say which credit it is.
+NAME_NOISE = {"credit", "credits", "card", "statement", "the", "and", "for", "fee", "fees", "annual", "monthly",
+              "quarterly", "semiannual", "yearly", "platinum", "gold", "green", "amex", "american", "express", "chase",
+              "sapphire", "reserve", "preferred", "plus", "membership", "one", "selected", "your", "with", "per", "year",
+              "month", "benefit", "cash", "back", "up", "to", "of", "on", "in", "at"}
+# Money back on a card that is a statement credit, not a refund of a purchase.
+CREDIT_TEXT = re.compile(r"(?i)\b(credit|reimburs\w*|cr)\b")
+
+
+def _name_words(text: str) -> list[str]:
+    return sorted({w for w in re.findall(r"[a-z0-9]+", (text or "").lower()) if len(w) >= 3 and w not in NAME_NOISE})
+
+
+LINK_PROMPT = """These are statement credits (money back) on {user}'s credit cards, and the card credits {user} tracks.
+For each statement line, say which tracked credit it is, using the card (last 4) and the wording. If none fits (a
+refund, a welcome bonus, points redeemed), say null. Don't guess between two credits: null.
+Tracked credits: {credits}
+Statement lines: {lines}
+Answer with one line of JSON only: {{"links": [{{"n": 0, "credit_id": 12}}]}}"""
+
+
+async def _ask_links(memory: Memory, credits: list[dict], lines: list[dict]) -> dict | None:
+    from . import usage
+    from .agent import fallback_kwargs
+    from .config import claude_client, settings
+
+    model = settings.fast_model
+    started = time.monotonic()
+    prompt = LINK_PROMPT.format(user=settings.user_name or "the user",
+                                credits=json.dumps(credits, ensure_ascii=False), lines=json.dumps(lines, ensure_ascii=False))
+    response = await claude_client().beta.messages.create(model=model, max_tokens=1_500,
+                                                          messages=[{"role": "user", "content": prompt}],
+                                                          **fallback_kwargs(model))
+    if hasattr(response, "usage"):
+        usage.record(memory, response.model, response.usage, purpose="card_credit_links", response=response,
+                     started=started)
+    return _last_json("\n".join(b.text for b in response.content if getattr(b, "type", "") == "text"))
 
 
 def _words(text: str) -> list[str]:
@@ -931,15 +974,19 @@ class Benefits:
         return f"{b['card']} {b['name']}".strip() if b["card"] and b["card"].lower() not in b["name"].lower() else b["name"]
 
     # --- how much is used ----------------------------------------------------------------
+    # Read from the card's own statement: money back on that card ("Platinum Resy Credit", "AMEX CLEAR PLUS CREDIT",
+    # "AIRLINE FEE REIMBURSEMENT") is a statement credit; each goes to the one tracked credit on that card it names
+    # best, and the ones no name explains are sorted by Claude once (link_credits). Purchases there are shown too,
+    # since a credit can take weeks to post.
     def _transactions(self, start: date, end: date) -> list[dict]:
         try:
             rows = [dict(r) for r in self.memory.db.execute(
-                "SELECT day, amount, merchant, card, merchant_raw FROM transactions WHERE day >= ? AND day <= ?",
+                "SELECT day, amount, merchant, card, merchant_raw, source FROM transactions WHERE day >= ? AND day <= ?",
                 (start.isoformat(), end.isoformat()))]
         except Exception:  # an older database without merchant_raw
             try:
                 rows = [dict(r) for r in self.memory.db.execute(
-                    "SELECT day, amount, merchant, card FROM transactions WHERE day >= ? AND day <= ?",
+                    "SELECT day, amount, merchant, card, source FROM transactions WHERE day >= ? AND day <= ?",
                     (start.isoformat(), end.isoformat()))]
             except Exception:
                 return []
@@ -948,19 +995,71 @@ class Benefits:
             r["text"] = f"{r['merchant']} {r.get('merchant_raw') or ''}".lower()
         return rows
 
+    def _card_last4(self, card: str) -> str:
+        """The connected card a tracked credit belongs to (its last 4), so only that card's statement counts."""
+        if not hasattr(self, "_last4_cache"):
+            self._last4_cache = {}
+        k = _key(card or "")
+        if k not in self._last4_cache:
+            hits = [c["last4"] for c in self.connected_cards() if c["last4"] and _key(c["card"]) == k]
+            self._last4_cache[k] = hits[0] if len(hits) == 1 else ""
+        return self._last4_cache[k]
+
+    def _on_card(self, b: dict, t: dict) -> bool:
+        last4 = self._card_last4(b["card"])
+        return not last4 or not t.get("card") or str(t["card"])[-4:] == last4
+
+    def _score(self, b: dict, text: str) -> int:
+        """How well a statement line names this credit: the user's match words or the merchant (2 each), and the
+        telling words of the credit's name ('resy', 'clear', 'airline', 'saks')."""
+        score = 0
+        for phrase in _words(b["match"]) or _words(b["merchant"]):
+            if re.search(rf"(?<![a-z0-9]){re.escape(phrase.strip())}(?![a-z0-9])", text):
+                score += 2
+        for w in _name_words(f"{b['name']} {b['merchant']}"):
+            if re.search(rf"(?<![a-z0-9]){re.escape(w)}", text):
+                score += 1
+        return score
+
+    def _owner(self, t: dict, tracked: list[dict]) -> int | None:
+        """Which tracked credit a statement credit on a card belongs to (its id), or None."""
+        link = self.memory.get(f"benefit:link:{t.get('source') or ''}") if t.get("source") else None
+        if link:
+            return int(link) if link.isdigit() else None
+        says_credit = bool(CREDIT_TEXT.search(t["text"]))
+        best, top = None, 0
+        for b in tracked:
+            if not self._on_card(b, t):
+                continue
+            told = any(re.search(rf"(?<![a-z0-9]){re.escape(w.strip())}(?![a-z0-9])", t["text"]) for w in _words(b["match"]))
+            if not (says_credit or told):
+                continue  # a refund of a purchase, not a statement credit
+            score = self._score(b, t["text"])
+            if score > top:
+                best, top = b["id"], score
+        return best
+
+    def _matches(self, b: dict, start: date, end: date) -> tuple[list[dict], list[dict]]:
+        """(statement credits that counted, purchases there) for one benefit between two dates."""
+        tracked = [x for x in self.all() if _key(x["card"]) == _key(b["card"])] or [b]
+        phrases = _words(b["merchant"])
+        credits, buys = [], []
+        for t in self._transactions(start, end):
+            if not self._on_card(b, t):
+                continue
+            if t["amount"] < 0:
+                if self._owner(t, tracked) == b["id"]:
+                    credits.append({**t, "amount": -t["amount"]})
+            elif t["amount"] > 0 and phrases and any(
+                    re.search(rf"(?<![a-z0-9]){re.escape(p.strip())}(?![a-z0-9])", t["text"]) for p in phrases):
+                buys.append(t)
+        return credits, buys
+
     def status(self, b: dict, today: date | None = None) -> dict:
         today = today or local_now().date()
         start, end = period_bounds(b, today)
-        words = _words(b["match"]) or _words(b["merchant"])
-        credited = spent = 0.0
-        for t in self._transactions(start, min(end, today)):
-            desc = t["text"]
-            if not words or not any(w in desc for w in words):
-                continue
-            if t["amount"] < 0 and (b["match"] or "credit" in desc):
-                credited += -t["amount"]         # the statement credit posted
-            elif t["amount"] > 0:
-                spent += t["amount"]             # bought there; the credit may still be on its way
+        credits, buys = self._matches(b, start, min(end, today))
+        credited, spent = sum(c["amount"] for c in credits), sum(t["amount"] for t in buys)
         told = sum(r[0] for r in self.memory.db.execute(
             "SELECT amount FROM fin_benefit_uses WHERE benefit_id = ? AND day >= ? AND day <= ?",
             (b["id"], start.isoformat(), end.isoformat())))
@@ -970,24 +1069,61 @@ class Benefits:
                 "period": b["period"], "starts": start.isoformat(), "ends": end.isoformat(),
                 "days_left": (end - today).days, "used": used, "left": round(b["amount"] - used, 2),
                 "spent_there": round(spent, 2), "maybe_pending": pending, "merchant": b["merchant"],
-                "expired": end < today}
+                "expired": end < today, "card": b["card"], "name": b["name"],
+                "credits_seen": [{"day": c["day"], "amount": round(c["amount"], 2)} for c in credits][-3:],
+                "statement_through": self.statement_through(b["card"])}
 
-    # --- the card benefits dashboard (web/cards.html) ----------------------------------------
-    def _matches(self, b: dict, start: date, end: date) -> tuple[list[dict], list[dict]]:
-        """(statement credits that counted, purchases there) for one benefit between two dates."""
-        words = _words(b["match"]) or _words(b["merchant"])
-        credits, buys = [], []
-        if not words:
-            return credits, buys
-        for t in self._transactions(start, end):
-            desc = t["text"]
-            if not any(w in desc for w in words):
+    def statement_through(self, card: str) -> str:
+        """The latest day Buddy has this card's transactions for (what 'used' was read from)."""
+        last4 = self._card_last4(card)
+        if not last4:
+            return ""
+        try:
+            row = self.memory.db.execute("SELECT MAX(day) FROM transactions WHERE card = ?", (last4,)).fetchone()
+        except Exception:
+            return ""
+        return (row[0] or "") if row else ""
+
+    async def link_credits(self, ask=None, today: date | None = None, limit: int = 40) -> int:
+        """Statement credits on the cards whose wording names no tracked credit ("AMEX PLATINUM BENEFIT"): Claude
+        says which credit each is, once (kept in kv benefit:link:<source>). Returns how many were linked."""
+        today = today or local_now().date()
+        tracked = self.all()
+        if not tracked:
+            return 0
+        todo = []
+        for t in self._transactions(today - timedelta(days=400), today):
+            if t["amount"] >= 0 or not t.get("source") or self.memory.get(f"benefit:link:{t['source']}"):
                 continue
-            if t["amount"] < 0 and (b["match"] or "credit" in desc):
-                credits.append({**t, "amount": -t["amount"]})
-            elif t["amount"] > 0:
-                buys.append(t)
-        return credits, buys
+            if self._owner(t, tracked) is not None:
+                continue  # its wording already says which credit it is
+            if not any(self._on_card(b, t) and self._card_last4(b["card"]) for b in tracked):
+                continue  # not on a card with tracked credits
+            todo.append(t)
+        todo = todo[:limit]
+        if not todo:
+            return 0
+        credits = [{"id": b["id"], "card": b["card"], "card_last4": self._card_last4(b["card"]), "credit": b["name"],
+                    "amount": b["amount"], "period": b["period"], "where": b["merchant"]} for b in tracked]
+        lines = [{"n": i, "day": t["day"], "amount": -t["amount"], "card_last4": t.get("card") or "",
+                  "statement_text": (t.get("merchant_raw") or t["merchant"])[:80]} for i, t in enumerate(todo)]
+        try:
+            got = await (ask or _ask_links)(self.memory, credits, lines)
+        except Exception:
+            log.exception("statement credit linking failed")
+            return 0
+        ids = {b["id"] for b in tracked}
+        linked = 0
+        for item in (got or {}).get("links", []):
+            try:
+                t = todo[int(item.get("n"))]
+            except (TypeError, ValueError, IndexError):
+                continue
+            bid = item.get("credit_id")
+            ok = isinstance(bid, int) and bid in ids
+            self.memory.set(f"benefit:link:{t['source']}", str(bid) if ok else "none")
+            linked += ok
+        return linked
 
     def _used_this_year(self, b: dict, today: date) -> float:
         start = date(today.year, 1, 1)
@@ -1146,7 +1282,15 @@ class Benefits:
                 continue
             when = "today" if p["days_left"] == 0 else f"in {p['days_left']} days ({_nice(p['ends'])})"
             text = f"Your {p['benefit']} has ${p['left']:.0f} left and runs out {when}."
+            seen = self._seen(p)
+            if seen:
+                text += f" {seen}"
             found = self.deals_for(p["id"], p["ends"]) or {}
+            kind = credit_kind(p)
+            line = (f"- **{p['name']}** ({p['card'] or 'card'}): ${p['left']:.0f} of ${p['amount']:.0f} left, ends "
+                    f"{_nice(p['ends'])} ({'today' if p['days_left'] == 0 else str(p['days_left']) + ' days'}). "
+                    + (seen or ""))
+            hint = self._hint(p)
             if p["maybe_pending"]:
                 text += f" You spent ${p['spent_there']:.0f} there this period; the credit may not have posted yet."
             elif credit_kind(p) == "dining" and not _where(self.memory):
@@ -1178,13 +1322,66 @@ class Benefits:
                 else:
                     text += f" You wanted the {i['item']}."
                 text += " Want me to watch for a deal on it?"
-            elif p["merchant"]:
+            elif hint:
+                text += f" {hint}"
+            elif kind == "store" and p["merchant"]:
                 text += f" Anything you've wanted from {p['merchant'].title()}? I can look for deals."
-            out.append({"text": text, "mark": mark, "benefit": p["id"]})
+            out.append({"text": text, "mark": mark, "benefit": p["id"], "left": p["left"],
+                        "line": (line + (f" {hint}" if hint and not p["maybe_pending"] else "")).strip(),
+                        "rich": " || " in text or bool(p["ideas"]) or bool(p["maybe_pending"])})
         return out
 
+    def _seen(self, p: dict) -> str:
+        """What the card's statement shows for this credit, in a few words."""
+        got = p.get("credits_seen") or []
+        if p["used"] > 0 and got:
+            last = got[-1]
+            return f"Used ${p['used']:.0f} so far (statement credit of ${last['amount']:.0f} on {_nice(last['day'])})."
+        if p["used"] > 0:
+            return f"You told me ${p['used']:.0f} is used."
+        if p.get("statement_through"):
+            return f"No statement credit for it on your card through {_nice(p['statement_through'])}."
+        return ""
+
+    def _hint(self, p: dict) -> str:
+        """How the credit can be used, from the issuer's own note saved with it, and enrollment if it needs it."""
+        try:
+            notes = self._get(p["id"])["notes"] or ""
+        except ToolError:
+            return ""
+        parts = [x.strip() for x in notes.split(";")]
+        note = next((x for x in parts[1:] if x and x != "needs enrollment"), "")
+        out = f"{note[0].upper()}{note[1:].rstrip('.')}." if note and credit_kind(p) == "skip" else ""
+        if "needs enrollment" in parts and p["used"] <= 0 and not self._ever_used(p["id"]):
+            out += " It needs enrollment in the card's app first, if you haven't."
+        return out.strip()
+
+    def _ever_used(self, benefit_id: int) -> bool:
+        b = self._get(benefit_id)
+        today = local_now().date()
+        credits, _ = self._matches(b, today - timedelta(days=730), today)
+        return bool(credits) or bool(self.memory.db.execute(
+            "SELECT 1 FROM fin_benefit_uses WHERE benefit_id = ? LIMIT 1", (benefit_id,)).fetchone())
+
+    @staticmethod
+    def bundle(alerts: list[dict]) -> list[dict]:
+        """Several plain reminders on one morning become one message (a line each); ones with deals or places stay
+        their own message."""
+        plain = [a for a in alerts if not a.get("rich") and a.get("line")]
+        if len(plain) < 2:
+            return alerts
+        rest = [a for a in alerts if a not in plain]
+        total = sum(a["left"] for a in plain)
+        spoken = f"{len(plain)} of your card credits run out soon, ${total:,.0f} left in all. They're on screen."
+        shown = [f"**{len(plain)} card credits running out (${total:,.0f} left)**"] + [a["line"] for a in plain] + [
+            "If I missed one you've used, say \"I used my … credit\". Details are in Card benefits."]
+        merged = {"text": spoken + " || " + "\n".join(shown), "marks": [a["mark"] for a in plain],
+                  "benefit": None, "rich": True}
+        return [merged] + rest
+
     def told(self, alert: dict) -> None:
-        self.memory.set(alert["mark"], local_now().date().isoformat())
+        for mark in alert.get("marks") or [alert["mark"]]:
+            self.memory.set(mark, local_now().date().isoformat())
 
 
 def _same_shop(a: str, b: str) -> bool:

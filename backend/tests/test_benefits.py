@@ -426,3 +426,73 @@ def test_statement_credits_count_though_the_clean_name_drops_the_word_credit():
     Money(mem).add_transaction(-15, "USD", "UBER CASH CREDIT", "transport", "2026-11-02", card="9001", source="t:u")
     s = b.status(b.all()[0], date(2026, 11, 5))
     assert s["used"] == 15 and s["left"] == 0
+
+
+def _amex_plat(mem):
+    """The Amex Platinum connected through Plaid (••1004), its four credits tracked, and a Chase card (••0457)."""
+    _connect(mem, [("Platinum Card®", "1004"), ("Ultimate Rewards®", "0457")])
+    b = Benefits(mem)
+    card = "American Express Platinum Card"
+    b.add("Resy credit", 100, "semiannual", card=card, merchant="resy", notes="Published by the issuer: https://x")
+    b.add("CLEAR+ credit", 219, "annual", card=card, merchant="clear",
+          notes="Published by the issuer: https://x; needs enrollment; pays for a CLEAR+ membership")
+    b.add("Airline fee credit", 200, "annual", card=card, merchant="one selected airline",
+          notes="Published by the issuer: https://x; needs enrollment; incidental fees on the one airline you pick")
+    b.add("Uber One credit", 120, "annual", card=card, merchant="uber one", notes="Published by the issuer: https://x")
+    return b
+
+
+def test_buddy_reads_the_amex_statement_to_see_which_credits_are_used(setup):
+    mem, _, today = setup
+    b = _amex_plat(mem)
+    m = Money(mem)
+    m.add_transaction(209, "USD", "CLEAR CLEARME.COM", "travel", "2026-03-02", card="1004", source="t:1")
+    m.add_transaction(-209, "USD", "CLEAR PLUS CREDIT", "travel", "2026-03-05", card="1004", source="t:2")
+    m.add_transaction(9.99, "USD", "UBER ONE MEMBERSHIP", "transport", "2026-10-01", card="1004", source="t:3")
+    m.add_transaction(-9.99, "USD", "PLATINUM UBER ONE CREDIT", "transport", "2026-10-02", card="1004", source="t:4")
+    m.add_transaction(-14, "USD", "UBER TRIP REFUND", "transport", "2026-10-03", card="1004", source="t:5")
+    m.add_transaction(-50, "USD", "RESY CREDIT", "food", "2026-10-15", card="0457", source="t:6")  # the Chase card
+    m.add_transaction(-35, "USD", "AMEX AIRLINE FEE REIMBURSEMENT", "travel", "2026-08-09", card="1004", source="t:7")
+    got = {s["name"]: s for s in b.overview(today)}
+    assert got["CLEAR+ credit"]["used"] == 209 and got["CLEAR+ credit"]["left"] == 10
+    assert got["Uber One credit"]["used"] == 9.99            # the ride refund isn't the credit
+    assert got["Resy credit"]["used"] == 0                    # a credit on another card doesn't count
+    assert got["Airline fee credit"]["used"] == 35
+    assert got["Resy credit"]["statement_through"] == "2026-10-15" or got["Resy credit"]["statement_through"]
+
+
+def test_card_credits_due_the_same_morning_are_one_message_saying_what_the_statement_shows(setup):
+    mem, _, today = setup
+    b = _amex_plat(mem)
+    Money(mem).add_transaction(-9.99, "USD", "PLATINUM UBER ONE CREDIT", "transport", "2026-10-02", card="1004",
+                               source="t:4")
+    alerts = b.alerts(today)
+    assert len(alerts) == 4
+    merged = b.bundle(alerts)
+    assert len(merged) == 1
+    text = merged[0]["text"]
+    spoken, shown = text.split(" || ")
+    assert spoken.startswith("4 of your card credits run out soon")
+    assert "Used $10 so far (statement credit of $10 on Oct 2)" in shown
+    assert "No statement credit for it on your card through Oct 2" in shown
+    assert "One Selected Airline" not in text and "Incidental fees on the one airline you pick" in text
+    assert "needs enrollment" in text
+    b.told(merged[0])
+    assert b.alerts(today) == []
+
+
+def test_claude_sorts_statement_credits_whose_wording_names_no_credit(setup):
+    mem, _, today = setup
+    b = _amex_plat(mem)
+    Money(mem).add_transaction(-50, "USD", "AMEX PLATINUM BENEFIT", "food", "2026-10-20", card="1004", source="t:9")
+    resy = next(x for x in b.all() if x["name"] == "Resy credit")
+    seen = []
+
+    async def ask(memory, credits, lines):
+        seen.append(lines)
+        return {"links": [{"n": 0, "credit_id": resy["id"]}]}
+
+    assert _asyncio.run(b.link_credits(ask=ask, today=today)) == 1
+    assert seen[0][0]["statement_text"] == "AMEX PLATINUM BENEFIT"
+    assert b.status(resy, today)["used"] == 50
+    assert _asyncio.run(b.link_credits(ask=ask, today=today)) == 0 and len(seen) == 1  # asked once

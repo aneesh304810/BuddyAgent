@@ -237,7 +237,13 @@ async def run(memory: Memory, deliver: Deliver) -> None:
                             await perks.prepare_deals()
                         except Exception:
                             log.exception("credit deal search failed")
-                    for alert in perks.alerts():
+                    if memory.get("benefits:linked") != today:  # statement credits no wording explains: once a day
+                        memory.set("benefits:linked", today)
+                        try:
+                            await perks.link_credits()
+                        except Exception:
+                            log.exception("statement credit linking failed")
+                    for alert in perks.bundle(perks.alerts()):
                         if await deliver("money", alert["text"]):
                             perks.told(alert)
                     from .cancelling import Cancelling  # noqa: PLC0415

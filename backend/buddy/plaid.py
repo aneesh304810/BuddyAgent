@@ -122,6 +122,8 @@ REMIT = re.compile(r"(?i)\b(remitly|wise|transferwise|western union|xoom|moneygr
                    r"ria money|sendwave|instarem|icici money2india|money2india|xe money|ofx)\b")
 P2P = re.compile(r"(?i)\b(zelle|venmo|cash ?app|square cash|paypal|apple cash)\b")
 TO_WHOM = re.compile(r"(?i)\b(?:payment|transfer|sent|send|paid)?\s*to\s+([a-z][a-z .'-]{1,40}?)(?:\s+(?:on|conf|id|ref|#|\d)|$)")
+CARD_PAYMENT = re.compile(r"(?i)\b(payment|autopay|auto pay|thank you|pymt|epayment|online pmt|balance transfer)\b")
+STATEMENT_CREDIT = re.compile(r"(?i)\b(credit|reimburse\w*|cr)\b")
 OWN_WORDS = re.compile(r"(?i)\b(to|into)\s+(my\s+)?(savings|checking|chk|sav|brokerage|ira|401k|roth)\b")
 
 
@@ -233,6 +235,9 @@ class Plaid:
         token = item["access_token"]
         accounts = self._accounts(item)
         cursor, added, removed, more = item["cursor"], 0, 0, True
+        replay = f"plaid:replayed:card_credits:{item['item_id']}"
+        if cursor and not self.memory.get(replay):
+            cursor = ""  # once: all history again, so card statement credits an older Buddy dropped are read
         while more:
             page = self.call("/transactions/sync", {"access_token": token, "cursor": cursor, "count": 500})
             for tx in page.get("added", []) + page.get("modified", []):
@@ -248,6 +253,7 @@ class Plaid:
         db.execute("UPDATE plaid_items SET cursor = ?, last_sync = ?, error = '' WHERE item_id = ?",
                    (cursor, datetime.now(timezone.utc).isoformat(), item["item_id"]))
         db.commit()
+        self.memory.set(replay, "1")
         if item.get("env") != "sandbox":  # test data never replaces the real charges read from emails
             self.memory.set("money:bank_feed", "1")  # charges now come from the bank; emails keep only bills
             self._take_over_cards(item["item_id"])
@@ -289,6 +295,13 @@ class Plaid:
             return False  # it posts later with its final amount
         pfc = tx.get("personal_finance_category") or {}
         primary, detailed = pfc.get("primary", ""), pfc.get("detailed", "")
+        account = accounts.get(tx.get("account_id"), {})
+        if account.get("type") == "credit" and float(tx.get("amount") or 0) < 0 and not detailed.startswith("LOAN_PAYMENTS") \
+                and not CARD_PAYMENT.search(tx.get("name") or ""):
+            # Money back on a card (a statement credit such as "Platinum Resy Credit", or a refund): Plaid often labels
+            # these income or a transfer in, but they belong with the card's charges, where the benefits tracker reads
+            # them. Never income.
+            return self._card_credit(item_id, tx, account, primary, detailed, real)
         if primary == "INCOME" and float(tx.get("amount") or 0) < 0:  # Plaid: negative = money in
             self.memory.db.execute(
                 "INSERT OR REPLACE INTO fin_income (source, day, amount, currency, name, kind) VALUES (?, ?, ?, ?, ?, ?)",
@@ -309,7 +322,6 @@ class Plaid:
         category = DETAILED.get(detailed, CATEGORY.get(primary, "other"))
         if category is None or not tx.get("amount"):
             return False  # card payments, transfers between the user's own accounts, pay coming in
-        account = accounts.get(tx.get("account_id"), {})
         source = f"plaid:{item_id}:{tx['transaction_id']}"
         self.memory.db.execute("DELETE FROM transactions WHERE source = ?", (source,))  # modified: replace it
         day = str(tx.get("date") or tx.get("authorized_date"))[:10]
@@ -320,6 +332,21 @@ class Plaid:
                                    currency, tx.get("merchant_name") or tx.get("name") or "unknown", category, day,
                                    (account.get("mask") or "")[-4:] or account.get("name", ""), source,
                                    detail_label(primary, detailed), raw=tx.get("name") or "",
+                                   entity_id=str(tx.get("merchant_entity_id") or ""))
+        return True
+
+    def _card_credit(self, item_id: str, tx: dict, account: dict, primary: str, detailed: str, real: bool) -> bool:
+        source = f"plaid:{item_id}:{tx['transaction_id']}"
+        db = self.memory.db
+        db.execute("DELETE FROM transactions WHERE source = ?", (source,))
+        db.execute("DELETE FROM fin_income WHERE source = ?", (source,))  # counted as pay by an older Buddy
+        raw = tx.get("name") or tx.get("merchant_name") or "Credit"
+        category = DETAILED.get(detailed, CATEGORY.get(primary)) or "other"
+        self.money.add_transaction(float(tx["amount"]), tx.get("iso_currency_code") or "USD",
+                                   tx.get("merchant_name") or raw, category,
+                                   str(tx.get("date") or tx.get("authorized_date"))[:10],
+                                   (account.get("mask") or "")[-4:] or account.get("name", ""), source,
+                                   "Statement credit" if STATEMENT_CREDIT.search(raw) else "Refund", raw=raw,
                                    entity_id=str(tx.get("merchant_entity_id") or ""))
         return True
 
