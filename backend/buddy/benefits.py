@@ -59,17 +59,32 @@ CREATE TABLE IF NOT EXISTS fin_card_catalog (
     checked_at TEXT NOT NULL
 );
 """
+# Everything Buddy needs to handle a card comes back in this one shape, for any card from any issuer, so a new
+# card needs no new code: how each credit shows on the statement (statement_words), what kind of credit it is
+# (which decides deals, places or a how-to note), the perks of this exact card, and earn rates in fixed units.
+CATALOG_VERSION = 2
+CREDIT_KINDS = ("store", "dining", "hotel", "travel", "rides", "streaming", "membership", "other")
+RATE_UNITS = ("percent", "points", "miles")
 LOOKUP_PROMPT = """Today is {today}. Find the currently published benefits of this credit card: "{card}".
 Use only the card issuer's own website (search it, and open the card's benefits or rates-and-fees page).
 Report only facts stated there, in your own short words (no copied paragraphs). Leave out anything you can't
 find on the issuer's site. Statement credits that reset (monthly, quarterly, every six months, yearly) or
 one-time credits go in "benefits"; perks with no dollar amount (lounge access, status, insurance) go in "perks".
+Only this exact card: leave out perks or credits the page says are for a different card (e.g. "Flex only").
+For each credit: "kind" is one of store (a shop), dining (restaurants), hotel, travel (airline fees, CLEAR,
+Global Entry), rides (Uber, Lyft), streaming (digital entertainment), membership (a subscription such as Walmart+
+or Uber One), other; "statement_words" are 1-3 short lowercase words that would appear on the card statement
+line when this credit posts (usually the merchant or program name, e.g. ["resy"], ["clear"], ["airline"]),
+never generic words like credit, card, platinum or the issuer's name.
+Earn rates: "unit" is percent (cash back), points or miles; "reward" names it ("cash back", "Ultimate Rewards
+points", "Membership Rewards points"); "category" is short (under 60 characters).
 End your answer with one line of JSON, exactly this shape:
 {{"card_name": "...", "annual_fee": 0, "benefits": [{{"name": "Saks credit", "amount": 50, "period":
-"monthly|quarterly|semiannual|annual|once", "resets": "calendar|anniversary", "merchant": "saks", "enrollment":
-true, "note": "short condition", "source": "https://..."}}], "perks": [{{"name": "...", "source": "https://..."}}],
-"earn_rates": [{{"category": "flights", "rate": 5, "unit": "points per dollar", "note": "booked directly",
-"source": "https://..."}}], "as_of_note": "what the page says about dates or changes"}}"""
+"monthly|quarterly|semiannual|annual|once", "resets": "calendar|anniversary", "merchant": "saks", "kind": "store",
+"statement_words": ["saks"], "enrollment": true, "note": "short condition", "source": "https://..."}}],
+"perks": [{{"name": "...", "source": "https://..."}}], "earn_rates": [{{"category": "flights", "rate": 5,
+"unit": "points", "reward": "Membership Rewards points", "note": "booked directly", "source": "https://..."}}],
+"as_of_note": "what the page says about dates or changes"}}"""
 
 PERIODS = ("monthly", "quarterly", "semiannual", "annual", "once")
 REMIND_DAYS = (60, 30, 14, 7, 2)
@@ -290,15 +305,29 @@ def clean_catalog(raw: dict) -> dict:
                          "resets": "anniversary" if b.get("resets") == "anniversary" else "calendar",
                          "merchant": str(b.get("merchant") or "")[:60].lower(),
                          "enrollment": bool(b.get("enrollment")), "note": str(b.get("note") or "")[:160],
+                         "kind": b.get("kind") if b.get("kind") in CREDIT_KINDS else "",
+                         "statement_words": _statement_words(b.get("statement_words")),
                          "source": b["source"]})
+    card_name = str(raw.get("card_name") or "")[:80]
     perks = [{"name": str(p.get("name"))[:100], "source": p["source"]} for p in raw.get("perks") or []
-             if p.get("name") and _official(p.get("source"))][:15]
+             if p.get("name") and _official(p.get("source")) and _perk_applies(str(p["name"]), card_name)][:15]
     rates = [{"category": str(r.get("category"))[:80], "rate": num(r.get("rate")), "unit": str(r.get("unit") or "")[:30],
-              "note": str(r.get("note") or "")[:120], "source": r["source"]} for r in raw.get("earn_rates") or []
+              "reward": str(r.get("reward") or "")[:40], "note": str(r.get("note") or "")[:120], "source": r["source"]}
+             for r in raw.get("earn_rates") or []
              if r.get("category") and num(r.get("rate")) and _official(r.get("source"))][:15]
     fee = num(raw.get("annual_fee"))
-    return {"card_name": str(raw.get("card_name") or "")[:80], "annual_fee": fee, "benefits": benefits,
+    return {"version": CATALOG_VERSION, "card_name": card_name, "annual_fee": fee, "benefits": benefits,
             "perks": perks, "earn_rates": rates, "as_of_note": str(raw.get("as_of_note") or "")[:200]}
+
+
+def _statement_words(v) -> list[str]:
+    words = v if isinstance(v, list) else str(v or "").split(",")
+    out = []
+    for w in words:
+        w = " ".join(str(w).lower().split())[:30]
+        if w and w not in NAME_NOISE and w not in out:
+            out.append(w)
+    return out[:3]
 
 
 def _perk_applies(perk: str, card: str) -> bool:
@@ -318,6 +347,10 @@ def _rate_text(r: dict) -> str:
     unit = str(r.get("unit") or "").strip()
     rate = r.get("rate") or 0
     low = unit.lower()
+    if low in RATE_UNITS:  # the current shape: unit + reward
+        reward = str(r.get("reward") or ("cash back" if low == "percent" else low)).strip()
+        head = f"{rate:g}% {reward}" if low == "percent" else f"{rate:g}x {reward}"
+        return f"{head} on {category}" if category else head
     if "percent" in low or low.startswith("%"):
         head = f"{rate:g}% " + re.sub(r"(?i)^(percent|%)\s*", "", unit).strip()
     elif re.search(r"(?i)(points?|miles?) per dollar", low):
@@ -373,6 +406,9 @@ book (e.g. dinner for two)"}}]}}"""
 
 def credit_kind(credit: dict) -> str:
     """store (a shop: sales and items), dining (restaurants nearby), hotel (hotels), or skip (no deal to find)."""
+    kind = credit.get("kind")
+    if kind in CREDIT_KINDS:
+        return kind if kind in ("store", "dining", "hotel") else "skip"
     text = f"{credit.get('benefit', '')} {credit.get('merchant', '')}".lower()
     if any(w in text for w in SKIP_WORDS):
         return "skip"
@@ -552,13 +588,21 @@ class Benefits:
         return done
 
     # --- the public catalog: an issuer's published benefits ------------------------------
-    def cached(self, card: str, days: int = CATALOG_DAYS) -> dict | None:
+    def cached(self, card: str, days: int = CATALOG_DAYS, any_version: bool = False) -> dict | None:
         row = self.memory.db.execute("SELECT * FROM fin_card_catalog WHERE card_key = ?", (_key(card),)).fetchone()
         if not row:
             return None
         if datetime.now(timezone.utc) - datetime.fromisoformat(row["checked_at"]) > timedelta(days=days):
             return None
-        return {**json.loads(row["data"]), "checked": row["checked_at"][:10]}
+        data = json.loads(row["data"])
+        if not any_version and data.get("version", 1) < CATALOG_VERSION:
+            return None  # saved in an older shape: looked up again (recheck), shown as it is meanwhile
+        return {**data, "checked": row["checked_at"][:10]}
+
+    def _published(self, b: dict) -> dict:
+        """The issuer lookup's entry for a tracked credit (kind, statement words, note), if it came from one."""
+        saved = self.cached(b["card"], days=10 ** 5, any_version=True) or {}
+        return next((x for x in saved.get("benefits", []) if x["name"].lower() == b["name"].lower()), {})
 
     async def lookup(self, card: str, fresh: bool = False) -> dict:
         card = self.resolve_card((card or "").strip())
@@ -578,6 +622,11 @@ class Benefits:
         self.memory.db.execute("INSERT OR REPLACE INTO fin_card_catalog (card_key, card_name, data, sources, "
                                "checked_at) VALUES (?, ?, ?, ?, ?)",
                                (_key(card), data["card_name"] or card, json.dumps(data), json.dumps(sources), now))
+        for pub in data["benefits"]:  # tracked credits learn how they show on the statement
+            if pub["statement_words"]:
+                self.memory.db.execute("UPDATE fin_benefits SET match = ? WHERE lower(name) = ? AND match = '' AND "
+                                       "notes LIKE 'Published by%'", (", ".join(pub["statement_words"]),
+                                                                      pub["name"].lower()))
         self.memory.db.commit()
         return {**data, "checked": now[:10], "from": "issuer website"}
 
@@ -599,7 +648,8 @@ class Benefits:
         for b in picked:
             if (card.lower(), b["name"].lower()) in existing:
                 continue
-            self.add(b["name"], b["amount"], b["period"], card, b["merchant"], "", b["resets"],
+            self.add(b["name"], b["amount"], b["period"], card, b["merchant"], ", ".join(b.get("statement_words") or []),
+                     b["resets"],
                      anniversary if b["resets"] == "anniversary" else "",
                      notes=(f"Published by the issuer, checked {checked}: {b['source']}"
                             + ("; needs enrollment" if b["enrollment"] else "") + (f"; {b['note']}" if b["note"] else "")))
@@ -749,7 +799,7 @@ class Benefits:
             if (k, c.get("last4", "")) in seen or (not c.get("last4") and any(x[0] == k for x in seen)):
                 continue
             seen.add((k, c.get("last4", "")))
-            saved = self.cached(c["card"], days=10 ** 5)
+            saved = self.cached(c["card"], days=10 ** 5, any_version=True)
             out.append({"card": c["card"], "last4": c.get("last4", ""), "needs_name": bool(c.get("generic")),
                         "connected": any(_key(x["card"]) == k for x in connected),
                         "published_benefits_saved": bool(saved), "checked": (saved or {}).get("checked", ""),
@@ -810,7 +860,7 @@ class Benefits:
                 texts.append(q)
         for card in self.known_cards():
             mark = f"benefits:offered:{_key(card)}"
-            if self.memory.get(mark) or self.cached(card, days=10 ** 5) or len(texts) >= per_day:
+            if self.memory.get(mark) or self.cached(card, days=10 ** 5, any_version=True) or len(texts) >= per_day:
                 continue
             self.memory.set(mark, local_now().date().isoformat())
             try:
@@ -904,15 +954,17 @@ class Benefits:
         """Quarterly: cards whose credits came from the catalog are looked up again; what changed is reported."""
         notes = []
         for row in self.memory.db.execute("SELECT * FROM fin_card_catalog").fetchall():
-            if datetime.now(timezone.utc) - datetime.fromisoformat(row["checked_at"]) < timedelta(days=RECHECK_DAYS):
+            due = datetime.now(timezone.utc) - datetime.fromisoformat(row["checked_at"]) >= timedelta(days=RECHECK_DAYS)
+            old_shape = json.loads(row["data"]).get("version", 1) < CATALOG_VERSION
+            if not (due or old_shape):
                 continue
             tracked = [b for b in self.all() if _key(b["card"]) == row["card_key"] and "Published by" in b["notes"]]
             try:  # every saved card is refreshed; only tracked credits get a message
                 new = await self.lookup(row["card_name"], fresh=True)
             except ToolError:
                 continue
-            if not tracked:
-                continue
+            if not tracked or not due:
+                continue  # an older saved shape brought up to date: nothing to report
             now = {b["name"].lower(): b for b in new["benefits"]}
             for b in tracked:
                 n = now.get(b["name"].lower())
@@ -1042,7 +1094,8 @@ class Benefits:
         for phrase in _words(b["match"]) or _words(b["merchant"]):
             if re.search(rf"(?<![a-z0-9]){re.escape(phrase.strip())}(?![a-z0-9])", text):
                 score += 2
-        for w in _name_words(f"{b['name']} {b['merchant']}"):
+        own = set(_key(b["card"] or "").split())  # "platinum" in "Platinum Resy Credit" says nothing about which credit
+        for w in [w for w in _name_words(f"{b['name']} {b['merchant']}") if w not in own]:
             if re.search(rf"(?<![a-z0-9]){re.escape(w)}", text):
                 score += 1
         return score
@@ -1095,7 +1148,7 @@ class Benefits:
                 "period": b["period"], "starts": start.isoformat(), "ends": end.isoformat(),
                 "days_left": (end - today).days, "used": used, "left": round(b["amount"] - used, 2),
                 "spent_there": round(spent, 2), "maybe_pending": pending, "merchant": b["merchant"],
-                "expired": end < today, "card": b["card"], "name": b["name"],
+                "expired": end < today, "card": b["card"], "name": b["name"], "kind": self._published(b).get("kind", ""),
                 "credits_seen": [{"day": c["day"], "amount": round(c["amount"], 2)} for c in credits][-3:],
                 "statement_through": self.statement_through(b["card"])}
 
@@ -1168,7 +1221,7 @@ class Benefits:
         tracked = self.all()
         cards, seen_tracked = [], set()
         for c in self.cards_overview():
-            saved = self.cached(c["card"], days=10 ** 5) or {}
+            saved = self.cached(c["card"], days=10 ** 5, any_version=True) or {}
             mine = [b for b in tracked if _key(b["card"]) == _key(c["card"])]
             by_name = {b["name"].lower(): b for b in mine}
             credits = []

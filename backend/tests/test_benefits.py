@@ -508,3 +508,55 @@ def test_dashboard_text_for_a_card_without_credits_reads_cleanly():
     assert not bmod._perk_applies(perk, "Chase Freedom")
     assert bmod._perk_applies(perk, "Chase Freedom Flex")
     assert bmod._perk_applies("Purchase Protection (120 days)", "Chase Freedom")
+
+
+NEW_CARD = {  # a card and bank Buddy has no code for: everything comes from the one lookup
+    "card_name": "Northwind Voyager Card", "annual_fee": 250,
+    "benefits": [
+        {"name": "LoungePass credit", "amount": 100, "period": "annual", "merchant": "loungepass", "kind": "travel",
+         "statement_words": ["loungepass", "credit"], "enrollment": False, "note": "pays for a LoungePass membership",
+         "source": "https://www.discover.com/voyager"},
+        {"name": "Bistro credit", "amount": 50, "period": "semiannual", "merchant": "tablebook", "kind": "dining",
+         "statement_words": ["tablebook"], "enrollment": True, "note": "", "source": "https://www.discover.com/voyager"}],
+    "perks": [{"name": "Cell phone protection (Voyager Plus only)", "source": "https://www.discover.com/voyager"},
+              {"name": "Trip delay insurance", "source": "https://www.discover.com/voyager"}],
+    "earn_rates": [{"category": "travel", "rate": 3, "unit": "points", "reward": "Voyager points",
+                    "source": "https://www.discover.com/voyager"},
+                   {"category": "everything else", "rate": 1.5, "unit": "percent", "reward": "cash back",
+                    "source": "https://www.discover.com/voyager"}]}
+
+
+def test_a_new_card_from_any_bank_works_from_its_lookup_with_no_card_specific_code(setup):
+    mem, _, today = setup
+    _connect(mem, [("Voyager", "5511")])
+    mem.db.execute("UPDATE plaid_items SET institution = 'Northwind'")
+    mem.set("card:name:5511", "Voyager Card")
+    b = Benefits(mem, search=_fake_search(NEW_CARD, []))
+    card = b.connected_cards()[0]["card"]
+    found = _asyncio.run(b.lookup(card))
+    assert [p["name"] for p in found["perks"]] == ["Trip delay insurance"]   # another card's perk left out
+    assert found["benefits"][0]["statement_words"] == ["loungepass"]          # generic words dropped
+    b.add_from_catalog(card)
+    lounge = next(x for x in b.all() if x["name"] == "LoungePass credit")
+    assert lounge["match"] == "loungepass"
+    Money(mem).add_transaction(-100, "USD", "NWB LOUNGEPASS CR", "travel", "2026-04-02", card="5511", source="t:1")
+    got = {s["name"]: s for s in b.overview(today)}
+    assert got["LoungePass credit"]["used"] == 100 and got["Bistro credit"]["used"] == 0
+    assert bmod.credit_kind(got["LoungePass credit"]) == "skip" and bmod.credit_kind(got["Bistro credit"]) == "dining"
+    dash = b.dashboard(today)["cards"][0]
+    assert dash["earn_rates"] == ["3x Voyager points on travel", "1.5% cash back on everything else"]
+
+
+def test_cards_saved_in_the_older_shape_are_looked_up_again_quietly(setup):
+    mem, _, today = setup
+    b = Benefits(mem, search=_fake_search(NEW_CARD, []))
+    old = {k: v for k, v in NEW_CARD.items()}
+    old["benefits"] = [{k: v for k, v in x.items() if k not in ("kind", "statement_words")} for x in NEW_CARD["benefits"]]
+    mem.db.execute("INSERT INTO fin_card_catalog (card_key, card_name, data, sources, checked_at) VALUES (?, ?, ?, '[]', ?)",
+                   (bmod._key("Northwind Voyager Card"), "Northwind Voyager Card",
+                    json.dumps(bmod.clean_catalog(old) | {"version": 1}), datetime.now(timezone.utc).isoformat()))
+    b.add("LoungePass credit", 100, "annual", card="Northwind Voyager Card", merchant="loungepass",
+          notes="Published by the issuer: https://www.discover.com/voyager")
+    assert b.cached("Northwind Voyager Card") is None and b.cached("Northwind Voyager Card", any_version=True)
+    assert _asyncio.run(b.recheck(today)) == []                               # nothing to report
+    assert b.all()[0]["match"] == "loungepass" and b.cached("Northwind Voyager Card")["version"] == 2
