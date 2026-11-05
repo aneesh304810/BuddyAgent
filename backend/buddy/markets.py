@@ -874,6 +874,65 @@ class Markets:
                "stocktwits": self.data.stocktwits(sym, m), "news": self.data.news(sym, m), "note": DISCLAIMER}
         return json.loads(json.dumps(out, default=lambda x: round(x, 4) if isinstance(x, float) else str(x)))
 
+    def test(self) -> str:
+        """Checks each market data source with one small request and says what works (for 'test my market data')."""
+        d, lines = self.data, []
+
+        def why(e: Exception) -> str:
+            code = getattr(e, "code", None)
+            return {401: "keys rejected (check BUDDY_ALPACA_KEY_ID and BUDDY_ALPACA_SECRET)",
+                    403: "your plan doesn't include this", 429: "rate limited, try again in a minute"}.get(
+                code, f"{type(e).__name__}{' ' + str(code) if code else ''}")
+
+        def run(label: str, fn) -> None:
+            try:
+                lines.append(f"✓ {label}: {fn()}")
+            except Exception as e:
+                lines.append(f"✗ {label}: {why(e)}")
+        if d.alpaca:
+            def stocks():
+                self.memory.set("markets:feed", "")  # re-check whether full-market history is allowed
+                rows = d.bars("us", ["SPY"]).get("SPY") or []
+                if not rows:
+                    raise ValueError("no bars came back")
+                feed = self.memory.get("markets:feed") or "sip"
+                return (f"SPY closed ${rows[-1]['c']:,.2f} on {rows[-1]['d']}, {len(rows)} days of history "
+                        f"({'all US exchanges' if feed == 'sip' else 'IEX only'})")
+            run("Alpaca stock history", stocks)
+            run("Alpaca live stock price", lambda: f"SPY ${d.latest('us', ['SPY'])['SPY']:,.2f}")
+            run("Alpaca crypto", lambda: f"BTC ${d.latest('crypto', ['BTC/USD'])['BTC/USD']:,.0f}")
+
+            def option():
+                o = d.option_idea("AAPL", (d.latest("us", ["AAPL"]) or {}).get("AAPL") or 200, local_now().date())
+                if not o:
+                    raise ValueError("no option prices came back")
+                return f"AAPL {o['expires']} ${o['strike']:g} call about ${o['mid']:.2f}, delta {o['delta']}"
+            run("Alpaca options (indicative)", option)
+
+            def news():
+                n = d.news("AAPL", "us")
+                if not n:
+                    raise ValueError("no news came back")
+                return f"{len(n)} AAPL headlines, latest: {n[0]['headline'][:70]}"
+            run("Alpaca news", news)
+        else:
+            lines.append("✗ Alpaca: no key set. Add BUDDY_ALPACA_KEY_ID and BUDDY_ALPACA_SECRET with set.sh "
+                         "(a free paper account works). Until then, free daily data:")
+            run("Stooq (US daily)", lambda: f"SPY closed ${d._stooq('SPY')[-1]['c']:,.2f}")
+            run("Coinbase (crypto daily)", lambda: f"BTC closed ${d._coinbase('BTC/USD')[-1]['c']:,.0f}")
+
+        def reddit():
+            got = d.reddit("NVDA", "us")
+            if got.get("error"):
+                raise ValueError(got["error"])
+            how = "with your Reddit app" if d.setting("BUDDY_REDDIT_CLIENT_ID") else "public search (no Reddit app set)"
+            return f"{got['posts']} posts about NVDA this week, {how}"
+        run("Reddit", reddit)
+        run("StockTwits", lambda: f"{d.stocktwits('NVDA', 'us').get('messages', 0)} recent NVDA messages")
+        run("Yahoo (Indian stocks)", lambda: f"RELIANCE closed ₹{d._yahoo('RELIANCE', '1mo')[-1]['c']:,.2f}")
+        ok = sum(1 for x in lines if x.startswith("✓"))
+        return f"Market data test: {ok} of {len([x for x in lines if x[0] in '✓✗'])} working.\n" + "\n".join(lines)
+
     def dashboard(self) -> dict:
         setups = [dict(r) | {"data": json.loads(r["data"] or "{}")} for r in self.memory.db.execute(
             "SELECT * FROM mkt_setups WHERE status IN ('watching', 'triggered') ORDER BY score DESC LIMIT 12")]
@@ -933,10 +992,12 @@ MARKETS_TOOL = {
     "one stock or coin now: trend, RSI, levels, any setup with its plan, Reddit/StockTwits/news. watch / unwatch "
     "(symbol): their watchlist, scanned every day. bought (symbol, price, shares?, stop?): track their trade and alert "
     "at the stop and targets. sold (symbol, price). settings (markets, options, account, risk_pct): which markets, "
-    "option ideas on/off, account size and % risked per trade for position sizes. Always say these are ideas, not "
+    "option ideas on/off, account size and % risked per trade for position sizes. test: 'test my market data' - checks "
+    "Alpaca (stocks, crypto, options, news), Reddit, StockTwits and Yahoo; give the result line by line. Always say these are ideas, not "
     "advice, and that the user decides and trades themselves.",
     "input_schema": {"type": "object", "properties": {
-        "action": {"type": "string", "enum": ["scan", "ideas", "analyze", "watch", "unwatch", "bought", "sold", "settings"]},
+        "action": {"type": "string", "enum": ["scan", "ideas", "analyze", "watch", "unwatch", "bought", "sold", "settings",
+                                              "test"]},
         "symbol": {"type": "string"}, "market": {"type": "string", "enum": ["", "us", "crypto", "india"]},
         "price": {"type": "number"}, "shares": {"type": "number"}, "stop": {"type": "number"},
         "markets": {"type": "array", "items": {"type": "string", "enum": list(MARKETS)}},
@@ -952,6 +1013,8 @@ def run_tool(memory: Memory, args: dict) -> str:
     if a == "scan":
         memory.set("markets:scan_requested", "1")
         return "Scanning now: the ideas will be in Reports in a few minutes, and I'll message you the best ones."
+    if a == "test":
+        return mk.test()
     if a == "analyze":
         return json.dumps(mk.analyze(args.get("symbol", ""), args.get("market") or ""), ensure_ascii=False)
     if a == "watch":

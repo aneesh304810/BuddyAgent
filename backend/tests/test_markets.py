@@ -183,3 +183,25 @@ def test_the_takes_go_to_a_free_model_first(monkeypatch):
     monkeypatch.setattr(free_models.FreeModels, "run", fake_run)
     got = asyncio.run(mk._ask_free_first(Memory(":memory:"), "setups"))
     assert got["ideas"][0]["take"] == "ok" and calls == [("summarize", False)]
+
+
+def test_testing_the_market_data_says_what_works():
+    import urllib.error
+    closes = uptrend_then_base()
+    web = FakeWeb({"SPY": series(closes), "AAPL": series(closes)}, price=500)
+
+    def fetch(url, headers=None, data=None):
+        if "/v1beta3/crypto/us/latest" in url:
+            return {"trades": {"BTC/USD": {"p": 101000}}}
+        if "finance.yahoo.com" in url:
+            raise urllib.error.HTTPError(url, 429, "slow down", {}, None)
+        if "/v2/stocks/snapshots" in url:
+            return {"SPY": {"latestTrade": {"p": 600.5}}, "AAPL": {"latestTrade": {"p": 200}}}
+        return web(url, headers, data)
+    out = Markets(Memory(":memory:"), env=ENV, fetch=fetch).test()
+    assert "✓ Alpaca stock history: SPY closed" in out and "all US exchanges" in out
+    assert "✓ Alpaca crypto: BTC $101,000" in out and "✓ Alpaca options (indicative): AAPL" in out
+    assert "✓ Reddit: 1 posts about NVDA this week, public search" in out
+    assert "✗ Yahoo (Indian stocks): rate limited" in out and out.startswith("Market data test: 7 of 8 working")
+    nokey = Markets(Memory(":memory:"), env={}, fetch=lambda *a, **k: (_ for _ in ()).throw(urllib.error.HTTPError("u", 401, "x", {}, None))).test()
+    assert "✗ Alpaca: no key set" in nokey
