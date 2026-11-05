@@ -132,6 +132,7 @@ sealed interface Screen {
     data object Library : Screen
     data object Money : Screen
     data object MoneyDashboard : Screen
+    data object CardBenefits : Screen
     data object Travel : Screen
     data class LibraryItem(val id: String) : Screen
     data class Card(val json: String) : Screen
@@ -336,6 +337,7 @@ private fun BuddyScreen(
                     TextButton(onClick = { menuOpen = true }) { Text("☰", fontSize = 24.sp, color = Pal.text) }
                     DropdownMenu(expanded = menuOpen, onDismissRequest = { menuOpen = false }) {
                         listOf("✈  Travel" to Screen.Travel, "💳  Money" to Screen.Money, "📈  Money dashboard" to Screen.MoneyDashboard,
+                            "🎁  Card benefits" to Screen.CardBenefits,
                             "📎  Library" to Screen.Library,
                             "📊  Insights" to Screen.Insights, "📄  Reports" to Screen.Reports, "⚙  Settings" to Screen.Settings)
                             .forEach { (label, target) ->
@@ -391,8 +393,12 @@ private fun BuddyScreen(
                 CardScreen(screen.json)
                 return@Column
             }
-            is Screen.Report -> {
-                ReportScreen(prefs.link, screen.id)
+            is Screen.Report -> {  // every report in the dashboards' look (web/report.html)
+                BuddyPage(prefs.link, "report.html", "id=${screen.id}")
+                return@Column
+            }
+            Screen.CardBenefits -> {
+                BuddyPage(prefs.link, "cards.html")
                 return@Column
             }
             Screen.Talk -> Unit

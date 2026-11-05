@@ -42,6 +42,7 @@ Protocol (JSON messages):
 import asyncio
 import base64
 import contextlib
+import json
 import logging
 import os
 import re
@@ -890,6 +891,46 @@ def api_travel_unwatch(watch_id: int) -> dict:
 @app.post("/api/travel/profile", dependencies=[Depends(require_admin)])
 def api_travel_profile(body: dict) -> dict:
     return travel.Travel(memory).set_profile(**{k: body.get(k) for k in travel.DEFAULT_PROFILE})
+
+
+# --- card benefits dashboard (web/cards.html): every card, its credits, and each credit's details
+@app.get("/api/cards/dashboard", dependencies=[Depends(require_admin)])
+async def api_cards_dashboard() -> dict:
+    from . import benefits
+    return json.loads(json.dumps(await asyncio.to_thread(benefits.Benefits(memory).dashboard), default=str))
+
+
+@app.get("/api/cards/credit/{benefit_id}", dependencies=[Depends(require_admin)])
+async def api_cards_credit(benefit_id: int) -> dict:
+    from . import benefits
+    try:
+        return json.loads(json.dumps(await asyncio.to_thread(benefits.Benefits(memory).credit_detail, benefit_id),
+                                     default=str))
+    except (KeyError, TypeError, ToolError) as e:
+        raise HTTPException(status_code=404, detail="No such credit.") from e
+
+
+@app.post("/api/cards/action", dependencies=[Depends(require_admin)])
+async def api_cards_action(body: dict) -> dict:
+    """track (card, name, anniversary?) · untrack (id) · used (id, amount?): from the dashboard's buttons."""
+    from . import benefits
+    b = benefits.Benefits(memory)
+    action = str(body.get("action") or "")
+    try:
+        if action == "track":
+            text = b.add_from_catalog(str(body.get("card") or ""), [str(body.get("name") or "")],
+                                      str(body.get("anniversary") or ""))
+        elif action == "untrack":
+            text = b.remove(str(body.get("id") or ""))
+        elif action == "used":
+            amount = body.get("amount")
+            text = b.mark_used(str(body.get("id") or ""), float(amount) if amount not in (None, "") else None,
+                               "marked on the dashboard")
+        else:
+            raise ToolError("Unknown action.")
+    except ToolError as e:
+        raise HTTPException(status_code=400, detail=str(e)) from e
+    return {"ok": True, "text": text}
 
 
 # --- money dashboard (web/money.html): numbers per period, and the transactions behind any slice

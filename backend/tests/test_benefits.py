@@ -417,3 +417,12 @@ def test_buddy_works_out_which_card_a_bank_label_is():
     assert _asyncio.run(b.offer_new_cards()) == []  # each said once
     b.name_card("8812", "Freedom Unlimited")  # "no, that one's my Freedom Unlimited"
     assert "Chase Freedom Unlimited" in b.known_cards() and "Chase Sapphire Reserve" not in b.known_cards()
+
+
+def test_statement_credits_count_though_the_clean_name_drops_the_word_credit():
+    mem = Memory(":memory:")
+    b = Benefits(mem)
+    b.add("Uber Cash", 15, "monthly", card="Amex Platinum", merchant="uber")
+    Money(mem).add_transaction(-15, "USD", "UBER CASH CREDIT", "transport", "2026-11-02", card="9001", source="t:u")
+    s = b.status(b.all()[0], date(2026, 11, 5))
+    assert s["used"] == 15 and s["left"] == 0

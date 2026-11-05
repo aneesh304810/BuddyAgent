@@ -933,11 +933,20 @@ class Benefits:
     # --- how much is used ----------------------------------------------------------------
     def _transactions(self, start: date, end: date) -> list[dict]:
         try:
-            return [dict(r) for r in self.memory.db.execute(
-                "SELECT day, amount, merchant, card FROM transactions WHERE day >= ? AND day <= ?",
+            rows = [dict(r) for r in self.memory.db.execute(
+                "SELECT day, amount, merchant, card, merchant_raw FROM transactions WHERE day >= ? AND day <= ?",
                 (start.isoformat(), end.isoformat()))]
-        except Exception:  # no money data yet
-            return []
+        except Exception:  # an older database without merchant_raw
+            try:
+                rows = [dict(r) for r in self.memory.db.execute(
+                    "SELECT day, amount, merchant, card FROM transactions WHERE day >= ? AND day <= ?",
+                    (start.isoformat(), end.isoformat()))]
+            except Exception:
+                return []
+        # The clean name ("Uber") drops what says it's a statement credit ("UBER CASH CREDIT"): match on both.
+        for r in rows:
+            r["text"] = f"{r['merchant']} {r.get('merchant_raw') or ''}".lower()
+        return rows
 
     def status(self, b: dict, today: date | None = None) -> dict:
         today = today or local_now().date()
@@ -945,7 +954,7 @@ class Benefits:
         words = _words(b["match"]) or _words(b["merchant"])
         credited = spent = 0.0
         for t in self._transactions(start, min(end, today)):
-            desc = t["merchant"].lower()
+            desc = t["text"]
             if not words or not any(w in desc for w in words):
                 continue
             if t["amount"] < 0 and (b["match"] or "credit" in desc):
@@ -962,6 +971,117 @@ class Benefits:
                 "days_left": (end - today).days, "used": used, "left": round(b["amount"] - used, 2),
                 "spent_there": round(spent, 2), "maybe_pending": pending, "merchant": b["merchant"],
                 "expired": end < today}
+
+    # --- the card benefits dashboard (web/cards.html) ----------------------------------------
+    def _matches(self, b: dict, start: date, end: date) -> tuple[list[dict], list[dict]]:
+        """(statement credits that counted, purchases there) for one benefit between two dates."""
+        words = _words(b["match"]) or _words(b["merchant"])
+        credits, buys = [], []
+        if not words:
+            return credits, buys
+        for t in self._transactions(start, end):
+            desc = t["text"]
+            if not any(w in desc for w in words):
+                continue
+            if t["amount"] < 0 and (b["match"] or "credit" in desc):
+                credits.append({**t, "amount": -t["amount"]})
+            elif t["amount"] > 0:
+                buys.append(t)
+        return credits, buys
+
+    def _used_this_year(self, b: dict, today: date) -> float:
+        start = date(today.year, 1, 1)
+        credits, _ = self._matches(b, start, today)
+        told = sum(r[0] for r in self.memory.db.execute(
+            "SELECT amount FROM fin_benefit_uses WHERE benefit_id = ? AND day >= ?", (b["id"], start.isoformat())))
+        periods = {"monthly": today.month, "quarterly": (today.month - 1) // 3 + 1,
+                   "semiannual": 1 if today.month <= 6 else 2}.get(b["period"], 1)
+        return round(min(sum(c["amount"] for c in credits) + told, b["amount"] * periods), 2)
+
+    def dashboard(self, today: date | None = None) -> dict:
+        """Every card: fee, published credits (tracked ones with used / left / days left), perks, earn rates,
+        and totals: credit value a year against the fees, used this year, what ends soon."""
+        today = today or local_now().date()
+        per_year = {"monthly": 12, "quarterly": 4, "semiannual": 2}
+        tracked = self.all()
+        cards, seen_tracked = [], set()
+        for c in self.cards_overview():
+            saved = self.cached(c["card"], days=10 ** 5) or {}
+            mine = [b for b in tracked if _key(b["card"]) == _key(c["card"])]
+            by_name = {b["name"].lower(): b for b in mine}
+            credits = []
+            for pub in saved.get("benefits", []):
+                b = by_name.pop(pub["name"].lower(), None)
+                item = {"name": pub["name"], "amount": pub["amount"], "period": pub["period"],
+                        "enrollment": pub.get("enrollment", False), "note": pub.get("note", ""),
+                        "source": pub.get("source", ""), "resets": pub.get("resets", "calendar"),
+                        "year_value": pub["amount"] * per_year.get(pub["period"], 1), "tracked": bool(b)}
+                if b:
+                    st = self.status(b, today)
+                    item.update({k: st[k] for k in ("id", "used", "left", "ends", "days_left", "maybe_pending",
+                                                    "starts")})
+                    item["used_this_year"] = self._used_this_year(b, today)
+                    seen_tracked.add(b["id"])
+                credits.append(item)
+            for b in by_name.values():  # tracked credits the user told Buddy about (not on the issuer's list)
+                st = self.status(b, today)
+                credits.append({"name": b["name"], "amount": b["amount"], "period": b["period"], "tracked": True,
+                                "year_value": b["amount"] * per_year.get(b["period"], 1), "source": "",
+                                "used_this_year": self._used_this_year(b, today),
+                                **{k: st[k] for k in ("id", "used", "left", "ends", "days_left", "maybe_pending",
+                                                      "starts")}})
+                seen_tracked.add(b["id"])
+            fee = saved.get("annual_fee")
+            used_year = round(sum(x.get("used_this_year", 0) for x in credits), 2)
+            cards.append({"card": c["card"], "last4": c["last4"], "connected": c["connected"],
+                          "needs_name": c["needs_name"], "annual_fee": fee, "checked": saved.get("checked", ""),
+                          "credits": sorted(credits, key=lambda x: (not x["tracked"], x.get("days_left", 999),
+                                                                    -x["year_value"])),
+                          "perks": [p["name"] for p in saved.get("perks", [])],
+                          "earn_rates": [f"{r['rate']:g} {r['unit']} on {r['category']}" for r in saved.get("earn_rates", [])],
+                          "year_value": round(sum(x["year_value"] for x in credits), 2), "used_this_year": used_year,
+                          "sources": sorted({x["source"] for x in credits if x.get("source")})[:3]})
+        soon = sorted((dict(x, card=c["card"]) for c in cards for x in c["credits"]
+                       if x["tracked"] and x.get("left", 0) > 0 and x.get("days_left", 999) <= 31),
+                      key=lambda x: x["days_left"])
+        return {"today": today.isoformat(), "cards": cards,
+                "totals": {"cards": len(cards), "fees": round(sum(c["annual_fee"] or 0 for c in cards), 2),
+                           "year_value": round(sum(c["year_value"] for c in cards), 2),
+                           "used_this_year": round(sum(c["used_this_year"] for c in cards), 2),
+                           "left_this_period": round(sum(x.get("left", 0) for c in cards for x in c["credits"]
+                                                         if x["tracked"]), 2)},
+                "ending_soon": soon[:8], "questions": self.unnamed_cards()}
+
+    def credit_detail(self, benefit_id: int, today: date | None = None) -> dict:
+        """One tracked credit: this period, what counted, purchases waiting for a credit, past periods, deals."""
+        today = today or local_now().date()
+        b = self._get(int(benefit_id))
+        st = self.status(b, today)
+        start, end = date.fromisoformat(st["starts"]), date.fromisoformat(st["ends"])
+        credits, buys = self._matches(b, start, min(end, today))
+        told = [dict(r) for r in self.memory.db.execute(
+            "SELECT day, amount, note FROM fin_benefit_uses WHERE benefit_id = ? AND day >= ? AND day <= ?",
+            (b["id"], start.isoformat(), end.isoformat()))]
+        history, d = [], start - timedelta(days=1)
+        for _ in range(4):  # the periods before this one
+            ps, pe = period_bounds(b, d)
+            got, _ = self._matches(b, ps, pe)
+            told_then = sum(r[0] for r in self.memory.db.execute(
+                "SELECT amount FROM fin_benefit_uses WHERE benefit_id = ? AND day >= ? AND day <= ?",
+                (b["id"], ps.isoformat(), pe.isoformat())))
+            history.append({"from": ps.isoformat(), "to": pe.isoformat(),
+                            "used": round(min(b["amount"], sum(c["amount"] for c in got) + told_then), 2)})
+            if b["period"] == "once":
+                break
+            d = ps - timedelta(days=1)
+        steps = REMIND_BY_PERIOD.get(b["period"], REMIND_DAYS)
+        reminders = [(end - timedelta(days=n)).isoformat() for n in steps if end - timedelta(days=n) >= today]
+        notes = b["notes"] or ""
+        source = re.search(r"https://\S+", notes)
+        return {**st, "card": b["card"], "name": b["name"], "notes": notes, "source": source.group(0).rstrip(";") if source
+                else "", "enrollment": "needs enrollment" in notes, "statement_credits": credits, "purchases": buys,
+                "marked_used": told, "history": history, "reminders": reminders,
+                "deals": self.deals_for(b["id"], st["ends"]) or {}, "kind": credit_kind({**st, "benefit": st["benefit"]})}
 
     def overview(self, today: date | None = None) -> list[dict]:
         out = [self.status(b, today) for b in self.all()]
