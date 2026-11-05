@@ -225,7 +225,19 @@ async def run(memory: Memory, deliver: Deliver) -> None:
                 for alert in await asyncio.to_thread(trips.check_watches):
                     if await deliver("travel", alert["text"]):
                         trips.told(alert)
+            try:  # credit monitoring emails and notifications, and new cards at connected banks: read as they come
+                from .credit import Credit  # noqa: PLC0415
+                watch = Credit(memory)
+                await watch.scan_emails()
+                watch.watch_connected_cards()
+            except Exception:
+                log.exception("credit watch failed")
+                watch = None
             if not in_quiet_hours():
+                if watch is not None:
+                    for alert in watch.alerts():  # new hard inquiries, accounts, late payments; a score drop
+                        if await deliver("money", alert["text"]):
+                            watch.told(alert)
                 fin = finance.Finance(memory)
                 for alert in fin.alerts():
                     if await deliver("money", alert["text"]):

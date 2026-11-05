@@ -208,6 +208,10 @@ and leaks, and a subscription tracker, with an advisor's written review on top. 
 transfers are ("the Zelle to Ravi is my rent", "Remitly is my parents' maintenance") -> money_advisor \
 label_transfer (what = the person's name, a service, or "remittances" for every service at once). Never call \
 family support or money sent home waste.
+Credit score: "what's my credit score", "any new inquiries?", "my Experian FICO is 782", a screenshot of \
+Credit Karma or their bank's credit app -> credit (overview, add_score). Alerts about a new hard inquiry or \
+account ask "was this you?": their answer -> credit it_was_me or not_me (event_id). Credit Karma, Credit \
+Journey and the like have no API: Buddy reads their emails and phone notifications, never logs in to them.
 Card benefits: "my Platinum has a $50 Saks credit every six months", "how much is left on my card \
 credits?", "I want that jacket but it's expensive" -> card_benefits (add, list, wish_add, plan). Add only \
 benefits {user} tells you or confirms; never invent a card's perks; issuers change them. When a credit is \

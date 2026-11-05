@@ -90,6 +90,9 @@ function render() {
           x.next_payment ? "next payment " + money(x.next_payment) + (x.next_due ? " on " + esc(x.next_due) : "") : ""].filter(Boolean).join(" · ")}</p>` : "")) +
       (acc.note ? `<p class="muted" style="margin-top:8px">${esc(acc.note)}</p>` : "")));
   }
+  // credit score and anything new on the credit report
+  const cr = d.credit;
+  if (cr) parts.push(creditCard(cr));
   // cash flow of the accounts the pay lands in
   const cf = d.cash_flow;
   if (cf && (cf.in.total || cf.out.total)) {
@@ -170,6 +173,40 @@ function render() {
   document.querySelectorAll("[data-merchant]").forEach((el) => el.onclick = () =>
     drill([{ label: el.dataset.merchant, q: { merchant: el.dataset.merchant } }]));
   document.querySelectorAll("[data-month]").forEach((el) => el.onclick = () => load(el.dataset.month));
+}
+
+function creditCard(cr) {
+  const band = (v) => v >= 800 ? ["Exceptional", "var(--good)"] : v >= 740 ? ["Very good", "var(--good)"] :
+    v >= 670 ? ["Good", "var(--accent)"] : v >= 580 ? ["Fair", "var(--warn)"] : ["Poor", "var(--bad)"];
+  const scores = cr.latest.map((s) => {
+    const [name, color] = band(s.score), pct = Math.max(0, Math.min(100, (100 * (s.score - 300)) / 550));
+    return `<div class="row" style="cursor:default"><span class="name">${esc(s.bureau || "Score")}
+      <small class="muted"> ${esc([s.model, s.day].filter(Boolean).join(" · "))}</small></span>
+      <span class="barwrap"><span class="bar" style="width:${pct}%;background:${color};display:block"></span></span>
+      <span class="amt"><b>${s.score}</b> <small style="color:${color}">${name}</small></span></div>`;
+  }).join("");
+  const h = cr.history;
+  let spark = "";
+  if (h.length > 1) {
+    const w = 320, ht = 60, lo = Math.min(...h.map((x) => x.score)) - 10, hi = Math.max(...h.map((x) => x.score)) + 10;
+    const pts = h.map((x, i) => `${(i * w) / (h.length - 1)},${ht - ((x.score - lo) * ht) / (hi - lo || 1)}`).join(" ");
+    spark = `<svg viewBox="0 0 ${w} ${ht}" style="width:100%;height:60px;margin:6px 0" role="img" aria-label="Score history">
+      <polyline points="${pts}" fill="none" stroke="var(--accent)" stroke-width="2"/></svg>`;
+  }
+  const flag = (e) => e.status === "mine" ? "✓ you" : e.status === "not_mine" ? "⚠ not you" :
+    ["hard_inquiry", "new_account", "late_payment", "collection", "public_record", "address_change", "fraud_alert"].includes(e.kind) ? "check" : "";
+  const events = cr.events.map((e) => `<div class="row" style="cursor:default"><span class="name" style="white-space:normal">
+    <b>${esc(e.label)}</b>${e.lender ? " · " + esc(e.lender) : ""}<small class="muted"> ${esc([e.bureau, e.day].filter(Boolean).join(" · "))}</small></span>
+    <span class="amt"><small class="${e.status === "not_mine" ? "up" : "muted"}">${flag(e)}</small></span></div>`).join("");
+  const util = cr.utilization == null ? "" : `<div class="kpis" style="margin:8px 0"><div class="kpi"><span>Card limits used</span>
+    <b style="color:${cr.utilization < 10 ? "var(--good)" : cr.utilization < 30 ? "var(--accent)" : "var(--bad)"}">${cr.utilization}%</b></div>
+    ${cr.cards.slice(0, 3).map((c) => `<div class="kpi"><span>${esc(c.name)}</span><b>${c.used}%</b></div>`).join("")}</div>`;
+  const empty = !cr.latest.length && !cr.events.length;
+  return card(cr.latest.length ? `Credit · ${cr.latest[0].score}` : "Credit",
+    (empty ? `<p class="muted">No score yet. Turn on the free score emails or notifications in an app you already have
+      (Credit Karma, Chase Credit Journey, Amex MyCredit Guide), or tell Buddy your score.</p>` : scores + spark) + util +
+    (events ? `<p class="muted" style="margin:10px 0 2px">Recent changes on your report</p>` + events : ""),
+    "Under 30% of your limits used helps the score; under 10% is best. " + esc(cr.how));
 }
 
 function trendSvg(trend) {

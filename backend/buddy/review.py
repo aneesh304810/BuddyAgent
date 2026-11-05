@@ -858,6 +858,11 @@ def dashboard(memory: Memory, period: str = "last_month") -> dict:
         r["accounts"] = Plaid(memory, env={}).accounts_overview()
     except Exception:
         r["accounts"] = None
+    try:  # credit score and report changes (credit.py)
+        from .credit import Credit  # noqa: PLC0415
+        r["credit"] = Credit(memory).dashboard()
+    except Exception:
+        r["credit"] = None
     r["periods"] = [{"id": p, "label": p.replace("_", " ").capitalize()} for p in PERIODS]
     first = local_now().date().replace(day=1)
     r["months"] = [f"month:{_months_back(first, n):%Y-%m}" for n in range(5, -1, -1)]

@@ -38,6 +38,7 @@ from .codejob import CODE_TOOL_NAMES, CODE_TOOLS, run_code_tool
 from .makers import MAKER_TOOL_NAMES, MAKER_TOOLS, run_maker_tool
 from .merchants import MERCHANTS_TOOL
 from .customize import CUSTOMIZE_TOOL
+from .credit import CREDIT_TOOL
 from . import advisor, benefits, brain, compliance, datatools, finance, plaid, travel, thinking, formfill, library, prices, rides, seats, selfcode, transcripts, tutor, vocabulary, voiceprint
 from .lifelog import LIFELOG_TOOL, LifeLog, run_lifelog_tool
 from .mailbrain import MAIL_TOOL_NAMES, MAIL_TOOLS, MailManager, run_mail_tool
@@ -499,7 +500,7 @@ class Conversation:
                      prices.NOTE_PRICE_TOOL, rides.RIDE_TOOL, formfill.FORM_TOOL, seats.SEAT_TOOL, selfcode.CODE_TOOL,
                      library.LIBRARY_TOOL, brain.BRAIN_TOOL, finance.FINANCE_TOOL,
                      advisor.ADVISOR_TOOL, benefits.BENEFITS_TOOL, plaid.BANK_TOOL, travel.TRAVEL_TOOL,
-                     compliance.COMPLIANCE_TOOL, MERCHANTS_TOOL, CUSTOMIZE_TOOL]
+                     compliance.COMPLIANCE_TOOL, MERCHANTS_TOOL, CUSTOMIZE_TOOL, CREDIT_TOOL]
         return (
             CLIENT_TOOLS + orchestration + job_tools + spending + [_expert_tool()]
             + agent_tools + web_tools()
@@ -621,6 +622,9 @@ class Conversation:
             return await selfcode.run_tool(args, start_task if self.jobs and sandbox.available() else None)
         if name == "fill_form":
             return await formfill.run_form_tool(self.phone_request, self.thrift, self.form_state, args)
+        if name == "credit":
+            from . import credit  # noqa: PLC0415
+            return await asyncio.to_thread(credit.run_tool, self.memory, args)
         if name == "pick_seat":
             return await seats.run_seat_tool(self.phone_request, self.thrift, self.form_state, self.memory, args)
         if name == "note_price":
