@@ -170,3 +170,16 @@ def test_daily_bars_use_the_whole_market_feed_and_fall_back_to_iex():
     got = mk.Data(mem, ENV, fetch).bars("us", ["AAPL"])
     assert got["AAPL"] and "feed=sip" in seen[0] and "end=" in seen[0] and "feed=iex" in seen[1]
     assert mem.get("markets:feed") == "iex"
+
+
+def test_the_takes_go_to_a_free_model_first(monkeypatch):
+    from buddy import free_models
+    calls = []
+
+    async def fake_run(self, kind, text, **kw):
+        calls.append((kind, kw.get("check_text")))
+        return {"answer": '{"ideas": [{"symbol": "NVDA", "take": "ok"}]}'}
+    monkeypatch.setattr(free_models.FreeModels, "enabled", lambda self: ["gemini"])
+    monkeypatch.setattr(free_models.FreeModels, "run", fake_run)
+    got = asyncio.run(mk._ask_free_first(Memory(":memory:"), "setups"))
+    assert got["ideas"][0]["take"] == "ok" and calls == [("summarize", False)]

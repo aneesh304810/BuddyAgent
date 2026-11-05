@@ -185,3 +185,11 @@ def test_a_detailed_report_from_the_credit_app_lands_in_reports():
     assert "American Express: 37% used" in report and "goodwill letter" in report and "2012-08" in report
     kinds = {e["kind"] for e in Credit(mem).events()}
     assert kinds == {"hard_inquiry"}
+
+
+def test_model_answers_are_read_whole_for_every_kind_of_reply():
+    from buddy.benefits import last_json
+    assert last_json('Here it is:\n{"credit_email": true, "events": [{"kind": "hard_inquiry"}]}')["credit_email"] is True
+    assert last_json('{"ideas": [{"symbol": "NVDA"}]}')["ideas"][0]["symbol"] == "NVDA"
+    assert last_json('{"links": [{"n": 0, "credit_id": 3}]}')["links"][0]["credit_id"] == 3
+    assert last_json("no json here") is None

@@ -8,8 +8,8 @@ tracks each idea until it triggers, fails or expires. Ideas only: Buddy never pl
     -> each with an entry, a stop (under the base or ATR-based), targets at 2R and 3R, risk in %, and a score
        (pattern, trend, strength against the market's benchmark, volume, tightness)
     -> for the best few: Reddit (r/wallstreetbets, r/stocks, r/options, r/CryptoCurrency, r/IndianStockMarket...),
-       StockTwits and the news; Claude reads those and writes a short take and the risks per idea (numbers stay
-       the code's); for US stocks with options on, a call about 30-60 days out near 0.6 delta
+       StockTwits and the news; a free model (else Claude's cheap model) reads those and writes a short take and
+       the risks per idea (numbers stay the code's); for US stocks with options on, a call about 30-60 days out near 0.6 delta
     -> a "Market scan" report in Reports and one message with the top ideas
   Market hours (every 15 minutes): the ideas being watched are checked against the latest price: broke above the
   entry (alert once, with the plan), ran too far to chase, or failed (fell under the stop). Trades the user says
@@ -522,7 +522,7 @@ class Markets:
     def __init__(self, memory: Memory, env=None, fetch=None, ask=None):
         self.memory = memory
         self.data = Data(memory, env, fetch)
-        self.ask = ask or _ask_claude
+        self.ask = ask or _ask_free_first
         memory.db.executescript(SCHEMA_SQL)
 
     # settings -----------------------------------------------------------------------------------------------
@@ -874,19 +874,40 @@ class Markets:
                 "last_scan": self.memory.get("markets:scanned") or "", "note": DISCLAIMER}
 
 
+async def _ask_free_first(memory: Memory, prompt: str) -> dict | None:
+    """The takes are about public things only (chart numbers, Reddit posts, headlines; no personal data), so a free
+    model writes them when one is set up; if none answers with usable JSON, Claude's cheap model does."""
+    from .benefits import last_json
+    from .free_models import FreeModels, NeedsClaude
+    free = FreeModels(memory)
+    if free.enabled():
+        try:
+            got = await free.run("summarize", prompt, system="You write short, factual notes on stock and crypto chart "
+                                 "setups. Answer with the one line of JSON asked for, nothing else.",
+                                 purpose="markets:take", claude_fallback=False, check_text=False)
+            parsed = last_json(got["answer"])
+            if parsed and isinstance(parsed.get("ideas"), list):
+                return parsed
+        except NeedsClaude:
+            pass
+        except Exception:
+            log.info("free model for market takes failed", exc_info=True)
+    return await _ask_claude(memory, prompt)
+
+
 async def _ask_claude(memory: Memory, prompt: str) -> dict | None:
     from . import usage
     from .agent import fallback_kwargs
-    from .benefits import _last_json
+    from .benefits import last_json
     from .config import claude_client, settings
-    model = settings.chat_model
+    model = settings.fast_model or settings.chat_model  # short notes from given facts: the cheap model is enough
     started = time.monotonic()
     response = await claude_client().beta.messages.create(model=model, max_tokens=3_000,
                                                           messages=[{"role": "user", "content": prompt}],
                                                           **fallback_kwargs(model))
     if hasattr(response, "usage"):
         usage.record(memory, response.model, response.usage, purpose="market_scan", response=response, started=started)
-    return _last_json("\n".join(b.text for b in response.content if getattr(b, "type", "") == "text"))
+    return last_json("\n".join(b.text for b in response.content if getattr(b, "type", "") == "text"))
 
 
 def scan_due(memory: Memory, now: datetime | None = None) -> bool:

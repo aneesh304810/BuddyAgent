@@ -222,7 +222,7 @@ async def _ask_links(memory: Memory, credits: list[dict], lines: list[dict]) -> 
     if hasattr(response, "usage"):
         usage.record(memory, response.model, response.usage, purpose="card_credit_links", response=response,
                      started=started)
-    return _last_json("\n".join(b.text for b in response.content if getattr(b, "type", "") == "text"))
+    return last_json("\n".join(b.text for b in response.content if getattr(b, "type", "") == "text"))
 
 
 def _words(text: str) -> list[str]:
@@ -274,6 +274,25 @@ def _key(card: str) -> str:
 def _official(url: str) -> bool:
     host = (urllib.parse.urlparse(str(url or "")).hostname or "").lower()
     return url.startswith("https://") and any(host == d or host.endswith("." + d) for d in ISSUER_DOMAINS)
+
+
+def last_json(text: str) -> dict | None:
+    """The last top-level JSON object in a model's answer (an object inside it is not returned on its own)."""
+    decoder, found, i = json.JSONDecoder(), None, 0
+    text = text or ""
+    while i < len(text):
+        if text[i] == "{":
+            try:
+                obj, end = decoder.raw_decode(text[i:])
+            except ValueError:
+                i += 1
+                continue
+            if isinstance(obj, dict):
+                found = obj
+            i += end
+            continue
+        i += 1
+    return found
 
 
 def _last_json(text: str) -> dict | None:

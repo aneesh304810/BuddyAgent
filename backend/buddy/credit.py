@@ -121,7 +121,7 @@ Answer with one line of JSON only:
 async def _ask_claude(memory: Memory, prompt: str) -> dict | None:
     from . import usage
     from .agent import fallback_kwargs
-    from .benefits import _last_json
+    from .benefits import last_json
     from .config import claude_client, settings
 
     model = settings.fast_model
@@ -133,14 +133,14 @@ async def _ask_claude(memory: Memory, prompt: str) -> dict | None:
     if hasattr(response, "usage"):
         usage.record(memory, response.model, response.usage, purpose="credit_email", response=response,
                      started=started)
-    return _last_json("\n".join(b.text for b in response.content if getattr(b, "type", "") == "text"))
+    return last_json("\n".join(b.text for b in response.content if getattr(b, "type", "") == "text"))
 
 
 async def _ask_report(memory: Memory, prompt: str) -> dict | None:
     """A full report is long and has many numbers: the chat model reads it."""
     from . import usage
     from .agent import fallback_kwargs
-    from .benefits import _last_json
+    from .benefits import last_json
     from .config import claude_client, settings
     import time
     model = settings.chat_model
@@ -151,7 +151,7 @@ async def _ask_report(memory: Memory, prompt: str) -> dict | None:
     if hasattr(response, "usage"):
         usage.record(memory, response.model, response.usage, purpose="credit_report", response=response,
                      started=started)
-    return _last_json("\n".join(b.text for b in response.content if getattr(b, "type", "") == "text"))
+    return last_json("\n".join(b.text for b in response.content if getattr(b, "type", "") == "text"))
 
 
 def _day(v, fallback: str) -> str:
