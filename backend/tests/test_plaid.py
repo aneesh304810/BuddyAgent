@@ -362,3 +362,29 @@ def test_history_is_read_again_once_so_credits_dropped_before_come_back(mem):
     fake.calls.clear()
     p.sync(force=True)
     assert [c[1]["cursor"] for c in fake.calls if c[0] == "/transactions/sync"][0] == "c2"
+
+
+def test_a_returned_card_payment_is_not_a_fee_but_its_fee_is(mem):
+    p, fake, _ = linked(mem)
+    accounts = {"acc-card": {"account_id": "acc-card", "type": "credit", "mask": "0457", "name": "Ultimate Rewards"}}
+    nsf = {"primary": "BANK_FEES", "detailed": "BANK_FEES_INSUFFICIENT_FUNDS"}
+    returned = {"transaction_id": "r1", "account_id": "acc-card", "amount": 1803, "date": ago(30),
+                "name": "Returned Payment", "iso_currency_code": "USD", "personal_finance_category": nsf}
+    fee = {"transaction_id": "r2", "account_id": "acc-card", "amount": 40, "date": ago(30),
+           "name": "RETURNED PAYMENT FEE", "iso_currency_code": "USD", "personal_finance_category": nsf}
+    assert p._transaction("item-1", returned, accounts) is False
+    assert p._transaction("item-1", fee, accounts) is True
+    rows = mem.db.execute("SELECT merchant_raw, amount FROM transactions WHERE source LIKE '%:r%'").fetchall()
+    assert [(r[0], r[1]) for r in rows] == [("RETURNED PAYMENT FEE", 40)]
+    kept = mem.db.execute("SELECT kind, amount FROM fin_transfers WHERE source LIKE '%:r1'").fetchone()
+    assert tuple(kept) == ("payment_returned", 1803)
+
+
+def test_returned_payments_counted_as_fees_before_are_moved_out_once():
+    from buddy.money import Money
+    mem = Memory(":memory:")
+    Money(mem).add_transaction(5577, "USD", "Returned Payment", "fees", ago(60), card="0457", source="plaid:i:old",
+                               detail="Insufficient funds")
+    plaid.Plaid(mem, env={})
+    assert mem.db.execute("SELECT COUNT(*) FROM transactions").fetchone()[0] == 0
+    assert mem.db.execute("SELECT kind FROM fin_transfers").fetchone()[0] == "payment_returned"

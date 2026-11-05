@@ -122,6 +122,9 @@ REMIT = re.compile(r"(?i)\b(remitly|wise|transferwise|western union|xoom|moneygr
                    r"ria money|sendwave|instarem|icici money2india|money2india|xe money|ofx)\b")
 P2P = re.compile(r"(?i)\b(zelle|venmo|cash ?app|square cash|paypal|apple cash)\b")
 TO_WHOM = re.compile(r"(?i)\b(?:payment|transfer|sent|send|paid)?\s*to\s+([a-z][a-z .'-]{1,40}?)(?:\s+(?:on|conf|id|ref|#|\d)|$)")
+RETURNED = re.compile(r"(?i)\b(returned? (?:payment|pymt|check|item)|payment returned|reversed payment|"
+                      r"payment reversal|nsf return)\b")
+FEE_WORD = re.compile(r"(?i)\b(fee|charge)\b")
 CARD_PAYMENT = re.compile(r"(?i)\b(payment|autopay|auto pay|thank you|pymt|epayment|online pmt|balance transfer)\b")
 STATEMENT_CREDIT = re.compile(r"(?i)\b(credit|reimburse\w*|cr)\b")
 OWN_WORDS = re.compile(r"(?i)\b(to|into)\s+(my\s+)?(savings|checking|chk|sav|brokerage|ira|401k|roth)\b")
@@ -143,6 +146,10 @@ class Plaid:
         from .money import _add_column  # older databases: banks linked before this column were real (production)
 
         _add_column(memory, "plaid_items", "env", "TEXT NOT NULL DEFAULT 'production'")
+        try:
+            self._fix_returned_payments()
+        except Exception:
+            log.exception("returned payment fix failed")
 
     def setting(self, key: str) -> str:
         return (self.env.get(key) or "").strip()
@@ -302,6 +309,14 @@ class Plaid:
             # these income or a transfer in, but they belong with the card's charges, where the benefits tracker reads
             # them. Never income.
             return self._card_credit(item_id, tx, account, primary, detailed, real)
+        if account.get("type") == "credit" and float(tx.get("amount") or 0) > 0 and \
+                RETURNED.search(tx.get("name") or tx.get("merchant_name") or "") and \
+                not FEE_WORD.search(tx.get("name") or ""):
+            # A card payment that bounced ("RETURNED PAYMENT"): Plaid files it under insufficient-funds fees, but it
+            # only undoes the payment, so it's neither spending nor a fee. Kept apart; a real returned-payment
+            # fee ("RETURNED PAYMENT FEE") still counts as a fee.
+            self._returned_payment(item_id, tx, account)
+            return False
         if primary == "INCOME" and float(tx.get("amount") or 0) < 0:  # Plaid: negative = money in
             self.memory.db.execute(
                 "INSERT OR REPLACE INTO fin_income (source, day, amount, currency, name, kind) VALUES (?, ?, ?, ?, ?, ?)",
@@ -371,6 +386,36 @@ class Plaid:
             (f"plaid:{item_id}:{tx['transaction_id']}", str(tx.get("date") or tx.get("authorized_date"))[:10],
              round(float(tx["amount"]), 2), tx.get("iso_currency_code") or "USD", raw[:80], kind, recipient[:40],
              (account.get("mask") or "")[-4:]))
+
+    def _returned_payment(self, item_id: str, tx: dict, account: dict) -> None:
+        source = f"plaid:{item_id}:{tx['transaction_id']}"
+        self.memory.db.execute("DELETE FROM transactions WHERE source = ?", (source,))  # counted as a fee before
+        self.memory.db.execute(
+            "INSERT OR REPLACE INTO fin_transfers (source, day, amount, currency, name, kind, recipient, account) "
+            "VALUES (?, ?, ?, ?, ?, 'payment_returned', ?, ?)",
+            (source, str(tx.get("date") or tx.get("authorized_date"))[:10], round(float(tx["amount"]), 2),
+             tx.get("iso_currency_code") or "USD", (tx.get("name") or "Returned payment")[:80],
+             re.sub(r"[®™©]", "", account.get("name") or "")[:40], (account.get("mask") or "")[-4:]))
+
+    def _fix_returned_payments(self) -> None:
+        """Once: returned card payments an older Buddy counted as insufficient-funds fees move out of spending."""
+        if self.memory.get("plaid:fixed:returned_payments"):
+            return
+        try:
+            rows = self.memory.db.execute(
+                "SELECT * FROM transactions WHERE source LIKE 'plaid:%' AND amount > 0").fetchall()
+        except Exception:
+            return
+        for r in rows:
+            raw = r["merchant_raw"] or r["merchant"] or ""
+            if RETURNED.search(raw) and not FEE_WORD.search(raw) and r["category"] == "fees":
+                self.memory.db.execute(
+                    "INSERT OR REPLACE INTO fin_transfers (source, day, amount, currency, name, kind, recipient, account) "
+                    "VALUES (?, ?, ?, ?, ?, 'payment_returned', '', ?)",
+                    (r["source"], r["day"], r["amount"], r["currency"], raw[:80], r["card"] or ""))
+                self.memory.db.execute("DELETE FROM transactions WHERE id = ?", (r["id"],))
+        self.memory.db.commit()
+        self.memory.set("plaid:fixed:returned_payments", "1")
 
     def _card_payment(self, item_id: str, tx: dict, accounts: dict) -> None:
         """A credit card bill paid from checking: which card, for the cash flow ('Paid Amex Platinum ••9001')."""

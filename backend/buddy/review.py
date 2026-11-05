@@ -188,7 +188,13 @@ class Review:
         housing = sum(r["total"] for r in debit if r["category"] == "housing") + rent
         salary = sum(r["total"] for r in income if (r["kind"] or "").lower() in ("wages", "salary", "payroll"))
         other_in = sum(r["total"] for r in income) - salary
-        out = {"card_payments": round(sum(c["total"] for c in cards), 2),
+        try:  # a card payment that bounced was paid out and came back: it doesn't count as paid
+            returned = db.execute("SELECT COALESCE(SUM(amount), 0) FROM fin_transfers WHERE kind = 'payment_returned' "
+                                  "AND day BETWEEN ? AND ? AND currency = 'USD'",
+                                  (start.isoformat(), end.isoformat())).fetchone()[0]
+        except Exception:
+            returned = 0
+        out = {"card_payments": round(max(0.0, sum(c["total"] for c in cards) - returned), 2),
                "housing": round(housing, 2),
                "family": round(transfers.get("family", 0) + transfers.get("abroad", 0), 2),
                "people": round(transfers.get("to_people", 0) + transfers.get("other", 0), 2),
@@ -384,8 +390,8 @@ class Review:
         out = {"own": 0.0, "person": 0.0, "abroad": 0.0, "other": 0.0, "family": 0.0}
         people: dict[tuple, list] = {}
         for r in rows:
-            if r["kind"] == "card_payment":
-                continue  # paying a card bill isn't money leaving: the card's purchases are counted (see cash flow)
+            if r["kind"] in ("card_payment", "payment_returned"):
+                continue  # paying a card bill isn't money leaving (the card's purchases are counted); a bounced payment undoes one
             lab = self._label_for(r["recipient"], r["name"], labels, r["kind"])
             if lab and lab["label"] == "rent":
                 continue  # counted as housing spending
