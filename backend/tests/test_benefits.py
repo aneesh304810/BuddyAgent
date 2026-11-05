@@ -496,3 +496,15 @@ def test_claude_sorts_statement_credits_whose_wording_names_no_credit(setup):
     assert seen[0][0]["statement_text"] == "AMEX PLATINUM BENEFIT"
     assert b.status(resy, today)["used"] == 50
     assert _asyncio.run(b.link_credits(ask=ask, today=today)) == 0 and len(seen) == 1  # asked once
+
+
+def test_dashboard_text_for_a_card_without_credits_reads_cleanly():
+    assert bmod._rate_text({"rate": 3, "unit": "percent cash back",
+                            "category": "dining (incl. takeout and eligible deliv"}) == "3% cash back on dining"
+    assert bmod._rate_text({"rate": 5, "unit": "points per dollar", "category": "flights"}) == "5x points on flights"
+    assert bmod._rate_text({"rate": 1.5, "unit": "percent cash back", "category": "all other purchases"}) == \
+        "1.5% cash back on all other purchases"
+    perk = "Cell Phone Protection (Freedom Flex only; $800/claim)"
+    assert not bmod._perk_applies(perk, "Chase Freedom")
+    assert bmod._perk_applies(perk, "Chase Freedom Flex")
+    assert bmod._perk_applies("Purchase Protection (120 days)", "Chase Freedom")

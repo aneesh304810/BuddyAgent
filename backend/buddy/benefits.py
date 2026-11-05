@@ -293,12 +293,38 @@ def clean_catalog(raw: dict) -> dict:
                          "source": b["source"]})
     perks = [{"name": str(p.get("name"))[:100], "source": p["source"]} for p in raw.get("perks") or []
              if p.get("name") and _official(p.get("source"))][:15]
-    rates = [{"category": str(r.get("category"))[:40], "rate": num(r.get("rate")), "unit": str(r.get("unit") or "")[:30],
+    rates = [{"category": str(r.get("category"))[:80], "rate": num(r.get("rate")), "unit": str(r.get("unit") or "")[:30],
               "note": str(r.get("note") or "")[:120], "source": r["source"]} for r in raw.get("earn_rates") or []
              if r.get("category") and num(r.get("rate")) and _official(r.get("source"))][:15]
     fee = num(raw.get("annual_fee"))
     return {"card_name": str(raw.get("card_name") or "")[:80], "annual_fee": fee, "benefits": benefits,
             "perks": perks, "earn_rates": rates, "as_of_note": str(raw.get("as_of_note") or "")[:200]}
+
+
+def _perk_applies(perk: str, card: str) -> bool:
+    """'Cell Phone Protection (Freedom Flex only)' on a Chase Freedom page: not this card's perk."""
+    only = re.search(r"(?i)\b([a-z][\w+ ]{2,40}?)\s+only\b", perk or "")
+    if not only:
+        return True
+    words = [w for w in _key(only.group(1)).split() if w not in ("the", "card", "cardmembers", "for")]
+    return not words or all(w in _key(card).split() for w in words)
+
+
+def _rate_text(r: dict) -> str:
+    """'3 percent cash back on dining' -> '3% cash back on dining'; '5 points per dollar' -> '5x points'."""
+    category = str(r.get("category") or "").strip()
+    if category.count("(") > category.count(")"):  # cut short when it was saved: drop the unfinished aside
+        category = category[:category.rindex("(")].strip()
+    unit = str(r.get("unit") or "").strip()
+    rate = r.get("rate") or 0
+    low = unit.lower()
+    if "percent" in low or low.startswith("%"):
+        head = f"{rate:g}% " + re.sub(r"(?i)^(percent|%)\s*", "", unit).strip()
+    elif re.search(r"(?i)(points?|miles?) per dollar", low):
+        head = f"{rate:g}x " + re.sub(r"(?i)\s*per dollar.*", "", unit).strip()
+    else:
+        head = f"{rate:g} {unit}".strip()
+    return f"{head.strip()} on {category}" if category else head.strip()
 
 
 async def _search_issuer(memory: Memory, card: str) -> dict | None:
@@ -1173,8 +1199,8 @@ class Benefits:
                           "needs_name": c["needs_name"], "annual_fee": fee, "checked": saved.get("checked", ""),
                           "credits": sorted(credits, key=lambda x: (not x["tracked"], x.get("days_left", 999),
                                                                     -x["year_value"])),
-                          "perks": [p["name"] for p in saved.get("perks", [])],
-                          "earn_rates": [f"{r['rate']:g} {r['unit']} on {r['category']}" for r in saved.get("earn_rates", [])],
+                          "perks": [p["name"] for p in saved.get("perks", []) if _perk_applies(p["name"], c["card"])],
+                          "earn_rates": [_rate_text(r) for r in saved.get("earn_rates", [])],
                           "year_value": round(sum(x["year_value"] for x in credits), 2), "used_this_year": used_year,
                           "sources": sorted({x["source"] for x in credits if x.get("source")})[:3]})
         soon = sorted((dict(x, card=c["card"]) for c in cards for x in c["credits"]

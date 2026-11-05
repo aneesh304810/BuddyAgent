@@ -81,7 +81,9 @@ function render() {
     const head = `${esc(c.card)}${c.last4 ? ` <span class="muted">••${esc(c.last4)}</span>` : ""}`;
     const body = worth +
       (c.credits.length ? c.credits.map((x, xi) => creditRow(c, x, ci, xi)).join("") :
-        `<p class="muted">${c.needs_name ? "Tell Buddy which card this is to see its benefits." : "No published credits saved yet: say \"set up my card benefits\"."}</p>`) +
+        `<p class="muted">${c.needs_name ? "Tell Buddy which card this is to see its benefits." : c.checked ?
+          `No statement credits on this card${c.annual_fee ? "" : " and no annual fee"}: its value is what it earns and the protections below.` :
+          "Not looked up yet: say \"set up my card benefits\"."}</p>`) +
       (untracked > 1 ? `<p style="margin:10px 0 0"><button class="btn solid" data-trackall="${ci}">Track all ${untracked}</button></p>` : "") +
       (c.perks.length ? `<p class="muted" style="margin:12px 0 0">Perks</p><div class="perks">${c.perks.map((p) => `<span>${esc(p)}</span>`).join("")}</div>` : "") +
       (c.earn_rates.length ? `<p class="muted" style="margin:12px 0 2px">Earns</p><p style="margin:0;font-size:13px">${c.earn_rates.map(esc).join(" · ")}</p>` : "") +
