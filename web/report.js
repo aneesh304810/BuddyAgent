@@ -16,7 +16,8 @@ if (params.get("token")) history.replaceState(null, "", location.pathname + "?id
 const $ = (id) => document.getElementById(id);
 const esc = (s) => String(s ?? "").replace(/[&<>"']/g, (c) => ({ "&": "&amp;", "<": "&lt;", ">": "&gt;", '"': "&quot;", "'": "&#39;" }[c]));
 const DASHBOARDS = { money_review: ["money.html", "Open the money dashboard"], money_monthly: ["money.html", "Open the money dashboard"],
-  money_weekly: ["money.html", "Open the money dashboard"], card_benefits: ["cards.html", "Open the card benefits dashboard"] };
+  money_weekly: ["money.html", "Open the money dashboard"], card_benefits: ["cards.html", "Open the card benefits dashboard"],
+  credit_report: ["money.html", "Open the money dashboard"] };
 const NUMERIC = /^[\s(−\-+]*(?:[$₹€£]\s?)?[\d,]+(?:\.\d+)?\s?(?:%|x|days?|USD|INR)?\)?\s*$/;
 
 function safeUrl(u) {

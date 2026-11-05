@@ -145,3 +145,43 @@ def test_read_my_credit_with_another_app_in_front_says_what_to_open():
         return {"error": "not_browser", "app": "com.whatsapp"}
     out = asyncio.run(Credit(Memory(":memory:")).read_screen(phone))
     assert "Open your credit app" in out and "com.whatsapp" in out
+
+
+REPORT = {
+    "bureaus": ["TransUnion"], "scores": [{"score": 742, "bureau": "TransUnion", "model": "VantageScore 3.0"}],
+    "factors": [{"name": "Card use", "value": "34%", "rating": "Fair"}],
+    "accounts": [
+        {"lender": "American Express", "type": "credit card", "open": True, "opened": "2019-04", "limit": 20000,
+         "balance": 7400, "on_time": "100%", "status": "current"},
+        {"lender": "Chase", "type": "credit card", "open": True, "opened": "2012-08", "limit": 10000, "balance": 900,
+         "on_time": "99%", "late": "1 x 30 days, Mar 2024", "status": "current"},
+        {"lender": "Chase", "type": "mortgage", "open": True, "opened": "2021-06", "limit": None, "balance": 410000,
+         "on_time": "100%", "status": "current"}],
+    "inquiries": [{"lender": "Discover", "day": "2026-09-14", "bureau": "TransUnion"},
+                  {"lender": "Capital One", "day": "2026-03-02", "bureau": "TransUnion"}],
+    "negatives": []}
+
+
+def test_a_detailed_report_from_the_credit_app_lands_in_reports():
+    mem = Memory(":memory:")
+    sent = []
+
+    async def phone(msg):
+        sent.append(msg)
+        return {"app": "com.creditkarma.mobile", "can_scroll": len(sent) < 4,
+                "nodes": [{"kind": "text", "t": f"TransUnion report screen {len(sent)} American Express 7,400"}]}
+
+    async def ask(memory, prompt):
+        assert "screen 1" in prompt and "screen 4" in prompt   # every screen read, scrolling down
+        return REPORT
+    out = asyncio.run(Credit(mem).full_report(phone, ask_report=ask))
+    assert "742" in out and "cards at 28% of limits" in out and "2 hard inquiries" in out
+    assert all(m["action"] in ("read", "scroll") for m in sent)
+    job = mem.db.execute("SELECT kind, title, report FROM jobs").fetchone()
+    assert job["kind"] == "credit_report"
+    report = job["report"]
+    assert "| American Express | credit card | 2019-04 | $20,000 | $7,400 | 37% |" in report
+    assert "| Discover | 2026-09-14 | TransUnion | 2028-09-14 |" in report
+    assert "American Express: 37% used" in report and "goodwill letter" in report and "2012-08" in report
+    kinds = {e["kind"] for e in Credit(mem).events()}
+    assert kinds == {"hard_inquiry"}
