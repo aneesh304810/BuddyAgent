@@ -40,6 +40,7 @@ from .merchants import MERCHANTS_TOOL
 from .customize import CUSTOMIZE_TOOL
 from .credit import CREDIT_TOOL
 from .markets import MARKETS_TOOL
+from .routing import ROUTING_TOOL
 from . import advisor, benefits, brain, compliance, datatools, finance, plaid, travel, thinking, formfill, library, prices, rides, seats, selfcode, transcripts, tutor, vocabulary, voiceprint
 from .lifelog import LIFELOG_TOOL, LifeLog, run_lifelog_tool
 from .mailbrain import MAIL_TOOL_NAMES, MAIL_TOOLS, MailManager, run_mail_tool
@@ -250,9 +251,16 @@ class Conversation:
                            first_word=time.monotonic() - started, total=time.monotonic() - started, rounds=0,
                            tools=[], sentences=1, filler=False, outcome="ok")
             return
-        self.model = self.router.pick(user_text)
+        from . import routing  # noqa: PLC0415
+        routing.note_correction(self.memory, self.previous_turn, user_text)  # "no, that's wrong": the last pick missed
+        decision = self.router.decide(user_text, self.memory, via)
+        self.model = decision.model
         if prep.lookup and prep.pack and settings.fast_model and len(user_text.split()) <= 18:
             self.model = settings.fast_model  # the facts are in hand: the quick model can say them
+            decision.tier, decision.model, decision.reason = "fast", self.model, "the answer is in memory already"
+        routing.log(self.memory, self.turn_key, decision)
+        expert_note = (" (Routing: a hard, high-stakes question. If you're not sure of the answer, step up with "
+                       "ask_expert.)") if decision.expert_hint else ""
         usage.count(self.memory, "router:quick" if self.model == settings.fast_model else "router:main")
         if prep.pack:
             usage.count(self.memory, "brain:pack")
@@ -260,7 +268,7 @@ class Conversation:
         self.dual = self.memory.get(DUAL_KEY) or ""  # e.g. "ml": speak Malayalam, show English
         room_note = (" (Said in Listen-in mode: Listen-in is ON and you hear the room as text; check "
                      "room_conversation before saying you've heard nothing.)") if via == "room" else ""
-        self._add_user_text(f"({stamp}) {mask(user_text)}" + prep.pack + room_note + (tutor.LIVE_NOTE if tutor.live(self.memory) else "")
+        self._add_user_text(f"({stamp}) {mask(user_text)}" + prep.pack + room_note + expert_note + (tutor.LIVE_NOTE if tutor.live(self.memory) else "")
                             + (DUAL_NOTE.format(language=DUAL_LANGUAGES.get(self.dual, self.dual)) if self.dual else ""))
         spoken: list[str] = []
         said_anything = asyncio.Event()
@@ -502,7 +510,7 @@ class Conversation:
                      prices.NOTE_PRICE_TOOL, rides.RIDE_TOOL, formfill.FORM_TOOL, seats.SEAT_TOOL, selfcode.CODE_TOOL,
                      library.LIBRARY_TOOL, brain.BRAIN_TOOL, finance.FINANCE_TOOL,
                      advisor.ADVISOR_TOOL, benefits.BENEFITS_TOOL, plaid.BANK_TOOL, travel.TRAVEL_TOOL,
-                     compliance.COMPLIANCE_TOOL, MERCHANTS_TOOL, CUSTOMIZE_TOOL, CREDIT_TOOL, MARKETS_TOOL]
+                     compliance.COMPLIANCE_TOOL, MERCHANTS_TOOL, CUSTOMIZE_TOOL, CREDIT_TOOL, MARKETS_TOOL, ROUTING_TOOL]
         return (
             CLIENT_TOOLS + orchestration + job_tools + spending + [_expert_tool()]
             + agent_tools + web_tools()
@@ -624,6 +632,9 @@ class Conversation:
             return await selfcode.run_tool(args, start_task if self.jobs and sandbox.available() else None)
         if name == "fill_form":
             return await formfill.run_form_tool(self.phone_request, self.thrift, self.form_state, args)
+        if name == "model_routing":
+            from . import routing  # noqa: PLC0415
+            return json.dumps(await asyncio.to_thread(routing.overview, self.memory, int(args.get("days") or 30)))
         if name == "markets":
             from . import markets  # noqa: PLC0415
             return await asyncio.to_thread(markets.run_tool, self.memory, args)

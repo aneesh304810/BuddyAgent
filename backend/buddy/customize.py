@@ -22,6 +22,7 @@ SETTINGS = {
     "reply_length": ("short", "normal", "detailed"),
     "bill_days": tuple(range(1, 15)),
     "briefing": ("on", "off"),
+    "routing": ("saver", "balanced", "best"),  # smart model routing (routing.py)
 }
 LENGTH_NOTE = {"short": "Keep every reply to one or two short sentences unless they ask for more.",
                "detailed": "They like fuller answers: give the detail and the reasons, still easy to follow."}
@@ -114,6 +115,10 @@ class Customize:
             raise ToolError(f"{setting}: one of {', '.join(map(str, allowed))}.")
         s[setting] = value
         self._save(s=s)
+        if setting == "routing":
+            return {"saver": "Saver mode: the quick, cheap model first; it hands over when a question needs more.",
+                    "balanced": "Balanced: each kind of question goes to the model that does it well.",
+                    "best": "Best mode: the main model for everything except greetings and goodbyes."}[value]
         return {"reply_length": f"Replies will be {value} from now on.",
                 "bill_days": f"Bill reminders now start {value} day{'s' if value != 1 else ''} before the due date.",
                 "briefing": f"Morning briefing {value}."}[setting]
@@ -121,6 +126,7 @@ class Customize:
     def overview(self) -> dict:
         s = settings(self.memory)
         return {"instructions": rules(self.memory), "reply_length": s.get("reply_length", "normal"),
+                "routing": s.get("routing", "balanced"),
                 "bill_days": bill_days(self.memory), "briefing": s.get("briefing", "on"),
                 "briefing_topics": briefing_topics(self.memory)}
 
@@ -134,7 +140,7 @@ CUSTOMIZE_TOOL = {
     "description": "The user changes how you work, in their own words. add (instruction): a standing instruction you "
     "follow from now on in every reply (\"call me Aneesh\", \"prefer Lyft\", \"show rupees too\", \"no emoji on screen\"); "
     "write it short, in the third person if needed. remove (what). set (setting, value): reply_length short|normal|"
-    "detailed; bill_days 1-14 (bill reminders start this many days before the due date); briefing on|off; "
+    "detailed; routing saver|balanced|best (which AI models answer: cheapest first, balanced, or best always); bill_days 1-14 (bill reminders start this many days before the due date); briefing on|off; "
     "briefing_topics (comma list) or add_briefing_topic / remove_briefing_topic (value) for extra things in the "
     "morning briefing (\"cricket scores\", \"weather in Kochi\"). list: everything they've changed. reset. Several "
     "changes in one sentence: one call each. Confirm briefly what changed. Things you can't change this way (a new "
@@ -142,7 +148,7 @@ CUSTOMIZE_TOOL = {
     "input_schema": {"type": "object", "properties": {
         "action": {"type": "string", "enum": ["add", "remove", "set", "list", "reset"]},
         "instruction": {"type": "string"}, "what": {"type": "string"},
-        "setting": {"type": "string", "enum": ["reply_length", "bill_days", "briefing", "briefing_topics",
+        "setting": {"type": "string", "enum": ["reply_length", "routing", "bill_days", "briefing", "briefing_topics",
                                                "add_briefing_topic", "remove_briefing_topic"]},
         "value": {"type": "string"}},
         "required": ["action"], "additionalProperties": False},

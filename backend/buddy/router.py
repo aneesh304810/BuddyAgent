@@ -110,6 +110,19 @@ class Router:
             return settings.fast_model
         return settings.chat_model
 
+    def decide(self, text: str, memory=None, via: str = ""):
+        """The smart routing decision (routing.py): model, tier, task, reason; remembered for follow-ups."""
+        from . import routing  # noqa: PLC0415
+        if not hasattr(self, "learner"):
+            self.learner = routing.Learner()
+        stripped = text.strip()
+        recent_main = (self.last_model == settings.chat_model and time.monotonic() - self.last_at < FOLLOW_UP_SECONDS)
+        d = routing.decide(text, closer=bool(CLOSER.match(stripped)), simple=bool(SIMPLE.search(text)),
+                           recent_main=recent_main, memory=memory, learner=self.learner, via=via)
+        if not CLOSER.match(stripped):
+            self.last_model, self.last_at = d.model, time.monotonic()
+        return d
+
     def handed_over(self) -> str:
         self.last_model = settings.chat_model
         return settings.chat_model
