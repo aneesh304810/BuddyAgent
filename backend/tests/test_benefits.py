@@ -560,3 +560,28 @@ def test_cards_saved_in_the_older_shape_are_looked_up_again_quietly(setup):
     assert b.cached("Northwind Voyager Card") is None and b.cached("Northwind Voyager Card", any_version=True)
     assert _asyncio.run(b.recheck(today)) == []                               # nothing to report
     assert b.all()[0]["match"] == "loungepass" and b.cached("Northwind Voyager Card")["version"] == 2
+
+
+def test_card_lookups_use_a_free_model_on_the_issuers_own_pages(monkeypatch):
+    from buddy import free_models, social, webread
+    monkeypatch.setenv("BUDDY_SERPER_KEY", "k")
+    monkeypatch.setattr(free_models.FreeModels, "enabled", lambda self: ["gemini"])
+    monkeypatch.setattr(social.Social, "google", lambda self, q, num=10: {"results": [
+        {"link": "https://www.americanexpress.com/us/credit-cards/card/platinum/"},
+        {"link": "https://www.someblog.com/amex-platinum-review"}]})
+    fetched = []
+
+    def fetch(url):
+        fetched.append(url)
+        return url, "<html><main>" + "Platinum Card benefits. " * 40 + "</main></html>"
+    monkeypatch.setattr(webread, "fetch", fetch)
+    asked = []
+
+    async def run(self, kind, text, **kw):
+        asked.append(kw["instruction"])
+        return {"answer": json.dumps(PLAT)}
+    monkeypatch.setattr(free_models.FreeModels, "run", run)
+    got = _asyncio.run(bmod._search_free_first(Memory(":memory:"), "American Express Platinum Card"))
+    assert got["card_name"] == PLAT["card_name"]
+    assert fetched == ["https://www.americanexpress.com/us/credit-cards/card/platinum/"]   # the blog is skipped
+    assert "pages given below" in asked[0] and "American Express Platinum Card" in asked[0]

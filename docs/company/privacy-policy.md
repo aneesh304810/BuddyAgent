@@ -1,6 +1,6 @@
 # Buddy Privacy and Data Retention Policy
 
-Source: https://claude.ai/artifact/MJVGZ7pWQvi26tg1MS914P, revision 34
+Source: https://claude.ai/artifact/MJVGZ7pWQvi26tg1MS914P, revision 35
 
 Nov 1, 2026 · @Aneesh
 
@@ -84,7 +84,7 @@ Buddy uses a few service providers to work. Each sees only what its job needs, u
 | SimpleFIN Bridge | Alternative read-only bank connection | Transactions and balances of linked accounts |
 | Anthropic (Claude) | Understands questions and writes answers; reads uploaded photos and scanned PDFs once to file them; reads a shared credit card statement once to fill the card calendar (card numbers masked first). Subscriptions are found by code on the server, and Claude only sees the finished list | The question and the data needed to answer it; an uploaded photo or scan when it is first filed, and a vault document only after the owner says yes; once a night, that day's requests and newly saved facts and documents (never vault documents) so Buddy can tidy its memory, merge duplicates and find dates to remind the owner about |
 | Groq | Turns the owner's speech into text | Short voice clips, not stored by Buddy afterwards |
-| Google Gemini (free tier) | General tasks with no personal data, such as summarising public web pages | General text only; personal or financial data is never sent |
+| Google Gemini (free tier) | General tasks with no personal data, such as summarising public web pages | General text only; personal or financial data is never sent. This includes public market notes (chart numbers, Reddit posts and headlines about a stock) and a card issuer's public pages with the card's name, to look up its published benefits |
 | Serper | Web search | Search words only |
 | DigitalOcean | Hosts the server | Encrypted data at rest |
 | Tailscale | Private network between the phone and the server | Encrypted traffic it cannot read |

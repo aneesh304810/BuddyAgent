@@ -379,6 +379,73 @@ def _rate_text(r: dict) -> str:
     return f"{head.strip()} on {category}" if category else head.strip()
 
 
+ISSUER_SITE = {"amex": "americanexpress.com", "american express": "americanexpress.com", "chase": "chase.com",
+               "capital one": "capitalone.com", "citi": "citi.com", "bank of america": "bankofamerica.com",
+               "wells fargo": "wellsfargo.com", "discover": "discover.com", "u.s. bank": "usbank.com",
+               "us bank": "usbank.com", "barclays": "barclaycardus.com", "apple": "apple.com", "bilt": "bilt.com",
+               "navy federal": "navyfederal.org", "penfed": "penfed.org", "robinhood": "robinhood.com", "sofi": "sofi.com"}
+FREE_LOOKUP = LOOKUP_PROMPT.replace(
+    "Use only the card issuer's own website (search it, and open the card's benefits or rates-and-fees page).",
+    "Use only the issuer's pages given below (never outside knowledge); each source must be the URL of the page "
+    "that states it.")
+
+
+async def _search_issuer_free(memory: Memory, card: str) -> dict | None:
+    """The card's published benefits without Claude: Google (Serper) finds the issuer's own pages, Buddy reads them,
+    and a free model pulls out the facts (a card's name is not personal data). None when it can't: then Claude."""
+    import asyncio
+    import os
+
+    from .free_models import FreeModels, NeedsClaude
+    free = FreeModels(memory)
+    if not free.enabled() or not (os.getenv("BUDDY_SERPER_KEY") or "").strip():
+        return None
+
+    def pages() -> list[tuple[str, str]]:
+        from . import webread
+        from .social import Social
+        low = card.lower()
+        site = next((d for k, d in ISSUER_SITE.items() if k in low), "")
+        found = Social().google(f"{card} card benefits annual fee rewards" + (f" site:{site}" if site else ""), num=8)
+        out = []
+        for r in found.get("results", []):
+            link = str(r.get("link") or "")
+            if not _official(link) or len(out) >= 3:
+                continue
+            try:
+                url, html = webread.fetch(link)
+                _, text = webread.extract(html)
+            except Exception:
+                continue
+            if _official(url) and len(text) > 500:
+                out.append((url, text[:14000]))
+        return out
+    try:
+        got_pages = await asyncio.to_thread(pages)
+    except Exception:
+        log.info("free card lookup search failed", exc_info=True)
+        return None
+    if not got_pages:
+        return None
+    text = "\n\n".join(f"PAGE {u}\n{t}" for u, t in got_pages)
+    try:
+        got = await free.run("summarize", text, instruction=FREE_LOOKUP.format(
+                             today=local_now().strftime("%d %B %Y"), card=card), purpose="card_lookup",
+                             claude_fallback=False, check_text=False)
+    except NeedsClaude:
+        return None
+    data = _last_json(got.get("answer") or "")
+    if not data:
+        return None
+    cleaned = clean_catalog(data)
+    # issuer pages that render in the browser only give a thin read: Claude's own search does better then
+    return data if (cleaned["benefits"] or len(cleaned["earn_rates"]) >= 2) else None
+
+
+async def _search_free_first(memory: Memory, card: str) -> dict | None:
+    return await _search_issuer_free(memory, card) or await _search_issuer(memory, card)
+
+
 async def _search_issuer(memory: Memory, card: str) -> dict | None:
     """Claude with web search and fetch limited to the issuers' sites; the answer's last JSON line."""
     from . import usage
@@ -551,7 +618,7 @@ class Benefits:
     def __init__(self, memory: Memory, search=None, search_deals=None):
         self.memory = memory
         memory.db.executescript(SCHEMA_SQL + CATALOG_SQL + DEALS_SQL)
-        self.search = search or _search_issuer
+        self.search = search or _search_free_first
         self.search_deals = search_deals or _search_deals
 
     # --- deals that make the most of a credit before it runs out ---------------------------
