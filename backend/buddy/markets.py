@@ -96,7 +96,13 @@ PATTERN_SCORE = {"breakout": 3.0, "flag": 3.0, "base": 2.5, "pullback": 2.5, "bo
 PATTERN_LABEL = {"breakout": "Breakout on volume", "flag": "Bull flag", "base": "Tight base under the high",
                  "pullback": "Pullback to the rising 50-day", "bounce": "Oversold bounce in an uptrend",
                  "golden_cross": "Golden cross (50-day over 200-day)"}
-MAX_CHASE = 0.05      # more than 5% over the entry: too late, don't chase
+MAX_CHASE = 0.05      # more than 5% over the entry (or one risk unit, if less): too late, don't chase
+
+
+def chase_limit(entry: float, stop: float) -> float:
+    """The highest price still worth buying: 5% over the entry, or one risk unit when the stop is tighter, so
+    a late buy never risks more than twice the plan."""
+    return min(entry * (1 + MAX_CHASE), entry + (entry - stop))
 EXPIRE_DAYS = 14      # a setup that hasn't triggered in two weeks is dropped
 DISCLAIMER = ("Ideas from chart patterns and what people are saying, not financial advice. Patterns fail often; "
               "size so a stop-out is a small loss. Buddy never places a trade: you decide and trade yourself.")
@@ -674,23 +680,24 @@ class Markets:
         return f"{shares:,} shares risks {s['risk_pct']:g}% of your account" if shares > 0 else ""
 
     def report(self, ideas: list[dict], found: list[dict], today: date) -> str:
-        lines = [f"Scanned {', '.join(sorted({p['market'] for p in found}))} on {today:%B %d, %Y}: {len(found)} setups found; "
+        names = {"us": "US stocks and ETFs", "crypto": "crypto", "india": "Indian stocks"}
+        lines = [f"Scanned {', '.join(names[m] for m in sorted({p['market'] for p in found}))} on {today:%B %d, %Y}: "
+                 f"{len(found)} setups found; "
                  f"the best {len(ideas)} below, with what Reddit, StockTwits and the news say.", "",
                  f"> {DISCLAIMER}", ""]
         if ideas:
-            lines += ["## Ideas", "", "| Symbol | Setup | Close | Entry | Stop | Target 1 | Target 2 | Risk | Chatter |",
-                      "|---|---|---|---|---|---|---|---|---|"]
-            for p in ideas:
-                lines.append(f"| **{p['symbol']}** | {p['label']} | {self._px(p, p['close'])} | {self._px(p, p['entry'])} | "
-                             f"{self._px(p, p['stop'])} | {self._px(p, p['t1'])} | {self._px(p, p['t2'])} | {p['risk_pct']}% | "
-                             f"{p.get('sentiment') or '–'} |")
+            lines += ["## Ideas", "", "| Idea | Entry | Stop | Targets |", "|---|---|---|---|"]
+            for p in ideas:  # four columns: fits a phone
+                lines.append(f"| **{p['symbol']}** {p['label'].lower()}, {p.get('sentiment') or 'quiet'} chatter | "
+                             f"{self._px(p, p['entry'])} | {self._px(p, p['stop'])} ({p['risk_pct']}%) | "
+                             f"{self._px(p, p['t1'])} / {self._px(p, p['t2'])} |")
             lines.append("")
         for p in ideas:
             lines += [f"## {p['symbol']}: {p['label']}", ""]
             if p.get("take"):
                 lines += [p["take"], ""]
             lines += [f"- **Plan:** buy only above {self._px(p, p['entry'])} (don't chase over "
-                      f"{self._px(p, p['entry'] * (1 + MAX_CHASE))}); stop {self._px(p, p['stop'])} ({p['risk_pct']}% risk); "
+                      f"{self._px(p, chase_limit(p['entry'], p['stop']))}); stop {self._px(p, p['stop'])} ({p['risk_pct']}% risk); "
                       f"sell some at {self._px(p, p['t1'])} (2R) and move the stop to the entry; the rest at "
                       f"{self._px(p, p['t2'])} (3R) or on a close under the 20-day EMA.",
                       f"- **Why:** {'; '.join(p['notes'])}."]
@@ -715,7 +722,7 @@ class Markets:
             lines.append("")
         others = [p for p in found if p not in ideas][:15]
         if others:
-            lines += ["## Also on the radar", "", "| Symbol | Setup | Entry | Stop |", "|---|---|---|---|"]
+            lines += ["## Also on the radar", "", "| Symbol | Setup | Entry | Stop |", "|---|---|---|---|"]  # noqa
             lines += [f"| {p['symbol']} | {p['label']} | {self._px(p, p['entry'])} | {self._px(p, p['stop'])} |" for p in others]
             lines.append("")
         lines += ["Say \"I bought NVDA at 182\" and Buddy watches the stop and targets for you. Data: "
@@ -791,19 +798,19 @@ class Markets:
                     continue
                 if px < s["stop"]:
                     self._status(s, "failed")
-                elif s["status"] == "watching" and s["entry"] <= px <= s["entry"] * (1 + MAX_CHASE):
+                elif s["status"] == "watching" and s["entry"] <= px <= chase_limit(s["entry"], s["stop"]):
                     self._status(s, "triggered")
                     d = json.loads(s["data"] or "{}")
                     out.append({"text": f"{s['symbol']} just broke above {self._px(s, s['entry'])} ({d.get('label', s['pattern']).lower()}), "
                                         f"now {self._px(s, px)}. || **{s['symbol']} triggered**\n"
-                                        f"- Entry up to {self._px(s, s['entry'] * (1 + MAX_CHASE))}; don't chase above\n"
+                                        f"- Entry up to {self._px(s, chase_limit(s['entry'], s['stop']))}; don't chase above\n"
                                         f"- Stop {self._px(s, s['stop'])}; targets {self._px(s, s['t1'])} and {self._px(s, s['t2'])}\n"
                                         "- If you buy, say \"I bought " + s["symbol"].split("/")[0] + " at …\" and I'll watch the stop "
                                         "and targets. Your call; I don't trade."})
-                elif px > s["entry"] * (1 + MAX_CHASE):
+                elif px > chase_limit(s["entry"], s["stop"]):
                     self._status(s, "extended")
                     out.append({"text": f"{s['symbol']} ran past its entry without you: now {self._px(s, px)}, more than "
-                                        f"{round(100 * MAX_CHASE)}% over {self._px(s, s['entry'])}. The plan says don't chase; "
+                                        f"{self._px(s, chase_limit(s['entry'], s['stop']))}, the most worth paying. The plan says don't chase; "
                                         "I'll drop it."})
             for p in held:
                 px = prices.get(p["symbol"])

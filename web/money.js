@@ -179,10 +179,11 @@ function render() {
 }
 
 function marketsCard(mk) {
-  const px = (v) => v >= 1 ? Number(v).toLocaleString(undefined, { maximumFractionDigits: 2 }) : Number(v).toPrecision(3);
-  const pos = mk.positions.map((p) => `<div class="row" style="cursor:default"><span class="name"><b>${esc(p.symbol)}</b>
-    <small class="muted"> from ${px(p.entry)} · stop ${px(p.stop)} · targets ${px(p.t1)} / ${px(p.t2)}</small></span>
-    <span class="amt"><small class="muted">${esc(p.opened)}</small></span></div>`).join("");
+  const px = (v) => v >= 1 ? Number(v).toLocaleString(undefined, { minimumFractionDigits: 2, maximumFractionDigits: 2 }) : Number(v).toPrecision(3);
+  const pos = mk.positions.map((p) => `<div class="row" style="cursor:default"><span class="name" style="white-space:normal">
+    <b>${esc(p.symbol)}</b> <small class="muted">bought ${esc(p.opened)}</small><br>
+    <small>from ${px(p.entry)} · stop ${px(p.stop)} · targets ${px(p.t1)} / ${px(p.t2)}</small></span>
+    <span class="amt"><small class="muted">tracking</small></span></div>`).join("");
   const ideas = mk.setups.map((s) => `<div class="row" style="cursor:default"><span class="name" style="white-space:normal">
     <b>${esc(s.symbol)}</b> <small class="muted">${esc((s.data && s.data.label) || s.pattern)}${s.data && s.data.sentiment ? " · chatter " + esc(s.data.sentiment) : ""}</small><br>
     <small>entry ${px(s.entry)} · stop ${px(s.stop)} · targets ${px(s.t1)} / ${px(s.t2)}</small></span>
