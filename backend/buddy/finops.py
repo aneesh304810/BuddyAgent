@@ -296,12 +296,15 @@ class FinOps:
                  "alpaca": "Alpaca (market data)", "reddit": "Reddit", "stocktwits": "StockTwits",
                  "hackernews": "Hacker News (Algolia search)", "arxiv": "arXiv", "github": "GitHub search",
                  "coinbase": "Coinbase (crypto prices)", "stooq": "Stooq (daily prices)",
-                 "yahoo": "Yahoo Finance (Indian stocks)", "openrouter_list": "OpenRouter model list"}
+                 "yahoo": "Yahoo Finance (Indian stocks)", "openrouter_list": "OpenRouter model list",
+                 "mta": "MTA alerts (subway, buses, LIRR, Metro-North)", "path": "PATH (arrivals and alerts)",
+                 "njt": "NJ Transit (train and light rail alerts)"}
     # Free APIs: shown as free whatever they're called (no per-call price).
     FREE_APIS = {"alpaca": "free market data plan (paper account)", "reddit": "free public search",
                  "stocktwits": "free public API", "hackernews": "free, no key", "arxiv": "free public API",
                  "github": "free public search", "coinbase": "free public prices", "stooq": "free daily prices",
-                 "yahoo": "free public chart data"}
+                 "yahoo": "free public chart data", "mta": "free, no key", "path": "free public feed",
+                 "njt": "free developer account"}
 
     def outside_apis(self, calls: dict) -> list[CostLine]:
         lines = []
@@ -351,7 +354,10 @@ class FinOps:
             ("Reddit", "what people are saying (trends, News, markets)", "free public search; Google as fallback"),
             ("Alpaca (market data)", "stock, crypto and option prices, market news", "free plan (paper account)"),
             ("Google Gemini", "free AI model: general answers, images, decks", "free tier (AI Studio key)"),
-            ("OpenRouter", "free AI models, picked per task daily", "free models only (:free)")]
+            ("OpenRouter", "free AI models, picked per task daily", "free models only (:free)"),
+            ("MTA alerts (subway, buses, LIRR, Metro-North)", "commute alerts", "free, no key"),
+            ("PATH (arrivals and alerts)", "commute alerts and next trains", "free public feed"),
+            ("NJ Transit (train and light rail alerts)", "commute alerts", "free developer account")]
 
     def free_services(self, named: set[str]) -> list[CostLine]:
         """Services Buddy relies on at no charge; a line already shown (a fixed cost, or one with calls this month)

@@ -269,6 +269,15 @@ async def run(memory: Memory, deliver: Deliver) -> None:
                                                    f"about {hot['usual']} on a usual day. {lead} Ask me for the details.")
             except Exception:
                 log.exception("trends failed")
+            try:  # transit: the lines the user rides, checked every few minutes while they ride them (transit.py)
+                from .transit import Transit  # noqa: PLC0415
+                commute = Transit(memory)
+                if commute.due():  # their own commute times, so quiet hours don't hold these back
+                    for alert in await asyncio.to_thread(commute.check):
+                        if await deliver("travel", alert["text"]):
+                            commute.told(alert)
+            except Exception:
+                log.exception("transit failed")
             try:  # markets: the daily scan after the US close (or when asked), and ideas checked in market hours
                 from . import markets as mkt  # noqa: PLC0415
                 trader = mkt.Markets(memory)

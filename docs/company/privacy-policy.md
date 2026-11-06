@@ -1,6 +1,6 @@
 # Buddy Privacy and Data Retention Policy
 
-Source: https://claude.ai/artifact/MJVGZ7pWQvi26tg1MS914P, revision 36
+Source: https://claude.ai/artifact/MJVGZ7pWQvi26tg1MS914P, revision 37
 
 Nov 1, 2026 · @Aneesh
 
@@ -35,6 +35,7 @@ Buddy collects only the owner's own data, and only what its features need.
 | Cancellation confirmations (the service, the date and the email's subject) and free-trial end dates and prices | Found in the owner's own emails | Kept on the server as proof for disputes and for trial reminders; Buddy never cancels or disputes anything itself |
 | Credit scores (score, bureau, scoring model, date) and credit report changes (hard inquiries, new or closed accounts, late payments, collections, address changes, fraud alerts: the date, the lender and a few words); and, when the owner asks, a detailed credit report (each account's lender, type, opening month, limit, balance and payment record, inquiries, negative items and score factors; never names, addresses, birth date or ID numbers) | The owner's credit monitoring emails and phone notifications (such as Credit Karma, Chase Credit Journey, Amex MyCredit Guide, Experian); the screen of the owner's credit app, read only when the owner opens it and asks Buddy to read it; new cards seen at banks the owner links; and scores the owner tells Buddy | Read-only; Buddy never signs in to these services, and never freezes, disputes or applies for anything itself |
 | Market watchlist, trade ideas Buddy found (setups with entry, stop and targets), and trades the owner tells Buddy they made (symbol, price, size, stop) | Buddy's daily market scan, and what the owner tells Buddy | Ideas only, never financial advice; Buddy never places, changes or cancels a trade |
+| Commute lines the owner asks Buddy to watch (for example a subway line, PATH line or NJ Transit light rail), the station, and the days and times they ride; transit alerts already told | What the owner tells Buddy; the official MTA, NJ Transit and PATH alert feeds | Read-only; Buddy only reads public alerts and never books or buys anything |
 
 Buddy never collects bank passwords. Bank sign-in happens inside Plaid Link (or the SimpleFIN Bridge site), between the owner and the bank. Buddy cannot move money, make payments or change accounts.
 
@@ -90,6 +91,7 @@ Buddy uses a few service providers to work. Each sees only what its job needs, u
 | Tailscale | Private network between the phone and the server | Encrypted traffic it cannot read |
 | Duffel, SerpApi, Travelpayouts | Flight offers, Google Flights and Hotels prices, cheapest travel dates | Airports or place, dates and number of travellers only |
 | Alpaca (market data), Stooq, Coinbase, Yahoo Finance (public chart data), Reddit, StockTwits | Prices, charts, option prices and news for trade ideas; what people post about a stock or coin | Ticker symbols and search words only; never the owner's trades, holdings or account details. Buddy uses Alpaca's market data only and never places trades |
+| MTA (api-endpoint.mta.info), NJ Transit (raildata.njtransit.com), Port Authority PATH (panynj.gov) | Live service alerts and next trains for the lines the owner rides | No personal data: MTA and PATH feeds are downloaded whole and filtered on Buddy's server. NJ Transit receives the owner's NJ Transit developer username and password, to issue an access token |
 | Hacker News (Algolia search), Google News (Serper), Google Trends (SerpApi), arXiv, GitHub | What people are discussing on the topics the owner watches or asks about: stories, headlines, rising searches, new papers and projects | The topic's search words only; never anything personal |
 
 No provider receives data for its own marketing or advertising.
@@ -108,6 +110,7 @@ Data is kept only as long as it is useful, then deleted automatically.
 | Card benefits and wish list | Until the owner removes them |
 | Credit scores and credit report changes | Until the owner asks Buddy to forget them; detailed credit reports 24 months, then deleted automatically |
 | Market watchlist, trade ideas and tracked trades; market scan reports | Watchlist and trades until the owner removes them; market scan reports 90 days, then deleted automatically |
+| Watched commute lines and the transit alerts already told | Lines until the owner removes them; a told alert until it clears |
 | Watched trend topics; trend digests and daily mention counts | Topics until the owner removes them; digests and counts 60 days, then deleted automatically |
 | Uploaded documents and photos, with their text, summaries, facts and search index | Until the owner tells Buddy to forget them; forgetting deletes the file, its text, its index entries and the facts taken from it |
 | People and things noted from the owner's data | Until the owner edits or deletes them |

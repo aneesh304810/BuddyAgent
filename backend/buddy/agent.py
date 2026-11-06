@@ -40,6 +40,7 @@ from .merchants import MERCHANTS_TOOL
 from .customize import CUSTOMIZE_TOOL
 from .credit import CREDIT_TOOL
 from .markets import MARKETS_TOOL
+from .transit import TRANSIT_TOOL
 from .routing import ROUTING_TOOL
 from .trends import TRENDS_TOOL
 from . import advisor, benefits, brain, compliance, datatools, finance, plaid, travel, thinking, formfill, library, prices, rides, seats, selfcode, transcripts, tutor, vocabulary, voiceprint
@@ -571,7 +572,8 @@ class Conversation:
                      prices.NOTE_PRICE_TOOL, rides.RIDE_TOOL, formfill.FORM_TOOL, seats.SEAT_TOOL, selfcode.CODE_TOOL,
                      library.LIBRARY_TOOL, brain.BRAIN_TOOL, finance.FINANCE_TOOL,
                      advisor.ADVISOR_TOOL, benefits.BENEFITS_TOOL, plaid.BANK_TOOL, travel.TRAVEL_TOOL,
-                     compliance.COMPLIANCE_TOOL, MERCHANTS_TOOL, CUSTOMIZE_TOOL, CREDIT_TOOL, MARKETS_TOOL, ROUTING_TOOL, TRENDS_TOOL]
+                     compliance.COMPLIANCE_TOOL, MERCHANTS_TOOL, CUSTOMIZE_TOOL, CREDIT_TOOL, MARKETS_TOOL, ROUTING_TOOL, TRENDS_TOOL,
+                     TRANSIT_TOOL]
         return (
             CLIENT_TOOLS + orchestration + job_tools + spending + [_expert_tool()]
             + agent_tools + web_tools()
@@ -702,6 +704,9 @@ class Conversation:
         if name == "markets":
             from . import markets  # noqa: PLC0415
             return await asyncio.to_thread(markets.run_tool, self.memory, args)
+        if name == "transit":
+            from . import transit  # noqa: PLC0415
+            return await asyncio.to_thread(transit.run_tool, self.memory, args)
         if name == "credit":
             from . import credit  # noqa: PLC0415
             return await credit.run_tool_async(self.memory, args, self.phone_request, self.say_now)
