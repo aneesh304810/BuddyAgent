@@ -84,12 +84,12 @@ def test_says_what_a_free_plan_lacks():
     fake.row = {k: v for k, v in fake.row.items() if k in ("flight_iata", "dep_iata", "arr_iata", "dep_time",
                                                              "arr_time", "dep_time_utc", "arr_time_utc")}
     f = Flights(Memory(":memory:"), env={"BUDDY_AIRLABS_KEY": "k"}, fetch=fake)
-    assert "doesn't give status, gate, delay, updated times" in f.track("AA1234", DAY)
+    assert "No status, gate, delay, updated times yet" in f.track("AA1234", DAY)
 
 
 def test_needs_a_key():
     f = Flights(Memory(":memory:"), env={}, fetch=AirLabs())
-    assert "airlabs.co" in f.track("AA1234", DAY)
+    assert "BUDDY_AIRLABS_KEY" in f.track("AA1234", DAY)
     with pytest.raises(ToolError):
         f.lookup("AA1234")
 
@@ -99,3 +99,73 @@ def test_old_flights_are_deleted_after_30_days(fl):
     fl.memory.db.execute("UPDATE flight_watch SET day = '2020-01-01'")
     fl.check()
     assert fl.tracked(include_done=True) == []
+
+
+
+def add_message(memory, kind, title, body, source):
+    from buddy.connectors.hub import ConnectorHub
+    ConnectorHub(memory)
+    now = datetime.now(timezone.utc).isoformat()
+    data = {"app_name": source} if kind == "notification" else {"from": source}
+    memory.db.execute("INSERT INTO records (source, external_id, kind, title, body, start_at, data, synced_at) "
+                      "VALUES (?, ?, ?, ?, ?, ?, ?, ?)", ("notifications" if kind == "notification" else "email",
+                                                          f"{title}{body}", kind, title, body, now, json.dumps(data), now))
+
+
+def test_airline_app_gives_the_gate_and_delay_on_a_free_plan():
+    fake = AirLabs()
+    fake.row = {k: v for k, v in fake.row.items() if k in ("flight_iata", "dep_iata", "arr_iata", "dep_time",
+                                                             "arr_time", "dep_time_utc", "arr_time_utc")}
+    f = Flights(Memory(":memory:"), env={"BUDDY_AIRLABS_KEY": "k"}, fetch=fake)
+    f.track("AA1234", DAY)
+    new_time = (DEP + timedelta(minutes=50)).strftime("%-I:%M %p")
+    add_message(f.memory, "notification", "Flight 1234 update",
+                f"Your flight 1234 to Lima now departs at {new_time} from gate D20.", "American")
+    news = [a["text"] for a in f.check()]
+    assert any("delayed about 50 minutes" in t and "gate D20" in t for t in news), news
+    assert f.tracked()[0]["last"]["airline_said"] == ["American"]
+
+
+def test_airline_email_cancellation_and_boarding():
+    f = Flights(Memory(":memory:"), env={}, fetch=AirLabs())  # no keys at all: messages only
+    f.track("UA 88", DAY)
+    add_message(f.memory, "email", "UA88 is now boarding", "Flight UA 88 is now boarding at gate C3.", "United <n@united.com>")
+    assert any("boarding at gate C3" in a["text"] for a in f.check())
+    add_message(f.memory, "email", "Your flight UA88 has been cancelled", "We're sorry, flight UA88 was cancelled.",
+                "United <n@united.com>")
+    assert any("CANCELLED" in a["text"] for a in f.check())
+
+
+def test_someone_elses_message_is_ignored():
+    f = Flights(Memory(":memory:"), env={}, fetch=AirLabs())
+    f.track("AA1234", DAY)
+    add_message(f.memory, "notification", "Mom", "my flight 1234 gate is B5", "WhatsApp")
+    assert f.from_messages("AA1234", DAY) == {}
+
+
+def aero_reply():
+    out = (DEP + timedelta(minutes=25)).strftime("%Y-%m-%dT%H:%M:00Z")
+    return json.dumps({"flights": [{"ident_iata": "AA1234", "origin": {"code_iata": "MIA", "timezone": "UTC"},
+                                     "destination": {"code_iata": "LIM", "timezone": "UTC"},
+                                     "scheduled_out": DEP.strftime("%Y-%m-%dT%H:%M:00Z"), "estimated_out": out,
+                                     "scheduled_in": ARR.strftime("%Y-%m-%dT%H:%M:00Z"), "gate_origin": "D7",
+                                     "terminal_origin": "N", "departure_delay": 1500, "status": "Scheduled",
+                                     "cancelled": False}]}).encode()
+
+
+def test_flightaware_fills_what_airlabs_lacks_and_is_rationed():
+    fake = AirLabs()
+    fake.row = {k: v for k, v in fake.row.items() if k in ("flight_iata", "dep_iata", "arr_iata", "dep_time",
+                                                             "arr_time", "dep_time_utc", "arr_time_utc")}
+    calls = []
+
+    def aero(url, headers):
+        calls.append(url)
+        assert headers["x-apikey"] == "fa"
+        return aero_reply()
+    f = Flights(Memory(":memory:"), env={"BUDDY_AIRLABS_KEY": "k", "BUDDY_AEROAPI_KEY": "fa"}, fetch=fake,
+                aero_fetch=aero)
+    s = f.lookup("AA1234", DAY)
+    assert s["dep_gate"] == "D7" and s["dep_delayed"] == 25 and s["from_flightaware"]
+    f.lookup("AA1234", DAY)
+    assert len(calls) == 1  # at most every 30 minutes per flight

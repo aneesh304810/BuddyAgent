@@ -298,7 +298,8 @@ class FinOps:
                  "coinbase": "Coinbase (crypto prices)", "stooq": "Stooq (daily prices)",
                  "yahoo": "Yahoo Finance (Indian stocks)", "openrouter_list": "OpenRouter model list",
                  "mta": "MTA alerts (subway, buses, LIRR, Metro-North)", "path": "PATH (arrivals and alerts)",
-                 "njt": "NJ Transit (train and light rail alerts)", "airlabs": "AirLabs (flight status)"}
+                 "njt": "NJ Transit (train and light rail alerts)", "airlabs": "AirLabs (flight status)",
+                 "flightaware": "FlightAware AeroAPI (flight status backup)"}
     # Free APIs: shown as free whatever they're called (no per-call price).
     FREE_APIS = {"alpaca": "free market data plan (paper account)", "reddit": "free public search",
                  "stocktwits": "free public API", "hackernews": "free, no key", "arxiv": "free public API",
@@ -359,6 +360,7 @@ class FinOps:
             ("PATH (arrivals and alerts)", "commute alerts and next trains", "free public feed"),
             ("NJ Transit (train and light rail alerts)", "commute alerts", "free developer account"),
             ("AirLabs (flight status)", "your flights: delays, gates, landing", "free plan (about 1,000 calls a month)")]
+    # FlightAware AeroAPI is pay per query: it shows as calls this month (price per your FlightAware plan).
 
     def free_services(self, named: set[str]) -> list[CostLine]:
         """Services Buddy relies on at no charge; a line already shown (a fixed cost, or one with calls this month)

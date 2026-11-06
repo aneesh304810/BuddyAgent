@@ -121,7 +121,8 @@ class BuddyNotificationListener : NotificationListenerService() {
         val n = sbn.notification ?: return
         if (sbn.packageName == packageName || sbn.packageName in IGNORED) return
         // Uber and Lyft show a trip as an ongoing notification (driver, car, minutes away): Buddy follows it.
-        val ride = sbn.packageName in RIDE_APPS
+        // Ride apps and airline apps keep a live card (trip, flight status): those updates matter too.
+        val ride = sbn.packageName in RIDE_APPS || sbn.packageName in AIRLINE_APPS
         if (!ride && n.flags and Notification.FLAG_ONGOING_EVENT != 0) return
         if (n.flags and Notification.FLAG_GROUP_SUMMARY != 0) return
         val category = n.category
@@ -158,6 +159,8 @@ class BuddyNotificationListener : NotificationListenerService() {
 
     companion object {
         private val RIDE_APPS = setOf("com.ubercab", "me.lyft.android")
+        private val AIRLINE_APPS = setOf("com.aa.android", "com.delta.mobile.android", "com.united.mobile.android",
+            "com.southwestairlines.mobile", "com.jetblue.JetBlueAndroid", "com.alaskaairlines.android")
         private val IGNORED = setOf("android", "com.android.systemui", "com.samsung.android.app.routines")
         private val SKIPPED_CATEGORIES = setOf(
             Notification.CATEGORY_TRANSPORT, Notification.CATEGORY_PROGRESS,
