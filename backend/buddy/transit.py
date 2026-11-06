@@ -20,7 +20,7 @@ import os
 import re
 import time
 import uuid
-from datetime import datetime, timezone
+from datetime import datetime, timedelta, timezone
 
 from .memory import Memory
 from .tools import ToolError, local_now, require_https
@@ -30,7 +30,10 @@ log = logging.getLogger(__name__)
 MTA_ALERTS = "https://api-endpoint.mta.info/Dataservice/mtagtfsfeeds/camsys%2Fall-alerts.json"
 PATH_ARRIVALS = "https://www.panynj.gov/bin/portauthority/ridepath.json"
 PATH_INCIDENTS = "https://www.panynj.gov/bin/portauthority/everbridge/incidents?status=All&department=Path"
-NJT_BASE = "https://raildata.njtransit.com/api/TrainData/"
+NJT_BASES = ("https://raildata.njt.gov/api/TrainData/",       # RailData's current host (NJT's docs)
+             "https://raildata.njtransit.com/api/TrainData/")  # the earlier one, if the new one can't be reached
+NJT_GTFS_BUS = "https://pcsdata.njtransit.com/api/GTFSG2/"     # GTFS-BUS (bus and light rail): GTFS-realtime alerts
+TOKEN_HOURS = 23                                                # NJT tokens last 24 hours: renew a bit before
 UA = "Buddy/1.0 (personal assistant; read-only)"
 CACHE_SECONDS = 120
 # NJ Transit's data feed agreement: say where the data came from, that it may not be real time (Buddy checks every
@@ -138,6 +141,90 @@ def _strings(x, keys=("message", "description", "title", "subject", "text", "hea
     return [" ".join(s.split()) for s in out]
 
 
+# --- GTFS-realtime alerts (protobuf), read without extra packages ----------------------------------------------
+EFFECTS = {1: "No service", 2: "Reduced service", 3: "Significant delays", 4: "Detour", 5: "Additional service",
+           6: "Modified service", 7: "Other effect", 8: "Unknown effect", 9: "Stop moved", 10: "No effect",
+           11: "Accessibility issue"}
+
+
+def _pb(buf: bytes) -> list[tuple[int, int, object]]:
+    """One protobuf message's fields: (field number, wire type, value). Varints and length-delimited only matter."""
+    out, i, n = [], 0, len(buf)
+
+    def varint(j):
+        shift = val = 0
+        while True:
+            b = buf[j]
+            val |= (b & 0x7F) << shift
+            j += 1
+            if b < 0x80:
+                return val, j
+            shift += 7
+    while i < n:
+        tag, i = varint(i)
+        field, wire = tag >> 3, tag & 7
+        if wire == 0:
+            v, i = varint(i)
+        elif wire == 2:
+            ln, i = varint(i)
+            v, i = buf[i:i + ln], i + ln
+        elif wire == 1:
+            v, i = buf[i:i + 8], i + 8
+        elif wire == 5:
+            v, i = buf[i:i + 4], i + 4
+        else:
+            raise ValueError("unsupported protobuf wire type")
+        out.append((field, wire, v))
+    return out
+
+
+def _translated(buf: bytes) -> str:
+    texts = []
+    for f, _, v in _pb(buf):
+        if f == 1:  # Translation
+            parts = {ff: vv for ff, _, vv in _pb(v)}
+            lang = (parts.get(2) or b"").decode(errors="ignore")
+            if lang in ("", "en", "en-US", "EN"):
+                texts.append((parts.get(1) or b"").decode(errors="ignore"))
+    return " ".join(" ".join(t.split()) for t in texts if t)
+
+
+def gtfs_alerts(raw: bytes, now: float | None = None) -> list[dict]:
+    """GTFS-realtime FeedMessage -> the alerts active now: id, header, description, effect, routes, url."""
+    now = now or time.time()
+    out = []
+    for f, _, entity in _pb(raw):
+        if f != 2:
+            continue
+        fields = _pb(entity)
+        eid = next((v.decode(errors="ignore") for ff, _, v in fields if ff == 1), "")
+        alert = next((v for ff, _, v in fields if ff == 5), None)
+        if alert is None:
+            continue
+        periods, routes, header, desc, effect, url = [], [], "", "", 0, ""
+        for af, _, av in _pb(alert):
+            if af == 1:
+                tr = {ff: vv for ff, _, vv in _pb(av)}
+                periods.append((tr.get(1) or 0, tr.get(2) or 0))
+            elif af == 5:
+                for ef, _, ev in _pb(av):
+                    if ef == 2:
+                        routes.append(ev.decode(errors="ignore"))
+            elif af == 7:
+                effect = av
+            elif af == 8:
+                url = _translated(av)
+            elif af == 10:
+                header = _translated(av)
+            elif af == 11:
+                desc = _translated(av)
+        if periods and not any(s <= now and (not e or now <= e) for s, e in periods):
+            continue
+        out.append({"id": eid, "header": header, "description": desc, "effect": EFFECTS.get(effect, ""),
+                    "routes": routes, "url": url if url.startswith("https://") else ""})
+    return out
+
+
 class Transit:
     def __init__(self, memory: Memory, env=None, fetch=None):
         self.memory = memory
@@ -150,21 +237,24 @@ class Transit:
     def setting(self, key: str) -> str:
         return (self.env.get(key) or "").strip()
 
-    def _get(self, provider: str, url: str, data: bytes | None = None, headers: dict | None = None):
-        hit = self._cache.get(url + (data.decode(errors="ignore")[-80:] if data else ""))
+    def _get(self, provider: str, url: str, data: bytes | None = None, headers: dict | None = None,
+             raw_bytes: bool = False, cache: str = ""):
+        key = cache or url
+        hit = self._cache.get(key)
         if hit and time.monotonic() - hit[0] < CACHE_SECONDS:
             return hit[1]
         from .travel import log_call  # noqa: PLC0415
         started = time.monotonic()
         try:
             raw = self.fetch(url, data, headers)
-            got = raw if isinstance(raw, (dict, list)) else json.loads(raw or b"null")
+            got = raw if raw_bytes or isinstance(raw, (dict, list)) else json.loads(raw or b"null")
             log_call(self.memory, provider, url.split("?")[0][-60:], True, time.monotonic() - started, "transit", cost=0.0)
         except Exception as e:
             log_call(self.memory, provider, url.split("?")[0][-60:], False, time.monotonic() - started, "transit",
                      type(e).__name__, cost=0.0)
             raise
-        self._cache[url + (data.decode(errors="ignore")[-80:] if data else "")] = (time.monotonic(), got)
+        if data is None or cache:  # POSTs are cached only when the caller names what they are
+            self._cache[key] = (time.monotonic(), got)
         return got
 
     # --- watches -----------------------------------------------------------------------------------------
@@ -270,39 +360,87 @@ class Transit:
         return [{"to": m.get("headSign", ""), "in": m.get("arrivalTimeMessage", ""), "direction": d.get("label", "")}
                 for d in res.get("destinations") or [] for m in d.get("messages") or []]
 
-    def njt_token(self, fresh: bool = False) -> str:
+    def njt_token(self, fresh: bool = False, api: str = "rail") -> str:
+        """A token for one NJ Transit API (rail or gtfs_bus). Tokens last 24 hours and minting them is rate-limited,
+        so each is kept and reused for TOKEN_HOURS, and a failed mint isn't retried within the hour."""
         user, pw = self.setting("BUDDY_NJT_USERNAME"), self.setting("BUDDY_NJT_PASSWORD")
         if not user or not pw:
             raise ToolError("NJ Transit needs its free developer account: register at developer.njtransit.com, then "
                             "run sudo bash /opt/buddy/deploy/set.sh BUDDY_NJT_USERNAME and BUDDY_NJT_PASSWORD.")
-        saved = self.memory.get("transit:njt_token") or ""
-        if saved and not fresh:
-            return saved
-        if self.memory.get("transit:njt_token_tried") == local_now().strftime("%Y-%m-%dT%H") and not saved:
+        try:
+            saved = json.loads(self.memory.get(f"transit:njt_token:{api}") or "{}")
+        except ValueError:
+            saved = {}
+        fresh_enough = saved.get("at") and datetime.fromisoformat(saved["at"]) > \
+            datetime.now(timezone.utc) - timedelta(hours=TOKEN_HOURS)
+        if saved.get("token") and fresh_enough and not fresh:
+            return saved["token"]
+        hour = local_now().strftime("%Y-%m-%dT%H")
+        if self.memory.get(f"transit:njt_token_tried:{api}") == hour:
+            if saved.get("token") and not fresh:
+                return saved["token"]
             raise ToolError("NJ Transit didn't give a token this hour; I'll try again later.")
-        self.memory.set("transit:njt_token_tried", local_now().strftime("%Y-%m-%dT%H"))  # new tokens are rationed
+        self.memory.set(f"transit:njt_token_tried:{api}", hour)
         body, ctype = _multipart({"username": user, "password": pw})
-        got = self._get("njt", NJT_BASE + "getToken", body, {"Content-Type": ctype})
+        if api == "gtfs_bus":
+            got = self._get("njt", NJT_GTFS_BUS + "authenticateUser", body, {"Content-Type": ctype})
+        else:
+            got = self._njt_rail("getToken", body, ctype)
         token = (got or {}).get("UserToken") if (got or {}).get("Authenticated") in (True, "True", "true") else ""
         if not token:
-            raise ToolError("NJ Transit didn't accept the developer username and password.")
-        self.memory.set("transit:njt_token", token)
+            raise ToolError("NJ Transit didn't accept the developer username and password" +
+                            (" for the bus and light rail data (GTFS-BUS)" if api == "gtfs_bus" else "") + ".")
+        self.memory.set(f"transit:njt_token:{api}", json.dumps({"token": token,
+                                                                  "at": datetime.now(timezone.utc).isoformat()}))
         return token
+
+    def _njt_rail(self, endpoint: str, body: bytes, ctype: str, cache: str = ""):
+        """RailData on its current host, falling back to the earlier one when the new one can't be reached."""
+        import urllib.error  # noqa: PLC0415
+        last = None
+        for base in NJT_BASES:
+            try:
+                return self._get("njt", base + endpoint, body, {"Content-Type": ctype}, cache=cache)
+            except urllib.error.HTTPError:
+                raise  # the host answered: its answer stands
+            except (urllib.error.URLError, OSError) as e:
+                last = e
+        raise last or ToolError("NJ Transit can't be reached.")
 
     def njt_messages(self) -> list[dict]:
         for attempt in (0, 1):
             body, ctype = _multipart({"token": self.njt_token(fresh=attempt == 1), "station": "", "line": ""})
             try:
-                got = self._get("njt", NJT_BASE + "getStationMSG", body, {"Content-Type": ctype})
+                got = self._njt_rail("getStationMSG", body, ctype, cache="njt:rail:messages")
             except Exception as e:
                 if attempt == 0 and getattr(e, "code", None) in (401, 403):
                     continue
                 raise
             if isinstance(got, dict) and got.get("errorMessage"):  # an expired token
+                self._cache.pop("njt:rail:messages", None)
                 if attempt == 0:
                     continue
                 raise ToolError(f"NJ Transit: {got['errorMessage']}")
             return got if isinstance(got, list) else []
+        return []
+
+    def njt_bus_alerts(self) -> list[dict]:
+        """NJ Transit's bus and light rail service alerts (GTFS-realtime, from the GTFS-BUS API)."""
+        for attempt in (0, 1):
+            body, ctype = _multipart({"token": self.njt_token(fresh=attempt == 1, api="gtfs_bus")})
+            try:
+                raw = self._get("njt", NJT_GTFS_BUS + "getAlerts", body, {"Content-Type": ctype}, raw_bytes=True,
+                                cache="njt:gtfs_bus:alerts")
+            except Exception as e:
+                if attempt == 0 and getattr(e, "code", None) in (401, 403):
+                    continue
+                raise
+            if raw[:1] in (b"{", b"["):  # JSON instead of the feed: an error, usually an expired token
+                self._cache.pop("njt:gtfs_bus:alerts", None)
+                if attempt == 0:
+                    continue
+                raise ToolError("NJ Transit's bus and light rail alerts didn't come back.")
+            return gtfs_alerts(raw)
         return []
 
     def njt_alerts(self, w: dict) -> list[dict]:
@@ -314,6 +452,15 @@ class Transit:
         if name == "Hudson-Bergen Light Rail":
             words = ["hudson-bergen", "hudson bergen", "hblr"]
         out = []
+        if name in ("Hudson-Bergen Light Rail", "Newark Light Rail", "River LINE") or "light rail" in low:
+            short = {"Hudson-Bergen Light Rail": ["hblr"], "Newark Light Rail": ["nlr"], "River LINE": ["rl", "river"]}
+            for a in self.njt_bus_alerts():  # light rail lives with the buses at NJ Transit
+                text = f"{a['header']} {a['description']}".lower()
+                routes = {r.lower() for r in a["routes"]}
+                if any(x in text for x in words) or routes & set(short.get(name, [])):
+                    out.append({"key": f"njt:gtfs:{a['id']}", "kind": a["effect"] or "NJ Transit alert",
+                                "text": a["header"] or a["description"], "more": a["description"] if a["header"] else "",
+                                "url": a["url"]})
         for m in self.njt_messages():
             scope = f"{m.get('MSG_LINE_SCOPE') or ''} {m.get('MSG_TEXT') or ''}".lower()
             if any(x in scope for x in words):
@@ -372,7 +519,8 @@ class Transit:
             for a in current:
                 if a["key"] not in told:
                     out.append({"kind": "start", "watch": w["line"], "key": a["key"], "watch_id": w["id"],
-                                "text": f"{w['line']}: {a['text']}" + (f" {a['more'][:200]}" if a.get("more") and
+                                "text": (a["text"] if a["text"].lower().startswith(w["line"].lower())
+                                         else f"{w['line']}: {a['text']}") + (f" {a['more'][:200]}" if a.get("more") and
                                                                       len(a["text"]) < 60 else "")
                                 + (f" ({NJT_NOTE})" if w["provider"] == "njt" else "")})
             for key, text in told.items():

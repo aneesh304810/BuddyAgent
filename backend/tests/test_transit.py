@@ -30,9 +30,16 @@ class Feeds:
                      "between Hoboken and 9th St due to a signal problem.", "MSG_LINE_SCOPE": "Hudson-Bergen Light Rail"},
                     {"MSG_ID": "78", "MSG_TEXT": "Northeast Corridor trains 15 minutes late.", "MSG_LINE_SCOPE": "NEC"}]
         self.calls = []
+        self.gtfs = gtfs_feed([("a1", "HBLR", "Hudson-Bergen Light Rail: shuttle buses replace trains between "
+                                              "Port Imperial and Tonnelle Av.", 3)])
 
     def __call__(self, url, data=None, headers=None):
         self.calls.append(url)
+        if "GTFSG2/authenticateUser" in url:
+            return b'{"Authenticated": "True", "UserToken": "bustok"}'
+        if "GTFSG2/getAlerts" in url:
+            assert b"bustok" in data
+            return self.gtfs
         if "mta.info" in url:
             return json.dumps(self.mta).encode()
         if url.endswith("getToken"):
@@ -45,6 +52,32 @@ class Feeds:
             return json.dumps({"results": [{"consideredStation": "JSQ", "destinations": [{"label": "ToNY", "messages": [
                 {"headSign": "33rd Street", "arrivalTimeMessage": "4 min"}]}]}]}).encode()
         return b'{"status": "Success", "data": []}'
+
+
+def _pbv(n):
+    out = b""
+    while True:
+        b, n = n & 0x7F, n >> 7
+        out += bytes([b | (0x80 if n else 0)])
+        if not n:
+            return out
+
+
+def _pbf(field, value):
+    if isinstance(value, int):
+        return _pbv(field << 3) + _pbv(value)
+    value = value.encode() if isinstance(value, str) else value
+    return _pbv(field << 3 | 2) + _pbv(len(value)) + value
+
+
+def gtfs_feed(alerts):
+    """A real GTFS-realtime FeedMessage, encoded by hand: (id, route, header text, effect)."""
+    feed = _pbf(1, _pbf(1, "2.0"))
+    for eid, route, text, effect in alerts:
+        alert = (_pbf(1, _pbf(1, int(time.time()) - 60)) + _pbf(5, _pbf(2, route)) + _pbf(7, effect) +
+                 _pbf(10, _pbf(1, _pbf(1, text) + _pbf(2, "en"))))
+        feed += _pbf(2, _pbf(1, eid) + _pbf(5, alert))
+    return feed
 
 
 @pytest.fixture
@@ -67,7 +100,8 @@ def test_status_from_each_feed(t):
     assert [a["text"] for a in lines["Q train"]["alerts"]] == ["Uptown [Q] trains are running with delays."]
     assert lines["Q train"]["ok"] is False  # the [1] train's alert isn't the Q's
     assert "Port Washington" in lines["LIRR Port Washington"]["alerts"][0]["text"]
-    assert [a["key"] for a in lines["Hudson-Bergen Light Rail"]["alerts"]] == ["njt:77"]  # not the NEC message
+    assert [a["key"] for a in lines["Hudson-Bergen Light Rail"]["alerts"]] == ["njt:gtfs:a1", "njt:77"]  # not NEC
+    assert lines["Hudson-Bergen Light Rail"]["alerts"][0]["kind"] == "Significant delays"
     assert "may not be real time" in t.status()["note"]  # NJ Transit's terms
     assert lines["PATH Journal Square-33rd St"]["next_trains"] == [{"to": "33rd Street", "in": "4 min", "direction": "ToNY"}]
     assert lines["PATH Journal Square-33rd St"]["ok"] is True
@@ -121,9 +155,11 @@ def test_status_for_an_unwatched_line(t):
 
 def test_njt_alerts_are_attributed_and_as_is(t):
     t.watch("Hudson-Bergen Light Rail", days="daily")
-    alert = t.check()[0]
+    alerts = t.check()
+    alert = next(a for a in alerts if "signal problem" in a["text"])
     assert "service suspended between Hoboken and 9th St due to a signal problem." in alert["text"]
-    assert alert["text"].endswith("(NJ Transit data, fetched by Buddy's server; may not be real time)")
+    assert all(a["text"].endswith("(NJ Transit data, fetched by Buddy's server; may not be real time)") for a in alerts)
+    assert any("shuttle buses replace trains" in a["text"] for a in alerts)  # light rail, from GTFS-BUS
 
 
 class Here:

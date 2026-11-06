@@ -36,7 +36,9 @@ def test_web_tools_keep_free_models_available(monkeypatch):
     assert asyncio.run(convo._dispatch("general_task", {"kind": "rewrite", "text": "hello"})) == "done"
 
 
-def test_messages_right_after_an_upload_stay_on_claude():
+def test_messages_right_after_an_upload_stay_on_claude(tmp_path, monkeypatch):
+    from buddy import library
+    monkeypatch.setattr(library, "LIB_DIR", tmp_path)  # don't leave test files in the real library folder
     memory = Memory(":memory:")
     assert not agent._just_uploaded(memory)
     from buddy.library import Library

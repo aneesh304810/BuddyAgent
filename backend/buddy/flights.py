@@ -484,8 +484,10 @@ class Flights:
         last = w["last"]
         dep = _utc(last.get("dep_estimated_utc") or last.get("dep_time_utc"))
         arr = _utc(last.get("arr_estimated_utc") or last.get("arr_time_utc"))
-        if dep is None:  # not looked up yet: check on its day
-            return local_now().date().isoformat() >= w["day"]
+        if dep is None:  # no times known yet: its day, and from 6 PM the evening before (an early flight)
+            today = local_now().date()
+            return w["day"] <= today.isoformat() or (w["day"] == (today + timedelta(days=1)).isoformat()
+                                                    and local_now().hour >= 18)
         return dep - timedelta(hours=BEFORE_HOURS) <= now <= (arr or dep + timedelta(hours=12)) + timedelta(hours=AFTER_HOURS)
 
     def changes(self, s: dict, told: dict) -> tuple[list[str], dict]:
