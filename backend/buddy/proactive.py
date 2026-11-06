@@ -235,6 +235,14 @@ async def run(memory: Memory, deliver: Deliver) -> None:
             except Exception:
                 log.exception("credit watch failed")
                 watch = None
+            try:  # today's best free OpenRouter models per task (free models come and go)
+                from . import openrouter_catalog  # noqa: PLC0415
+                if os.getenv("BUDDY_OPENROUTER_KEY") and openrouter_catalog.due(memory) and \
+                        memory.get("openrouter:tried") != local_now().strftime("%Y-%m-%dT%H"):
+                    memory.set("openrouter:tried", local_now().strftime("%Y-%m-%dT%H"))  # at most once an hour on errors
+                    await asyncio.to_thread(openrouter_catalog.refresh, memory)
+            except Exception:
+                log.exception("OpenRouter model list failed")
             try:  # trends: the morning digest, and a message when a watched topic suddenly takes off
                 from . import trends as trd  # noqa: PLC0415
                 if memory.get("trends:digest_requested") or (TREND_DIGEST and trd.digest_due(memory)

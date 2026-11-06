@@ -215,6 +215,8 @@ class FreeModels:
         self.speed: dict[str, float] = {}
         self.success: dict[str, float] = {}
         self._accuracy: tuple[float, dict] = (0.0, {})
+        self._kind = ""
+        self._last_model = ""
 
     def order(self, kind: str) -> list[str]:
         """Providers to try, best first: suited to the task, then fast and reliable lately."""
@@ -259,9 +261,14 @@ class FreeModels:
             return []
         return [name for name, p in PROVIDERS.items() if (self.env.get(p["key"]) or "").strip()]
 
-    def model_of(self, name: str) -> str:
+    def model_of(self, name: str, kind: str = "") -> str:
         p = PROVIDERS[name]
-        return (self.env.get(p["model_setting"]) or p["model"]).strip()
+        set_by_hand = (self.env.get(p["model_setting"]) or "").strip()
+        if set_by_hand or name not in ("openrouter", "deepseek"):
+            return set_by_hand or p["model"]
+        from . import openrouter_catalog  # noqa: PLC0415  (today's best free model for this kind of task)
+        live = openrouter_catalog.models_for(self.memory, "code" if name == "deepseek" else (kind or self._kind))
+        return live[0] if live else p["model"]
 
     async def run(self, kind: str, text: str, instruction: str = "", target: str = "English",
                   system: str | None = None, purpose: str = "", claude_fallback: bool = True,
@@ -276,12 +283,14 @@ class FreeModels:
         if kind == "code" and (why := code_route(instruction + "\n" + text)):
             usage.count(self.memory, "free:code_to_claude")
             raise NeedsClaude(f"This coding task needs you, not a free model ({why}): do it yourself, carefully (hand_over first if you have that tool).")
+        self._kind = kind  # OpenRouter picks its free model per kind of task (openrouter_catalog)
         system = system or INSTRUCTIONS[kind].format(target=target or "English")
         purpose = purpose or f"general:{kind}"
         prompt = (instruction.strip() + "\n\n" if instruction.strip() else "") + text
         tried = []
         for name in self.order(kind)[:3]:  # at most three tries, so a slow day never drags on
             started = time.monotonic()
+            self._last_model = ""
             try:
                 answer, tokens = await asyncio.wait_for(
                     asyncio.to_thread(self._call, name, system, prompt, TIMEOUT[kind], MAX_TOKENS.get(kind, 1500)), timeout=TIMEOUT[kind] + 2)
@@ -291,38 +300,38 @@ class FreeModels:
                     raise BadAnswer(problem)
                 if UNSURE in answer:
                     # The model knows it isn't the right one for this: hand back, don't guess.
-                    usage.log_call(self.memory, provider=name, model=self.model_of(name), purpose=purpose,
+                    usage.log_call(self.memory, provider=name, model=self._last_model or self.model_of(name), purpose=purpose,
                                    seconds=time.monotonic() - started, stop="handed back (not sure)",
                                    request=prompt, verdict="redone")
                     raise NeedsClaude("not sure")
                 self._learn(name, time.monotonic() - started)
                 usage.count(self.memory, f"free:{name}")
                 call_id = usage.log_call(
-                               self.memory, provider=name, model=self.model_of(name), purpose=purpose,
+                               self.memory, provider=name, model=self._last_model or self.model_of(name), purpose=purpose,
                                input_tokens=tokens.get("prompt_tokens") or 0,
                                output_tokens=tokens.get("completion_tokens") or 0,
                                seconds=time.monotonic() - started, stop="free", request=prompt, reply=answer)
-                return {"answer": answer, "model": f"{name}/{self.model_of(name)}", "free": True, "call_id": call_id,
+                return {"answer": answer, "model": f"{name}/{self._last_model or self.model_of(name)}", "free": True, "call_id": call_id,
                         "seconds": round(time.monotonic() - started, 1)}
             except NeedsClaude:
                 raise  # not a failure: this one should be Claude's
             except RateLimited as e:
                 self.cooldown[name] = time.time() + e.wait
                 tried.append(f"{name}: at its free limit")
-                usage.log_call(self.memory, provider=name, model=self.model_of(name), purpose=purpose,
+                usage.log_call(self.memory, provider=name, model=self._last_model or self.model_of(name), purpose=purpose,
                                seconds=time.monotonic() - started, ok=False, stop="at its free limit",
                                request=prompt)
             except BadAnswer as e:
                 self._learn(name, None)
                 tried.append(f"{name}: {e}")
-                usage.log_call(self.memory, provider=name, model=self.model_of(name), purpose=purpose,
+                usage.log_call(self.memory, provider=name, model=self._last_model or self.model_of(name), purpose=purpose,
                                seconds=time.monotonic() - started, ok=False, stop=f"rejected: {e}",
                                request=prompt, verdict="failed_check")
             except Exception as e:
                 self._learn(name, None)
                 self.cooldown[name] = time.time() + 120
                 tried.append(f"{name}: {type(e).__name__}")
-                usage.log_call(self.memory, provider=name, model=self.model_of(name), purpose=purpose,
+                usage.log_call(self.memory, provider=name, model=self._last_model or self.model_of(name), purpose=purpose,
                                seconds=time.monotonic() - started, ok=False, stop=f"error: {type(e).__name__}",
                                request=prompt)
                 log.info("free model %s failed: %s", name, e)
@@ -353,8 +362,26 @@ class FreeModels:
 
     def _call(self, name: str, system: str, prompt: str, timeout: float = 30,
               max_tokens: int = 1500) -> tuple[str, dict]:
+        if name in ("openrouter", "deepseek") and not (self.env.get(PROVIDERS[name]["model_setting"]) or "").strip():
+            from . import openrouter_catalog  # noqa: PLC0415
+            tried = openrouter_catalog.models_for(self.memory, "code" if name == "deepseek" else self._kind)[:2]
+            for model in tried:  # today's picks; one that errors (gone, no longer free) is set aside, next one tried
+                try:
+                    return self._call_model(name, model, system, prompt, timeout, max_tokens)
+                except RateLimited:
+                    raise
+                except urllib.error.HTTPError as e:
+                    if e.code in (400, 402, 403, 404):
+                        openrouter_catalog.mark_bad(self.memory, model)
+                        continue
+                    raise
+        return self._call_model(name, self.model_of(name), system, prompt, timeout, max_tokens)
+
+    def _call_model(self, name: str, model: str, system: str, prompt: str, timeout: float,
+                    max_tokens: int) -> tuple[str, dict]:
         p = PROVIDERS[name]
-        body = {"model": self.model_of(name), "max_tokens": max_tokens, "temperature": 0.3,
+        self._last_model = model  # the model that actually answered (for its accuracy record)
+        body = {"model": model, "max_tokens": max_tokens, "temperature": 0.3,
                 "messages": [{"role": "system", "content": system}, {"role": "user", "content": prompt}]}
         data = self.http(f"{p['base']}/chat/completions", body,
                          {"Authorization": f"Bearer {self.env[p['key']].strip()}"}, timeout)
