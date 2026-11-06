@@ -36,6 +36,8 @@ def _reverse(lat: float, lng: float) -> dict:
         or address.get("city_district") or "",
         "city": address.get("city") or address.get("town") or address.get("village") or address.get("county") or "",
         "country": (address.get("country_code") or "").upper(),
+        "state": address.get("state") or "",   # which local transit applies (New Jersey or New York)
+        "county": address.get("county") or "",
     }
     _names[key] = place
     return place

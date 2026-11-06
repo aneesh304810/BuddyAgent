@@ -439,3 +439,122 @@ def run_tool(memory: Memory, args: dict) -> str:
     if a == "test":
         return t.test()
     return json.dumps(t.status(args.get("line") or ""), ensure_ascii=False)
+
+
+# --- what's near the user: the Travel screen's alerts ---------------------------------------------------------
+PATH_COORDS = {"NWK": (40.7342, -74.1644), "HAR": (40.7393, -74.1558), "JSQ": (40.7327, -74.0628),
+               "GRV": (40.7197, -74.0430), "NEW": (40.7270, -74.0337), "EXP": (40.7163, -74.0326),
+               "HOB": (40.7359, -74.0294), "WTC": (40.7126, -74.0099), "CHR": (40.7330, -74.0072),
+               "09S": (40.7343, -73.9990), "14S": (40.7375, -73.9969), "23S": (40.7429, -73.9929),
+               "33S": (40.7491, -73.9882)}
+LIGHT_RAIL = {  # a few points along each NJ Transit light rail line
+    "Hudson-Bergen Light Rail": [(40.6626, -74.1106), (40.7045, -74.0560), (40.7163, -74.0326), (40.7355, -74.0277),
+                                 (40.7488, -74.0381), (40.7590, -74.0236), (40.7768, -74.0117), (40.7832, -74.0225),
+                                 (40.7926, -74.0393), (40.7290, -74.0907)],
+    "Newark Light Rail": [(40.7347, -74.1645), (40.7472, -74.1717), (40.7779, -74.1789), (40.7940, -74.1870)],
+    "River LINE": [(40.2178, -74.7545), (40.0777, -74.8631), (39.9447, -75.1214), (40.0137, -74.9917)],
+}
+NYC_COUNTIES = ("new york county", "kings county", "queens county", "bronx county", "richmond county")
+URGENT = re.compile(r"suspend|delay|no (scheduled )?service|not running|shuttle|stops? (skipped|bypass)|express|local", re.I)
+
+
+def km(a: tuple, b: tuple) -> float:
+    import math
+    la1, lo1, la2, lo2 = map(math.radians, (a[0], a[1], b[0], b[1]))
+    h = math.sin((la2 - la1) / 2) ** 2 + math.cos(la1) * math.cos(la2) * math.sin((lo2 - lo1) / 2) ** 2
+    return 6371 * 2 * math.asin(math.sqrt(h))
+
+
+def systems_near(here: dict) -> dict:
+    """Which transit applies where the user is: MTA in New York City, LIRR / Metro-North around it, PATH near its
+    stations, NJ Transit in New Jersey, and each light rail line near its stops."""
+    p = (here["lat"], here["lng"])
+    state = (here.get("state") or "").lower()
+    in_metro = 39.8 <= p[0] <= 41.4 and -75.6 <= p[1] <= -71.8
+    nj = state == "new jersey" or (not state and in_metro and p[1] < -74.02)
+    ny = state == "new york" or (not state and in_metro and p[1] >= -74.03)
+    nyc = ny and ((here.get("county") or "").lower() in NYC_COUNTIES or
+                  (40.49 <= p[0] <= 40.92 and -74.26 <= p[1] <= -73.70))
+    side = [c for c in PATH_COORDS if (PATH_COORDS[c][1] < -74.02) == nj] if nj != ny else list(PATH_COORDS)
+    path_stop = min(side or PATH_COORDS, key=lambda c: km(p, PATH_COORDS[c]))  # your side of the Hudson
+    out = {"mta_subway": nyc, "lirr": ny and not nyc and p[1] > -73.75 and p[0] < 41.2,
+           "metro_north": ny and not nyc and p[0] > 40.88 and p[1] < -73.4,
+           "path": km(p, PATH_COORDS[path_stop]) <= 5.0, "path_station": path_stop, "njt": nj,
+           "light_rail": [name for name, pts in LIGHT_RAIL.items() if min(km(p, q) for q in pts) <= 3.0]}
+    out["path_km"] = round(km(p, PATH_COORDS[path_stop]), 1)
+    return out
+
+
+def _nearby_mta(t: "Transit", agency: str, label: str, limit: int = 5) -> dict:
+    feed = t._get("mta", MTA_ALERTS)
+    now = time.time()
+    alerts = []
+    for e in (feed or {}).get("entity") or []:
+        a = e.get("alert") or {}
+        if not any((p.get("start") or 0) <= now <= (p.get("end") or now + 1) for p in a.get("active_period") or [{}]):
+            continue
+        ents = a.get("informed_entity") or []
+        if not any(ie.get("agency_id") == agency for ie in ents):
+            continue
+        kind = (a.get("transit_realtime.mercury_alert") or {}).get("alert_type") or "Alert"
+        if kind.lower().startswith("planned") or not URGENT.search(kind):  # live problems, not weekend work
+            continue
+        routes = sorted({str(ie.get("route_id")) for ie in ents if ie.get("route_id")})
+        alerts.append({"key": f"mta:{e.get('id')}", "kind": kind, "text": _text(a.get("header_text")), "routes": routes})
+    rank = {"suspended": 0, "part suspended": 1, "delays": 2}
+    alerts.sort(key=lambda x: rank.get(x["kind"].lower(), 3))
+    return {"line": label, "provider": "mta", "alerts": alerts[:limit], "more": max(0, len(alerts) - limit),
+            "ok": not alerts}
+
+
+def nearby(memory: Memory, transit: "Transit | None" = None, location=None) -> dict:
+    """The Travel screen's alerts: the lines you watch, plus what applies where you are right now."""
+    from .location import Location  # noqa: PLC0415
+    t = transit or Transit(memory)
+    here = (location or Location(memory)).current()
+    lines, seen = [], set()
+    for x in t.status()["lines"] if t.watches() else []:
+        x["why"] = "you watch this"
+        lines.append(x)
+        seen.add(x["line"].lower())
+    where, near = "", {}
+    if here:
+        where = ", ".join(v for v in (here.get("area"), here.get("city")) if v)
+        near = systems_near(here)
+
+        def add(item: dict, why: str) -> None:
+            if item["line"].lower() not in seen:
+                item["why"] = why
+                lines.append(item)
+                seen.add(item["line"].lower())
+
+        def safe(fn, line, provider):
+            try:
+                return fn()
+            except ToolError as e:
+                return {"line": line, "provider": provider, "alerts": [], "error": str(e)}
+            except Exception as e:
+                return {"line": line, "provider": provider, "alerts": [], "error": f"couldn't reach it ({type(e).__name__})"}
+        for name in near["light_rail"]:
+            add(safe(lambda n=name: {**t.status(n)["lines"][0]}, name, "njt"), "a light rail line near you")
+        if near["path"]:
+            code = near["path_station"]
+
+            def path_item():
+                alerts = t.path_alerts({"line": "PATH"})
+                return {"line": "PATH", "provider": "path", "alerts": alerts, "ok": not alerts,
+                        "station": PATH_STATIONS[code], "next_trains": t.path_arrivals(code)[:6]}
+            add(safe(path_item, "PATH", "path"), f"{PATH_STATIONS[code]} station is {near['path_km']} km away")
+        if near["mta_subway"]:
+            add(safe(lambda: _nearby_mta(t, "MTASBWY", "NYC subway"), "NYC subway", "mta"), "you're in New York City")
+        if near["lirr"]:
+            add(safe(lambda: _nearby_mta(t, "LI", "LIRR"), "LIRR", "mta"), "you're on Long Island")
+        if near["metro_north"]:
+            add(safe(lambda: _nearby_mta(t, "MNR", "Metro-North"), "Metro-North", "mta"), "you're north of the city")
+    njt = any(x["provider"] == "njt" for x in lines)
+    note = "From the official MTA, NJ Transit and PATH feeds." + (f" {NJT_NOTE}." if njt else "")
+    if not here:
+        note = "Share your location (Settings → Share my location) to see alerts for where you are. " + note
+    elif not lines:
+        note = "No transit Buddy follows near you here. " + note
+    return {"where": where, "lines": lines, "near": near, "checked_at": local_now().strftime("%H:%M"), "note": note}

@@ -70,6 +70,7 @@ object TravelApi {
         }
 
     suspend fun overview(link: ServerLink) = call(link, "/api/travel")
+    suspend fun alerts(link: ServerLink) = call(link, "/api/travel/alerts")
     suspend fun search(link: ServerLink, body: JSONObject) = call(link, "/api/travel/search", body)
     suspend fun get(link: ServerLink, id: String) = call(link, "/api/travel/searches/$id")
     suspend fun refresh(link: ServerLink, sid: String, oid: String) =
@@ -109,6 +110,7 @@ fun TravelScreen(link: ServerLink?) {
     LazyColumn(Modifier.fillMaxSize(), verticalArrangement = Arrangement.spacedBy(10.dp)) {
         problem?.let { item { Text(it, color = Pal.bad) } }
         val o = overview ?: run { if (problem == null) item { Text("Loading…", color = TDim) }; return@LazyColumn }
+        item { TransitAlerts(link!!) }
         item {
             SearchForm(busy) { body ->
                 busy = true
@@ -194,6 +196,66 @@ private fun SearchForm(busy: Boolean, onSearch: (JSONObject) -> Unit) {
             }
         }
         Text("Or just ask Buddy: \"flights Miami to Lima on 10 December\".", color = TDim, fontSize = 12.sp)
+    }
+}
+
+/** Transit alerts: the lines you watch, and what applies where you are (MTA, PATH, NJ Transit, light rail). */
+@Composable
+private fun TransitAlerts(link: ServerLink) {
+    var data by remember { mutableStateOf<JSONObject?>(null) }
+    var problem by remember { mutableStateOf<String?>(null) }
+    var again by remember { mutableIntStateOf(0) }
+    var open by remember { mutableStateOf(setOf<String>()) }
+    LaunchedEffect(link, again) {
+        runCatching { TravelApi.alerts(link) }.onSuccess { data = it; problem = null }
+            .onFailure { problem = "Couldn't load travel alerts (${it.message})." }
+    }
+    Column(Modifier.fillMaxWidth().background(TTile, RoundedCornerShape(16.dp)).padding(14.dp),
+        verticalArrangement = Arrangement.spacedBy(8.dp)) {
+        val d = data
+        Row(Modifier.fillMaxWidth()) {
+            Column(Modifier.weight(1f)) {
+                Text("Travel alerts", color = Pal.text, fontSize = 18.sp, fontWeight = FontWeight.SemiBold)
+                val where = d?.optString("where").orEmpty()
+                Text((if (where.isNotEmpty()) "Near $where" else "Your lines") +
+                    (d?.optString("checked_at")?.takeIf { it.isNotEmpty() }?.let { " · checked $it" } ?: ""),
+                    color = TDim, fontSize = 13.sp)
+            }
+            Text("↻ Refresh", color = Pal.accent, fontSize = 14.sp,
+                modifier = Modifier.clickable { again++ }.padding(6.dp))
+        }
+        problem?.let { Text(it, color = Pal.bad, fontSize = 13.sp) }
+        if (d == null && problem == null) Text("Checking…", color = TDim, fontSize = 13.sp)
+        d?.optJSONArray("lines").objs().forEach { line ->
+            val alerts = line.optJSONArray("alerts").objs()
+            val error = line.optString("error")
+            val name = line.optString("line")
+            val ok = error.isEmpty() && alerts.isEmpty()
+            Column(Modifier.fillMaxWidth().background(Pal.bg, RoundedCornerShape(12.dp))
+                .clickable { open = if (name in open) open - name else open + name }.padding(10.dp)) {
+                Row {
+                    Text(when { error.isNotEmpty() -> "•"; ok -> "✅"; else -> "⚠️" } + "  $name",
+                        color = Pal.text, fontWeight = FontWeight.SemiBold, modifier = Modifier.weight(1f))
+                    Text(when { error.isNotEmpty() -> "not set up"; ok -> "good service"
+                        else -> "${alerts.size + line.optInt("more")} alert" + if (alerts.size + line.optInt("more") == 1) "" else "s" },
+                        color = if (ok) TGood else if (error.isNotEmpty()) TDim else TWarn, fontSize = 13.sp)
+                }
+                line.optString("why").takeIf { it.isNotEmpty() }?.let { Text(it, color = TDim, fontSize = 12.sp) }
+                val shown = if (name in open) alerts else alerts.take(2)
+                shown.forEach { a ->
+                    Text("${a.optString("kind")}: ${a.optString("text")}", color = Pal.text, fontSize = 14.sp,
+                        maxLines = if (name in open) 12 else 3, modifier = Modifier.padding(top = 4.dp))
+                }
+                if (alerts.size > shown.size || line.optInt("more") > 0)
+                    Text("Tap for ${alerts.size - shown.size + line.optInt("more")} more", color = Pal.accent, fontSize = 12.sp)
+                if (error.isNotEmpty()) Text(error, color = TDim, fontSize = 12.sp)
+                val trains = line.optJSONArray("next_trains").objs()
+                if (trains.isNotEmpty()) Text("Next from ${line.optString("station")}: " +
+                    trains.take(4).joinToString(" · ") { "${it.optString("to")} ${it.optString("in")}" },
+                    color = TDim, fontSize = 13.sp, modifier = Modifier.padding(top = 4.dp))
+            }
+        }
+        d?.optString("note")?.takeIf { it.isNotEmpty() }?.let { Text(it, color = TDim, fontSize = 12.sp) }
     }
 }
 

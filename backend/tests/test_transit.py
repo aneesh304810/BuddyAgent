@@ -124,3 +124,33 @@ def test_njt_alerts_are_attributed_and_as_is(t):
     alert = t.check()[0]
     assert "service suspended between Hoboken and 9th St due to a signal problem." in alert["text"]
     assert alert["text"].endswith("(NJ Transit data, fetched by Buddy's server; may not be real time)")
+
+
+class Here:
+    def __init__(self, h):
+        self.h = h
+
+    def current(self):
+        return self.h
+
+
+def test_travel_alerts_follow_where_you_are(t):
+    port_imperial = {"lat": 40.7768, "lng": -74.0117, "state": "New Jersey", "area": "West New York", "city": ""}
+    out = transit.nearby(t.memory, t, Here(port_imperial))
+    names = [x["line"] for x in out["lines"]]
+    assert names == ["Hudson-Bergen Light Rail", "PATH"]  # no NYC subway from New Jersey
+    assert out["lines"][1]["station"] == "Hoboken"  # your side of the Hudson
+    assert "may not be real time" in out["note"]
+    midtown = {"lat": 40.754, "lng": -73.984, "state": "New York", "county": "New York County"}
+    out = transit.nearby(t.memory, t, Here(midtown))
+    subway = next(x for x in out["lines"] if x["line"] == "NYC subway")
+    assert [a["kind"] for a in subway["alerts"]] == ["Delays"]  # live problems only, not reduced weekend service
+    miami = {"lat": 25.79, "lng": -80.13, "state": "Florida"}
+    assert transit.nearby(t.memory, t, Here(miami))["lines"] == []
+    assert "Share your location" in transit.nearby(t.memory, t, Here(None))["note"]
+
+
+def test_watched_lines_come_first(t):
+    t.watch("Q", days="daily")
+    out = transit.nearby(t.memory, t, Here({"lat": 40.754, "lng": -73.984, "state": "New York"}))
+    assert out["lines"][0]["line"] == "Q" and out["lines"][0]["why"] == "you watch this"

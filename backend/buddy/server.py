@@ -824,6 +824,13 @@ def api_travel() -> dict:
             "watches": t.watches()}
 
 
+@app.get("/api/travel/alerts", dependencies=[Depends(require_admin)])
+async def api_travel_alerts() -> dict:
+    """Transit alerts for the Travel screen: the lines the user watches, and what applies where they are now."""
+    from . import transit
+    return await asyncio.to_thread(transit.nearby, memory)
+
+
 @app.post("/api/travel/search", dependencies=[Depends(require_admin)])
 async def api_travel_search(body: dict) -> dict:
     t = travel.Travel(memory)
