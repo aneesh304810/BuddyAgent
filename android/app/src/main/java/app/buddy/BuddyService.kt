@@ -565,7 +565,8 @@ class BuddyService : Service() {
             is ServerEvent.Nudge -> {
                 BuddyState.add(Line(event.display ?: event.text, Speaker.NUDGE, event.jobId, opensInsights = event.kind == "health",
                     kind = event.kind, cards = event.cards))
-                if (event.kind != "ride") Notes.nudge(this, event.text, event.jobId)  // Uber / Lyft show their own
+                val link = if (event.kind == "email") firstLink(event.cards) else null  // the urgent email, in Gmail
+                if (event.kind != "ride") Notes.nudge(this, event.text, event.jobId, link, "Open in Gmail")  // Uber / Lyft show their own
                 if (!BuddyState.ui.value.onCall) mouth.speak(event.text)
             }
             is ServerEvent.Whisper -> {
@@ -1044,3 +1045,8 @@ class BuddyService : Service() {
         stopSelf()
     }
 }
+
+/** The first card's https link in a nudge's cards (JSON), if any. */
+private fun firstLink(cards: String?): String? = runCatching {
+    JSONArray(cards ?: return null).optJSONObject(0)?.optString("url")?.takeIf { it.startsWith("https://") }
+}.getOrNull()

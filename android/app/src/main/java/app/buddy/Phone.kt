@@ -10,6 +10,7 @@ import android.content.Intent
 import android.content.pm.PackageManager
 import android.graphics.drawable.Icon
 import android.media.AudioAttributes
+import android.net.Uri
 import android.media.AudioFormat
 import android.media.AudioManager
 import android.media.AudioTrack
@@ -171,7 +172,8 @@ object Notes {
             .build()
     }
 
-    fun nudge(context: Context, text: String, jobId: Int? = null) {
+    /** [link]: an https page the notification can open, e.g. the urgent email in Gmail. */
+    fun nudge(context: Context, text: String, jobId: Int? = null, link: String? = null, linkLabel: String = "Open") {
         if (context.checkSelfPermission(Manifest.permission.POST_NOTIFICATIONS) !=
             PackageManager.PERMISSION_GRANTED
         ) return
@@ -184,6 +186,14 @@ object Notes {
                 .setStyle(Notification.BigTextStyle().bigText(text))
                 .setAutoCancel(true)
                 .setContentIntent(jobId?.let { openReport(context, it) } ?: openApp(context))
+                .apply {
+                    val page = link?.takeIf { it.startsWith("https://") } ?: return@apply
+                    addAction(Notification.Action.Builder(
+                        Icon.createWithResource(context, R.drawable.ic_stat_buddy), linkLabel,
+                        PendingIntent.getActivity(context, nextId, Intent(Intent.ACTION_VIEW, Uri.parse(page))
+                            .addFlags(Intent.FLAG_ACTIVITY_NEW_TASK), PendingIntent.FLAG_IMMUTABLE),
+                    ).build())
+                }
                 .build(),
         )
     }

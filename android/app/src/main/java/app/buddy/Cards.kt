@@ -60,6 +60,7 @@ private fun kindIcon(kind: String): String = when (kind) {
     "flight" -> "✈️"
     "travel" -> "🧳"    // luggage
     "news" -> "📰"
+    "email" -> "✉️"
     "finance" -> "📈"
     "money" -> "💰"
     "deal" -> "🏷️" // tag
@@ -88,7 +89,7 @@ fun CardsRow(json: String, onOpen: (String) -> Unit) {
             // A Word document or deck opens straight in its app; everything else opens its full page.
             CardTile(c) {
                 when {
-                    c.str("kind") == "file" && c.str("url").isNotEmpty() -> uri.openUri(c.str("url"))
+                    c.str("kind") in setOf("file", "email") && c.str("url").isNotEmpty() -> uri.openUri(c.str("url"))
                     c.str("kind") == "ride" -> Links.launch(context, RideLink(c.str("app_url"), c.str("url"), c.str("title")))
                     else -> onOpen(c.toString())
                 }
@@ -193,7 +194,7 @@ fun CardScreen(json: String) {
         Row(horizontalArrangement = Arrangement.spacedBy(8.dp)) {
             if (c.str("maps_url").isNotEmpty()) Action("Open in Google Maps") { uri.openUri(c.str("maps_url")) }
             if (c.str("url").isNotEmpty()) Action(when (c.str("kind")) {
-                "place" -> "Website"; "image" -> "Open full size"; "ride" -> "Open the app"; else -> "Open" }) {
+                "place" -> "Website"; "image" -> "Open full size"; "email" -> "Open in Gmail"; "ride" -> "Open the app"; else -> "Open" }) {
                 if (c.str("kind") == "ride") Links.launch(context, RideLink(c.str("app_url"), c.str("url"), c.str("title")))
                 else uri.openUri(c.str("url"))
             }

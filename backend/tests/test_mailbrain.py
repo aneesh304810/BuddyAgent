@@ -198,3 +198,32 @@ def test_weekly_suggestions_retry_when_nobody_listening(setup):
     assert asyncio.run(manager.weekly_suggestions()) == 0
     assert asyncio.run(manager.weekly_suggestions()) == 1
     assert len(calls) == 2
+
+
+def test_urgent_alert_links_to_the_email_in_gmail(monkeypatch):
+    memory = Memory(":memory:")
+    ConnectorHub(memory)
+    sent = []
+
+    async def notify(kind, text, **extra):
+        sent.append(extra)
+        return True
+
+    monkeypatch.setattr(mailbrain, "in_quiet_hours", lambda: False)
+    manager = mailbrain.MailManager(memory, notify, env={}, mailbox_factory=lambda account, env: FakeBox())
+    add_email(memory, 1, "Chase <alerts@chase.com>", "Payment due Friday")
+    rid = memory.db.execute("SELECT id FROM records").fetchone()["id"]
+    monkeypatch.setattr(mailbrain, "client", FakeClaude(lambda kw: [
+        {"id": rid, "priority": "urgent", "reason": "Chase payment due Friday.", "rules": []}]))
+    asyncio.run(manager.sort_new())
+    card = sent[0]["cards"][0]
+    assert card["kind"] == "email" and card["title"] == "Payment due Friday"
+    assert card["url"] == "https://mail.google.com/mail/u/?authuser=me@gmail.com#search/rfc822msgid%3Am1%40x.com"
+
+
+def test_gmail_link_only_for_gmail_accounts():
+    assert mailbrain.gmail_link("me@gmail.com", "<a+b@x.com>", env={}).endswith("rfc822msgid%3Aa%2Bb%40x.com")
+    assert mailbrain.gmail_link("me@yahoo.com", "<a@x.com>", env={}) == ""
+    work = {"BUDDY_EMAIL_ADDRESS": "me@work.com", "BUDDY_EMAIL_APP_PASSWORD": "x"}  # Google Workspace
+    assert mailbrain.gmail_link("me@work.com", "<a@x.com>", env=work).startswith("https://mail.google.com/")
+    assert mailbrain.gmail_link("", "<a@x.com>", env={}) == ""
