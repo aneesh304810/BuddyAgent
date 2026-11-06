@@ -279,7 +279,7 @@ class Trends:
             else:
                 got = self._json("reddit", f"https://www.reddit.com/r/{SUBS[kind]}/search.json?{params}")
         except Exception:
-            return []
+            return self._reddit_via_google(query, kind)  # Reddit blocked the public search: find the threads on Google
         out = []
         for c in (got.get("data") or {}).get("children", []):
             p = c.get("data", {})
@@ -287,6 +287,23 @@ class Trends:
                         "url": "https://www.reddit.com" + str(p.get("permalink", "")), "score": p.get("score") or 0,
                         "comments": p.get("num_comments") or 0, "ts": p.get("created_utc") or time.time()})
         return out
+
+    def _reddit_via_google(self, query: str, kind: str) -> list[dict]:
+        """Without a Reddit app, when Reddit refuses the public search: Reddit threads as Google finds them (past day)."""
+        if not self.setting("BUDDY_SERPER_KEY"):
+            return []
+        sub = SUBS[kind].split("+")[0] if kind != "general" else ""
+        body = json.dumps({"q": f"site:reddit.com{'/r/' + sub if sub else ''} {re.sub(chr(34), '', query)}",
+                           "tbs": "qdr:w", "num": 10}).encode()
+        try:
+            got = self._json("serper", "https://google.serper.dev/search",
+                             {"X-API-KEY": self.setting("BUDDY_SERPER_KEY"), "Content-Type": "application/json"}, body,
+                             paid=True)
+        except Exception:
+            return []
+        return [{"source": "Reddit (via Google)", "title": r.get("title", "").replace(" : r/", " · r/")[:200],
+                 "url": r.get("link", ""), "score": 0, "comments": 0, "ts": time.time() - 12 * 3600}
+                for r in got.get("organic", []) if "reddit.com" in str(r.get("link", ""))]
 
     # --- putting it together ---------------------------------------------------------------------------------
     def collect(self, topic: dict, days: int = 1) -> dict:

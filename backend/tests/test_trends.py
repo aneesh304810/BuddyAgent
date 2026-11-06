@@ -142,3 +142,20 @@ def test_after_a_few_ratings_buddy_remembers_the_news_taste():
         t.feedback("AI", f"Databricks agents launch {i}", f"https://z/{i}", ["News"], True)
     prefs = Brain(mem).preferences("news")
     assert prefs and "databricks" in prefs[0]["text"].lower()
+
+
+def test_without_a_reddit_app_blocked_reddit_is_found_through_google():
+    import urllib.error
+
+    class Blocked(Web):
+        def __call__(self, url, headers=None, data=None):
+            if "reddit.com" in url and "serper" not in url:
+                raise urllib.error.HTTPError(url, 403, "Blocked", {}, None)
+            if "google.serper.dev/search" in url:
+                assert b"site:reddit.com" in data
+                return {"organic": [{"title": "OpenAI agents platform thoughts? : r/MachineLearning",
+                                     "link": "https://www.reddit.com/r/MachineLearning/comments/abc"}]}
+            return super().__call__(url, headers, data)
+    t = Trends(Memory(":memory:"), env=ENV, fetch=Blocked())
+    got = t.reddit("AI agents", "ai", 1)
+    assert got and got[0]["source"] == "Reddit (via Google)" and "r/MachineLearning" in got[0]["title"]

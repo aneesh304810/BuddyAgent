@@ -361,13 +361,30 @@ class Data:
             else:
                 got = self._json("reddit", f"https://www.reddit.com/r/{SUBREDDITS[market]}/search.json?{params}")
         except Exception as e:
-            return {"posts": 0, "top": [], "error": type(e).__name__}
+            via = self._reddit_via_google(base, market)  # Reddit blocked the public search: Google finds the threads
+            return via or {"posts": 0, "top": [], "error": type(e).__name__}
         posts = [c.get("data", {}) for c in (got.get("data") or {}).get("children", [])]
         top = sorted(posts, key=lambda p: -(p.get("score") or 0))[:6]
         return {"posts": len(posts), "top": [{"title": str(p.get("title", ""))[:160], "sub": p.get("subreddit", ""),
                                               "score": p.get("score", 0), "comments": p.get("num_comments", 0),
                                               "url": "https://www.reddit.com" + str(p.get("permalink", ""))}
                                              for p in top]}
+
+    def _reddit_via_google(self, base: str, market: str) -> dict | None:
+        key = self.setting("BUDDY_SERPER_KEY")
+        if not key:
+            return None
+        sub = SUBREDDITS[market].split("+")[0]
+        body = json.dumps({"q": f"site:reddit.com/r/{sub} {base}", "tbs": "qdr:w", "num": 10}).encode()
+        try:
+            raw = self.fetch("https://google.serper.dev/search", {"X-API-KEY": key, "Content-Type": "application/json"},
+                             body)
+            got = raw if isinstance(raw, dict) else json.loads(raw or b"{}")
+        except Exception:
+            return None
+        top = [{"title": str(r.get("title", ""))[:160], "sub": sub, "score": 0, "comments": 0, "url": r.get("link", "")}
+               for r in got.get("organic", []) if "reddit.com" in str(r.get("link", ""))]
+        return {"posts": len(top), "top": top[:6], "via": "Google"} if top else None
 
     def stocktwits(self, symbol: str, market: str) -> dict:
         if market == "india":
