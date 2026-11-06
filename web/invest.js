@@ -21,6 +21,16 @@ const px = (v, m) => v == null ? "–" : (m === "india" ? "₹" : "$") +
   (Math.abs(v) >= 1000 ? Number(v).toLocaleString(undefined, { maximumFractionDigits: 0 }) :
    Math.abs(v) >= 1 ? Number(v).toLocaleString(undefined, { minimumFractionDigits: 2, maximumFractionDigits: 2 }) : Number(v).toPrecision(3));
 const MARKET = { us: "US", crypto: "crypto", india: "India" };
+// US and international markets are kept apart everywhere (crypto trades round the clock, worldwide: its own group)
+const GROUPS = [["us", "🇺🇸 US market"], ["india", "🌏 International market"], ["crypto", "🪙 Crypto"]];
+const TOPIC_GROUP = { markets: "us", india: "india", crypto: "crypto" };
+function grouped(items, groupOf, draw, empty) {
+  const html = GROUPS.map(([g, label]) => {
+    const mine = items.filter((x) => groupOf(x) === g);
+    return mine.length ? `<h3 class="group">${label}</h3>` + mine.map(draw).join("") : "";
+  }).join("");
+  return html || empty;
+}
 const usd = (v) => "$" + Number(v || 0).toLocaleString(undefined, { maximumFractionDigits: 0 });
 const card = (title, body, foot) => `<section class="card"><h2>${title}</h2>${body}${foot ? `<p class="note">${foot}</p>` : ""}</section>`;
 
@@ -54,10 +64,10 @@ function levels(x, m) {
 
 function strategy() {
   const s = data.strategy;
-  const pos = s.positions.map((p) => `<div class="idea"><div class="top"><b>${esc(p.symbol)}</b>
+  const trade = (p) => `<div class="idea"><div class="top"><b>${esc(p.symbol)}</b>
       <span class="pill">bought ${esc(p.opened)}${p.shares ? ` · ${esc(p.shares)} shares` : ""}</span><span style="flex:1"></span>
-      <button class="btn small" data-sold="${esc(p.symbol)}">I sold it</button></div>${levels(p, p.market)}</div>`).join("");
-  const ideas = s.setups.map((x) => {
+      <button class="btn small" data-sold="${esc(p.symbol)}">I sold it</button></div>${levels(p, p.market)}</div>`;
+  const idea = (x) => {
     const d = x.data || {}, o = d.option;
     return `<div class="idea"><div class="top"><b>${esc(x.symbol)}</b><span class="pill${x.status === "triggered" ? " hot" : ""}">${x.status === "triggered" ? "triggered" : "watching"}</span>
         <span class="muted">${esc(d.label || x.pattern)} · closed ${px(x.close, x.market)} · ${esc(x.day)}</span></div>
@@ -66,7 +76,9 @@ function strategy() {
       ${d.sentiment ? `<p class="note">Chatter: ${esc(d.sentiment)}${d.risks ? ` · Risks: ${esc(d.risks)}` : ""}</p>` : ""}
       ${o ? `<p class="note">Option idea: ${esc(o.expires)} ${px(o.strike, x.market)} call, about ${px(o.mid, x.market)}${o.delta != null ? `, delta ${esc(o.delta)}` : ""}</p>` : ""}
     </div>`;
-  }).join("");
+  };
+  const pos = grouped(s.positions, (p) => p.market, trade, "");
+  const ideas = grouped(s.setups, (x) => x.market, idea, "");
   const how = `How it works: every weekday after the US close Buddy scans ${esc((data.settings.markets || []).map((m) => MARKET[m] || m).join(", ") || "the markets")} plus your watchlist
     for breakouts, pullbacks and other patterns, and checks Reddit, StockTwits and news. In market hours it checks the ideas every
     15 minutes and tells you when one triggers. Say "I bought NVDA at 182" and Buddy watches the stop and targets for you.`;
@@ -101,7 +113,8 @@ function analysis(a) {
 function trendsTab() {
   const t = data.trends;
   if (!t.feed.length) return card("Market trends", `<p class="muted">No market topics yet. Add one in News, for example US markets, Crypto or Nvidia.</p>`);
-  return t.feed.map((f) => {
+  const kind = Object.fromEntries(t.topics.map((x) => [x.name, x.kind]));
+  return grouped(t.feed, (f) => TOPIC_GROUP[kind[f.topic] || f.kind], (f) => {
     const stories = (f.stories || []).slice(0, 6).map((s) => {
       const u = safe(s.url), inner = `<b>${esc(s.title)}</b>${s.take ? `<p>${esc(s.take)}</p>` : ""}<small>${esc((s.sources || []).join(" · "))}</small>`;
       return u ? `<a class="story" href="${esc(u)}" target="_blank" rel="noopener">${inner}</a>` : `<div class="story">${inner}</div>`;
@@ -113,7 +126,7 @@ function trendsTab() {
       ${stories || `<p class="muted">Nothing yet. Tap Refresh, or wait for the morning update.</p>`}
       ${rising ? `<p class="note"><b>Rising searches:</b> ${rising}</p>` : ""}
       ${f.debate ? `<p class="note"><b>Where people disagree:</b> ${esc(f.debate)}</p>` : ""}</section>`;
-  }).join("") + `<p class="muted">Market topics from your News tab. Add or remove topics, and 👍 / 👎 stories, in News.</p>`;
+  }, "") + `<p class="muted">Market topics from your News tab. Add or remove topics, and 👍 / 👎 stories, in News.</p>`;
 }
 
 function accountsTab() {
@@ -133,11 +146,11 @@ function accountsTab() {
 }
 
 function watchTab() {
-  const rows = data.watchlist.map((w) => `<div class="row" style="cursor:default"><span class="name" style="white-space:normal"><b>${esc(w.symbol)}</b>
+  const rows = grouped(data.watchlist, (w) => w.market, (w) => `<div class="row" style="cursor:default"><span class="name" style="white-space:normal"><b>${esc(w.symbol)}</b>
       <small class="muted"> ${esc(MARKET[w.market] || w.market)}${w.note ? " · " + esc(w.note) : ""}</small></span>
       <span class="amt">${w.price != null ? px(w.price, w.market) : `<small class="muted">no price</small>`}</span>
       <button class="btn small" data-check="${esc(w.symbol)}">Check</button>
-      <button class="btn small" data-unwatch="${esc(w.symbol)}" aria-label="Remove ${esc(w.symbol)}">✕</button></div>`).join("");
+      <button class="btn small" data-unwatch="${esc(w.symbol)}" aria-label="Remove ${esc(w.symbol)}">✕</button></div>`, "");
   return card("Watchlist", `<div class="add"><input id="newsym" placeholder="Add a symbol: NVDA, ETH, TCS…" maxlength="20" aria-label="Symbol to watch">
       <button class="btn solid" id="watchbtn">Add</button></div>` + (rows || `<p class="muted">Nothing on your watchlist yet.</p>`),
     "Every symbol here is in the daily scan, on top of the usual list for each market.");

@@ -130,9 +130,7 @@ sealed interface Screen {
     data object Reports : Screen
     data object Insights : Screen
     data object Library : Screen
-    data object Money : Screen
-    data object MoneyDashboard : Screen
-    data object CardBenefits : Screen
+    data object Dashboard : Screen
     data object News : Screen
     data object Investments : Screen
     data object Travel : Screen
@@ -338,8 +336,7 @@ private fun BuddyScreen(
                 Box {
                     TextButton(onClick = { menuOpen = true }) { Text("☰", fontSize = 24.sp, color = Pal.text) }
                     DropdownMenu(expanded = menuOpen, onDismissRequest = { menuOpen = false }) {
-                        listOf("✈  Travel" to Screen.Travel, "💳  Money" to Screen.Money, "📈  Money dashboard" to Screen.MoneyDashboard,
-                            "🎁  Card benefits" to Screen.CardBenefits, "💹  Investments" to Screen.Investments, "📰  News" to Screen.News,
+                        listOf("✈  Travel" to Screen.Travel, "💳  Dashboard" to Screen.Dashboard, "💹  Investments" to Screen.Investments, "📰  News" to Screen.News,
                             "📎  Library" to Screen.Library,
                             "📊  Insights" to Screen.Insights, "📄  Reports" to Screen.Reports, "⚙  Settings" to Screen.Settings)
                             .forEach { (label, target) ->
@@ -371,16 +368,12 @@ private fun BuddyScreen(
                 InsightsScreen(prefs.link)
                 return@Column
             }
-            Screen.MoneyDashboard -> {
-                MoneyDashboardScreen(prefs.link)
-                return@Column
-            }
             Screen.Travel -> {
                 TravelScreen(prefs.link)
                 return@Column
             }
-            Screen.Money -> {
-                MoneyScreen(prefs.link) { onNavigate(Screen.Reports) }
+            Screen.Dashboard -> {  // Money, the money dashboard and card benefits, as tabs (Dashboard.kt)
+                DashboardScreen(prefs.link) { onNavigate(Screen.Reports) }
                 return@Column
             }
             Screen.Library -> {
@@ -397,10 +390,6 @@ private fun BuddyScreen(
             }
             is Screen.Report -> {  // every report in the dashboards' look (web/report.html)
                 BuddyPage(prefs.link, "report.html", "id=${screen.id}")
-                return@Column
-            }
-            Screen.CardBenefits -> {
-                BuddyPage(prefs.link, "cards.html")
                 return@Column
             }
             Screen.Investments -> {  // trade strategy, market trends, Plaid accounts, watchlist (web/invest.html)
