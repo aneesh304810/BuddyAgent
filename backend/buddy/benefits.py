@@ -1320,7 +1320,7 @@ class Benefits:
                 if b:
                     st = self.status(b, today)
                     item.update({k: st[k] for k in ("id", "used", "left", "ends", "days_left", "maybe_pending",
-                                                    "starts")})
+                                                    "starts", "credits_seen", "statement_through")})
                     item["used_this_year"] = self._used_this_year(b, today)
                     seen_tracked.add(b["id"])
                 credits.append(item)

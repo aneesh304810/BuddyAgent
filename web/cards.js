@@ -45,31 +45,137 @@ function creditRow(c, x, ci, xi) {
   const right = x.tracked
     ? `${progress(x)}<span class="rt">${money(x.left)} left<br>${x.days_left}d · ${esc(day(x.ends))}</span>`
     : `<span class="rt">${money(x.amount)}</span><button class="btn" data-track="${ci}:${xi}">+ Track</button>`;
-  return `<div class="credit" data-open="${ci}:${xi}"><div class="nm"><b>${esc(x.name)}${chips}</b><small>${money(x.amount)} ${esc(meta)}</small></div>${right}</div>`;
+  return `<div class="credit" data-open="${ci}:${xi}"><div class="nm"><b>${esc(x.name)}${chips}</b><small>${money(x.amount)} ${esc(meta)}</small>${evidence(x)}</div>${right}</div>`;
+}
+
+const TAB_KEY = "cardsTab";
+let tab = storageGet(TAB_KEY) || "overview";
+
+function evidence(x) {  // what the card's own statement (Plaid) says about this credit
+  if (x.tracked) {
+    const seen = (x.credits_seen || []).slice(-1)[0];
+    if (seen) return `<span class="ev good">✓ ${money(seen.amount)} statement credit on ${esc(day(seen.day))}</span>`;
+    if (x.maybe_pending) return `<span class="ev">You spent there; ${money(x.maybe_pending)} of credit may still post</span>`;
+    if (x.used > 0) return `<span class="ev good">✓ ${money(x.used)} marked used</span>`;
+    return x.statement_through ? `<span class="ev warn">Not used yet: no statement credit through ${esc(day(x.statement_through))}</span>` : "";
+  }
+  if ((x.seen || []).length) return `<span class="ev good">✓ Looks used: ${money(x.seen_used)} statement credit on ${esc(day(x.seen.slice(-1)[0].day))}</span>`;
+  return x.statement_through ? `<span class="ev">No statement credit this period (through ${esc(day(x.statement_through))})</span>` : "";
+}
+
+function tabs() {
+  const all = [["overview", "Overview"], ["category", "By category"], ["best", "Best card"], ["missed", "Missed rewards"], ["cards", "My cards"]];
+  return `<div class="chips" style="margin:2px 0 12px">${all.map(([k, l]) => `<button class="chip${k === tab ? " on" : ""}" data-tab="${k}">${l}</button>`).join("")}</div>`;
+}
+
+function comingUp(d, limit) {
+  const rows = d.coming_up.slice(0, limit);
+  if (!rows.length) return card("Coming up", `<p class="muted">Nothing tracked is running out. ${d.cards.some((c) => c.credits.some((x) => !x.tracked)) ?
+    "Track your credits (My cards → Track all) and Buddy shows each one here with its date." : ""}</p>`);
+  return card("Coming up", `<p class="muted" style="margin:-6px 0 6px">Credits with money left, by the date they reset or expire</p>` + rows.map((x) => {
+    const dt = new Date((x.ends || "") + "T12:00:00");
+    const ci = d.cards.findIndex((c) => c.card === x.card), xi = ci >= 0 ? d.cards[ci].credits.findIndex((y) => y.id === x.id) : -1;
+    return `<div class="soon" data-open="${ci}:${xi}"><div class="date"><b>${dt.toLocaleDateString(undefined, { month: "short" })}</b><span>${dt.getDate()}</span></div>
+      <div class="what"><b>${money(x.year_value)} ${esc(x.name)}</b><span>${money(x.left)} ${x.days_left <= 31 ? "expiring" : "left"} · ${esc(x.card)}</span>${evidence(x)}</div>
+      ${x.days_left <= 14 ? `<span class="chip2 warn">${x.days_left}d</span>` : ""}</div>`;
+  }).join("") + (d.coming_up.length > limit ? `<p><button class="btn" data-tab="cards">Show all</button></p>` : ""));
+}
+
+function categoryTiles(d) {
+  return card("Browse by category", `<p class="muted" style="margin:-6px 0 6px">Benefits you might be missing</p>` + d.browse.map((g) =>
+    `<div class="cat" data-cat="${esc(g.category)}"><span class="icon">${g.icon}</span><div class="what"><b>${esc(g.category)}</b><span>${esc(g.preview)}</span></div>
+      <div class="rt">${g.year_value ? money(g.year_value) + "/yr" : ""}${g.expiring ? `<br><span class="chip2 warn">${g.expiring} expiring</span>` : ""}</div></div>`).join(""));
+}
+
+function byCategory(d) {
+  return d.browse.map((g) => card(`${g.icon} ${esc(g.category)} <span class="muted" style="font-weight:400">· ${g.count} benefit${g.count === 1 ? "" : "s"}</span>`,
+    g.subs.map((s, si) => `<div class="sub" data-sub="${esc(g.category)}|${si}"><div class="what"><b>${esc(s.name)}</b>
+        <span>${s.count} benefit${s.count === 1 ? "" : "s"} from ${s.cards} card${s.cards === 1 ? "" : "s"}</span>
+        ${s.expiring ? `<span class="chip2 warn" style="margin:4px 0 0">${s.expiring} expiring</span>` : ""}</div>
+      <div class="rt">${s.year_value ? `<b>${money(s.year_value)}</b><br><span class="muted">a year</span>` : ""}</div></div>`).join(""),
+    `id="cat-${esc(g.category).replace(/[^A-Za-z]/g, "")}"`)).join("");
+}
+
+function openSub(d, cat, si) {
+  const s = d.browse.find((g) => g.category === cat).subs[si];
+  sheet(`<div class="crumbs">${esc(cat)}</div><h2 style="margin:0 0 8px">${esc(s.name)}</h2>` + s.items.map((x) => {
+    const ci = d.cards.findIndex((c) => c.card === x.card);
+    const cx = ci >= 0 && x.type === "credit" ? d.cards[ci].credits.find((y) => y.name === x.name) : null;
+    return `<div class="sub" ${cx ? `data-open="${ci}:${d.cards[ci].credits.indexOf(cx)}"` : ""}><div class="what"><b>${esc(x.name)}</b>
+      <span>${esc(x.card)}${x.type === "credit" ? ` · ${money(x.amount)} ${esc(PERIOD[x.period] || x.period || "")}` : " · perk"}</span>${cx ? evidence(cx) : ""}</div>
+      <div class="rt">${x.tracked ? `${money(x.left)} left` : x.type === "credit" ? '<span class="muted">not tracked</span>' : ""}</div></div>`;
+  }).join(""));
+  $("panel").querySelectorAll("[data-open]").forEach((el) => el.onclick = () => {
+    const [ci, xi] = el.dataset.open.split(":").map(Number); openCredit(d.cards[ci], d.cards[ci].credits[xi]);
+  });
+}
+
+function bestCard(d) {
+  if (!d.earn_guide.length) return card("Rewards earning guide", `<p class="muted">Buddy needs your cards' earn rates: say "set up my card benefits".</p>`);
+  return card("Rewards earning guide", `<p class="muted" style="margin:-6px 0 6px">The best of your cards for each kind of spending.
+    Points and miles counted at ${d.missed.point_cents || 1}¢ each.</p>` + d.earn_guide.map((g) => `<div class="guide">
+      <div class="what"><b>${esc(g.label)}: ${esc(g.best.label)}</b><span>${esc(g.best.card)}${g.best.last4 ? " ••" + esc(g.best.last4) : ""}</span>
+      <div class="pills">${g.ties.length ? `<span class="pill">tied with ${g.ties.length} other card${g.ties.length === 1 ? "" : "s"}</span>` : ""}
+        ${g.limited.map((l) => `<span class="pill">${esc(l.card.split(" ").slice(-2).join(" "))}: up to ${esc(l.label)} (${esc(l.category)})</span>`).join("")}</div></div>
+      <div class="rt"><b>${g.best.value.toFixed(g.best.value % 1 ? 1 : 0)}%</b></div></div>`).join(""));
+}
+
+function missed(d) {
+  const m = d.missed;
+  if (!m.items.length) return card("Missed rewards", `<p class="muted">No missed rewards in the last ${m.days} days: you used the best card, or Buddy needs your cards' earn rates and the bank feed.</p>`);
+  return card(`Missed rewards · ${money(m.total)}`, `<p class="muted" style="margin:-6px 0 6px">In the last ${m.days} days, using your best card each time would have earned ${money(m.total)} more
+    (about ${money(m.yearly)} a year).</p>` + m.items.map((x) => `<div class="miss">
+      <div class="head"><b>${esc(x.merchant)}</b><span>${money(x.amount)} · ${esc(day(x.day))}</span></div>
+      <div class="swap"><span>${x.used.value}%<br><small>${esc(x.used.card)}</small></span><i>→</i><span>${x.better.value}%<br><small>${esc(x.better.card)}</small></span>
+        <b class="lost">${money(x.missed)}<br><small>missed</small></b></div></div>`).join(""));
 }
 
 function render() {
-  const d = data, t = d.totals;
+  const d = data, t = d.totals, s = d.summary || {};
   $("label").textContent = d.cards.length ? `· ${d.cards.length} card${d.cards.length === 1 ? "" : "s"}` : "";
-  const parts = [];
   if (!d.cards.length) {
     $("main").innerHTML = card("No cards yet", `<p class="muted">Connect your bank in Buddy, or tell Buddy which cards you have. Then say "set up my card benefits".</p>`);
     return;
   }
-  parts.push(`<div class="kpis" style="margin-bottom:12px">
+  const parts = [`<div class="kpis" style="margin-bottom:10px">
+    <div class="kpi"><span>Total benefits</span><b>${s.benefits ?? "–"}</b></div>
     <div class="kpi"><span>Credits a year</span><b>${money(t.year_value)}</b></div>
-    <div class="kpi"><span>Annual fees</span><b>${money(t.fees)}</b></div>
     <div class="kpi"><span>Used this year</span><b style="color:var(--good)">${money(t.used_this_year)}</b></div>
-    <div class="kpi"><span>Left this period</span><b>${money(t.left_this_period)}</b></div></div>`);
+    <div class="kpi"><span>Annual fees</span><b>${money(t.fees)}</b></div>
+    <div class="kpi"><span>Missed (30 days)</span><b style="color:${s.missed_30d ? "var(--warn)" : "var(--good)"}">${money(s.missed_30d || 0)}</b></div></div>`, tabs()];
   if (d.questions && d.questions.length) parts.push(card("Which card is this?", d.questions.map((q) => `<p class="muted">${esc(q)}</p>`).join("") +
     `<p class="muted">Tell Buddy, e.g. "0457 is my Sapphire Preferred".</p>`));
-  if (d.ending_soon.length) {
-    parts.push(card("Use these soon", d.ending_soon.map((x) => {
-      const ci = d.cards.findIndex((c) => c.card === x.card), xi = d.cards[ci].credits.findIndex((y) => y.id === x.id);
-      return `<div class="credit" data-open="${ci}:${xi}"><div class="nm"><b>${esc(x.name)}</b><small>${esc(x.card)}</small></div>
-        ${progress(x)}<span class="rt"><b style="color:var(--text)">${money(x.left)}</b> left<br>${x.days_left === 0 ? "today" : x.days_left + " days"}</span></div>`;
-    }).join("")));
-  }
+  if (tab === "overview") parts.push(comingUp(d, 5), categoryTiles(d), bestCard(d));
+  else if (tab === "category") parts.push(byCategory(d));
+  else if (tab === "best") parts.push(bestCard(d));
+  else if (tab === "missed") parts.push(missed(d));
+  else myCards(d, parts);
+  parts.push(`<p class="muted">Used or not is read from your cards' own statements (Plaid): a statement credit that names the benefit counts.
+    Benefits come from each issuer's website; your card's terms win.</p>`);
+  $("main").innerHTML = parts.join("");
+  document.querySelectorAll("[data-tab]").forEach((el) => el.onclick = () => { tab = el.dataset.tab; storageSet(TAB_KEY, tab); render(); scrollTo(0, 0); });
+  document.querySelectorAll("[data-cat]").forEach((el) => el.onclick = () => {
+    tab = "category"; storageSet(TAB_KEY, tab); render();
+    const target = document.getElementById("cat-" + el.dataset.cat.replace(/[^A-Za-z]/g, "")); if (target) target.scrollIntoView();
+  });
+  document.querySelectorAll("[data-sub]").forEach((el) => el.onclick = () => { const [c, i] = el.dataset.sub.split("|"); openSub(d, c, Number(i)); });
+  document.querySelectorAll("[data-open]").forEach((el) => el.onclick = (e) => {
+    if (e.target.closest("button")) return;
+    const [ci, xi] = el.dataset.open.split(":").map(Number);
+    openCredit(d.cards[ci], d.cards[ci].credits[xi]);
+  });
+  document.querySelectorAll("[data-track]").forEach((el) => el.onclick = () => {
+    const [ci, xi] = el.dataset.track.split(":").map(Number);
+    track(d.cards[ci], [d.cards[ci].credits[xi]]);
+  });
+  document.querySelectorAll("[data-trackall]").forEach((el) => el.onclick = () => {
+    const c = d.cards[Number(el.dataset.trackall)];
+    track(c, c.credits.filter((x) => !x.tracked));
+  });
+}
+
+
+function myCards(d, parts) {
   d.cards.forEach((c, ci) => {
     const tracked = c.credits.filter((x) => x.tracked).length, untracked = c.credits.length - tracked;
     const fee = c.annual_fee || 0, top = Math.max(fee, c.year_value, c.used_this_year, 1);
@@ -91,20 +197,6 @@ function render() {
         " · " + c.sources.map((u) => `<a href="${esc(u)}" target="_blank" rel="noopener">${esc(new URL(u).hostname.replace("www.", ""))}</a>`).join(" ") : ""}.
         Issuers change benefits; your card's terms win.</p>` : "");
     parts.push(card(head, body));
-  });
-  $("main").innerHTML = parts.join("");
-  document.querySelectorAll("[data-open]").forEach((el) => el.onclick = (e) => {
-    if (e.target.closest("button")) return;
-    const [ci, xi] = el.dataset.open.split(":").map(Number);
-    openCredit(d.cards[ci], d.cards[ci].credits[xi]);
-  });
-  document.querySelectorAll("[data-track]").forEach((el) => el.onclick = () => {
-    const [ci, xi] = el.dataset.track.split(":").map(Number);
-    track(d.cards[ci], [d.cards[ci].credits[xi]]);
-  });
-  document.querySelectorAll("[data-trackall]").forEach((el) => el.onclick = () => {
-    const c = d.cards[Number(el.dataset.trackall)];
-    track(c, c.credits.filter((x) => !x.tracked));
   });
 }
 

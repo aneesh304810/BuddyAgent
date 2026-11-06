@@ -80,6 +80,17 @@ svg text { fill:var(--muted); font-size:11px; }
 .hist div{flex:1;text-align:center;font-size:11px;color:var(--muted)}
 .hist div i{display:block;background:var(--good);border-radius:4px 4px 0 0;margin:0 auto 3px;width:70%}
 .big{font-size:28px;font-weight:700}
+.ev{display:block;font-size:12px;color:var(--muted);margin-top:3px}.ev.good{color:var(--good)}.ev.warn{color:var(--warn)}
+.soon,.cat,.sub,.guide{display:flex;align-items:center;gap:12px;padding:10px 0;border-top:1px solid var(--line);cursor:pointer}
+.soon:first-of-type,.cat:first-of-type,.sub:first-of-type,.guide:first-of-type{border-top:0}
+.soon .date{flex:0 0 44px;text-align:center;line-height:1.1}.soon .date b{display:block;font-size:15px}.soon .date span{font-size:20px}
+.what{flex:1;min-width:0}.what b{display:block;font-weight:600}.what>span:not(.chip2):not(.ev){display:block;font-size:13px;color:var(--muted)}.what>.chip2{display:inline-block}
+.cat .icon{font-size:22px;flex:0 0 30px;text-align:center}.rt{text-align:right;font-size:13px;white-space:nowrap}
+.pills{display:flex;flex-wrap:wrap;gap:6px;margin-top:6px}.pill{font-size:12px;border:1px solid var(--accent);color:var(--accent);border-radius:999px;padding:2px 9px}
+.miss{border:1px solid var(--line);border-radius:12px;padding:10px 12px;margin:8px 0;background:var(--bg)}
+.miss .head{display:flex;justify-content:space-between;gap:8px}.miss .head span{color:var(--muted);font-size:13px}
+.swap{display:flex;align-items:center;gap:10px;margin-top:8px;font-size:15px}.swap small{color:var(--muted);font-size:11px}
+.swap i{color:var(--muted);font-style:normal}.swap .lost{margin-left:auto;text-align:right;color:var(--warn)}
 </style>
 </head>
 <body>

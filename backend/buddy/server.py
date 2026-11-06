@@ -897,7 +897,9 @@ def api_travel_profile(body: dict) -> dict:
 @app.get("/api/cards/dashboard", dependencies=[Depends(require_admin)])
 async def api_cards_dashboard() -> dict:
     from . import benefits
-    return json.loads(json.dumps(await asyncio.to_thread(benefits.Benefits(memory).dashboard), default=str))
+    from .card_optimizer import Optimizer
+    view = await asyncio.to_thread(lambda: Optimizer(benefits.Benefits(memory)).view())
+    return json.loads(json.dumps(view, default=str))
 
 
 @app.get("/api/cards/credit/{benefit_id}", dependencies=[Depends(require_admin)])
