@@ -964,6 +964,53 @@ async def api_news_refresh(body: dict) -> dict:
     return await asyncio.to_thread(t.feed)
 
 
+# --- investments (web/invest.html): trade strategy, market trends, Plaid investment accounts, the watchlist
+@app.get("/api/invest", dependencies=[Depends(require_admin)])
+async def api_invest() -> dict:
+    from . import invest
+    return await asyncio.to_thread(invest.dashboard, memory)
+
+
+@app.post("/api/invest/watch", dependencies=[Depends(require_admin)])
+async def api_invest_watch(body: dict) -> dict:
+    """add (symbol) · remove (symbol): the watchlist, scanned every weekday."""
+    from . import invest
+    from .markets import Markets
+    mk = Markets(memory)
+    try:
+        if body.get("action") == "add":
+            text = mk.watch(str(body.get("symbol") or ""))
+        elif body.get("action") == "remove":
+            text = mk.unwatch(str(body.get("symbol") or ""))
+        else:
+            raise ToolError("Unknown action.")
+    except ToolError as e:
+        raise HTTPException(status_code=400, detail=str(e)) from e
+    return {"ok": True, "text": text, "watchlist": await asyncio.to_thread(invest.watchlist, memory, mk)}
+
+
+@app.post("/api/invest/analyze", dependencies=[Depends(require_admin)])
+async def api_invest_analyze(body: dict) -> dict:
+    """One symbol now: trend, RSI, levels, any setup with its plan, and what people are saying (ideas, not advice)."""
+    from .markets import Markets
+    try:
+        return await asyncio.to_thread(Markets(memory).analyze, str(body.get("symbol") or ""))
+    except ToolError as e:
+        raise HTTPException(status_code=400, detail=str(e)) from e
+
+
+@app.post("/api/invest/sold", dependencies=[Depends(require_admin)])
+async def api_invest_sold(body: dict) -> dict:
+    """The user sold a tracked trade (they trade themselves; this only stops Buddy watching it)."""
+    from .markets import Markets
+    price = body.get("price")
+    try:
+        text = Markets(memory).sold(str(body.get("symbol") or ""), float(price) if price not in (None, "") else None)
+    except (ToolError, ValueError) as e:
+        raise HTTPException(status_code=400, detail=str(e)) from e
+    return {"ok": True, "text": text}
+
+
 @app.post("/api/cards/action", dependencies=[Depends(require_admin)])
 async def api_cards_action(body: dict) -> dict:
     """track (card, name, anniversary?) · untrack (id) · used (id, amount?): from the dashboard's buttons."""

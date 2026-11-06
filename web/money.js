@@ -90,9 +90,6 @@ function render() {
           x.next_payment ? "next payment " + money(x.next_payment) + (x.next_due ? " on " + esc(x.next_due) : "") : ""].filter(Boolean).join(" · ")}</p>` : "")) +
       (acc.note ? `<p class="muted" style="margin-top:8px">${esc(acc.note)}</p>` : "")));
   }
-  // trade ideas being watched and trades being tracked (ideas, not advice)
-  const mk = d.markets;
-  if (mk && (mk.setups.length || mk.positions.length)) parts.push(marketsCard(mk));
   // credit score and anything new on the credit report
   const cr = d.credit;
   if (cr) parts.push(creditCard(cr));
@@ -176,21 +173,6 @@ function render() {
   document.querySelectorAll("[data-merchant]").forEach((el) => el.onclick = () =>
     drill([{ label: el.dataset.merchant, q: { merchant: el.dataset.merchant } }]));
   document.querySelectorAll("[data-month]").forEach((el) => el.onclick = () => load(el.dataset.month));
-}
-
-function marketsCard(mk) {
-  const px = (v) => v >= 1 ? Number(v).toLocaleString(undefined, { minimumFractionDigits: 2, maximumFractionDigits: 2 }) : Number(v).toPrecision(3);
-  const pos = mk.positions.map((p) => `<div class="row" style="cursor:default"><span class="name" style="white-space:normal">
-    <b>${esc(p.symbol)}</b> <small class="muted">bought ${esc(p.opened)}</small><br>
-    <small>from ${px(p.entry)} · stop ${px(p.stop)} · targets ${px(p.t1)} / ${px(p.t2)}</small></span>
-    <span class="amt"><small class="muted">tracking</small></span></div>`).join("");
-  const ideas = mk.setups.map((s) => `<div class="row" style="cursor:default"><span class="name" style="white-space:normal">
-    <b>${esc(s.symbol)}</b> <small class="muted">${esc((s.data && s.data.label) || s.pattern)}${s.data && s.data.sentiment ? " · chatter " + esc(s.data.sentiment) : ""}</small><br>
-    <small>entry ${px(s.entry)} · stop ${px(s.stop)} · targets ${px(s.t1)} / ${px(s.t2)}</small></span>
-    <span class="amt"><small class="${s.status === "triggered" ? "down" : "muted"}">${s.status === "triggered" ? "triggered" : "watching"}</small></span></div>`).join("");
-  return card("Trade ideas", (pos ? `<p class="muted" style="margin:0 0 2px">Your trades</p>` + pos : "") +
-    (ideas ? `<p class="muted" style="margin:10px 0 2px">Setups being watched</p>` + ideas : ""),
-    esc(mk.note) + " The full plan for each is in Reports (Market scan).");
 }
 
 function creditCard(cr) {
