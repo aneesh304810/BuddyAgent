@@ -153,7 +153,9 @@ fun InsightsScreen(link: ServerLink?) {
         if (link == null) return@LaunchedEffect
         runCatching { InsightsApi.costs(link) }.onSuccess {
             monthAllIn = "${usd(it.optDouble("month_to_date_usd"))} so far this month, all in " +
-                "(heading for ${usd(it.optDouble("forecast_usd"))})"
+                "(heading for ${usd(it.optDouble("forecast_usd"))}, about ${usd(it.optDouble("forecast_yearly_usd"))} a year)" +
+                (it.optJSONArray("price_not_set")?.let { arr -> if (arr.length() > 0) ". Price not set yet: " +
+                    (0 until arr.length()).joinToString(", ") { i -> arr.optString(i) } else "" } ?: "")
             costLines = it.optJSONArray("lines")?.objects().orEmpty()
             agentCosts = it.optJSONArray("agents")?.objects().orEmpty()
         }
@@ -408,8 +410,17 @@ fun InsightsScreen(link: ServerLink?) {
             val top = paid.maxOfOrNull { it.optDouble("forecast") }?.takeIf { it > 0 } ?: 1.0
             items(paid) { c -> ServiceCost(c, (c.optDouble("forecast") / top).toFloat()) }
             val free = costLines.filter { it.optString("source") == "free" }
-            if (free.isNotEmpty()) item {
-                Text("Free: " + free.joinToString(" · ") { it.optString("provider") }, color = Dim, fontSize = 12.sp)
+            if (free.isNotEmpty()) {
+                item { Text("Free (${free.size})", color = Pal.text, fontSize = 14.sp, fontWeight = FontWeight.SemiBold) }
+                items(free) { c ->  // each free service with what it's for and its plan
+                    Column(Modifier.fillMaxWidth().padding(vertical = 2.dp)) {
+                        Row {
+                            Text(c.optString("provider"), color = Pal.text, fontSize = 13.sp, modifier = Modifier.weight(1f))
+                            Text("$0", color = Dim, fontSize = 13.sp)
+                        }
+                        c.optString("note").takeIf { it.isNotBlank() }?.let { Text(it, color = Dim, fontSize = 12.sp) }
+                    }
+                }
             }
             if (agentCosts.isNotEmpty()) {
                 item { Text("Agents this month", color = Pal.text, fontSize = 14.sp, fontWeight = FontWeight.SemiBold) }

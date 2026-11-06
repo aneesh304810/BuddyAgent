@@ -15,8 +15,11 @@ forecast and where the number came from:
                 Models...): Buddy's meter of every call
   Outside APIs  web search (Serper), flight and hotel prices (SerpApi, Duffel, Travelpayouts):
                 every call logged with its price
-  Free services the ones Buddy uses at no charge (Tailscale, Cloudflare, GitHub, OpenStreetMap),
-                listed so the picture is complete
+  Free services the ones Buddy uses at no charge (Tailscale, Cloudflare, GitHub, OpenStreetMap, Hacker News,
+                arXiv, StockTwits, Reddit, Alpaca's free data, Gemini and OpenRouter free models), listed so the
+                picture is complete
+  Not set       a service that costs money but whose price Buddy can't see (server, Plaid, the domain) shows
+                "price not set" with the one setting that fills it in
   Fixed costs   anything else you pay monthly (BUDDY_FIXED_COSTS)
 
 Network answers are cached for 30 minutes; the providers ask not to be polled hard.
@@ -161,7 +164,9 @@ class FinOps:
                 log.warning("DigitalOcean balance failed: %s", e)
                 note = f"live bill unavailable ({type(e).__name__}); showing the plan price"
         elif not price:
-            return None  # no server cost set: nothing to show
+            return CostLine("Server (DigitalOcean)", 0.0, 0.0, "price not set",
+                            "the machine Buddy runs on. For the live bill add a read-only DigitalOcean token "
+                            "(set.sh BUDDY_DO_TOKEN), or its monthly price (set.sh BUDDY_COST_SERVER_USD)")
         else:
             note = "monthly price you set"
         plan = float(price or 0)
@@ -229,7 +234,8 @@ class FinOps:
         except Exception:
             calls = 0
         if not calls and not plan:
-            return None  # not in use
+            return CostLine("Zapier", 0.0, 0.0, "free", "not in use: no Zapier calls and no plan price set "
+                            "(set.sh BUDDY_ZAPIER_PLAN_USD if you're on a paid plan)")
         tasks = calls * ZAPIER_TASKS_PER_CALL
         fraction, _ = _month_progress()
         return CostLine("Zapier", round(plan * fraction, 2), plan, "plan price",
@@ -285,8 +291,17 @@ class FinOps:
             source = "price not set"
         return CostLine("Plaid", round(mtd, 2), round(monthly + _project(info["cost"]), 2), source, note)
 
-    API_NAMES = {"serper": "Serper (web search)", "serpapi": "SerpApi (Google Flights and Hotels)",
-                 "duffel": "Duffel (flight offers)", "travelpayouts": "Travelpayouts (cheapest dates)"}
+    API_NAMES = {"serper": "Serper (web search, Google News)", "serpapi": "SerpApi (Google Flights, Hotels, Trends)",
+                 "duffel": "Duffel (flight offers)", "travelpayouts": "Travelpayouts (cheapest dates)",
+                 "alpaca": "Alpaca (market data)", "reddit": "Reddit", "stocktwits": "StockTwits",
+                 "hackernews": "Hacker News (Algolia search)", "arxiv": "arXiv", "github": "GitHub search",
+                 "coinbase": "Coinbase (crypto prices)", "stooq": "Stooq (daily prices)",
+                 "yahoo": "Yahoo Finance (Indian stocks)", "openrouter_list": "OpenRouter model list"}
+    # Free APIs: shown as free whatever they're called (no per-call price).
+    FREE_APIS = {"alpaca": "free market data plan (paper account)", "reddit": "free public search",
+                 "stocktwits": "free public API", "hackernews": "free, no key", "arxiv": "free public API",
+                 "github": "free public search", "coinbase": "free public prices", "stooq": "free daily prices",
+                 "yahoo": "free public chart data"}
 
     def outside_apis(self, calls: dict) -> list[CostLine]:
         lines = []
@@ -294,6 +309,10 @@ class FinOps:
             if name == "plaid":
                 continue
             note = f"{e['calls']} calls this month" + (f", {e['failed']} failed" if e["failed"] else "")
+            if name in self.FREE_APIS and not e["cost"]:
+                lines.append(CostLine(self.API_NAMES.get(name, name.title()), 0.0, 0.0, "free",
+                                      f"{note}; {self.FREE_APIS[name]}"))
+                continue
             if not e["cost"]:
                 note += "; free tier or no per-call price set"
             lines.append(CostLine(self.API_NAMES.get(name, name.title()), round(e["cost"], 2), _project(e["cost"]),
@@ -319,18 +338,34 @@ class FinOps:
             if not r["cost"]:
                 note += "; free tier"
             lines.append(CostLine(self.MODEL_NAMES.get(r["provider"], r["provider"].title()), round(r["cost"], 2),
-                                  _project(r["cost"]), "buddy meter", note))
+                                  _project(r["cost"]), "buddy meter" if r["cost"] else "free", note))
         return lines
 
     FREE = [("Tailscale", "private network between your phone and the server", "Personal plan"),
-            ("Cloudflare", "buddylabs.io website, waitlist and email routing", "free plan"),
-            ("GitHub", "code, app builds and security scans", "free plan"),
-            ("OpenStreetMap", "addresses for places and rides", "free, with attribution")]
+            ("Cloudflare", "buddylabs.io website (Pages), waitlist and email routing", "free plan"),
+            ("GitHub", "code, app builds (Actions) and security scans", "free plan"),
+            ("OpenStreetMap", "addresses for places and rides", "free, with attribution"),
+            ("Hacker News (Algolia search)", "trends and the News tab", "free, no key"),
+            ("arXiv", "new AI papers for trends", "free public API"),
+            ("StockTwits", "trending tickers and chatter", "free public API"),
+            ("Reddit", "what people are saying (trends, News, markets)", "free public search; Google as fallback"),
+            ("Alpaca (market data)", "stock, crypto and option prices, market news", "free plan (paper account)"),
+            ("Google Gemini", "free AI model: general answers, images, decks", "free tier (AI Studio key)"),
+            ("OpenRouter", "free AI models, picked per task daily", "free models only (:free)")]
 
     def free_services(self, named: set[str]) -> list[CostLine]:
-        """Services Buddy relies on at no charge; a fixed cost with the same name replaces its line."""
+        """Services Buddy relies on at no charge; a line already shown (a fixed cost, or one with calls this month)
+        replaces its entry here."""
         return [CostLine(name, 0.0, 0.0, "free", f"{what}; {plan}") for name, what, plan in self.FREE
                 if name.lower() not in named]
+
+    def domain(self, named: set[str]) -> list[CostLine]:
+        """The website's domain renews once a year: shown until its price is added as a fixed cost."""
+        if any("domain" in n for n in named):
+            return []
+        return [CostLine("Domain (buddylabs.io)", 0.0, 0.0, "price not set",
+                         "renews yearly at your registrar; add its price per month, e.g. set.sh BUDDY_FIXED_COSTS "
+                         "with Domain=1.25 (a $15 a year domain)")]
 
     def fixed(self) -> list[CostLine]:
         fraction, _ = _month_progress()
@@ -346,7 +381,9 @@ class FinOps:
         lines += [line for line in (await self.server(), self.zapier(), self.plaid(calls)) if line]
         lines += self.other_models() + self.outside_apis(calls)
         fixed = self.fixed()
-        lines += fixed + self.free_services({l.provider.lower() for l in fixed})
+        lines += fixed
+        named = {line.provider.lower() for line in lines}
+        lines += self.domain(named) + self.free_services(named)
         mtd = round(sum(l.month_to_date for l in lines), 2)
         forecast = round(sum(l.forecast for l in lines), 2)
         budget = float(self.setting("BUDDY_ALLIN_BUDGET_USD", "0"))
@@ -355,6 +392,8 @@ class FinOps:
             "month": local_now().strftime("%B %Y"),
             "month_to_date_usd": mtd,
             "forecast_usd": forecast,
+            "forecast_yearly_usd": round(forecast * 12, 2),
+            "price_not_set": [line.provider for line in lines if line.source == "price not set"],
             "all_in_budget_usd": budget or None,
             "over_budget": bool(budget and forecast > budget),
             "lines": [asdict(l) for l in lines],

@@ -59,8 +59,11 @@ def test_defaults_without_any_keys_show_only_what_buddy_meters():
     memory = Memory(":memory:")
     usage.record(memory, "claude-sonnet-5-5", fake_usage(searches=3), purpose="")
     report = asyncio.run(fo.FinOps(memory, env={}).report())
-    lines = {l["provider"]: l for l in report["lines"] if l["source"] != "free"}
+    lines = {l["provider"]: l for l in report["lines"] if l["source"] not in ("free", "price not set")}
     assert set(lines) == {"Claude"}  # no server price, Zapier unused: no paid lines
+    # costs Buddy can't see are listed, with the setting that fills each in
+    assert report["price_not_set"] == ["Server (DigitalOcean)", "Domain (buddylabs.io)"]
+    assert report["forecast_yearly_usd"] == round(report["forecast_usd"] * 12, 2)
     assert {l["provider"] for l in report["lines"] if l["source"] == "free"} >= {"Tailscale", "Cloudflare"}
     assert lines["Claude"]["source"] == "buddy meter" and lines["Claude"]["month_to_date"] == 2.03
     assert report["claude_by_purpose"]["web_searches"] == {"count": 3, "usd_included_above": 0.03}
@@ -140,7 +143,8 @@ def test_buddy_can_answer_what_it_costs():
     assert "cost_report" in [t["name"] for t in convo.tools()]
     report = json.loads(asyncio.run(convo._dispatch("cost_report", {})))
     assert report["month"] == local_now().strftime("%B %Y")
-    assert [l["provider"] for l in report["lines"] if l["source"] != "free"] == ["Claude", "Domain"]
+    assert [l["provider"] for l in report["lines"] if l["source"] not in ("free", "price not set")] == ["Claude", "Domain"]
+    assert "Domain (buddylabs.io)" not in report["price_not_set"]  # its price is set as a fixed cost
 
 
 def test_any_host_by_name():
@@ -188,7 +192,8 @@ def test_every_connected_service_has_a_cost_line():
     assert "1 calls this month" in plaid_line["note"]
     assert "speech to text" in lines["Groq (speech to text and quick models)"]["note"]
     assert "free tier" in lines["Google Gemini"]["note"]
-    assert lines["Serper (web search)"]["month_to_date"] == 0.0 or lines["Serper (web search)"]["source"] == "buddy meter"
+    serper = lines["Serper (web search, Google News)"]
+    assert serper["month_to_date"] == 0.0 or serper["source"] == "buddy meter"
     assert lines["Cloudflare"]["source"] == "fixed"  # your own amount replaces the free line
     assert lines["Tailscale"]["source"] == "free"
 
@@ -199,3 +204,20 @@ def test_plaid_without_a_price_says_where_to_find_it():
     memory.db.execute("INSERT INTO plaid_items VALUES ('a', 't', 'production')")
     line = fo.FinOps(memory, env={}).plaid({})
     assert line.source == "price not set" and "BUDDY_PLAID_COST_PER_BANK_USD" in line.note
+
+
+def test_free_apis_and_services_each_have_a_line_with_what_they_are_for():
+    from buddy import markets, travel
+    memory = Memory(":memory:")
+    memory.db.executescript(markets.API_CALLS_SQL)
+    travel.log_call(memory, "hackernews", "/api/v1/search", True, 0.2, "trends", cost=0.0)
+    travel.log_call(memory, "alpaca", "/v2/stocks/bars", True, 0.3, "markets", cost=0.0)
+    report = asyncio.run(fo.FinOps(memory, env={}).report())
+    lines = {l["provider"]: l for l in report["lines"]}
+    hn = lines["Hacker News (Algolia search)"]
+    assert hn["source"] == "free" and "1 calls this month" in hn["note"] and "free, no key" in hn["note"]
+    assert lines["Alpaca (market data)"]["source"] == "free"
+    for name in ("arXiv", "StockTwits", "Reddit", "Google Gemini", "OpenRouter", "Cloudflare", "Zapier"):
+        assert lines[name]["source"] == "free", name
+    names = [l["provider"] for l in report["lines"]]
+    assert names.count("Hacker News (Algolia search)") == 1  # not listed twice
