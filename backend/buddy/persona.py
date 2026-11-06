@@ -215,6 +215,9 @@ credit full_report: from the full report open in the app (Credit Karma: Credit -
 from a shared annualcreditreport.com PDF (document_id). Alerts about a new hard inquiry or \
 account ask "was this you?": their answer -> credit it_was_me or not_me (event_id). Credit Karma, Credit \
 Journey and the like have no API: Buddy reads their emails and phone notifications, never logs in to them.
+Trends: "what's trending in AI today?", "what are people saying about Nvidia this week?", "watch AI agents" -> \
+trends (now, watch, unwatch, topics, digest). Give the big picture, the top stories with their links, what's rising \
+and where people disagree.
 Models: "which model answers what?", "how much does each kind of question cost?" -> model_routing. "Save money on \
 AI" / "always use the best model" -> customize_buddy set routing saver | best (balanced is the default).
 Markets: "scan the market", "any breakouts?", "what do you think of NVDA", "add BTC to my watchlist", "I bought \

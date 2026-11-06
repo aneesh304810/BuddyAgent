@@ -1,6 +1,6 @@
 # Buddy Privacy and Data Retention Policy
 
-Source: https://claude.ai/artifact/MJVGZ7pWQvi26tg1MS914P, revision 35
+Source: https://claude.ai/artifact/MJVGZ7pWQvi26tg1MS914P, revision 36
 
 Nov 1, 2026 · @Aneesh
 
@@ -90,6 +90,7 @@ Buddy uses a few service providers to work. Each sees only what its job needs, u
 | Tailscale | Private network between the phone and the server | Encrypted traffic it cannot read |
 | Duffel, SerpApi, Travelpayouts | Flight offers, Google Flights and Hotels prices, cheapest travel dates | Airports or place, dates and number of travellers only |
 | Alpaca (market data), Stooq, Coinbase, Yahoo Finance (public chart data), Reddit, StockTwits | Prices, charts, option prices and news for trade ideas; what people post about a stock or coin | Ticker symbols and search words only; never the owner's trades, holdings or account details. Buddy uses Alpaca's market data only and never places trades |
+| Hacker News (Algolia search), Google News (Serper), Google Trends (SerpApi), arXiv, GitHub | What people are discussing on the topics the owner watches or asks about: stories, headlines, rising searches, new papers and projects | The topic's search words only; never anything personal |
 
 No provider receives data for its own marketing or advertising.
 
@@ -107,6 +108,7 @@ Data is kept only as long as it is useful, then deleted automatically.
 | Card benefits and wish list | Until the owner removes them |
 | Credit scores and credit report changes | Until the owner asks Buddy to forget them; detailed credit reports 24 months, then deleted automatically |
 | Market watchlist, trade ideas and tracked trades; market scan reports | Watchlist and trades until the owner removes them; market scan reports 90 days, then deleted automatically |
+| Watched trend topics; trend digests and daily mention counts | Topics until the owner removes them; digests and counts 60 days, then deleted automatically |
 | Uploaded documents and photos, with their text, summaries, facts and search index | Until the owner tells Buddy to forget them; forgetting deletes the file, its text, its index entries and the facts taken from it |
 | People and things noted from the owner's data | Until the owner edits or deletes them |
 | Preferences and dates being watched | Until the owner removes them (in the app under Library, What Buddy knows about you, or by asking Buddy) |

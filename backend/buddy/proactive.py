@@ -24,6 +24,7 @@ from .tools import format_local, local_now, user_tz
 
 log = logging.getLogger(__name__)
 CREDIT_DEALS = os.getenv("BUDDY_CREDIT_DEALS", "1") not in ("", "0")  # deal search before a credit runs out
+TREND_DIGEST = os.getenv("BUDDY_TRENDS", "1") not in ("", "0")  # morning trend digest and spike alerts (trends.py)
 MARKET_SCAN = os.getenv("BUDDY_MARKET_SCAN", "1") not in ("", "0")  # the daily trade-idea scan (markets.py)
 CARD_LOOKUP = os.getenv("BUDDY_CARD_LOOKUP", "1") not in ("", "0")  # published card benefits, from issuer sites
 SOC_MONTHLY = os.getenv("BUDDY_SOC_MONTHLY", "1") not in ("", "0")
@@ -234,6 +235,32 @@ async def run(memory: Memory, deliver: Deliver) -> None:
             except Exception:
                 log.exception("credit watch failed")
                 watch = None
+            try:  # trends: the morning digest, and a message when a watched topic suddenly takes off
+                from . import trends as trd  # noqa: PLC0415
+                if memory.get("trends:digest_requested") or (TREND_DIGEST and trd.digest_due(memory)
+                                                               and not in_quiet_hours()):
+                    asked = bool(memory.get("trends:digest_requested"))
+                    memory.set("trends:digest_requested", "")
+                    memory.set("trends:digest", local_now().date().isoformat())
+                    _, text = await trd.Trends(memory).digest()
+                    if asked or not in_quiet_hours():
+                        await deliver("money", text)
+                slot = local_now().strftime("%Y-%m-%d:") + str(local_now().hour // 3)
+                if TREND_DIGEST and memory.get("trends:spike_check") != slot and memory.get("trends:digest"):
+                    memory.set("trends:spike_check", slot)  # every three hours
+                    watcher = trd.Trends(memory)
+                    for topic in watcher.topics():
+                        await asyncio.to_thread(watcher.collect, topic)
+                        hot = watcher.spike(topic["name"])
+                        mark = f"trends:spiked:{topic['name']}:{local_now().date().isoformat()}"
+                        if hot and not memory.get(mark) and not in_quiet_hours():
+                            memory.set(mark, "1")
+                            b = await watcher.brief(topic)
+                            lead = (b.get("summary") or {}).get("headline") or (b["stories"][0]["title"] if b["stories"] else "")
+                            await deliver("money", f"{topic['name']} is suddenly everywhere: {hot['today']} mentions today, "
+                                                   f"about {hot['usual']} on a usual day. {lead} Ask me for the details.")
+            except Exception:
+                log.exception("trends failed")
             try:  # markets: the daily scan after the US close (or when asked), and ideas checked in market hours
                 from . import markets as mkt  # noqa: PLC0415
                 trader = mkt.Markets(memory)
