@@ -80,3 +80,16 @@ def test_a_kind_the_free_models_keep_missing_goes_to_claude():
     kind, why = routing.free_kind("how do I reverse a list in python", mem)
     assert kind == "" and "getting code wrong lately" in why
     assert routing.overview(mem)["kept_off_free"] == ["free:code"]
+
+
+def test_images_decks_and_documents_on_general_topics_are_made_with_free_models():
+    mem = Memory(":memory:")
+    fm = lambda t: routing.free_make(t, mem)   # noqa: E731
+    assert fm("Make a presentation about the history of the Roman Empire") == ("pptx", "the history of the Roman Empire")
+    assert fm("create a 10-slide deck on how transformers work") == ("pptx", "how transformers work")
+    assert fm("draw an image of a lighthouse at sunset") == ("image", "a lighthouse at sunset")
+    assert fm("make a word document explaining photosynthesis")[0] == "docx"
+    # about the user, about now, or high stakes: Claude makes it
+    assert fm("make a presentation about my spending this year") == ("", "")
+    assert fm("make slides about today's market news") == ("", "")
+    assert fm("make a deck on whether I should invest in NVDA") == ("", "")

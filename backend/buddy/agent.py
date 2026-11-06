@@ -454,6 +454,9 @@ class Conversation:
         if not hasattr(self, "_free_learner"):
             self._free_learner = routing.Learner()
         routing.note_correction(self.memory, self.previous_turn, user_text)
+        made, topic = routing.free_make(user_text, self.memory)
+        if made and await self._free_make(made, topic, user_text, say, via):
+            return True
         kind, _why = routing.free_kind(user_text, self.memory, self._free_learner)
         if not kind:
             return False
@@ -478,6 +481,55 @@ class Conversation:
         usage.log_turn(self.memory, turn=self.turn_key, via=via, first_model=result["model"],
                        final_model=result["model"], first_word=first, total=time.monotonic() - started, rounds=1,
                        tools=[], sentences=len(sentences), filler=False, outcome="ok")
+        return True
+
+    async def _free_make(self, made: str, topic: str, user_text: str, say: Say, via: str) -> bool:
+        """An image, deck or document on a general topic, made with free models: Gemini's free image model, or a free
+        model writing the outline that Buddy builds into a .pptx / .docx. False (Claude takes over) on any problem."""
+        from . import makers, routing  # noqa: PLC0415
+        from .benefits import last_json  # noqa: PLC0415
+        from .free_models import check_general  # noqa: PLC0415
+        started = time.monotonic()
+        try:
+            check_general(user_text, self.memory)  # personal details never go to a free model
+            if made == "image":
+                data = await asyncio.to_thread(makers.generate_image, mask(user_text))
+                file = makers.save(self.memory, data, topic[:40], "png", "image")
+                spoken, model = "Here's your image.", "gemini (free)"
+            else:
+                slides = made == "pptx"
+                system = ("You write the content of a " + ("slide deck" if slides else "short document") + " on a "
+                          "general topic, accurately and clearly. Answer with one line of JSON only: {\"title\": \"...\", "
+                          "\"subtitle\": \"...\", \"sections\": [{\"heading\": \"...\", \"bullets\": [\"...\"], "
+                          + ("\"notes\": \"speaker notes\"" if slides else "\"paragraphs\": [\"...\"]") + "}]}. "
+                          + ("6 to 10 slides, 3-5 short bullets each." if slides else "4 to 8 sections.")
+                          + f" If it depends on the person's own life or recent events, reply only: NEEDS_CLAUDE")
+                got = await self.free.run("brainstorm", mask(user_text), system=system, purpose="free:make",
+                                          claude_fallback=False)
+                spec = last_json(got["answer"])
+                if not spec or not isinstance(spec.get("sections"), list) or len(spec["sections"]) < 2:
+                    raise ToolError("the free model's outline wasn't usable")
+                spec["sections"] = [x for x in spec["sections"] if isinstance(x, dict)][:15]
+                build = makers.build_pptx if slides else makers.build_docx
+                data = await asyncio.to_thread(build, self.memory, spec)
+                title = str(spec.get("title") or topic)[:60]
+                file = makers.save(self.memory, data, title, made, "slides" if slides else "document")
+                n = len(spec["sections"])
+                spoken = (f"Here's your {n}-slide deck on {topic}." if slides else f"Here's your document on {topic}.") + \
+                    " Ask me to change anything."
+                model = got.get("model", "free")
+        except Exception as e:
+            log.info("free make failed (%s): Claude takes it", type(e).__name__)
+            routing.log_free(self.memory, self.turn_key, made, "free", handed_back=True)
+            return False
+        makers._show(makers._card(file, file["name"] if made != "image" else topic[:40]))
+        await say(spoken)
+        self._note_exchange(user_text, spoken)
+        routing.log_free(self.memory, self.turn_key, made, model)
+        usage.count(self.memory, "router:free")
+        usage.log_turn(self.memory, turn=self.turn_key, via=via, first_model=model, final_model=model,
+                       first_word=time.monotonic() - started, total=time.monotonic() - started, rounds=1,
+                       tools=[f"make_{made}"], sentences=1, filler=False, outcome="ok")
         return True
 
     def tools(self) -> list[dict]:

@@ -94,7 +94,7 @@ MAX_CHARS = 30_000
 SPEED_FIRST = {"quick_answer", "classify", "rewrite", "small_talk"}
 TIMEOUT = {"small_talk": 8, "quick_answer": 12, "classify": 10, "rewrite": 15, "brainstorm": 20, "explain": 20,
            "translate": 25, "summarize": 40, "code": 40}
-MAX_TOKENS = {"code": 3000}  # others: 1500
+MAX_TOKENS = {"code": 3000, "brainstorm": 3000}  # others: 1500 (brainstorm also writes deck outlines)
 EMAIL = re.compile(r"[\w.+-]+@[\w-]+\.[\w.]+")
 # A + and digits, or the 3-3-4 shape: plain long numbers in code aren't phone numbers.
 PHONE = re.compile(r"\+\d[\d\s().-]{7,}\d|\(?\b\d{3}\)?[\s.-]\d{3}[\s.-]\d{4}\b")

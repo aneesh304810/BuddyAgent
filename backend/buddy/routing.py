@@ -318,3 +318,28 @@ ROUTING_TOOL = {
     "input_schema": {"type": "object", "properties": {"days": {"type": "integer", "minimum": 1, "maximum": 90}},
                      "additionalProperties": False},
 }
+
+
+# --- things to make (an image, a deck, a document) on a general topic: a free model, no Claude -----------------
+MAKE = re.compile(r"(?i)^(?:please\s+)?(?:can you\s+)?(?:make|create|build|generate|draw|design|produce|prepare|give me)\s+"
+                  r"(?:me\s+)?(?:an?\s+|some\s+|the\s+)?(?:\d+[- ]slide\s+)?(?P<what>image|picture|illustration|logo|drawing|"
+                  r"poster|artwork|presentation|deck|slide ?deck|slides|ppt|pptx|power ?point|word doc(?:ument)?|docx|"
+                  r"document)\b[^.?!]{0,40}?\b(?:about|on|of|for|showing|explaining)\s+(?P<topic>.{3,200})$")
+
+
+def free_make(text: str, memory=None) -> tuple[str, str]:
+    """('image' | 'pptx' | 'docx', topic) when a free model can make it: a general topic with nothing personal and
+    nothing current. Else ('', '')."""
+    t = text.strip().rstrip(".!")
+    m = MAKE.search(t)
+    if not m or mode(memory) == "best":
+        return "", ""
+    topic = m.group("topic").strip()
+    if PERSONAL_REF.search(topic) or CURRENT.search(topic) or task_of(topic)[2]:
+        return "", ""  # about them, about now, or high stakes: Claude makes it (with Buddy's tools and care)
+    what = m.group("what").lower()
+    kind = "image" if what in ("image", "picture", "illustration", "logo", "drawing", "poster", "artwork") else \
+        "docx" if "doc" in what else "pptx"
+    if f"free:{kind}" in Learner().weak(memory, "free"):
+        return "", ""
+    return kind, topic
