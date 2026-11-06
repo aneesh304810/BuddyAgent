@@ -910,6 +910,58 @@ async def api_cards_credit(benefit_id: int) -> dict:
         raise HTTPException(status_code=404, detail="No such credit.") from e
 
 
+@app.get("/api/news", dependencies=[Depends(require_admin)])
+async def api_news() -> dict:
+    """The News tab: watched topics, suggestions, and the latest trending stories per topic (trends.py)."""
+    from . import trends
+    return await asyncio.to_thread(trends.Trends(memory).feed)
+
+
+@app.post("/api/news/topics", dependencies=[Depends(require_admin)])
+async def api_news_topics(body: dict) -> dict:
+    """add (name) · remove (name): the News tab's topic picker. A new topic gets its first stories right away."""
+    from . import trends
+    t = trends.Trends(memory)
+    name = " ".join(str(body.get("name") or "").split())[:60]
+    try:
+        if body.get("action") == "remove":
+            text = t.unwatch(name)
+        elif body.get("action") == "add":
+            text = t.watch(name)
+            topic = next((x for x in t.topics() if x["name"].lower() == name.lower()), None)
+            if topic:
+                await t.brief(topic)
+        else:
+            raise ToolError("Unknown action.")
+    except ToolError as e:
+        raise HTTPException(status_code=400, detail=str(e)) from e
+    return {"ok": True, "text": text, **(await asyncio.to_thread(t.feed))}
+
+
+@app.post("/api/news/feedback", dependencies=[Depends(require_admin)])
+async def api_news_feedback(body: dict) -> dict:
+    """👍 / 👎 on a story (up: true, false, or null to clear): Buddy learns what news the user wants."""
+    from . import trends
+    up = body.get("up")
+    text = await asyncio.to_thread(trends.Trends(memory).feedback, str(body.get("topic") or ""),
+                                   str(body.get("title") or ""), str(body.get("url") or ""),
+                                   body.get("sources") if isinstance(body.get("sources"), list) else [],
+                                   None if up is None else bool(up))
+    return {"ok": True, "text": text}
+
+
+@app.post("/api/news/refresh", dependencies=[Depends(require_admin)])
+async def api_news_refresh(body: dict) -> dict:
+    """Fresh stories for one topic now (the News tab's refresh)."""
+    from . import trends
+    t = trends.Trends(memory)
+    topic = next((x for x in t.topics() if x["name"].lower() == str(body.get("topic") or "").lower()), None)
+    if topic is None:
+        raise HTTPException(status_code=404, detail="Not a watched topic.")
+    await t.brief(topic)
+    return await asyncio.to_thread(t.feed)
+
+
 @app.post("/api/cards/action", dependencies=[Depends(require_admin)])
 async def api_cards_action(body: dict) -> dict:
     """track (card, name, anniversary?) · untrack (id) · used (id, amount?): from the dashboard's buttons."""

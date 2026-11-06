@@ -39,6 +39,14 @@ CREATE TABLE IF NOT EXISTS trend_topics (
     query TEXT NOT NULL,             -- the search words
     added_at TEXT NOT NULL
 );
+CREATE TABLE IF NOT EXISTS news_feedback (   -- 👍 / 👎 on a story in the News tab: what the user likes to read
+    url TEXT PRIMARY KEY,
+    at TEXT NOT NULL,
+    topic TEXT NOT NULL DEFAULT '',
+    title TEXT NOT NULL,
+    sources TEXT NOT NULL DEFAULT '[]',
+    up INTEGER NOT NULL              -- 1 like, -1 don't like
+);
 CREATE TABLE IF NOT EXISTS trend_counts (
     topic TEXT NOT NULL, day TEXT NOT NULL, mentions INTEGER NOT NULL,
     PRIMARY KEY (topic, day)
@@ -58,6 +66,11 @@ SUBS = {"ai": "MachineLearning+LocalLLaMA+artificial+OpenAI+singularity+ClaudeAI
         "crypto": "CryptoCurrency+Bitcoin+ethereum+CryptoMarkets",
         "india": "IndianStockMarket+IndiaInvestments+DalalStreetTalks",
         "general": "all"}
+SUGGESTIONS = ["AI", "AI agents", "US markets", "Crypto", "Indian stocks", "Nvidia", "Startups", "Databricks",
+               "Cybersecurity", "Fintech", "Electric vehicles", "Space", "Real estate", "Kerala", "Cricket"]
+STOP = {"with", "from", "that", "this", "about", "what", "your", "their", "into", "over", "after", "will", "have",
+        "says", "show", "just", "more", "than", "they", "them", "been", "were", "here", "when", "where", "which",
+        "while", "would", "could", "should", "today", "week", "year", "news", "launches", "new", "how", "why"}
 SPIKE_X, SPIKE_MIN = 3.0, 12   # a spike: mentions today 3x the usual day, and at least 12
 UA = "Buddy/1.0 (personal assistant; read-only)"
 SUMMARY_PROMPT = """Today is {today}. Below are the most talked-about items on "{topic}" in the last {window}, from
@@ -300,7 +313,7 @@ class Trends:
                     items += self.reddit(query, kind, days)
             except Exception as e:
                 errors.append(f"{src}: {type(e).__name__}")
-        stories = rank(items)
+        stories = self.personalize(rank(items), topic["name"])
         self._count(topic["name"], items)
         return {"topic": topic["name"], "kind": kind, "days": days, "stories": stories[:15], "rising": rising,
                 "moves": moves, "sources": sorted({i["source"].split(":")[0].split(" r/")[0] for i in items}),
@@ -342,7 +355,107 @@ class Trends:
         except Exception:
             log.exception("trend summary failed")
             summary = {}
-        return {**data, "summary": summary}
+        out = {**data, "summary": summary}
+        self.save_brief(out)
+        return out
+
+    # --- the News tab (web/news.html): the latest briefing per topic, kept until the next one ----------------
+    def save_brief(self, b: dict) -> None:
+        s = b.get("summary") or {}
+        takes = {t.get("n"): t.get("take", "") for t in s.get("stories") or [] if isinstance(t, dict)}
+        stories = [{**st, "take": takes.get(i, "")} for i, st in enumerate(b.get("stories") or [])][:12]
+        self.memory.set(f"trends:brief:{b['topic']}", json.dumps({
+            "topic": b["topic"], "kind": b.get("kind", ""), "at": datetime.now(timezone.utc).isoformat(),
+            "headline": s.get("headline", ""), "rising_note": s.get("rising", ""), "debate": s.get("debate", ""),
+            "rising": b.get("rising") or [], "stories": stories, "sources": b.get("sources") or [],
+            "moves": b.get("moves") or {}}, default=str))
+
+    # --- likes and dislikes: what the user wants more (and less) of ---------------------------------------
+    def feedback(self, topic: str, title: str, url: str, sources: list | None = None, up: bool | None = True) -> str:
+        url = str(url or title)[:500]
+        if up is None:
+            self.memory.db.execute("DELETE FROM news_feedback WHERE url = ?", (url,))
+            self.memory.db.commit()
+            return "Cleared."
+        self.memory.db.execute(
+            "INSERT OR REPLACE INTO news_feedback (url, at, topic, title, sources, up) VALUES (?, ?, ?, ?, ?, ?)",
+            (url, datetime.now(timezone.utc).isoformat(), str(topic)[:60], str(title)[:300],
+             json.dumps([str(x)[:40] for x in (sources or [])][:6]), 1 if up else -1))
+        self.memory.db.commit()
+        self._remember_taste()
+        return "Got it: more like this." if up else "Got it: less like this."
+
+    def taste(self, days: int = 180) -> dict:
+        """Weights the user's likes give words and sources: positive = wants more, negative = less."""
+        since = (datetime.now(timezone.utc) - timedelta(days=days)).isoformat()
+        words: dict[str, float] = {}
+        sources: dict[str, float] = {}
+        rows = self.memory.db.execute("SELECT title, sources, up FROM news_feedback WHERE at >= ?", (since,)).fetchall()
+        for r in rows:
+            ws = _words(r["title"]) - STOP
+            for w in ws:
+                words[w] = words.get(w, 0) + r["up"] / max(1, len(ws)) ** 0.5
+            for src in json.loads(r["sources"] or "[]"):
+                sources[src] = sources.get(src, 0) + 0.5 * r["up"]
+        return {"words": words, "sources": sources, "rated": len(rows)}
+
+    def personalize(self, stories: list[dict], topic: str = "") -> list[dict]:
+        """Stories ranked with the user's taste on top of momentum; ones like what they keep disliking are dropped."""
+        t = self.taste()
+        if not t["rated"]:
+            return stories
+        out = []
+        for st in stories:
+            ws = _words(st["title"]) - STOP
+            hits = sorted(((t["words"].get(w, 0), w) for w in ws if abs(t["words"].get(w, 0)) >= 0.6), reverse=True)
+            mine = sum(v for v, _ in hits) / max(1, len(ws)) ** 0.5 + sum(t["sources"].get(x, 0) for x in st["sources"]) * 0.3
+            if mine <= -1.2:
+                continue  # like what they keep saying no to
+            st = {**st, "momentum": round(st["momentum"] + 1.5 * mine, 2)}
+            liked = [w for v, w in hits if v > 0][:3]
+            if liked and mine > 0.5:
+                st["because"] = liked
+            out.append(st)
+        return sorted(out, key=lambda s: -s["momentum"])
+
+    def _remember_taste(self) -> None:
+        """Every few ratings, a short line in Buddy's memory, so chat knows what news they like too."""
+        t = self.taste()
+        if t["rated"] < 5 or t["rated"] % 5:
+            return
+        likes = [w for w, v in sorted(t["words"].items(), key=lambda kv: -kv[1]) if v >= 1][:8]
+        dislikes = [w for w, v in sorted(t["words"].items(), key=lambda kv: kv[1]) if v <= -1][:5]
+        srcs = [x for x, v in sorted(t["sources"].items(), key=lambda kv: -kv[1]) if v >= 1][:3]
+        if not (likes or dislikes):
+            return
+        text = ("In news, likes stories about " + ", ".join(likes) if likes else "In news") + \
+            (f"; less interested in {', '.join(dislikes)}" if dislikes else "") + \
+            (f"; prefers {', '.join(srcs)}" if srcs else "")
+        try:
+            from .brain import Brain  # noqa: PLC0415
+            Brain(self.memory).prefer("news", text, source="learned", evidence=t["rated"])
+        except Exception:
+            log.info("couldn't save the news taste", exc_info=True)
+
+    def feed(self) -> dict:
+        topics = self.topics()
+        out = []
+        for t in topics:
+            try:
+                saved = json.loads(self.memory.get(f"trends:brief:{t['name']}") or "null")
+            except ValueError:
+                saved = None
+            out.append(saved or {"topic": t["name"], "kind": t["kind"], "at": "", "stories": []})
+        watched = {t["name"].lower() for t in topics}
+        rated = {r["url"]: r["up"] for r in self.memory.db.execute("SELECT url, up FROM news_feedback")}
+        for f in out:
+            for st in f.get("stories") or []:
+                st["rated"] = rated.get(st.get("url") or st.get("title"), 0)
+        taste = self.taste()
+        from_likes = [w.capitalize() for w, v in sorted(taste["words"].items(), key=lambda kv: -kv[1])
+                      if v >= 2 and w not in " ".join(watched)][:4]
+        return {"topics": topics, "feed": out, "liked_suggestions": from_likes, "rated": taste["rated"],
+                "suggestions": [x for x in SUGGESTIONS if x.lower() not in watched]}
 
     def report(self, briefs: list[dict]) -> str:
         lines = [f"What people are talking about, {local_now():%B %d, %Y}: grouped into stories and ranked by momentum "
@@ -415,7 +528,7 @@ def rank(items: list[dict]) -> list[dict]:
     out = []
     for g in groups:
         hours = min(_hours_since(i.get("ts") or time.time()) for i in g["items"])
-        points = sum(i.get("score") or 0 for i in g["items"] if not i["source"].startswith(("GitHub", "StockTwits")))
+        points = sum(i.get("score") or 0 for i in g["items"] if not i["source"].startswith(("GitHub", "StockTwits", "arXiv")))
         comments = sum(i.get("comments") or 0 for i in g["items"])
         stars = max([i.get("stars_per_day") or 0 for i in g["items"]] + [0])
         srcs = sorted({i["source"].split(":")[0].split(" r/")[0] for i in g["items"]})

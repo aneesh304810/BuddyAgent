@@ -102,3 +102,43 @@ def test_default_topics_and_the_tool():
     assert names == ["AI", "US markets", "Crypto", "Indian stocks"]
     assert "Stopped watching crypto" in asyncio.run(tr.run_tool(mem, {"action": "unwatch", "topic": "crypto"}))
     assert "Reports" in asyncio.run(tr.run_tool(mem, {"action": "digest"}))
+
+
+def test_the_news_tab_keeps_the_latest_briefing_per_topic_and_learns_from_likes():
+    mem = Memory(":memory:")
+
+    async def summarize(memory, prompt):
+        return {"headline": "Agents everywhere.", "stories": [{"n": 0, "take": "The big one."}]}
+    t = Trends(mem, env=ENV, fetch=Web(), summarize=summarize)
+    mem.set("trends:defaults_set", "1")
+    t.watch("AI agents")
+    asyncio.run(t.brief(t.topics()[0]))
+    feed = t.feed()
+    f = feed["feed"][0]
+    assert f["headline"] == "Agents everywhere." and f["stories"][0]["take"] == "The big one." and f["at"]
+    assert "AI agents" not in feed["suggestions"] and "Nvidia" in feed["suggestions"]
+
+    # likes: agent platform stories; dislikes: weekend side projects
+    for i in range(3):
+        t.feedback("AI agents", f"OpenAI agents platform update {i}", f"https://x/{i}", ["Hacker News"], True)
+    for i in range(3):
+        t.feedback("AI agents", f"Show HN: my weekend project {i}", f"https://y/{i}", ["Hacker News"], False)
+    taste = t.taste()
+    assert taste["words"]["agents"] > 1 and taste["words"]["weekend"] < -1
+    ranked = t.personalize([
+        {"title": "Show HN: another weekend project", "sources": ["Hacker News"], "momentum": 9.0},
+        {"title": "Anthropic ships agents platform tools", "sources": ["News"], "momentum": 5.0}])
+    assert [s["title"][:9] for s in ranked] == ["Anthropic"]          # the kind they keep disliking is dropped
+    assert "agents" in ranked[0]["because"]
+    assert t.feed()["feed"][0]["stories"] is not None
+    assert t.feedback("AI agents", "x", "https://x/0", [], None) == "Cleared."
+
+
+def test_after_a_few_ratings_buddy_remembers_the_news_taste():
+    from buddy.brain import Brain
+    mem = Memory(":memory:")
+    t = Trends(mem, env={}, fetch=Web())
+    for i in range(5):
+        t.feedback("AI", f"Databricks agents launch {i}", f"https://z/{i}", ["News"], True)
+    prefs = Brain(mem).preferences("news")
+    assert prefs and "databricks" in prefs[0]["text"].lower()
