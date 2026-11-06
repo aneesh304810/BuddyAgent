@@ -227,6 +227,14 @@ async def run(memory: Memory, deliver: Deliver) -> None:
                 for alert in await asyncio.to_thread(trips.check_watches):
                     if await deliver("travel", alert["text"]):
                         trips.told(alert)
+                try:  # saved searches: each re-run live once a day, an alert on a deal (travel_saved.py)
+                    from .travel_saved import SavedSearches  # noqa: PLC0415
+                    saved = SavedSearches(memory, trips)
+                    for alert in await saved.check():
+                        if await deliver("travel", alert["text"]):
+                            saved.told(alert)
+                except Exception:
+                    log.exception("saved travel searches failed")
             try:  # credit monitoring emails and notifications, and new cards at connected banks: read as they come
                 from .credit import Credit  # noqa: PLC0415
                 watch = Credit(memory)

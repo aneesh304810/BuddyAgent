@@ -820,8 +820,42 @@ def api_finance_cancel_page(sub_id: int) -> dict:
 @app.get("/api/travel", dependencies=[Depends(require_admin)])
 def api_travel() -> dict:
     t = travel.Travel(memory)
+    from .travel_saved import SavedSearches
     return {"sources": t.sources(), "profile": t.profile(), "learned": t.learned(), "searches": t.searches(),
-            "watches": t.watches()}
+            "watches": t.watches(), "saved": SavedSearches(memory, t).saved()}
+
+
+@app.post("/api/travel/saved", dependencies=[Depends(require_admin)])
+def api_travel_save(body: dict) -> dict:
+    """Save & track: re-run this search every morning and alert on a deal (optional target price)."""
+    from .travel_saved import SavedSearches
+    try:
+        return SavedSearches(memory).save(str(body.get("search_id") or ""), body.get("target"))
+    except (ToolError, TypeError, ValueError) as e:
+        raise HTTPException(status_code=400, detail=str(e)) from e
+
+
+@app.delete("/api/travel/saved/{saved_id}", dependencies=[Depends(require_admin)])
+def api_travel_unsave(saved_id: int) -> dict:
+    from .travel_saved import SavedSearches
+    try:
+        return {"result": SavedSearches(memory).remove(saved_id)}
+    except ToolError as e:
+        raise HTTPException(status_code=404, detail=str(e)) from e
+
+
+@app.post("/api/travel/saved/{saved_id}/check", dependencies=[Depends(require_admin)])
+async def api_travel_saved_check(saved_id: int) -> dict:
+    """Check one saved search now (one live search)."""
+    from .travel_saved import SavedSearches
+    saved = SavedSearches(memory)
+    alerts = await saved.check(saved_id, force=True)
+    for a in alerts:
+        saved.told(a)
+    item = next((x for x in saved.saved() if x["id"] == saved_id), None)
+    if item is None:
+        raise HTTPException(status_code=404, detail="No such saved search.")
+    return {**item, "text": alerts[0]["text"] if alerts else "Checked: no deal yet."}
 
 
 @app.get("/api/travel/alerts", dependencies=[Depends(require_admin)])

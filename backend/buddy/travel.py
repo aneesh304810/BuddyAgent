@@ -1438,7 +1438,10 @@ TRAVEL_TOOL = {
     "destination, or place for hotels, and a date: what prices are usually like, when to book, cheaper weekdays and "
     "months, from Buddy's own records), watch (origin, destination, month YYYY-MM, optional return_month and target "
     "price: checked every day, Buddy speaks up when the fare hits the target, drops well below the usual or hits a "
-    "new low), watches (list), unwatch (what = route like MIA-LIM or its id). Results show in the app's Travel screen with links "
+    "new low), watches (list), unwatch (what = route like MIA-LIM or its id). save_search (search_id, optional target): "
+    "'save this search' / 'track this': the exact search (dates, route or hotel) is re-run live every morning and "
+    "Buddy alerts on a deal (target hit, 5%+ drop since saved, a new low); use this, not watch_price, for flights and "
+    "hotels already searched. saved_searches (list), unsave_search (saved_id). Results show in the app's Travel screen with links "
     "to book; you never book. Think like an experienced travel agent who works for the user: use 'advice' (the trade-offs "
     "worked out: headline traps, what flexibility or a nonstop costs, nearby airports, cheaper nearby dates, same "
     "flight cheaper elsewhere, how today's price compares) to recommend ONE option clearly with the reason, then the "
@@ -1446,7 +1449,9 @@ TRAVEL_TOOL = {
     "change? is the bag needed?), ask. Ask the user's travel style once (bags, seat) if the profile is still the default.",
     "input_schema": {"type": "object", "properties": {
         "action": {"type": "string", "enum": ["flights", "hotels", "cheapest_dates", "refresh", "profile", "set_profile",
-                                              "chose", "price_pattern", "watch", "watches", "unwatch"]},
+                                              "chose", "price_pattern", "watch", "watches", "unwatch", "save_search",
+                                              "saved_searches", "unsave_search"]},
+        "saved_id": {"type": "integer"},
         "origin": {"type": "string"}, "destination": {"type": "string"}, "depart": {"type": "string"},
         "target": {"type": "number"}, "return_month": {"type": "string"}, "what": {"type": "string"},
         "return": {"type": "string"}, "adults": {"type": "integer"}, "place": {"type": "string"},
@@ -1482,6 +1487,14 @@ async def run_tool(travel: Travel, args: dict) -> str:
         return json.dumps({"watching": w, "say": "Checked every morning; I'll speak up when it's a good fare."})
     if a == "watches":
         return json.dumps(travel.watches()) if travel.watches() else "No routes watched yet."
+    if a in ("save_search", "saved_searches", "unsave_search"):
+        from .travel_saved import SavedSearches  # noqa: PLC0415
+        saved = SavedSearches(travel.memory, travel)
+        if a == "save_search":
+            return saved.save(str(args.get("search_id") or ""), args.get("target"))["text"]
+        if a == "unsave_search":
+            return saved.remove(int(args.get("saved_id") or 0))
+        return json.dumps(saved.saved(), default=str) if saved.saved() else "No saved searches yet."
     if a == "unwatch":
         return travel.unwatch(args.get("what") or "")
     if a == "price_pattern":

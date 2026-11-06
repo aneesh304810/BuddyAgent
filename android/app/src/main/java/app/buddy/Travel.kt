@@ -79,6 +79,13 @@ object TravelApi {
         call(link, "/api/travel/searches/$sid/offers/$oid/chose", JSONObject())
     suspend fun profile(link: ServerLink, p: JSONObject) = call(link, "/api/travel/profile", p)
     suspend fun watch(link: ServerLink, w: JSONObject) = call(link, "/api/travel/watches", w)
+    suspend fun save(link: ServerLink, searchId: String, target: Double?) =
+        call(link, "/api/travel/saved", JSONObject().put("search_id", searchId).apply { if (target != null) put("target", target) })
+    suspend fun checkSaved(link: ServerLink, id: Int) = call(link, "/api/travel/saved/$id/check", JSONObject())
+    suspend fun unsave(link: ServerLink, id: Int) = withContext(Dispatchers.IO) {
+        http.newCall(Request.Builder().url(link.baseUrl + "/api/travel/saved/$id")
+            .header("Authorization", "Bearer ${link.token}").delete().build()).execute().close()
+    }
     suspend fun unwatch(link: ServerLink, id: Int) = withContext(Dispatchers.IO) {
         http.newCall(Request.Builder().url(link.baseUrl + "/api/travel/watches/$id")
             .header("Authorization", "Bearer ${link.token}").delete().build()).execute().close()
@@ -124,6 +131,8 @@ fun TravelScreen(link: ServerLink?) {
         }
         item { SourcesLine(o.optJSONObject("sources")) }
         item { StylePanel(link!!, o.optJSONObject("profile") ?: JSONObject(), o.optJSONObject("learned")) { refresh++ } }
+        item { SavedPanel(link!!, o.optJSONArray("saved").objs(), onOpen = { id ->
+            scope.launch { runCatching { TravelApi.get(link!!, id) }.onSuccess { current = it } } }) { refresh++ } }
         item { WatchPanel(link!!, o.optJSONArray("watches").objs(), o.optJSONObject("sources")?.optBoolean("travelpayouts") == true) { refresh++ } }
         val searches = o.optJSONArray("searches").objs()
         if (searches.isNotEmpty()) item { Text("Recent searches", color = TDim, fontSize = 13.sp) }
@@ -196,6 +205,77 @@ private fun SearchForm(busy: Boolean, onSearch: (JSONObject) -> Unit) {
             }
         }
         Text("Or just ask Buddy: \"flights Miami to Lima on 10 December\".", color = TDim, fontSize = 12.sp)
+    }
+}
+
+/** "Save & track deals": this exact search is re-run every morning; Buddy messages when it's a deal. */
+@Composable
+private fun SaveSearch(link: ServerLink, searchId: String) {
+    var target by remember { mutableStateOf("") }
+    var note by remember { mutableStateOf<String?>(null) }
+    var busy by remember { mutableStateOf(false) }
+    val scope = rememberCoroutineScope()
+    Column(Modifier.fillMaxWidth().background(TTile, RoundedCornerShape(12.dp)).padding(12.dp),
+        verticalArrangement = Arrangement.spacedBy(6.dp)) {
+        Row(horizontalArrangement = Arrangement.spacedBy(8.dp)) {
+            OutlinedTextField(target, { target = it.filter { c -> c.isDigit() || c == '.' }.take(8) },
+                label = { Text("Alert me at (optional)") }, singleLine = true, modifier = Modifier.weight(1f))
+            OutlinedButton(enabled = !busy, onClick = {
+                busy = true
+                scope.launch {
+                    runCatching { TravelApi.save(link, searchId, target.toDoubleOrNull()) }
+                        .onSuccess { note = it.optString("text") }.onFailure { note = it.message }
+                    busy = false
+                }
+            }, modifier = Modifier.padding(top = 8.dp)) { Text(if (busy) "Saving…" else "🔔 Save & track") }
+        }
+        Text(note ?: "Buddy re-runs this search every morning and tells you when it drops 5% or more, hits a new low, " +
+            "or reaches your price.", color = if (note != null) Pal.text else TDim, fontSize = 12.sp)
+    }
+}
+
+/** Saved searches: price when saved → now, the lowest since, check now, remove; tap to open the latest results. */
+@Composable
+private fun SavedPanel(link: ServerLink, saved: List<JSONObject>, onOpen: (String) -> Unit, onChanged: () -> Unit) {
+    var open by remember { mutableStateOf(true) }
+    var note by remember { mutableStateOf<String?>(null) }
+    val scope = rememberCoroutineScope()
+    Text((if (open) "▾ " else "▸ ") + "Saved searches (${saved.size})", color = Pal.text, fontWeight = FontWeight.SemiBold,
+        modifier = Modifier.fillMaxWidth().clickable { open = !open }.padding(vertical = 4.dp))
+    if (!open) return
+    Column(Modifier.fillMaxWidth().background(TTile, RoundedCornerShape(12.dp)).padding(12.dp),
+        verticalArrangement = Arrangement.spacedBy(8.dp)) {
+        if (saved.isEmpty()) Text("Search a flight or hotel, then tap 🔔 Save & track on the results. Buddy checks it every " +
+            "morning and messages you when there's a deal.", color = TDim, fontSize = 13.sp)
+        saved.forEach { s ->
+            val cur = s.optString("currency")
+            Row(Modifier.fillMaxWidth()) {
+                Column(Modifier.weight(1f).clickable(enabled = s.optString("search_id").isNotEmpty()) {
+                    onOpen(s.optString("search_id"))
+                }) {
+                    Text((if (s.optString("kind") == "hotels") "🏨 " else "✈ ") + s.optString("title"), color = Pal.text, fontSize = 14.sp)
+                    val change = if (s.isNull("change_pct")) "" else s.optDouble("change_pct").let {
+                        if (it < 0) "  ▼ ${-it}%" else if (it > 0) "  ▲ $it%" else "" }
+                    Text("Saved at ${amount(s.optDouble("baseline"), cur)} · now ${amount(s.optDouble("last"), cur)}$change",
+                        color = if (!s.isNull("change_pct") && s.optDouble("change_pct") < 0) TGood else TDim, fontSize = 12.sp)
+                    Text("Lowest ${amount(s.optDouble("best"), cur)}" +
+                        (if (s.isNull("target")) "" else " · alert at ${amount(s.optDouble("target"), cur)}") +
+                        (s.optString("last_offer").takeIf { it.isNotEmpty() }?.let { " · $it" } ?: ""),
+                        color = TDim, fontSize = 12.sp, maxLines = 2)
+                }
+                Text("↻", color = Pal.accent, modifier = Modifier.clickable {
+                    note = "Checking ${s.optString("title")}…"
+                    scope.launch {
+                        runCatching { TravelApi.checkSaved(link, s.optInt("id")) }
+                            .onSuccess { note = it.optString("text"); onChanged() }.onFailure { note = it.message }
+                    }
+                }.padding(8.dp))
+                Text("✕", color = TDim, modifier = Modifier.clickable {
+                    scope.launch { runCatching { TravelApi.unsave(link, s.optInt("id")) }; onChanged() }
+                }.padding(8.dp))
+            }
+        }
+        note?.let { Text(it, color = Pal.text, fontSize = 12.sp) }
     }
 }
 
@@ -339,6 +419,7 @@ private fun SearchResults(link: ServerLink, search: JSONObject, onBack: () -> Un
                 Text("New search", color = TDim, modifier = Modifier.clickable { onBack() }.padding(4.dp))
             }
         }
+        if (search.optString("id").isNotEmpty() && offers.isNotEmpty()) item { SaveSearch(link, search.optString("id")) }
         results.optString("note").takeIf { it.isNotBlank() }?.let { item { Text(it, color = TWarn, fontSize = 13.sp) } }
         results.optJSONArray("problems").strs().forEach { p -> item { Text("Source problem: $p", color = TWarn, fontSize = 12.sp) } }
         val advice = results.optJSONArray("advice").strs()
