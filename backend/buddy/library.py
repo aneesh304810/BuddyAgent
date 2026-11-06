@@ -268,6 +268,7 @@ class Library:
         """Store the file (encrypted). Reading it is ingest(), which can run in the background."""
         if not data:
             raise ToolError("The file is empty.")
+        self.memory.set("library:last_added", datetime.now(timezone.utc).isoformat())  # keeps follow-ups off free models
         if len(data) > MAX_UPLOAD:
             raise ToolError("That file is over 25 MB.")
         name = re.sub(r"[\x00-\x1f/\\]", "_", Path(name or "upload").name)[:120] or "upload"
@@ -494,7 +495,8 @@ def report(item: dict) -> str:
 LIBRARY_TOOL = {
     "name": "library",
     "description": "The user's library: documents, photos, PDFs, spreadsheets, CSV and JSON they uploaded (Share -> "
-    "Buddy, or the paperclip). search (words: the passages that match, with file and id), list (recent, optional "
+    "Buddy, or the paperclip). Uploads are personal: Claude alone reads them (the background reading that makes each "
+    "file's summary is Claude too); free models never see them, and general_task refuses in a turn that used them. search (words: the passages that match, with file and id), list (recent, optional "
     "kind: document, image, table, data), open (an id: summary, facts, tables and text; part=N for more), unlock (a "
     "vault item: asks the user first), forget (asks first). For sums or questions over a spreadsheet, CSV or JSON "
     "list, use process_data with source {kind: library, id} (table-query). Quote which document an answer came from. "

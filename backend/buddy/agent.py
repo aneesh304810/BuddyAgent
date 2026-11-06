@@ -237,8 +237,10 @@ class Conversation:
         self._trim_history()
         self._repair_history()
         self.turn_question, self._step = mask(user_text), 0
+        self._personal_turn = False  # set once a tool hands back the user's own data (general_task then refuses)
         tutor.log_utterance(self.memory, user_text, via)  # for the English tutor's review
-        if not self.memory.get(DUAL_KEY) and await self._free_turn(user_text, say, via):
+        if not self.memory.get(DUAL_KEY) and not _just_uploaded(self.memory) and \
+                await self._free_turn(user_text, say, via):
             return
         # The brain first: answer from memory when one saved fact clearly does, else pack what it knows.
         prep = thinking.Prep()
@@ -603,7 +605,12 @@ class Conversation:
         if name == "hand_over":
             return "Handed over to the main model: answer the user's question now."
         if name == "general_task":
+            if getattr(self, "_personal_turn", False):  # nothing read from their files, mail or money goes free
+                return ("Not sent: this turn already used the user's own data (their files, email, money or "
+                        "memory), so free models don't get any of it. Do this part yourself.")
             return await run_general_tool(self.free, args)
+        if name not in GENERAL_TOOLS:
+            self._personal_turn = True
         if name == "free_answer_verdict":
             usage.set_verdict(self.memory, args["call_id"], args["verdict"], args.get("note", ""))
             return "Noted."
@@ -801,3 +808,19 @@ async def compose(system: str, instruction: str, memory: Memory | None = None, l
     if response.stop_reason == "refusal":
         return ""
     return " ".join(b.text for b in response.content if b.type == "text").strip()
+
+
+# Tools whose results hold nothing of the user's: using them keeps general_task (free models) available this turn.
+GENERAL_TOOLS = {"hand_over", "general_task", "free_answer_verdict", "reply_style", "web_search", "web_fetch",
+                 "read_pages", "google_search", "trends", "markets", "transit", "model_routing"}
+
+
+def _just_uploaded(memory) -> bool:
+    """A file was added to the library in the last 15 minutes: the next messages are likely about it, so they
+    go to Claude (free models never see uploads)."""
+    from datetime import datetime, timedelta, timezone  # noqa: PLC0415
+    at = memory.get("library:last_added") or ""
+    try:
+        return bool(at) and datetime.fromisoformat(at) > datetime.now(timezone.utc) - timedelta(minutes=15)
+    except ValueError:
+        return False
