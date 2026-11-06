@@ -33,6 +33,9 @@ PATH_INCIDENTS = "https://www.panynj.gov/bin/portauthority/everbridge/incidents?
 NJT_BASE = "https://raildata.njtransit.com/api/TrainData/"
 UA = "Buddy/1.0 (personal assistant; read-only)"
 CACHE_SECONDS = 120
+# NJ Transit's data feed agreement: say where the data came from, that it may not be real time (Buddy checks every
+# few minutes), never that it's accurate or NJT-licensed; use the text as-is; stay well under 100,000 calls a day.
+NJT_NOTE = "NJ Transit data, fetched by Buddy's server; may not be real time"
 CHECK_MINUTES = 5
 
 SCHEMA_SQL = """
@@ -315,7 +318,7 @@ class Transit:
             scope = f"{m.get('MSG_LINE_SCOPE') or ''} {m.get('MSG_TEXT') or ''}".lower()
             if any(x in scope for x in words):
                 out.append({"key": f"njt:{m.get('MSG_ID')}", "kind": m.get("MSG_TYPE") or "NJ Transit alert",
-                            "text": " ".join(str(m.get("MSG_TEXT") or "").split())[:500], "more": "",
+                            "text": str(m.get("MSG_TEXT") or "").strip(), "more": "",  # as-is (NJT's terms)
                             "url": m.get("MSG_URL") or ""})
         return out
 
@@ -347,7 +350,9 @@ class Transit:
                     pass
             out.append(item)
         return {"lines": out, "checked_at": local_now().strftime("%H:%M"),
-                "note": "From the official MTA, NJ Transit and PATH alert feeds." if out else
+                "note": ("From the official MTA, NJ Transit and PATH alert feeds. " + NJT_NOTE
+                         if any(x["provider"] == "njt" for x in out) else
+                         "From the official MTA, NJ Transit and PATH alert feeds.") if out else
                 "No lines watched yet. Say which line you ride and when, e.g. 'watch the Q weekdays 8 to 9:30'."}
 
     def check(self, now: datetime | None = None) -> list[dict]:
@@ -368,7 +373,8 @@ class Transit:
                 if a["key"] not in told:
                     out.append({"kind": "start", "watch": w["line"], "key": a["key"], "watch_id": w["id"],
                                 "text": f"{w['line']}: {a['text']}" + (f" {a['more'][:200]}" if a.get("more") and
-                                                                      len(a["text"]) < 60 else "")})
+                                                                      len(a["text"]) < 60 else "")
+                                + (f" ({NJT_NOTE})" if w["provider"] == "njt" else "")})
             for key, text in told.items():
                 if key not in keys:
                     out.append({"kind": "clear", "watch": w["line"], "key": key, "watch_id": w["id"],

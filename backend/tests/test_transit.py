@@ -68,6 +68,7 @@ def test_status_from_each_feed(t):
     assert lines["Q train"]["ok"] is False  # the [1] train's alert isn't the Q's
     assert "Port Washington" in lines["LIRR Port Washington"]["alerts"][0]["text"]
     assert [a["key"] for a in lines["Hudson-Bergen Light Rail"]["alerts"]] == ["njt:77"]  # not the NEC message
+    assert "may not be real time" in t.status()["note"]  # NJ Transit's terms
     assert lines["PATH Journal Square-33rd St"]["next_trains"] == [{"to": "33rd Street", "in": "4 min", "direction": "ToNY"}]
     assert lines["PATH Journal Square-33rd St"]["ok"] is True
 
@@ -116,3 +117,10 @@ def test_bad_times_are_refused(t):
 def test_status_for_an_unwatched_line(t):
     out = t.status("Q")
     assert out["lines"][0]["line"] == "Q" and out["lines"][0]["alerts"]
+
+
+def test_njt_alerts_are_attributed_and_as_is(t):
+    t.watch("Hudson-Bergen Light Rail", days="daily")
+    alert = t.check()[0]
+    assert "service suspended between Hoboken and 9th St due to a signal problem." in alert["text"]
+    assert alert["text"].endswith("(NJ Transit data, fetched by Buddy's server; may not be real time)")
