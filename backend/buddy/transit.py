@@ -557,4 +557,11 @@ def nearby(memory: Memory, transit: "Transit | None" = None, location=None) -> d
         note = "Share your location (Settings → Share my location) to see alerts for where you are. " + note
     elif not lines:
         note = "No transit Buddy follows near you here. " + note
-    return {"where": where, "lines": lines, "near": near, "checked_at": local_now().strftime("%H:%M"), "note": note}
+    flights = []
+    try:  # the user's tracked flights (flights.py) go first on the Travel screen
+        from .flights import Flights  # noqa: PLC0415
+        flights = [{k: f[k] for k in ("flight", "day", "note", "summary")} for f in Flights(memory).tracked()]
+    except Exception:
+        log.info("tracked flights unavailable", exc_info=True)
+    return {"where": where, "lines": lines, "near": near, "flights": flights,
+            "checked_at": local_now().strftime("%H:%M"), "note": note}

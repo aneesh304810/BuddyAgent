@@ -277,6 +277,14 @@ async def run(memory: Memory, deliver: Deliver) -> None:
                                                    f"about {hot['usual']} on a usual day. {lead} Ask me for the details.")
             except Exception:
                 log.exception("trends failed")
+            try:  # flights: the user's tracked flights, every 15 minutes from 4 hours before take-off to landing
+                from .flights import Flights  # noqa: PLC0415
+                fl = Flights(memory)
+                if fl.key and fl.due():  # their own flight: quiet hours don't hold these back
+                    for alert in await asyncio.to_thread(fl.check):
+                        await deliver("travel", alert["text"])
+            except Exception:
+                log.exception("flight status failed")
             try:  # transit: the lines the user rides, checked every few minutes while they ride them (transit.py)
                 from .transit import Transit  # noqa: PLC0415
                 commute = Transit(memory)

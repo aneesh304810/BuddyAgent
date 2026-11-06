@@ -298,13 +298,13 @@ class FinOps:
                  "coinbase": "Coinbase (crypto prices)", "stooq": "Stooq (daily prices)",
                  "yahoo": "Yahoo Finance (Indian stocks)", "openrouter_list": "OpenRouter model list",
                  "mta": "MTA alerts (subway, buses, LIRR, Metro-North)", "path": "PATH (arrivals and alerts)",
-                 "njt": "NJ Transit (train and light rail alerts)"}
+                 "njt": "NJ Transit (train and light rail alerts)", "airlabs": "AirLabs (flight status)"}
     # Free APIs: shown as free whatever they're called (no per-call price).
     FREE_APIS = {"alpaca": "free market data plan (paper account)", "reddit": "free public search",
                  "stocktwits": "free public API", "hackernews": "free, no key", "arxiv": "free public API",
                  "github": "free public search", "coinbase": "free public prices", "stooq": "free daily prices",
                  "yahoo": "free public chart data", "mta": "free, no key", "path": "free public feed",
-                 "njt": "free developer account"}
+                 "njt": "free developer account", "airlabs": "free plan"}
 
     def outside_apis(self, calls: dict) -> list[CostLine]:
         lines = []
@@ -357,7 +357,8 @@ class FinOps:
             ("OpenRouter", "free AI models, picked per task daily", "free models only (:free)"),
             ("MTA alerts (subway, buses, LIRR, Metro-North)", "commute alerts", "free, no key"),
             ("PATH (arrivals and alerts)", "commute alerts and next trains", "free public feed"),
-            ("NJ Transit (train and light rail alerts)", "commute alerts", "free developer account")]
+            ("NJ Transit (train and light rail alerts)", "commute alerts", "free developer account"),
+            ("AirLabs (flight status)", "your flights: delays, gates, landing", "free plan (about 1,000 calls a month)")]
 
     def free_services(self, named: set[str]) -> list[CostLine]:
         """Services Buddy relies on at no charge; a line already shown (a fixed cost, or one with calls this month)

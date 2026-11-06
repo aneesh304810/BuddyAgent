@@ -306,6 +306,16 @@ private fun TransitAlerts(link: ServerLink) {
         }
         problem?.let { Text(it, color = Pal.bad, fontSize = 13.sp) }
         if (d == null && problem == null) Text("Checking…", color = TDim, fontSize = 13.sp)
+        d?.optJSONArray("flights").objs().forEach { f ->  // your tracked flights first
+            val sum = f.optString("summary")
+            val bad = Regex("CANCELLED|delayed|late|diverted", RegexOption.IGNORE_CASE).containsMatchIn(sum)
+            Column(Modifier.fillMaxWidth().background(Pal.bg, RoundedCornerShape(12.dp)).padding(10.dp)) {
+                Text((if (bad) "⚠️" else "✈") + "  ${f.optString("flight")} · ${f.optString("day")}" +
+                    (f.optString("note").takeIf { it.isNotEmpty() }?.let { " · $it" } ?: ""),
+                    color = Pal.text, fontWeight = FontWeight.SemiBold)
+                Text(sum, color = if (bad) TWarn else Pal.text, fontSize = 14.sp)
+            }
+        }
         d?.optJSONArray("lines").objs().forEach { line ->
             val alerts = line.optJSONArray("alerts").objs()
             val error = line.optString("error")
