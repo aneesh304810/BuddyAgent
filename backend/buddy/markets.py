@@ -681,7 +681,7 @@ class Markets:
             "INSERT INTO jobs (kind, title, params, status, created_at, started_at, finished_at, summary, report, findings, "
             "sources, delivered) VALUES ('market_scan', ?, '{}', 'done', ?, ?, ?, ?, ?, '[]', '[]', 1)",
             (f"Market scan, {today:%b %d, %Y}", now, now, now, summary, report)).lastrowid
-        self.memory.set("markets:scanned", local_now().date().isoformat())
+        self.memory.set("markets:scanned", scan_day())
         self.memory.db.commit()
         return job_id, summary
 
@@ -993,12 +993,18 @@ async def _ask_claude(memory: Memory, prompt: str) -> dict | None:
     return last_json("\n".join(b.text for b in response.content if getattr(b, "type", "") == "text"))
 
 
+def scan_day(now: datetime | None = None) -> str:
+    """The scan's day is New York's date, wherever Buddy or the user is (the check and the mark must agree, or the
+    scan repeats all evening once the local date rolls over before New York's)."""
+    return (now or datetime.now(timezone.utc)).astimezone(ZoneInfo("America/New_York")).date().isoformat()
+
+
 def scan_due(memory: Memory, now: datetime | None = None) -> bool:
     """Weekdays, once, from 4:45 PM New York time (after the US close; India closed hours before)."""
     t = (now or datetime.now(timezone.utc)).astimezone(ZoneInfo("America/New_York"))
     if t.weekday() >= 5 or (t.hour, t.minute) < (16, 45):
         return False
-    return memory.get("markets:scanned") != t.date().isoformat()
+    return memory.get("markets:scanned") != scan_day(now)
 
 
 MARKETS_TOOL = {

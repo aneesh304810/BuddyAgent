@@ -172,9 +172,22 @@ if memory.get("timezone"):
 connections: dict[WebSocket, Conversation] = {}
 
 
+_recent_nudges: dict[tuple[str, str], float] = {}
+REPEAT_HOURS = 12
+
+
 async def deliver(kind: str, text: str, **extra) -> bool:
     if not connections:
         return False
+    # A safety net: the same background message is never sent twice within 12 hours, whatever repeats it.
+    now = time.monotonic()
+    key = (kind, " ".join(text.split()))
+    if kind not in ("ride", "notification") and now - _recent_nudges.get(key, -1e9) < REPEAT_HOURS * 3600:
+        log.info("not repeating a %s message sent in the last %d hours", kind, REPEAT_HOURS)
+        return True  # it was told: callers mark it done
+    _recent_nudges[key] = now
+    for old in [k for k, t in _recent_nudges.items() if now - t > REPEAT_HOURS * 3600]:
+        del _recent_nudges[old]
     spoken, sep, shown = text.partition("||")  # "spoken || shown": short when read aloud, structured on screen
     display = shown.strip() if sep and spoken.strip() and shown.strip() else ""
     text = spoken.strip() if display else text.replace("||", " ").strip()

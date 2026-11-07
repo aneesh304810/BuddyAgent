@@ -300,7 +300,7 @@ async def run(memory: Memory, deliver: Deliver) -> None:
                 if memory.get("markets:scan_requested") or (MARKET_SCAN and mkt.scan_due(memory)):
                     asked = bool(memory.get("markets:scan_requested"))
                     memory.set("markets:scan_requested", "")
-                    memory.set("markets:scanned", local_now().date().isoformat())
+                    memory.set("markets:scanned", mkt.scan_day())  # New York's date, as scan_due checks
                     _, text = await trader.scan()
                     for alert in await asyncio.to_thread(trader.close_check):
                         text += " " + alert["text"]

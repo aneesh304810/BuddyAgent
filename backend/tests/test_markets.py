@@ -205,3 +205,15 @@ def test_testing_the_market_data_says_what_works():
     assert "✗ Yahoo (Indian stocks): rate limited" in out and out.startswith("Market data test: 7 of 8 working")
     nokey = Markets(Memory(":memory:"), env={}, fetch=lambda *a, **k: (_ for _ in ()).throw(urllib.error.HTTPError("u", 401, "x", {}, None))).test()
     assert "✗ Alpaca: no key set" in nokey
+
+
+def test_scan_runs_once_per_new_york_day_even_when_the_local_date_differs():
+    """The check and the mark both use New York's date: after 7 PM New York the UTC date has rolled over, and a
+    mismatch made the scan (and its message) repeat all evening."""
+    from datetime import datetime, timezone
+    memory = Memory(":memory:")
+    friday_8pm_ny = datetime(2026, 11, 7, 1, 0, tzinfo=timezone.utc)  # Fri Nov 6, 8 PM in New York
+    assert mk.scan_due(memory, friday_8pm_ny)
+    memory.set("markets:scanned", mk.scan_day(friday_8pm_ny))
+    assert mk.scan_day(friday_8pm_ny) == "2026-11-06"
+    assert not mk.scan_due(memory, friday_8pm_ny)
