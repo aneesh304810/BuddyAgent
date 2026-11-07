@@ -161,6 +161,7 @@ def test_flightaware_fills_what_airlabs_lacks_and_is_rationed():
 
     def aero(url, headers):
         calls.append(url)
+        assert "ident_type=designator" in url and "start=" in url and "max_pages=1" in url
         assert headers["x-apikey"] == "fa"
         return aero_reply()
     f = Flights(Memory(":memory:"), env={"BUDDY_AIRLABS_KEY": "k", "BUDDY_AEROAPI_KEY": "fa"}, fetch=fake,
@@ -169,3 +170,15 @@ def test_flightaware_fills_what_airlabs_lacks_and_is_rationed():
     assert s["dep_gate"] == "D7" and s["dep_delayed"] == 25 and s["from_flightaware"]
     f.lookup("AA1234", DAY)
     assert len(calls) == 1  # at most every 30 minutes per flight
+
+
+def test_test_my_flight_sources():
+    def aero(url, headers):
+        assert "/account/usage" in url
+        return json.dumps({"total_calls": 7, "total_cost": 0.35}).encode()
+    f = Flights(Memory(":memory:"), env={"BUDDY_AIRLABS_KEY": "k", "BUDDY_AEROAPI_KEY": "fa"}, fetch=AirLabs(),
+                aero_fetch=aero)
+    out = f.test()
+    assert "✓ AirLabs: key works; your plan gives gates, delays, status; not updated times" in out
+    assert "✓ FlightAware: key works; 7 calls this month, $0.35" in out
+    assert "Airline app and emails" in out

@@ -102,11 +102,17 @@ def aero_status(got: dict, flight: str, day: str = "") -> dict:
         return datetime.fromisoformat(iso.replace("Z", "+00:00")).astimezone(timezone.utc).strftime("%Y-%m-%d %H:%M") \
             if iso else ""
     pick = None
-    for fl in flights:
-        tz = (fl.get("origin") or {}).get("timezone")
-        if not day or local(fl.get("scheduled_out") or fl.get("scheduled_off"), tz).startswith(day):
-            pick = fl
-            break
+    if day:
+        for fl in flights:
+            tz = (fl.get("origin") or {}).get("timezone")
+            if local(fl.get("scheduled_out") or fl.get("scheduled_off"), tz).startswith(day):
+                pick = fl
+                break
+    elif flights:  # no date: the one closest to now (FlightAware lists newest first)
+        now = datetime.now(timezone.utc)
+        pick = min(flights, key=lambda fl: abs((datetime.fromisoformat(
+            (fl.get("scheduled_out") or fl.get("scheduled_off") or now.isoformat()).replace("Z", "+00:00")) - now)
+            .total_seconds()))
     if pick is None:
         raise ToolError(f"FlightAware has nothing for {flight}" + (f" on {day}" if day else "") + ".")
     o, d = pick.get("origin") or {}, pick.get("destination") or {}
@@ -370,7 +376,10 @@ class Flights:
         self.memory.set(f"flights:aero:{month}", str(int(self.memory.get(f"flights:aero:{month}") or 0) + 1))
         mine = json.loads(self.memory.get(f"flights:aero:{flight}") or '{"n": 0, "at": ""}')
         self.memory.set(f"flights:aero:{flight}", json.dumps({"n": mine["n"] + 1, "at": now.isoformat()}))
-        url = AERO + urllib.parse.quote(flight)
+        base = date.fromisoformat(day) if day else date.today()
+        url = AERO + urllib.parse.quote(flight) + "?" + urllib.parse.urlencode({  # just the days around it: one page
+            "ident_type": "designator", "start": (base - timedelta(days=1)).isoformat(),
+            "end": (base + timedelta(days=2)).isoformat(), "max_pages": 1})
         started = time.monotonic()
         try:
             got = json.loads(self.aero_fetch(url, {"x-apikey": self.aero_key, "Accept": "application/json"}) or b"{}")
@@ -382,6 +391,50 @@ class Flights:
             raise ToolError("FlightAware didn't accept the key." if code in (401, 403) else
                             f"FlightAware: {type(e).__name__}{' ' + str(code) if code else ''}") from e
         return aero_status(got, flight, day)
+
+    def test(self) -> str:
+        """'Test my flight sources': each source once. AirLabs: one schedule lookup (and which fields this plan
+        gives); FlightAware: its usage endpoint (checks the key without a flight lookup, and gives this month's cost);
+        airline messages: how many arrived lately."""
+        lines = []
+        if self.key:
+            try:
+                rows = self._get("schedules", flight_iata="AA100") or []
+                row = (rows if isinstance(rows, list) else [rows] or [{}])[0] if rows else {}
+                has = [label for key, label in (("dep_gate", "gates"), ("dep_delayed", "delays"),
+                                                ("status", "status"), ("dep_estimated", "updated times")) if key in row]
+                lacks = [label for label in ("gates", "delays", "status", "updated times") if label not in has]
+                lines.append("✓ AirLabs: key works" + (f"; your plan gives {', '.join(has)}" if has else "") +
+                             (f"; not {', '.join(lacks)} (the airline's app and emails, or FlightAware, fill those)"
+                              if lacks else ""))
+            except Exception as e:
+                lines.append(f"✗ AirLabs: {e}")
+        else:
+            lines.append("– AirLabs: no key (sudo bash /opt/buddy/deploy/set.sh BUDDY_AIRLABS_KEY)")
+        if self.aero_key:
+            try:
+                start = date.today().replace(day=1).isoformat()
+                got = json.loads(self.aero_fetch(AERO.replace("flights/", "account/usage") + "?start=" + start,
+                                                 {"x-apikey": self.aero_key, "Accept": "application/json"}) or b"{}")
+                cost = got.get("total_cost")
+                lines.append(f"✓ FlightAware: key works; {got.get('total_calls', 0)} calls this month" +
+                             (f", ${float(cost):.2f}" if cost is not None else "") +
+                             f" (Buddy allows {(self.env.get('BUDDY_AEROAPI_MONTHLY') or '100').strip()} a month)")
+            except Exception as e:
+                code = getattr(e, "code", None)
+                lines.append("✗ FlightAware: the key wasn't accepted" if code in (401, 403) else
+                             f"✗ FlightAware: {type(e).__name__}{' ' + str(code) if code else ''}")
+        else:
+            lines.append("– FlightAware: no key (optional backup: sudo bash /opt/buddy/deploy/set.sh BUDDY_AEROAPI_KEY)")
+        try:
+            since = (datetime.now(timezone.utc) - timedelta(days=7)).isoformat()
+            n = sum(1 for r in self.memory.db.execute(
+                "SELECT data FROM records WHERE kind IN ('notification', 'email') AND start_at >= ?", (since,))
+                if AIRLINE_APP.search(" ".join(str(v) for v in json.loads(r["data"] or "{}").values())))
+            lines.append(f"✓ Airline app and emails: {n} airline message{'s' if n != 1 else ''} in the last 7 days")
+        except Exception:
+            lines.append("– Airline app and emails: nothing read yet")
+        return "Flight sources:\n" + "\n".join(lines)
 
     @staticmethod
     def describe(s: dict) -> str:
@@ -580,9 +633,10 @@ FLIGHT_TOOL = {
     "every 15 minutes from 4 hours before departure until it lands and messages on delays, gate or terminal changes, "
     "cancellation, diversion, take-off and landing. When a booking or check-in email or the user mentions a flight, "
     "offer to track it (find the flight number and date in the email). untrack (flight, day?). list. Read-only: never "
-    "change bookings.",
+    "change bookings. test: 'test my flight sources' (AirLabs, FlightAware with this month's cost, airline messages); "
+    "give the result line by line.",
     "input_schema": {"type": "object", "properties": {
-        "action": {"type": "string", "enum": ["status", "track", "untrack", "list"]},
+        "action": {"type": "string", "enum": ["status", "track", "untrack", "list", "test"]},
         "flight": {"type": "string"}, "day": {"type": "string"}, "note": {"type": "string"}},
         "required": ["action"], "additionalProperties": False},
 }
@@ -595,6 +649,8 @@ def run_tool(memory: Memory, args: dict) -> str:
         return f.track(args.get("flight", ""), args.get("day") or "", args.get("note") or "")
     if a == "untrack":
         return f.untrack(args.get("flight", ""), args.get("day") or "")
+    if a == "test":
+        return f.test()
     if a == "list":
         items = f.tracked()
         return json.dumps([{k: x[k] for k in ("flight", "day", "note", "summary")} for x in items]) if items else \
