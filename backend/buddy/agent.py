@@ -50,6 +50,7 @@ from .budgets import BUDGET_TOOL
 from .costwatch import COSTWATCH_TOOL
 from .model_advisor import ADVICE_TOOL
 from .docedit import EDIT_TOOL
+from .browse import BROWSE_TOOL
 from .messaging import MESSAGE_TOOL
 from .routing import ROUTING_TOOL
 from .trends import TRENDS_TOOL
@@ -698,6 +699,7 @@ class Conversation:
                      compliance.COMPLIANCE_TOOL, MERCHANTS_TOOL, CUSTOMIZE_TOOL, CREDIT_TOOL, MARKETS_TOOL, ROUTING_TOOL, TRENDS_TOOL,
                      TRANSIT_TOOL, FLIGHT_TOOL, DECISION_TOOL, MAPS_TOOL,
                      WEATHER_TOOL, PACKAGES_TOOL, MESSAGE_TOOL, BUDGET_TOOL, COSTWATCH_TOOL, ADVICE_TOOL, EDIT_TOOL]
+        spending += [BROWSE_TOOL] if self.jobs and sandbox.available() else []
         return (
             CLIENT_TOOLS + orchestration + job_tools + spending + [_expert_tool()]
             + agent_tools + web_tools()
@@ -849,6 +851,9 @@ class Conversation:
         if name == "weather":
             from . import weather  # noqa: PLC0415
             return await asyncio.to_thread(weather.run_tool, self.memory, args)
+        if name == "browse":
+            from . import browse  # noqa: PLC0415
+            return await browse.run_tool(self.jobs, args)
         if name == "edit_document":
             from . import docedit  # noqa: PLC0415
             return await docedit.run_edit_tool(self.memory, args)

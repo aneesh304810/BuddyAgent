@@ -256,6 +256,26 @@ async def job_finished(job: dict) -> bool:
             return await deliver("job_done", job.get("error") or "The English review didn't finish.", job_id=job["id"])
         return await deliver("job_done", f"Your English review is ready. {job.get('summary') or ''}".strip(),
                              job_id=job["id"])
+    if job["kind"] == "browse":
+        if job["status"] != "done":
+            return await deliver("job_done", f"The browser task didn't finish: {job.get('error') or 'unknown error'}",
+                                 job_id=job["id"])
+        found = [str(f).split(":", 1)[1] for f in (job.get("findings") or []) if str(f).startswith("output:")]
+        shots = [c for c in (makers.card_for(memory, fid) for fid in found) if c]
+        text = job.get("summary") or "Done."
+        pending = browse.pending_of(job)
+        if pending:
+            async def send_form() -> str:
+                said, more = await browse.submit(memory, pending)
+                for card in (makers.card_for(memory, fid) for fid in more):
+                    if card:
+                        await deliver("job_done", f"After sending ({pending.get('url', '')[:80]}):", job_id=job["id"],
+                                      cards=[card])
+                return said
+            question = "Shall I send it? (The screenshot shows the filled form; this stays open for 15 minutes.)"
+            thrift.ask_action(question, send_form)
+            text = f"{text} {question}"
+        return await deliver("job_done", text, job_id=job["id"], cards=shots)
     if job["kind"] == "code":
         if job["status"] != "done":
             return await deliver("job_done", f"The task didn't finish: {job.get('error') or 'unknown error'}",
@@ -376,6 +396,8 @@ jobs.register("research", research.run_research)
 builder = AgentBuilder(memory, registry)
 jobs.register("build_agent", builder.build)
 jobs.register("code", codejob.run_code_task)
+from . import browse  # noqa: E402
+jobs.register("browse", browse.run_browse)
 jobs.register("tutor", tutor.run_review)
 for _spec in builder.active_specs():  # agents built or connected earlier
     registry.specs.setdefault(_spec.name, _spec)

@@ -22,6 +22,11 @@ connection, and can ask for only these things:
   delete_skill {name}
   delete  {workspace}
   status  {}                                  workspaces and disk use
+  browser {session?, cmd}                     Buddy's browser (browser/driver.py): one headless Chromium per
+                                              session, in the same hardened container; cmd is one driver command
+                                              (open, click, type, read, screenshot...); a new session starts when
+                                              none is given; idle ones close after 15 minutes; at most 2 at once
+  browser_close {session}
 
 Every command, file read and write runs inside a container from the buddy-sandbox image:
 non-root user, no Linux capabilities, read-only system, CPU, memory, process and time limits,
@@ -294,8 +299,87 @@ def publish_tools(names, source: str) -> dict:
         handle({"op": "delete", "workspace": ws_name})
 
 
+# --- Buddy's browser ---------------------------------------------------------------------------------------------
+import select
+import threading
+
+BROWSER_IDLE, BROWSER_MAX, BROWSER_STEP = 15 * 60, 2, 60
+_browsers: dict[str, dict] = {}
+_browser_lock = threading.Lock()
+
+
+def _browser_reap() -> None:
+    now = time.time()
+    for sid, b in list(_browsers.items()):
+        if now - b["last"] > BROWSER_IDLE or b["proc"].poll() is not None:
+            _browser_close(sid)
+
+
+def _browser_close(sid: str) -> None:
+    b = _browsers.pop(sid, None)
+    if not b:
+        return
+    try:
+        b["proc"].stdin.write('{"op": "close"}\n')
+        b["proc"].stdin.flush()
+        b["proc"].wait(timeout=10)
+    except Exception:
+        b["proc"].kill()
+    shutil.rmtree(b["ws"], ignore_errors=True)
+
+
+def _browser_line(b: dict, timeout: float) -> dict:
+    ready, _, _ = select.select([b["proc"].stdout], [], [], timeout)
+    if not ready:
+        raise Refused("the page took too long")
+    line = b["proc"].stdout.readline()
+    if not line:
+        raise Refused("the browser stopped")
+    return json.loads(line)
+
+
+def browser(req: dict) -> dict:
+    with _browser_lock:
+        _browser_reap()
+        sid = str(req.get("session") or "")
+        if sid and sid not in _browsers:
+            raise Refused("that browser session has closed (idle too long); start again")
+        if not sid:
+            if len(_browsers) >= BROWSER_MAX:
+                raise Refused("two browser tasks are already running; try again in a few minutes")
+            sid = secrets.token_hex(6)
+            ws = ROOT / f"browse-{sid}"
+            ws.mkdir(parents=True, exist_ok=True)
+            proc = subprocess.Popen(docker_run(ws, ["python3", "/opt/buddy-browser/driver.py"], memory="1500m",
+                                               stdin=True), stdin=subprocess.PIPE, stdout=subprocess.PIPE,
+                                    stderr=subprocess.DEVNULL, text=True, bufsize=1)
+            b = {"proc": proc, "ws": ws, "last": time.time()}
+            _browsers[sid] = b
+            try:
+                _browser_line(b, 90)  # {"ready": true}
+            except Exception:
+                _browser_close(sid)
+                raise
+            _audit(f"browse-{sid}", "browser started")
+        b = _browsers[sid]
+        b["last"] = time.time()
+        cmd = req.get("cmd") or {"op": "read"}
+        if cmd.get("op") == "open":
+            _audit(f"browse-{sid}", f"open {str(cmd.get('url', ''))[:200]}")
+        b["proc"].stdin.write(json.dumps(cmd) + "\n")
+        b["proc"].stdin.flush()
+        reply = _browser_line(b, BROWSER_STEP)
+        return {"session": sid, **reply}
+
+
 def handle(req: dict) -> dict:
     op = req.get("op", "")
+    if op == "browser":
+        return browser(req)
+    if op == "browser_close":
+        with _browser_lock:
+            _browser_close(str(req.get("session", "")))
+        return {"ok": True}
     if op == "publish_tools":
         return publish_tools(req.get("names") or "all", str(req.get("source") or "library"))
     if op == "status":
