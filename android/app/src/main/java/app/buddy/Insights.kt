@@ -86,6 +86,8 @@ object InsightsApi {
     suspend fun setBudget(link: ServerLink, which: String, usd: Double): JSONObject =
         post(link, "/admin/budgets", JSONObject().put("which", which).put("usd", usd))
 
+    suspend fun fresh(link: ServerLink): JSONObject = post(link, "/admin/budgets/fresh", JSONObject())
+
     suspend fun pace(link: ServerLink, approve: Boolean): JSONObject =
         post(link, "/admin/budgets/pace", JSONObject().put("approve", approve))
 
@@ -957,6 +959,15 @@ private fun BudgetCard(b: JSONObject, link: ServerLink?, onChanged: (JSONObject)
     var claudeText by remember(b) { mutableStateOf(if (claude.isNull("cutoff_usd")) "" else "%.0f".format(claude.optDouble("cutoff_usd"))) }
     var allText by remember(b) { mutableStateOf(if (all.isNull("budget_usd")) "" else "%.0f".format(all.optDouble("budget_usd"))) }
 
+    fun startFresh() {
+        if (link == null) return
+        scope.launch {
+            runCatching { InsightsApi.fresh(link) }
+                .onSuccess { message = it.optString("said"); onChanged(it) }
+                .onFailure { message = "Couldn't save (${it.message})." }
+        }
+    }
+
     fun answer(approve: Boolean) {
         if (link == null) return
         scope.launch {
@@ -989,6 +1000,10 @@ private fun BudgetCard(b: JSONObject, link: ServerLink?, onChanged: (JSONObject)
     Column(Modifier.fillMaxWidth().background(Card, RoundedCornerShape(12.dp)).padding(12.dp),
         verticalArrangement = Arrangement.spacedBy(8.dp)) {
         Text("Budgets this month", color = Pal.text, fontSize = 15.sp, fontWeight = FontWeight.SemiBold)
+        b.optString("counting_from").takeIf { it.length >= 16 && it != "null" }?.let {
+            Text("Counting from ${it.substring(0, 10)} ${it.substring(11, 16)} UTC (earlier spending this month let go)",
+                 color = Dim, fontSize = 11.sp)
+        }
 
         val prediction = b.optJSONObject("prediction")
         prediction?.optJSONArray("limits")?.objects()?.forEach { l ->
@@ -1049,6 +1064,7 @@ private fun BudgetCard(b: JSONObject, link: ServerLink?, onChanged: (JSONObject)
         Text("Alerts at 50%, 80% and 100%. At the Claude cutoff, Claude stops; at the whole-Buddy budget, Claude and " +
              "every paid service stop, until the 1st. Reminders, the bank feed and your screens keep working.",
              color = Dim, fontSize = 11.sp)
+        Chip("Start fresh from now", false) { startFresh() }
         message?.let { Text(it, color = Dim, fontSize = 12.sp) }
     }
 }

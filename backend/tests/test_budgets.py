@@ -162,3 +162,21 @@ def test_a_forecast_over_budget_holds_background_work_and_asks():
         assert "saver" in budgets.command(m, "stay in saver").lower() and budgets.held(m)
     finally:
         budgets.attach(None)
+
+
+def test_a_fresh_start_lets_this_months_spending_go_and_counts_from_now():
+    from buddy.memory import Memory as M
+    m = M(":memory:")
+    budgets.set_budget(m, "claude", 30)
+    budgets.set_budget(m, "all_in", 20)
+    _claude_calls(m, 42)  # already past both
+    budgets._stop_cache.clear()
+    assert budgets.claude_stopped(m) and budgets.all_in_stopped(m)
+    assert "let go" in budgets.command(m, "start my budget fresh")
+    assert not budgets.claude_stopped(m) and not budgets.all_in_stopped(m)
+    assert budgets.status(m)["claude"]["spent_usd"] == 0
+    m.set(budgets.COMMITTED_KEY, "30")
+    assert budgets.committed(m) < 30  # only the days left
+    _claude_calls(m, 31)  # new spending counts again
+    budgets._stop_cache.clear()
+    assert budgets.claude_stopped(m)

@@ -292,6 +292,9 @@ thrift = Thrift(memory)
 hub = ConnectorHub(memory)
 finops = FinOps(memory)
 budgets.attach(memory)  # the Claude cutoff, checked before every Claude call
+if memory.get("budget:fresh_start_v1") != "1":  # the owner let November's spending go: budgets count from the deploy
+    memory.set("budget:fresh_start_v1", "1")
+    budgets.start_fresh(memory)
 
 
 async def _budget_alerts() -> None:
@@ -678,6 +681,13 @@ async def admin_set_budget(body: dict) -> dict:
         said = budgets.set_budget(memory, which, body.get("usd"))
     except ToolError as e:
         raise HTTPException(status_code=400, detail=str(e)) from e
+    return {"said": said, **(await admin_budgets())}
+
+
+@app.post("/admin/budgets/fresh", dependencies=[Depends(require_admin)])
+async def admin_budget_fresh() -> dict:
+    """Let this month's spending so far go: the budgets count from now."""
+    said = budgets.start_fresh(memory)
     return {"said": said, **(await admin_budgets())}
 
 

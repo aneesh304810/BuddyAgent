@@ -40,6 +40,7 @@ CLAUDE_KEY, ALL_IN_KEY, COMMITTED_KEY = "budget:claude_kill_usd", "budget:all_in
 # Claude is stopped in its client).
 PAID_HOSTS = {"google.serper.dev", "serpapi.com", "api.duffel.com", "aeroapi.flightaware.com", "api.groq.com"}
 _stop_cache: dict[int, tuple[float, bool]] = {}
+SINCE_KEY = "budget:since"
 HOLD_KEY, ASKED_KEY, APPROVED_KEY = "budget:hold", "budget:pace_asked", "budget:pace_approved"
 PACE_DAYS, REASK_GROWTH, MIN_PACE_USD = 3, 1.2, 0.5
 STEPS = (50, 80, 100)
@@ -95,21 +96,62 @@ def _month_start() -> str:
     return first.astimezone(timezone.utc).isoformat()
 
 
+def counting_from(memory: Memory) -> str:
+    """When the budgets started counting this month: '' = the 1st, or the moment the user started fresh."""
+    since = memory.get(SINCE_KEY) or ""
+    return since if since >= _month_start() else ""
+
+
+def start_fresh(memory: Memory) -> str:
+    """Let this month's spending so far go: the budgets count from now (and from the 1st again next month)."""
+    memory.set(SINCE_KEY, datetime.now(timezone.utc).isoformat())
+    month = local_now().strftime("%Y-%m")
+    for key in (HOLD_KEY, ASKED_KEY, APPROVED_KEY, "budget:pace_asked_at", f"budget:told:claude:{month}",
+                f"budget:told:all_in:{month}"):
+        memory.set(key, "")
+    _stop_cache.clear()
+    return ("Done: this month's spending so far is let go. The budgets count from now (the committed costs only for "
+            "the days left), and from the 1st again next month.")
+
+
+def claude_spent(memory: Memory) -> float:
+    """Claude's spend this month, from the fresh start if there was one."""
+    since = counting_from(memory)
+    if not since:
+        return usage.month_to_date(memory)
+    try:
+        return float(memory.db.execute("SELECT COALESCE(SUM(cost_usd), 0) FROM model_calls WHERE provider = 'claude' "
+                                       "AND at >= ?", (since,)).fetchone()[0] or 0)
+    except Exception:
+        return 0.0
+
+
 def pay_per_use(memory: Memory) -> float:
     """This month's spend on pay-per-use services: Claude, other AI models, priced outside APIs."""
-    total = usage.month_to_date(memory)
+    total = claude_spent(memory)
+    since = counting_from(memory) or _month_start()
     for sql in ("SELECT COALESCE(SUM(cost_usd), 0) AS s FROM model_calls WHERE at >= ? AND provider != 'claude'",
                 "SELECT COALESCE(SUM(cost_usd), 0) AS s FROM api_calls WHERE at >= ?"):
         try:
-            total += float(memory.db.execute(sql, (_month_start(),)).fetchone()["s"] or 0)
+            total += float(memory.db.execute(sql, (since,)).fetchone()["s"] or 0)
         except Exception:
             pass
     return round(total, 4)
 
 
 def committed(memory: Memory) -> float:
-    """The month's committed costs in full (server, plans, fixed), as the last cost report found them."""
-    return _num(memory.get(COMMITTED_KEY), 0.0)
+    """The month's committed costs (server, plans, fixed), as the last cost report found them: in full, or for the
+    days left after a fresh start."""
+    full = _num(memory.get(COMMITTED_KEY), 0.0)
+    since = counting_from(memory)
+    if not since or not full:
+        return full
+    import calendar  # noqa: PLC0415
+    now = local_now()
+    days = calendar.monthrange(now.year, now.month)[1]
+    start = datetime.fromisoformat(since).astimezone(now.tzinfo)
+    used = (start - start.replace(day=1, hour=0, minute=0, second=0, microsecond=0)).total_seconds() / 86400
+    return round(full * max(days - used, 0) / days, 2)
 
 
 def save_committed(memory: Memory, lines: list) -> float:
@@ -146,7 +188,7 @@ def claude_stopped(memory: Memory | None = None) -> bool:
         return False
     try:
         cap = claude_cap(memory)
-        if cap and usage.month_to_date(memory) >= cap:
+        if cap and claude_spent(memory) >= cap:
             return True
     except Exception:
         return False
@@ -208,6 +250,8 @@ SET = re.compile(r"(?i)\b(?:set|raise|increase|change|make|lower|reduce|put)\s+(
 
 def command(memory: Memory, text: str) -> str:
     """A budget change in the user's own words, done in code (no Claude): '' when the text isn't one."""
+    if FRESH.search(text or ""):
+        return start_fresh(memory)
     if PACE.search(text or ""):
         return approve_pace(memory, True)
     if SAVER.search(text or ""):
@@ -220,7 +264,7 @@ def command(memory: Memory, text: str) -> str:
 
 
 def status(memory: Memory, finops_report: dict | None = None) -> dict:
-    claude = round(usage.month_to_date(memory), 2)
+    claude = round(claude_spent(memory), 2)
     cap, budget = claude_cap(memory), all_in_budget(memory)
     fixed, variable = committed(memory), pay_per_use(memory)
     out = {"claude": {"spent_usd": claude, "cutoff_usd": cap or None, "stopped": claude_stopped(memory),
@@ -230,7 +274,7 @@ def status(memory: Memory, finops_report: dict | None = None) -> dict:
                       "left_usd": round(max(budget - fixed - variable, 0), 2) if budget else None,
                       "stopped": all_in_stopped(memory),
                       "counted_pct": round((fixed + variable) / budget * 100) if budget else None},
-           "held": held(memory), "prediction": predict(memory)}
+           "held": held(memory), "prediction": predict(memory), "counting_from": counting_from(memory) or None}
     if finops_report:
         mtd, forecast = finops_report.get("month_to_date_usd", 0.0), finops_report.get("forecast_usd", 0.0)
         out["all_in"].update({"spent_usd": mtd, "forecast_usd": forecast,
@@ -331,7 +375,7 @@ def predict(memory: Memory) -> dict:
     other_rate = (_sum(memory, "SELECT SUM(cost_usd) FROM model_calls WHERE provider != 'claude' AND at >= ?",
                        (_since(window),)) + _sum(memory, "SELECT SUM(cost_usd) FROM api_calls WHERE at >= ?",
                                                  (_since(window),))) / window
-    claude_now, ppu_now, fixed = usage.month_to_date(memory), pay_per_use(memory), committed(memory)
+    claude_now, ppu_now, fixed = claude_spent(memory), pay_per_use(memory), committed(memory)
     out = {"daily_pace_usd": round(claude_rate + other_rate, 2), "days_left": round(left, 1),
            "drivers": drivers(memory), "limits": []}
 
@@ -422,6 +466,8 @@ def approve_pace(memory: Memory, yes: bool) -> str:
             "and your screens carry on; chat works). Say \"approve the pace\" anytime to resume.")
 
 
+FRESH = re.compile(r"(?i)\b(start (?:my |the )?budgets? (?:fresh|from now|again)|count (?:my |the )?budgets? from now|"
+                   r"let (?:this month'?s )?(?:spending|overspend) go)\b")
 PACE = re.compile(r"(?i)\b(approve (?:the |this )?(?:pace|spending|cost)|keep (?:going|spending) at this pace|"
                   r"resume background(?: work)?)\b")
 SAVER = re.compile(r"(?i)\b(stay (?:in|on) saver|saver mode|keep (?:it |background (?:work )?)?paused|"
