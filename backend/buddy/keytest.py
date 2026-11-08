@@ -51,7 +51,8 @@ def line(ok: bool, name: str, what: str, seconds: float, code: int, said: str, s
     elif code in (500, 502, 503, 529):
         hint = "busy or down on the provider's side right now: usually fine again later"
     else:
-        hint = FIX.get(code, "can't reach it (network or the service is down)" if code == 0 else "see the message")
+        hint = (FIX.get(code, "can't reach it (network or the service is down)" if code == 0 else "see the message")
+            if code != 200 else "it answered, but not with a model reply: the address or headers are off (tell Claude)")
     said = " ".join(said.split())[:220]
     return (f"  FAIL  {name:<11} {what:<40} HTTP {code or '-'}: {said}\n"
             f"        fix: {hint.format(setting=setting)}")
@@ -87,7 +88,7 @@ def run(env=os.environ) -> list[str]:
         t = time.monotonic()
         code, said = _post(f"{p['base']}/chat/completions",
                            {"model": model, "max_tokens": 8, "messages": [{"role": "user", "content": "Say hi."}]},
-                           {"Authorization": f"Bearer {k}"})
+                           {"Authorization": f"Bearer {k}", **p.get("headers", {})})
         ok = code == 200 and '"choices"' in said
         out.append(line(ok, name, model[:40], time.monotonic() - t, code, said, p["model_setting"]))
         if not ok and code in (400, 404):  # what Buddy will switch to by itself

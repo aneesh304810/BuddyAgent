@@ -58,6 +58,8 @@ PROVIDERS = {
                  "model_setting": "BUDDY_DEEPSEEK_MODEL", "model": "deepseek/deepseek-chat-v3-0324:free",
                  "good_at": "code: writing, explaining and fixing it"},
     "github": {"base": "https://models.github.ai/inference", "key": "BUDDY_GITHUB_MODELS_KEY",
+               # GitHub's API wants these; without them the request can be redirected and come back as a bare "OK"
+               "headers": {"Accept": "application/vnd.github+json", "X-GitHub-Api-Version": "2022-11-28"},
                "model_setting": "BUDDY_GITHUB_MODEL", "model": "openai/gpt-4.1-mini",
                "good_at": "OpenAI's GPT models, free with a GitHub account; careful writing and explaining"},
     "openrouter": {"base": "https://openrouter.ai/api/v1", "key": "BUDDY_OPENROUTER_KEY",
@@ -507,7 +509,9 @@ class FreeModels:
         body = {"model": model, "max_tokens": max_tokens, "temperature": 0.3,
                 "messages": [{"role": "system", "content": system}, {"role": "user", "content": prompt}]}
         data = self.http(f"{p['base']}/chat/completions", body,
-                         {"Authorization": f"Bearer {self.env[p['key']].strip()}"}, timeout)
+                         {"Authorization": f"Bearer {self.env[p['key']].strip()}", **p.get("headers", {})}, timeout)
+        if not isinstance(data, dict) or not data.get("choices"):
+            raise ValueError(f"unexpected reply: {str(data)[:120]}")
         return (data["choices"][0]["message"]["content"] or "").strip(), data.get("usage") or {}
 
     async def _claude(self, system: str, prompt: str, kind: str = "") -> str:
@@ -540,7 +544,11 @@ def _post(url: str, body: dict, headers: dict, timeout: float = 30) -> dict:
                                      headers={"Content-Type": "application/json", "User-Agent": "Buddy/1.0", **headers})
     try:
         with urllib.request.urlopen(request, timeout=timeout) as response:  # https only  # nosec B310
-            return json.loads(response.read())
+            raw = response.read()
+            try:
+                return json.loads(raw)
+            except ValueError as e:  # not JSON (a redirect page, "OK"): say what came back
+                raise ValueError(f"not a model reply (HTTP {response.status}): {raw[:120]!r}") from e
     except urllib.error.HTTPError as e:
         if e.code == 429:
             raise RateLimited(float(e.headers.get("Retry-After") or 60)) from e

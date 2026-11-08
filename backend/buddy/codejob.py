@@ -181,7 +181,7 @@ async def _free_loop(ctx: JobContext, provider: str, system: str, first: str, ws
             data = await asyncio.to_thread(_post, f"{p['base']}/chat/completions",
                                            {"model": model, "messages": messages, "tools": _openai_tools(),
                                             "temperature": 0.2, "max_tokens": 4000},
-                                           {"Authorization": f"Bearer {key}"}, 120)
+                                           {"Authorization": f"Bearer {key}", **p.get("headers", {})}, 120)
             msg = data["choices"][0]["message"]
         except Exception as e:  # rate limit, an error, a model that can't use tools
             free._failed(provider)
