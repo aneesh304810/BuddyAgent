@@ -195,6 +195,7 @@ class Conversation:
         self.open_links = None  # async (links) -> None: the phone opens Uber or Lyft (server sets it)
         self.phone_request = None  # async (message) -> reply: ask the phone something (server sets it)
         self.say_now = None  # async (text) -> None: a short line to the user in the middle of a turn (server sets it)
+        self.speech_hint = None  # async (days) -> None: tell the phone to prefer Whisper for a while (server sets it)
         self.form_state: dict = {}  # the form last read off the browser
         self.via = "user"
         # Frozen for the whole session so the cached prompt prefix stays valid.
@@ -733,6 +734,9 @@ class Conversation:
             return tutor.run_tutor_tool(self.memory, self.jobs, args)
         if name == "learn_word":
             vocabulary.learn(self.memory, str(args.get("word", "")))
+            if getattr(self, "speech_hint", None):  # the recognizer got a word wrong: Whisper for the next few days
+                with contextlib.suppress(Exception):
+                    await self.speech_hint(3)
             return f"Saved: I'll recognise \"{args.get('word')}\" better from now on."
         if name in MAKER_TOOL_NAMES:
             return await run_maker_tool(self.memory, name, args)

@@ -30,6 +30,8 @@ sealed interface ServerEvent {
                      val missed: String = "") : ServerEvent
     /** The server's fast speech recognition (Groq) is at its free limit for [seconds]. */
     data class SpeechLimit(val seconds: Long) : ServerEvent
+    /** The server suggests Whisper for a few days (a misheard word was just corrected). */
+    data class SpeechHint(val days: Int) : ServerEvent
     /** Buddy switches the app's mode ("sleep until I say Hey Buddy"): "listen" or "talk". */
     data class SwitchMode(val mode: String) : ServerEvent
     /** Voice match status: installed on the server, a voiceprint made, switched on; the sentences to read. */
@@ -71,6 +73,7 @@ sealed interface ServerEvent {
                 "heard" -> Heard(msg.optString("text"), msg.optString("lang"), msg.optLong("stt_ms", -1),
                     msg.optString("engine"), msg.optString("missed"))
                 "speech_limit" -> SpeechLimit(msg.optLong("seconds", 600L))
+                "speech_hint" -> SpeechHint(msg.optInt("days", 3))
                 "mode" -> SwitchMode(msg.optString("mode"))
                 "waiting" -> Waiting
                 "diag_pong" -> DiagPong(msg.optLong("t"))

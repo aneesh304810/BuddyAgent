@@ -168,6 +168,10 @@ class BuddyService : Service() {
             // recognizer (Samsung's or Google's) for Talk until it resets, not the slow server model.
             prefs.speechEngine == "auto" && activeMode == Mode.TALK && !screenOff &&
                 android.os.SystemClock.elapsedRealtime() < phoneUntil -> phoneEars
+            // Best quality for little or no cost: Whisper (Groq's free tier, then this server) when the phone's
+            // recognizer would do worse: you speak another language than English (now, or in the last few days),
+            // or it recently misheard a name. Quick English questions stay on the phone: instant, and no quota.
+            prefs.speechEngine == "auto" && whisperOnServer && activeMode == Mode.TALK && needsWhisper() -> serverEars
             prefs.speechEngine == "auto" && whisperOnServer &&
                 (screenOff || activeMode == Mode.LISTEN_IN || prefs.handsFree) -> serverEars
             else -> phoneEars
@@ -442,8 +446,21 @@ class BuddyService : Service() {
     }
 
     /** The server's text for a clip arrived (or the phone recognizer's): note when, then route it. */
+    /** Automatic: is the phone's recognizer likely to get this wrong? */
+    private fun needsWhisper(): Boolean {
+        if (System.currentTimeMillis() < prefs.whisperUntil) return true
+        val lang = prefs.talkLanguage.lowercase()
+        return lang.isNotBlank() && lang.removePrefix("auto:").split(",").any { it.isNotBlank() && !it.trim().startsWith("en") }
+    }
+
+    private fun preferWhisper(days: Int) {
+        val until = System.currentTimeMillis() + days * 24L * 3600 * 1000
+        if (until > prefs.whisperUntil) prefs.whisperUntil = until
+    }
+
     private fun voiceHeard(event: ServerEvent.Heard) {
         missWatch.removeCallbacksAndMessages(null)
+        if (event.lang.isNotBlank() && !event.lang.lowercase().startsWith("en")) preferWhisper(3)  // Malayalam & co.
         val t = voiceTrace
         if (t != null && t.heardAt == 0L) {
             t.heardAt = android.os.SystemClock.elapsedRealtime()
@@ -526,6 +543,7 @@ class BuddyService : Service() {
             ServerEvent.Thinking -> thinking(true)
             is ServerEvent.Heard -> voiceHeard(event)
             is ServerEvent.SpeechLimit -> speechLimit(event.seconds)
+            is ServerEvent.SpeechHint -> preferWhisper(event.days)
             ServerEvent.Waiting -> BuddyState.status("Go on…")
             is ServerEvent.DiagPong -> diagMonitor?.pong(event.t)
             ServerEvent.DiagOff -> Diag.serverOff = true

@@ -1371,6 +1371,11 @@ async def talk(ws: WebSocket) -> None:
 
     convo.say_now = say_now
 
+    async def speech_hint(days: int = 3) -> None:  # a misheard word was corrected: Automatic prefers Whisper a while
+        await send({"type": "speech_hint", "days": days})
+
+    convo.speech_hint = speech_hint
+
     pending: dict = {"text": "", "task": None}  # a sentence cut off by a pause, waiting for its end
     last_heard = [-1e9]  # when Whisper last sent text back
     last_user: list = ["", -1e9]  # the last thing said to Buddy, and when

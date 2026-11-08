@@ -94,6 +94,12 @@ class BuddyPrefs(context: Context) {
         get() = prefs.getString("talkLanguage", "") ?: ""
         set(value) = prefs.edit().putString("talkLanguage", value).apply()
 
+    /** Automatic speech prefers Whisper until this time (epoch ms): set when you spoke another language than
+     *  English, or Buddy had to learn a misheard word (the phone's recognizer got it wrong). */
+    var whisperUntil: Long
+        get() = prefs.getLong("whisperUntil", 0L)
+        set(value) = prefs.edit().putLong("whisperUntil", value).apply()
+
     /** How fast Buddy speaks: 0.7 (slow) to 1.4 (fast); 1.0 is normal. */
     var voiceRate: Float
         get() = prefs.getFloat("voiceRate", 1.0f)
