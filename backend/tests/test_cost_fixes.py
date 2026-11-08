@@ -175,3 +175,28 @@ def test_the_key_test_reports_the_providers_own_reason_and_the_fix(monkeypatch):
     text = "\n".join(rows)
     assert "FAIL  groq" in text and "decommissioned" in text and "set.sh BUDDY_GROQ_MODEL" in text
     assert "OK    gemini" in text and "k" not in [w for r in rows for w in r.split()]
+
+
+def test_a_retired_free_model_is_replaced_from_the_providers_own_list(monkeypatch):
+    import io
+    import json as js
+    import urllib.error
+    from buddy import free_models
+    m = Memory(":memory:")
+    f = free_models.FreeModels(m, env={"BUDDY_FREE_MODELS": "1", "BUDDY_GROQ_KEY": "k"})
+    assert f.model_of("groq") == "llama-3.3-70b-versatile"
+
+    class Resp(io.BytesIO):
+        def __enter__(self):
+            return self
+
+        def __exit__(self, *a):
+            return False
+    monkeypatch.setattr(free_models.urllib.request, "urlopen", lambda req, timeout=15: Resp(js.dumps({"data": [
+        {"id": "whisper-large-v3"}, {"id": "openai/gpt-oss-120b"}, {"id": "llama-3.1-8b-instant"}]}).encode()))
+    gone = urllib.error.HTTPError("u", 404, "x", {}, io.BytesIO(
+        b'{"error":{"message":"The model `llama-3.3-70b-versatile` does not exist","code":"model_not_found"}}'))
+    reason = f._broken("groq", gone)
+    assert "switched to openai/gpt-oss-120b" in reason and not f.resting("groq")
+    assert f.model_of("groq") == "openai/gpt-oss-120b"
+    assert free_models.pick_model("cerebras", ["llama3.1-8b", "qwen-3-235b"], "") == "llama3.1-8b"

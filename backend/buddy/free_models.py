@@ -103,6 +103,28 @@ SECRETS = SECRET_PATTERNS
 
 UNSURE = "NEEDS_CLAUDE"
 
+# When a provider retires the model Buddy uses, the best of these it still offers takes over (its own list decides).
+MODEL_PREFS = {
+    "groq": ["openai/gpt-oss-120b", "llama-3.3-70b-versatile", "meta-llama/llama-4-maverick-17b-128e-instruct",
+             "qwen/qwen3-32b", "openai/gpt-oss-20b", "llama-3.1-8b-instant"],
+    "cerebras": ["gpt-oss-120b", "llama-3.3-70b", "qwen-3-32b", "llama3.1-8b"],
+    "mistral": ["mistral-small-latest", "mistral-medium-latest", "open-mistral-nemo"],
+}
+SKIP_MODEL = re.compile(r"(?i)whisper|tts|guard|embed|audio|vision-only|moderation|playai|orpheus|compound")
+
+
+def pick_model(name: str, ids: list[str], gone: str = "") -> str:
+    """The best chat model in a provider's list: a preferred one if it has it, else the biggest-looking chat model."""
+    usable = [i for i in ids if i and i != gone and not SKIP_MODEL.search(i)]
+    for want in MODEL_PREFS.get(name, []):
+        if want in usable:
+            return want
+
+    def size(i: str) -> float:
+        found = re.findall(r"(\d+(?:\.\d+)?)b\b", i.lower())
+        return max((float(x) for x in found), default=0.0)
+    return max(usable, key=size) if usable else ""
+
 
 class PersonalData(ToolError):
     pass
@@ -253,6 +275,34 @@ class FreeModels:
             self.memory.set(f"free:fails:{name}", "0")
             log.warning("free model %s failed %d times in a row: resting %d hours", name, n, self.REST_HOURS)
 
+    def _swapped(self, name: str) -> dict | None:
+        if self.memory is None:
+            return None
+        try:
+            return json.loads(self.memory.get(f"free:model:{name}") or "null")
+        except ValueError:
+            return None
+
+    def _find_replacement(self, name: str, gone: str) -> str:
+        """The provider says the model is gone: read its own model list and switch to the best one it has."""
+        p = PROVIDERS[name]
+        if name not in MODEL_PREFS or self.memory is None:
+            return ""
+        try:
+            req = urllib.request.Request(require_https(f"{p['base']}/models"), headers={
+                "Authorization": f"Bearer {self.env[p['key']].strip()}", "User-Agent": "Buddy/1.0"})
+            with urllib.request.urlopen(req, timeout=15) as r:  # nosec B310: the provider's own https API
+                ids = [m.get("id", "") for m in json.loads(r.read()).get("data", [])]
+        except Exception:
+            log.info("couldn't list %s's models", name, exc_info=True)
+            return ""
+        best = pick_model(name, ids, gone)
+        if best:
+            self.memory.set(f"free:model:{name}", json.dumps({"model": best, "replaced": gone,
+                                                               "at": time.strftime("%Y-%m-%d")}))
+            log.warning("free model %s: %s is gone, switched to %s", name, gone, best)
+        return best
+
     def _broken(self, name: str, e: Exception) -> str:
         """Why a call failed, in words the health check can show. A rejected key or a model that's gone fails every
         time: that provider rests a day instead of being tried (and failing) on every request."""
@@ -264,6 +314,14 @@ class FreeModels:
                 detail = re.sub(r"\s+", " ", e.read(400).decode("utf-8", "replace"))[:160]
             except Exception:
                 detail = ""
+        if code in (400, 404, 410) and re.search(r"(?i)model|does not exist|decommission|not found", detail):
+            gone = self._last_model or self.model_of(name)
+            new = self._find_replacement(name, gone)
+            if new:  # fixed itself: no rest, the next request uses the new model
+                reason = f"{gone} is gone (HTTP {code}); switched to {new}"
+                if self.memory is not None:
+                    self.memory.set(f"free:lasterr:{name}", f"{time.strftime('%Y-%m-%d %H:%M')} {reason}")
+                return reason
         if code in (401, 403):
             reason = f"key rejected (HTTP {code})"
         elif code in (400, 404, 410):
@@ -318,7 +376,9 @@ class FreeModels:
         p = PROVIDERS[name]
         set_by_hand = (self.env.get(p["model_setting"]) or "").strip()
         if set_by_hand or name not in ("openrouter", "deepseek"):
-            return set_by_hand or p["model"]
+            configured = set_by_hand or p["model"]
+            swap = self._swapped(name)  # the configured model was retired: the replacement Buddy found
+            return swap["model"] if swap and swap.get("replaced") == configured else configured
         from . import openrouter_catalog  # noqa: PLC0415  (today's best free model for this kind of task)
         live = openrouter_catalog.models_for(self.memory, "code" if name == "deepseek" else (kind or self._kind))
         return live[0] if live else p["model"]

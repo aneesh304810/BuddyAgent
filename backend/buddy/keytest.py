@@ -29,14 +29,14 @@ def _post(url: str, body: dict, headers: dict, timeout: float = 25) -> tuple[int
     return _send(req, timeout)
 
 
-def _get(url: str, headers: dict, timeout: float = 25) -> tuple[int, str]:
-    return _send(urllib.request.Request(url, headers={"User-Agent": "Buddy/1.0", **headers}), timeout)
+def _get(url: str, headers: dict, timeout: float = 25, limit: int = 20000) -> tuple[int, str]:
+    return _send(urllib.request.Request(url, headers={"User-Agent": "Buddy/1.0", **headers}), timeout, limit)
 
 
-def _send(req, timeout) -> tuple[int, str]:
+def _send(req, timeout, limit: int = 20000) -> tuple[int, str]:
     try:
         with urllib.request.urlopen(req, timeout=timeout) as r:  # nosec B310: fixed https endpoints
-            return r.status, r.read(600).decode("utf-8", "replace")
+            return r.status, r.read(limit).decode("utf-8", "replace")
     except urllib.error.HTTPError as e:
         return e.code, e.read(400).decode("utf-8", "replace")
     except Exception as e:
@@ -46,7 +46,12 @@ def _send(req, timeout) -> tuple[int, str]:
 def line(ok: bool, name: str, what: str, seconds: float, code: int, said: str, setting: str = "") -> str:
     if ok:
         return f"  OK    {name:<11} {what:<40} {seconds:.1f}s"
-    hint = FIX.get(code, "can't reach it (network or the service is down)" if code == 0 else "see the message")
+    if "credit" in said.lower():
+        hint = "out of credit: buy more on the provider's site, or remove the key"
+    elif code in (500, 502, 503, 529):
+        hint = "busy or down on the provider's side right now: usually fine again later"
+    else:
+        hint = FIX.get(code, "can't reach it (network or the service is down)" if code == 0 else "see the message")
     said = " ".join(said.split())[:220]
     return (f"  FAIL  {name:<11} {what:<40} HTTP {code or '-'}: {said}\n"
             f"        fix: {hint.format(setting=setting)}")
@@ -77,13 +82,39 @@ def run(env=os.environ) -> list[str]:
             out.append(f"  --    {name:<11} no key ({p['key']})")
             continue
         model = (env.get(p["model_setting"]) or "").strip() or p["model"]
+        if name in ("deepseek", "openrouter") and not (env.get(p["model_setting"]) or "").strip():
+            model = _openrouter_pick(name) or model  # Buddy picks today's free model from OpenRouter's list
         t = time.monotonic()
         code, said = _post(f"{p['base']}/chat/completions",
                            {"model": model, "max_tokens": 8, "messages": [{"role": "user", "content": "Say hi."}]},
                            {"Authorization": f"Bearer {k}"})
         ok = code == 200 and '"choices"' in said
         out.append(line(ok, name, model[:40], time.monotonic() - t, code, said, p["model_setting"]))
+        if not ok and code in (400, 404):  # what Buddy will switch to by itself
+            from .free_models import pick_model
+            lc, listing = _get(f"{p['base']}/models", {"Authorization": f"Bearer {k}"}, limit=2_000_000)
+            try:
+                ids = [m.get("id", "") for m in json.loads(listing).get("data", [])] if lc == 200 else []
+            except ValueError:
+                ids = []
+            if (best := pick_model(name, ids, model)):
+                out.append(f"        Buddy switches to {best} by itself on the next failure (or set it: "
+                           f"set.sh {p['model_setting']})")
     return out
+
+
+def _openrouter_pick(name: str) -> str:
+    """Today's best free OpenRouter model for this provider's job, as Buddy chooses it (openrouter_catalog)."""
+    from . import openrouter_catalog as cat
+    code, said = _get(cat.URL, {}, limit=20_000_000)
+    if code != 200:
+        return ""
+    try:
+        models = cat.free_models(json.loads(said))
+    except ValueError:
+        return ""
+    task = "code" if name == "deepseek" else "writing"
+    return max(models, key=lambda m: cat.score(m, task))["id"] if models else ""
 
 
 def read_env(path: str) -> dict:
