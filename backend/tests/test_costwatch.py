@@ -46,3 +46,23 @@ def test_the_report_is_saved_once_a_day():
     costwatch.save(m, r, [])
     costwatch.save(m, r, [])
     assert m.db.execute("SELECT COUNT(*) FROM jobs WHERE kind = 'cost_watch'").fetchone()[0] == 1
+
+
+def test_a_reset_archives_the_old_costs_and_since_reset_shows_only_whats_new():
+    from buddy import budgets, insights
+    m = Memory(":memory:")
+    now = datetime.now(timezone.utc)
+    for i in range(300):  # before the fix: the briefing loop
+        add(m, now - timedelta(hours=3) + timedelta(seconds=15 * i), "briefing", cost=0.006)
+    add(m, now - timedelta(hours=2), "chat", cost=0.5, ok=0, stop="overloaded")
+    said = budgets.start_fresh(m)
+    assert "archived in Reports" in said
+    arch = m.db.execute("SELECT title, report FROM jobs WHERE kind = 'cost_archive'").fetchone()
+    assert arch["title"].startswith("Cost archive,") and "| briefing |" in arch["report"]
+    add(m, datetime.now(timezone.utc) + timedelta(seconds=1), "chat", cost=0.02)
+    add(m, datetime.now(timezone.utc) + timedelta(seconds=2), "free:make", cost=0.0, ok=0, stop="429 rate limited")
+    r = costwatch.since_reset(m)
+    assert r["total_usd"] == 0.02 and " – " in r["day"]
+    ins = insights.report(m, since_reset=True)
+    assert ins["since_reset"] and ins["totals"]["requests"] == 2
+    assert ins["failing"][0]["purpose"] == "free:make" and "429" in ins["failing"][0]["reason"]

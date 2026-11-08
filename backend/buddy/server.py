@@ -705,9 +705,10 @@ async def admin_costs(fresh: bool = False) -> dict:
 
 
 @app.get("/admin/insights", dependencies=[Depends(require_admin)])
-def admin_insights(days: int = 7, recent: int = 60, model: str = "", purpose: str = "") -> dict:
-    """Every model request: what it was for, which model, tokens, cost, answer time and a short preview."""
-    return insights.report(memory, days=days, recent=recent, model=model, purpose=purpose)
+def admin_insights(days: int = 7, recent: int = 60, model: str = "", purpose: str = "", since_reset: bool = False) -> dict:
+    """Every model request: what it was for, which model, tokens, cost, answer time and a short preview.
+    since_reset: from the last cost reset (Budgets, start fresh) to now."""
+    return insights.report(memory, days=days, recent=recent, model=model, purpose=purpose, since_reset=since_reset)
 
 
 @app.get("/admin/health", dependencies=[Depends(require_admin)])

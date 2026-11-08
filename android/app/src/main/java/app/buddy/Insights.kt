@@ -2,6 +2,8 @@ package app.buddy
 
 import androidx.compose.foundation.background
 import androidx.compose.foundation.clickable
+import androidx.compose.foundation.horizontalScroll
+import androidx.compose.foundation.rememberScrollState
 import androidx.compose.foundation.layout.Arrangement
 import androidx.compose.foundation.layout.Box
 import androidx.compose.foundation.layout.Column
@@ -71,7 +73,9 @@ object InsightsApi {
     }
 
     suspend fun insights(link: ServerLink, days: Int, purpose: String, model: String): JSONObject {
-        val q = StringBuilder("/admin/insights?days=$days&recent=100")
+        // days = 0: since the last cost reset (Budgets, start fresh)
+        val q = StringBuilder(if (days == 0) "/admin/insights?days=30&since_reset=true&recent=100"
+                              else "/admin/insights?days=$days&recent=100")
         if (purpose.isNotEmpty()) q.append("&purpose=").append(java.net.URLEncoder.encode(purpose, "UTF-8"))
         if (model.isNotEmpty()) q.append("&model=").append(java.net.URLEncoder.encode(model, "UTF-8"))
         return get(link, q.toString())
@@ -199,8 +203,8 @@ fun InsightsScreen(link: ServerLink?) {
     val d = data
     LazyColumn(Modifier.fillMaxSize(), verticalArrangement = Arrangement.spacedBy(10.dp)) {
         item {
-            Row(horizontalArrangement = Arrangement.spacedBy(8.dp)) {
-                listOf(1 to "Today", 7 to "7 days", 30 to "30 days", 90 to "90 days").forEach { (n, label) ->
+            Row(Modifier.horizontalScroll(rememberScrollState()), horizontalArrangement = Arrangement.spacedBy(8.dp)) {
+                listOf(0 to "Since reset", 1 to "Today", 7 to "7 days", 30 to "30 days", 90 to "90 days").forEach { (n, label) ->
                     Chip(label, days == n) { days = n }
                 }
             }
@@ -211,6 +215,23 @@ fun InsightsScreen(link: ServerLink?) {
             return@LazyColumn
         }
         val t = d.getJSONObject("totals")
+        if (days == 0) item {
+            Text(if (d.optBoolean("since_reset")) "Since the cost reset on ${d.optString("since").take(16).replace('T', ' ')} UTC " +
+                     "(earlier costs are in Reports, \"Cost archive\")"
+                 else "No cost reset yet: showing the last 30 days. Start one in Budgets (Start fresh from now).",
+                 color = Dim, fontSize = 12.sp)
+        }
+        d.optJSONArray("failing")?.objects()?.takeIf { it.isNotEmpty() }?.let { bad ->
+            item { Heading("What's failing") }
+            items(bad) { f ->
+                Column(Modifier.fillMaxWidth().background(Card, RoundedCornerShape(12.dp)).padding(12.dp)) {
+                    Text("${f.optString("label")} · ${f.optString("provider")}: ${f.optInt("failed")} of " +
+                         "${f.optInt("requests")} failed (${(f.optDouble("rate", 0.0) * 100).toInt()}%)",
+                         color = Pal.text, fontSize = 13.sp)
+                    f.optString("reason").takeIf { it.isNotEmpty() }?.let { Text(it, color = Dim, fontSize = 11.sp) }
+                }
+            }
+        }
         monthAllIn?.let { item { Text(it, color = Dim, fontSize = 13.sp) } }
         budgetData?.let { b -> item { BudgetCard(b, link) { budgetData = it } } }
         item {

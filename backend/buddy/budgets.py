@@ -102,16 +102,30 @@ def counting_from(memory: Memory) -> str:
     return since if since >= _month_start() else ""
 
 
+def last_reset(memory: Memory) -> str:
+    """The last cost reset ('start fresh'), any month: '' if none."""
+    return memory.get(SINCE_KEY) or ""
+
+
 def start_fresh(memory: Memory) -> str:
-    """Let this month's spending so far go: the budgets count from now (and from the 1st again next month)."""
-    memory.set(SINCE_KEY, datetime.now(timezone.utc).isoformat())
+    """Let this month's spending so far go: the budgets count from now (and from the 1st again next month). What was
+    spent before is archived in Reports first (nothing is deleted)."""
+    now = datetime.now(timezone.utc)
+    try:
+        from . import costwatch  # noqa: PLC0415
+        start = datetime.fromisoformat(counting_from(memory) or _month_start())
+        costwatch.archive(memory, start, now)
+    except Exception:
+        log.exception("cost archive failed")
+    memory.set(SINCE_KEY, now.isoformat())
     month = local_now().strftime("%Y-%m")
     for key in (HOLD_KEY, ASKED_KEY, APPROVED_KEY, "budget:pace_asked_at", f"budget:told:claude:{month}",
                 f"budget:told:all_in:{month}"):
         memory.set(key, "")
     _stop_cache.clear()
-    return ("Done: this month's spending so far is let go. The budgets count from now (the committed costs only for "
-            "the days left), and from the 1st again next month.")
+    return ("Done: this month's spending so far is let go and archived in Reports (\"Cost archive\"). The budgets "
+            "count from now (the committed costs only for the days left), and from the 1st again next month. "
+            "Insights' \"Since reset\" shows what's expensive and failing from here.")
 
 
 def claude_spent(memory: Memory) -> float:

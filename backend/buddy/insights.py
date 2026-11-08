@@ -325,9 +325,35 @@ def tools_overview(memory: Memory, since: str, rows: list[dict]) -> list[dict]:
     return sorted(out, key=lambda t: -t["calls"])
 
 
-def report(memory: Memory, days: int = 7, recent: int = 60, model: str = "", purpose: str = "") -> dict:
+def failing(rows: list[dict], top: int = 8) -> list[dict]:
+    """What's failing: by kind of work and provider, with how often and the latest reason."""
+    out: dict = {}
+    for r in rows:
+        e = out.setdefault((r["purpose"], r["provider"]), {"purpose": r["purpose"], "label": purpose_name(r["purpose"]),
+                                                          "provider": r["provider"], "requests": 0, "failed": 0,
+                                                          "reason": ""})
+        e["requests"] += 1
+        if not r["ok"]:
+            e["failed"] += 1
+            e["reason"] = (r.get("stop") or "")[:160]
+    bad = [e for e in out.values() if e["failed"]]
+    for e in bad:
+        e["rate"] = round(e["failed"] / e["requests"], 2)
+    return sorted(bad, key=lambda e: -e["failed"])[:top]
+
+
+def report(memory: Memory, days: int = 7, recent: int = 60, model: str = "", purpose: str = "",
+           since_reset: bool = False) -> dict:
     days = max(1, min(int(days), usage.KEEP_CALLS_DAYS))
     since = (datetime.now(timezone.utc) - timedelta(days=days)).isoformat()
+    reset = ""
+    if since_reset:
+        from . import budgets  # noqa: PLC0415
+        reset = budgets.counting_from(memory) or budgets.last_reset(memory)
+        if reset:
+            since = reset
+            days = max(1, (local_now().date() - datetime.fromisoformat(reset).astimezone(
+                local_now().tzinfo).date()).days + 1)
     rows = [dict(r) for r in memory.db.execute("SELECT * FROM model_calls WHERE at >= ? ORDER BY at", (since,))]
 
     by_model = _group(rows, lambda r: f"{r['provider']} · {r['model']}")
@@ -392,6 +418,9 @@ def report(memory: Memory, days: int = 7, recent: int = 60, model: str = "", pur
     picked = [r for r in rows if (not model or r["model"] == model) and (not purpose or r["purpose"] == purpose)]
     return {
         "days": days,
+        "since": since,
+        "since_reset": bool(reset),
+        "failing": failing(rows),
         "totals": {
             "requests": len(rows),
             "failed": sum(1 for r in rows if not r["ok"]),

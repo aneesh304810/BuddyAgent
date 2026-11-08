@@ -101,11 +101,19 @@ def where_in_code(purpose: str, limit: int = 3) -> list[str]:
     return (first + then)[:limit]
 
 
-def analyse(memory: Memory, day: datetime | None = None) -> dict:
-    """Yesterday (or the day before `day`) against the 7 days before it."""
-    end = (day or datetime.now(timezone.utc)).astimezone(timezone.utc).replace(hour=0, minute=0, second=0,
-                                                                                  microsecond=0)
-    start, week = end - timedelta(days=1), end - timedelta(days=8)
+def analyse(memory: Memory, day: datetime | None = None, start: datetime | None = None,
+            end: datetime | None = None) -> dict:
+    """Yesterday (or the day before `day`) against the 7 days before it; or any window start..end (default now),
+    e.g. since the cost reset, against the 7 days before it."""
+    if start is None:
+        end = (day or datetime.now(timezone.utc)).astimezone(timezone.utc).replace(hour=0, minute=0, second=0,
+                                                                                      microsecond=0)
+        start = end - timedelta(days=1)
+    else:
+        end = end or datetime.now(timezone.utc)
+    week = start - timedelta(days=7)
+    per = max((end - start).total_seconds() / 86400, 1 / 24)  # the window in days
+    k = 30 / per  # the window's spend -> a month's
     rows = _rows(memory, start.isoformat(), end.isoformat())
     before = _rows(memory, week.isoformat(), start.isoformat())
     apis = _api_rows(memory, start.isoformat(), end.isoformat())
@@ -124,29 +132,30 @@ def analyse(memory: Memory, day: datetime | None = None) -> dict:
     for purpose, e in today.items():
         u = usual.get(purpose, {"usd": 0.0, "calls": 0})
         background = purpose in BACKGROUND or purpose.startswith(("free:", "markets"))
-        if background and e["calls"] >= LOOP_CALLS_PER_DAY:
-            find("loop", purpose, e["usd"], e["usd"] * 30 * 0.9,
-                 f"{purpose}: {e['calls']} calls yesterday (${e['usd']:.2f}), more than one every 15 minutes",
+        if background and e["calls"] / per >= LOOP_CALLS_PER_DAY:
+            find("loop", purpose, e["usd"], e["usd"] * k * 0.9,
+                 f"{purpose}: {e['calls'] / per:.0f} calls a day (${e['usd'] / per:.2f} a day), more than one every 15 "
+                 "minutes",
                  "Look for a loop that redoes the work on every pass: write it once and keep the result until it's "
                  "used, mark it done before the slow part, and do nothing while no phone is connected.")
-        if e["usd"] >= SPIKE_MIN_USD and u["usd"] and e["usd"] >= u["usd"] * SPIKE_X:
-            find("spike", purpose, e["usd"], (e["usd"] - u["usd"]) * 30,
-                 f"{purpose}: ${e['usd']:.2f} yesterday, {e['usd'] / u['usd']:.0f}x its usual ${u['usd']:.2f} a day "
+        if e["usd"] / per >= SPIKE_MIN_USD and u["usd"] and e["usd"] / per >= u["usd"] * SPIKE_X:
+            find("spike", purpose, e["usd"], (e["usd"] / per - u["usd"]) * 30,
+                 f"{purpose}: ${e['usd'] / per:.2f} a day, {e['usd'] / per / u['usd']:.0f}x its usual ${u['usd']:.2f} a day "
                  f"({e['calls']} calls vs about {u['calls']:.0f})",
                  "Find what changed: a new trigger, a retry without a limit, or a date check that never matches.")
         premium = sum(n for m, n in e["models"].items() if m.startswith(PREMIUM))
         if background and premium and e["usd"] >= 0.2 and e["output"] / max(e["calls"], 1) < SHORT_OUTPUT:
-            find("big model", purpose, e["usd"], e["usd"] * 30 * (1 - HAIKU_SHARE),
+            find("big model", purpose, e["usd"], e["usd"] * k * (1 - HAIKU_SHARE),
                  f"{purpose}: a premium model wrote short background text ({e['output'] // max(e['calls'], 1)} "
                  f"words-ish a call, ${e['usd']:.2f})",
                  "Use the quick model (Haiku) for this: short, routine writing doesn't need the main model.")
         if e["calls"] >= 10 and e["input"] / e["calls"] >= BIG_PROMPT and \
                 e["cache"] / max(e["input"] + e["cache"], 1) < LOW_CACHE and e["usd"] >= 0.2:
-            find("no cache", purpose, e["usd"], e["usd"] * 30 * 0.5,
+            find("no cache", purpose, e["usd"], e["usd"] * k * 0.5,
                  f"{purpose}: {e['input'] // e['calls']:,} prompt tokens a call, little of it cached",
                  "Put the unchanging part first (instructions, tools) with cache_control, and the changing part last.")
         if e["cut"] >= 3:
-            find("cut off", purpose, e["usd"] * e["cut"] / e["calls"], e["usd"] * e["cut"] / e["calls"] * 30,
+            find("cut off", purpose, e["usd"] * e["cut"] / e["calls"], e["usd"] * e["cut"] / e["calls"] * k,
                  f"{purpose}: {e['cut']} answers stopped at the token limit",
                  "Raise max_tokens for this, or ask for a shorter answer, so it isn't paid for and redone.")
         if e["failed"] >= 5 and e["failed"] / e["calls"] >= 0.3:
@@ -165,8 +174,8 @@ def analyse(memory: Memory, day: datetime | None = None) -> dict:
     for (purpose, _), e in sorted(repeats.items(), key=lambda kv: -kv[1]["usd"]):
         if e["n"] >= REPEAT_MIN and e["usd"] >= 0.05 and not any(f["purpose"] == purpose and f["kind"] == "loop"
                                                                     for f in findings):
-            find("repeat", purpose, e["usd"], e["usd"] * 30 * (1 - 1 / e["n"]),
-                 f"{purpose}: the same request sent {e['n']} times yesterday (${e['usd']:.2f})",
+            find("repeat", purpose, e["usd"], e["usd"] * k * (1 - 1 / e["n"]),
+                 f"{purpose}: the same request sent {e['n']} times (${e['usd']:.2f})",
                  "Keep the first answer and reuse it, or find why it's asked again.")
 
     by_api = _by([{**a, "purpose": a["provider"]} for a in apis], lambda r: r["provider"])
@@ -195,11 +204,67 @@ def analyse(memory: Memory, day: datetime | None = None) -> dict:
 
     findings.sort(key=lambda f: -f["saving_month_usd"])
     top = sorted(({"purpose": k, "usd": round(v["usd"], 2), "calls": v["calls"],
-                   "usual_usd": round(usual.get(k, {}).get("usd", 0.0), 2)} for k, v in today.items()),
+                   "usual_usd": round(usual.get(k, {}).get("usd", 0.0) * per, 2)} for k, v in today.items()),
                  key=lambda x: -x["usd"])[:8]
-    return {"day": start.date().isoformat(), "total_usd": round(total, 2), "usual_usd": round(usual_total, 2),
+    same_day = per <= 1.01 and start.hour == 0 and start.minute == 0
+    label = start.date().isoformat() if same_day else \
+        f"{start.astimezone(local_now().tzinfo):%b %-d %H:%M} – {end.astimezone(local_now().tzinfo):%b %-d %H:%M}"
+    return {"day": label, "days": round(per, 2), "total_usd": round(total, 2), "usual_usd": round(usual_total * per, 2),
             "top": top, "findings": findings,
             "saving_month_usd": round(sum(f["saving_month_usd"] for f in findings), 2)}
+
+
+def _when(report: dict) -> str:
+    return "Yesterday" if " – " not in report["day"] else f"From {report['day']}"
+
+
+def archive(memory: Memory, start: datetime, end: datetime) -> int | None:
+    """Before a cost reset: what the period cost, by kind of work, provider and model, and what failed, kept in
+    Reports (the reset only changes what the budgets count; no call record is deleted)."""
+    rows = _rows(memory, start.isoformat(), end.isoformat())
+    apis = _api_rows(memory, start.isoformat(), end.isoformat())
+    if not rows and not apis:
+        return None
+    from .jobs import SCHEMA as JOBS_SCHEMA  # noqa: PLC0415
+    by_purpose = sorted(_by(rows, lambda r: r["purpose"] or "chat").items(), key=lambda kv: -kv[1]["usd"])
+    by_provider = sorted(_by(rows, lambda r: f"{r['provider']} · {r['model']}").items(), key=lambda kv: -kv[1]["usd"])
+    by_api = sorted(_by([{**a, "purpose": a["provider"]} for a in apis], lambda r: r["provider"]).items(),
+                    key=lambda kv: -kv[1]["usd"])
+    total = sum(v["usd"] for _, v in by_purpose) + sum(v["usd"] for _, v in by_api)
+    tz = local_now().tzinfo
+    span = f"{start.astimezone(tz):%b %-d} – {end.astimezone(tz):%b %-d, %Y}"
+    md = [f"# Cost archive, {span}", "",
+          f"Before the cost reset on {end.astimezone(tz):%b %-d at %H:%M}: **${total:.2f}** on AI models and paid "
+          f"APIs, {len(rows)} model requests ({sum(v['failed'] for _, v in by_purpose)} failed). Fixed costs (server, "
+          "plans) are in the cost report.", "", "## By kind of work", "",
+          "| Work | Cost | Requests | Failed |", "|---|---|---|---|"]
+    md += [f"| {k} | ${v['usd']:.2f} | {v['calls']} | {v['failed']} |" for k, v in by_purpose]
+    md += ["", "## By model", "", "| Model | Cost | Requests | Failed |", "|---|---|---|---|"]
+    md += [f"| {k} | ${v['usd']:.2f} | {v['calls']} | {v['failed']} |" for k, v in by_provider]
+    if by_api:
+        md += ["", "## Outside APIs", "", "| Service | Cost | Calls | Failed |", "|---|---|---|---|"]
+        md += [f"| {k} | ${v['usd']:.2f} | {v['calls']} | {v['failed']} |" for k, v in by_api]
+    found = analyse(memory, start=start, end=end)["findings"]
+    if found:
+        md += ["", "## What was wasting money then", ""] + [f"- [{f['kind']}] {f['what']}" for f in found]
+    memory.db.executescript(JOBS_SCHEMA)
+    now = datetime.now(timezone.utc).isoformat()
+    summary = f"Cost archive {span}: ${total:.2f} on AI models and paid APIs, {len(rows)} requests."
+    job_id = memory.db.execute(
+        "INSERT INTO jobs (kind, title, params, status, created_at, started_at, finished_at, summary, report, findings, "
+        "sources, delivered) VALUES ('cost_archive', ?, '{}', 'done', ?, ?, ?, ?, ?, '[]', '[]', 1)",
+        (f"Cost archive, {span}", now, now, now, summary, "\n".join(md))).lastrowid
+    memory.db.commit()
+    return job_id
+
+
+def since_reset(memory: Memory) -> dict | None:
+    """The cost watch from the last cost reset to now: what's expensive and what's failing since the fix."""
+    from . import budgets  # noqa: PLC0415
+    reset = budgets.last_reset(memory)
+    if not reset:
+        return None
+    return analyse(memory, start=datetime.fromisoformat(reset), end=datetime.now(timezone.utc) + timedelta(minutes=1))
 
 
 def fix_brief(report: dict) -> str:
@@ -216,10 +281,10 @@ def fix_brief(report: dict) -> str:
 
 def markdown(report: dict, budget_lines: list[str]) -> str:
     out = [f"# Cost watch, {report['day']}", "",
-           f"Yesterday Buddy spent **${report['total_usd']:.2f}** on AI models and paid APIs "
-           f"(a usual day lately: ${report['usual_usd']:.2f})."]
+           f"{_when(report)} Buddy spent **${report['total_usd']:.2f}** on AI models and paid APIs "
+           f"(usual for that long, from the week before: ${report['usual_usd']:.2f})."]
     out += [""] + budget_lines if budget_lines else []
-    out += ["", "## Where it went", "", "| Work | Yesterday | Calls | Usual day |", "|---|---|---|---|"]
+    out += ["", "## Where it went", "", "| Work | Spent | Calls | Usual |", "|---|---|---|---|"]
     out += [f"| {t['purpose']} | ${t['usd']:.2f} | {t['calls']} | ${t['usual_usd']:.2f} |" for t in report["top"]]
     out += ["", "## Money wasted, and how to fix it", ""]
     if not report["findings"]:
@@ -246,7 +311,7 @@ def markdown(report: dict, budget_lines: list[str]) -> str:
 
 
 def message(report: dict) -> str:
-    text = f"Cost watch: yesterday ${report['total_usd']:.2f} (usual ${report['usual_usd']:.2f})."
+    text = f"Cost watch: {_when(report).lower()} ${report['total_usd']:.2f} (usual ${report['usual_usd']:.2f})."
     if report["findings"]:
         f = report["findings"][0]
         text += (f" {len(report['findings'])} thing{'s' if len(report['findings']) != 1 else ''} wasting money; "
@@ -313,14 +378,21 @@ COSTWATCH_TOOL = {
     "the patterns wasting money (loops, repeated requests, spikes, a premium model for short background text, big "
     "prompts without caching, answers cut off, failing services, duplicate reports), each with its cost, the monthly "
     "saving, the fix and where it is in the code (file:line). analyse (day?: YYYY-MM-DD, default yesterday). "
+    "since_reset: the same from the last cost reset to now (what's expensive and failing since the fix; the costs "
+    "before it are in a 'Cost archive' report). "
     "fix_brief: the brief for fixing them; when the user asks to fix the cost bugs, pass it to buddy_code fix.",
     "input_schema": {"type": "object", "properties": {
-        "action": {"type": "string", "enum": ["analyse", "fix_brief"]}, "day": {"type": "string"}},
+        "action": {"type": "string", "enum": ["analyse", "since_reset", "fix_brief"]}, "day": {"type": "string"}},
         "required": ["action"], "additionalProperties": False},
 }
 
 
 def run_tool(memory: Memory, args: dict) -> str:
+    if args.get("action") == "since_reset":
+        r = since_reset(memory)
+        if r is None:
+            return "There's been no cost reset yet. Say \"start my budget fresh\" to start one."
+        return json.dumps(r, ensure_ascii=False)
     if args.get("action") == "fix_brief":
         latest = json.loads(memory.get("costwatch:latest") or "{}")
         brief = latest.get("brief") or fix_brief(analyse(memory))
