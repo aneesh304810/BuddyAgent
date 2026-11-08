@@ -37,14 +37,42 @@ def learn(memory: Memory, word: str) -> list[str]:
     return words
 
 
+def _rows(memory: Memory, sql: str, args: tuple = ()) -> list:
+    try:
+        return memory.db.execute(sql, args).fetchall()
+    except Exception:
+        return []  # that part of Buddy isn't set up yet
+
+
+def _life_names(memory: Memory) -> list[str]:
+    """Names from everything Buddy knows, not only saved facts: the people in its brain, the places you go,
+    your upcoming plans (hotels, airports, flight numbers), the people you chat with, the lines you ride."""
+    from datetime import datetime, timedelta, timezone  # noqa: PLC0415
+    out: list[str] = []
+    out += [r["name"] for r in _rows(memory, "SELECT name FROM entities ORDER BY updated_at DESC LIMIT 40")]
+    out += [r["name"].title() for r in _rows(memory, "SELECT name FROM map_places WHERE learned = 0")]
+    for r in _rows(memory, "SELECT title, details FROM brain_plans ORDER BY starts LIMIT 15"):
+        out += [w for w in re.findall(r"\b[A-Z][a-zA-Z'’-]{2,}\b|\b[A-Z0-9]{2}\d{2,4}\b", r["title"])
+                if w not in COMMON]
+    since = (datetime.now(timezone.utc) - timedelta(days=30)).isoformat()
+    for r in _rows(memory, "SELECT title, data FROM records WHERE kind = 'notification' AND start_at >= ? "
+                           "AND data LIKE '%can_reply%' ORDER BY start_at DESC LIMIT 300", (since,)):
+        chat = r["title"].split(": ", 1)[-1]
+        if re.match(r"^[A-Z][\w'’-]+( [A-Z][\w'’-]+)?$", chat):  # a person's name, not a number or a group
+            out.append(chat)
+    out += [r["line"] for r in _rows(memory, "SELECT line FROM transit_watch")]
+    return out
+
+
 def words(memory: Memory) -> list[str]:
-    """Learned words first, then settings, then proper names from memory: most useful first."""
+    """Learned words first, then settings, then names from your life (people, places, plans, chats, lines), then
+    proper names from saved facts: most useful first."""
     out: list[str] = []
     extra = [w.strip() for w in (os.environ.get("BUDDY_VOCABULARY") or "").split(",") if w.strip()]
     names = []
     for fact in memory.recall("", limit=200):
         names += [w for w in re.findall(r"\b[A-Z][a-zA-Z'’-]{2,}\b", fact) if w not in COMMON]
-    for w in learned(memory) + extra + [settings.user_name, settings.assistant_name] + names:
+    for w in learned(memory) + extra + [settings.user_name, settings.assistant_name] + _life_names(memory) + names:
         if w and w.lower() not in {x.lower() for x in out}:
             out.append(w)
     return out[:MAX_WORDS]

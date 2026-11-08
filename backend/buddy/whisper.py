@@ -25,6 +25,8 @@ import threading
 log = logging.getLogger(__name__)
 
 SAMPLE_RATE = 16_000
+# Beam search width on this server: 1 is fastest; 3-5 is a little more accurate and slower (BUDDY_WHISPER_BEAM).
+BEAM = max(1, min(int(os.getenv("BUDDY_WHISPER_BEAM", "1") or 1), 5))
 MAX_SECONDS = 30
 _model = None
 _lock = threading.Lock()
@@ -180,7 +182,7 @@ def _transcribe(pcm: bytes, language: str | None, prompt: str = "", stats: dict 
         def run(lang):
             # temperature 0 only: unsure audio (noise, far-off talk) used to be retried at up to six
             # temperatures, 15+ seconds for nothing; one pass, and made-up text is dropped (_clean).
-            return model.transcribe(audio, language=lang, beam_size=1, vad_filter=True,
+            return model.transcribe(audio, language=lang, beam_size=BEAM, vad_filter=True,
                                     temperature=0.0, condition_on_previous_text=False,
                                     initial_prompt=prompt or None,  # your names and words
                                     word_timestamps=stats is not None)
@@ -208,6 +210,7 @@ def _transcribe(pcm: bytes, language: str | None, prompt: str = "", stats: dict 
 
 GROQ_URL = "https://api.groq.com/openai/v1/audio/transcriptions"
 GROQ_USD_PER_HOUR = 0.04  # whisper-large-v3-turbo; each request is billed as at least 10 seconds
+GROQ_PRICES = {"whisper-large-v3-turbo": 0.04, "whisper-large-v3": 0.111}  # $/hour, Groq's list prices
 _groq_resting_until = 0.0
 _groq_rest_reason = ""
 
@@ -261,7 +264,7 @@ def groq_cost(audio_seconds: float) -> float:
     """$0 on Groq's free tier; with BUDDY_GROQ_PAID=1, the paid rate (at least 10 s a request)."""
     if os.getenv("BUDDY_GROQ_PAID", "") != "1":
         return 0.0
-    return max(10.0, audio_seconds) / 3600 * GROQ_USD_PER_HOUR
+    return max(10.0, audio_seconds) / 3600 * GROQ_PRICES.get(groq_model(), GROQ_USD_PER_HOUR)
 
 
 def groq_model() -> str:
