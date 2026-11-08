@@ -299,9 +299,16 @@ async def run(memory: Memory, deliver: Deliver) -> None:
                 for text in await Connect(memory).scan():
                     await deliver("travel", text)
                 from .connect import Moments  # noqa: PLC0415  Buddy speaks first: plans, where you are, the time
+                from .maps import Maps  # noqa: PLC0415
+                atlas = Maps(memory)
+                if memory.get("maps:learned") != local_now().date().isoformat():
+                    memory.set("maps:learned", local_now().date().isoformat())  # home, work: once a day
+                    await asyncio.to_thread(atlas.learn_places)
+                hold = await asyncio.to_thread(atlas.hold_non_urgent)  # driving or in a meeting: only urgent ones now
                 moments = Moments(memory)
-                for m in await asyncio.to_thread(moments.now):
-                    if (m["urgent"] or not in_quiet_hours()) and await deliver("travel", m["text"]):
+                for m in await asyncio.to_thread(moments.now) + await asyncio.to_thread(atlas.nudges):
+                    if (m["urgent"] or (not in_quiet_hours() and not hold)) and not moments._said(m["key"]) \
+                            and await deliver("travel", m["text"]):
                         moments.told(m)
             except Exception:
                 log.exception("connecting plans failed")

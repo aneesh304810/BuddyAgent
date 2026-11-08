@@ -1,6 +1,6 @@
 # Buddy Privacy and Data Retention Policy
 
-Source: https://claude.ai/artifact/MJVGZ7pWQvi26tg1MS914P, revision 44
+Source: https://claude.ai/artifact/MJVGZ7pWQvi26tg1MS914P, revision 47
 
 Nov 1, 2026 · @Aneesh
 
@@ -20,7 +20,7 @@ Buddy collects only the owner's own data, and only what its features need.
 | Emails (bills, receipts, bookings) | The owner's email accounts, using an app password | Read-only |
 | Calendar events | The owner's calendars and phone | Read-only |
 | Phone notifications | The Buddy app on the owner's phone, with Android notification access | Read-only |
-| Location (neighbourhood and city) | The owner's phone, only when location sharing is on | Latest only |
+| Location (neighbourhood and city), a 60-day history of where the phone was, and the places learned from it (home, work, places the owner names) with the usual weekday leave time | The owner's phone, only when location sharing is on | The latest, for answers about where the owner is; the history, to learn home, work and usual times, to remind at the right time and place, and to hold non-urgent messages while driving |
 | Voice clips and speech transcripts | The owner's phone microphone while Buddy is listening | Processed, not kept as audio |
 | Voiceprint (for voice match) | Five sentences the owner reads once | Stored as numbers, no audio |
 | Documents, photos, PDFs, spreadsheets, CSV and JSON files | Files the owner chooses to upload (Share to Buddy, or the paperclip in the app) | Stored encrypted; text, summaries, facts and search index kept |
@@ -39,6 +39,7 @@ Buddy collects only the owner's own data, and only what its features need.
 | Flights the owner asks Buddy to track (flight number, date, an optional note) and their latest status (times, gates, delays, landing) | What the owner tells Buddy or a booking email the owner agrees to use; AirLabs and FlightAware flight status; the airline's own app notifications and emails about that flight (gate, new time, delay, boarding, cancellation), read on Buddy's server without AI | Read-only; Buddy never changes or books a flight |
 | Upcoming plans found in the owner's emails, phone notifications and uploads (flights, hotel stays, reservations: dates, times, places, confirmation codes; bills due in notifications and uploaded statements: biller, amount, due date), lessons Buddy learns from the owner's corrections (where to look for an answer), and which reminders it has already given | Travel-looking emails, notifications and uploads, read once by Claude's quick model (never a free model); the owner's corrections in conversation | To answer questions about the owner's plans and to remind them at the right time and place (for example the evening before a flight, time to leave, at the airport). Flights found are tracked automatically; nothing is booked or changed |
 | Buddy's own notes (findings it keeps after looking something up, with where each came from; finished reports), the advice it gave on decisions and how they turned out, and topics it had no source for | Buddy's conversations and tool results, read by Claude's quick model (never a free model); the owner's answers when Buddy asks how a decision went | So Buddy's knowledge grows beyond uploads, its answers are checked against what its tools returned, its advice improves from results, and it can suggest new sources the owner may want |
+| Promises with a date (from what the owner says, and from emails or chats asking them to do something by a date), how often each source turned out right, and when the owner last heard from close people | The owner's conversation with Buddy; emails and notifications (read by Claude's quick model, never a free model); Buddy's own fact-checks | To remind the owner of promises, prefer the more reliable source when sources disagree, and suggest checking in with family; never sent anywhere |
 
 Buddy never collects bank passwords. Bank sign-in happens inside Plaid Link (or the SimpleFIN Bridge site), between the owner and the bank. Buddy cannot move money, make payments or change accounts.
 
@@ -120,6 +121,7 @@ Data is kept only as long as it is useful, then deleted automatically.
 | Tracked flights and their status | Checked until the flight lands or is cancelled; deleted automatically 30 days after the flight date. The owner can remove one any time |
 | Upcoming plans and lessons from corrections | Plans are deleted automatically 30 days after they end; lessons stay until the owner asks Buddy to forget them |
 | Buddy's notes, decisions and source gaps | Time-sensitive findings and market or news reports: 30 days. Other notes and advice: until the owner asks Buddy to forget them ("forget the note about …") |
+| Location history, learned places, promises and source reliability | Location history: 60 days, then deleted automatically; the owner can delete it and the saved places any time ("forget my location history"). Promises: until done or removed. Source reliability: counts only, kept |
 | Watched trend topics; trend digests and daily mention counts | Topics until the owner removes them; digests and counts 60 days, then deleted automatically |
 | Uploaded documents and photos, with their text, summaries, facts and search index | Until the owner tells Buddy to forget them; forgetting deletes the file, its text, its index entries and the facts taken from it |
 | People and things noted from the owner's data | Until the owner edits or deletes them |
@@ -130,7 +132,7 @@ Data is kept only as long as it is useful, then deleted automatically.
 | Phone notifications | 7 days |
 | Room transcripts (Listen-in mode) | 2 days, unless the owner saves a stretch |
 | English-practice speech samples | 30 days |
-| Location | Only the latest; treated as expired after 3 hours |
+| Location | The latest is treated as expired after 3 hours; the history is kept 60 days (see below) |
 | Voice audio | Not stored; only the text is kept |
 | Diagnostics (microphone levels, connection, background and server events; no audio and no words; can be switched off in Settings) | 30 days |
 | Voice timing (how long each step took; no audio and no words) | 90 days |

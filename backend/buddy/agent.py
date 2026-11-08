@@ -43,6 +43,7 @@ from .markets import MARKETS_TOOL
 from .transit import TRANSIT_TOOL
 from .flights import FLIGHT_TOOL
 from .reasoning import DECISION_TOOL
+from .maps import MAPS_TOOL
 from .routing import ROUTING_TOOL
 from .trends import TRENDS_TOOL
 from . import advisor, benefits, brain, compliance, datatools, finance, plaid, travel, thinking, formfill, library, prices, rides, seats, selfcode, transcripts, tutor, vocabulary, voiceprint
@@ -285,6 +286,17 @@ class Conversation:
             from .reasoning import Reasoning  # noqa: PLC0415
             thinker = Reasoning(self.memory)
             think_note = mask(thinker.plan_note(user_text)) + thinker.awaiting_note()
+            from .maps import Maps  # noqa: PLC0415  who, where, when, and how far to trust it
+            from .reasoning import DECISION  # noqa: PLC0415
+            atlas = Maps(self.memory)
+            lines = atlas.context_lines(user_text, [x["id"] for x in thinker.pick(user_text)],
+                                        bool(DECISION.search(user_text)))
+            if lines:
+                think_note += "\n\n(Buddy's maps:\n" + "\n".join(lines) + ")"
+            promise = atlas.promise_in(user_text)  # "I'll send Priya the deck by Friday": a commitment to remind
+            if promise and atlas.add_commitment(promise["what"], promise["due"], source="you said"):
+                think_note += (f"\n\n(Noted a promise: '{promise['what']}' by {promise['due']}; mention you'll remind "
+                               "them the day before and on the day.)")
         turn_start = len(self.messages)
         self._add_user_text(f"({stamp}) {mask(user_text)}" + prep.pack + think_note + room_note + expert_note + (tutor.LIVE_NOTE if tutor.live(self.memory) else "")
                             + (DUAL_NOTE.format(language=DUAL_LANGUAGES.get(self.dual, self.dual)) if self.dual else ""))
@@ -382,6 +394,11 @@ class Conversation:
             with contextlib.suppress(Exception):
                 if tools:
                     fix = await thinker.verify(question, answer, evidence_text)
+                    with contextlib.suppress(Exception):  # source trust: what held up, and what didn't
+                        from .maps import Maps  # noqa: PLC0415
+                        atlas = Maps(self.memory)
+                        for t in set(tools):
+                            atlas.trust(t, right=not fix)
                     if fix and self.say_now:
                         await self.say_now(fix)
                         self.messages.append({"role": "user", "content": f"(Buddy's own fact check after that "
@@ -651,7 +668,7 @@ class Conversation:
                      library.LIBRARY_TOOL, brain.BRAIN_TOOL, finance.FINANCE_TOOL,
                      advisor.ADVISOR_TOOL, benefits.BENEFITS_TOOL, plaid.BANK_TOOL, travel.TRAVEL_TOOL,
                      compliance.COMPLIANCE_TOOL, MERCHANTS_TOOL, CUSTOMIZE_TOOL, CREDIT_TOOL, MARKETS_TOOL, ROUTING_TOOL, TRENDS_TOOL,
-                     TRANSIT_TOOL, FLIGHT_TOOL, DECISION_TOOL]
+                     TRANSIT_TOOL, FLIGHT_TOOL, DECISION_TOOL, MAPS_TOOL]
         return (
             CLIENT_TOOLS + orchestration + job_tools + spending + [_expert_tool()]
             + agent_tools + web_tools()
@@ -790,6 +807,9 @@ class Conversation:
         if name == "transit":
             from . import transit  # noqa: PLC0415
             return await asyncio.to_thread(transit.run_tool, self.memory, args)
+        if name == "buddy_maps":
+            from . import maps  # noqa: PLC0415
+            return await asyncio.to_thread(maps.run_tool, self.memory, args)
         if name == "decision_outcome":
             from .reasoning import Reasoning  # noqa: PLC0415
             return Reasoning(self.memory).outcome(int(args.get("id") or 0), str(args.get("outcome") or ""))

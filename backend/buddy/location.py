@@ -59,6 +59,11 @@ class Location:
         now = {"lat": round(lat, 5), "lng": round(lng, 5), "accuracy_m": accuracy, **place,
                "at": datetime.now(timezone.utc).isoformat()}
         self.memory.set("location:current", json.dumps(now))
+        try:  # the history the places-and-routines map learns from (maps.py), kept 60 days
+            from .maps import Maps
+            Maps(self.memory).log_location(lat, lng)
+        except Exception:
+            log.info("location history not kept", exc_info=True)
         return now
 
     def current(self) -> dict | None:
