@@ -301,6 +301,9 @@ async def _budget_alerts() -> None:
             report = None
             with contextlib.suppress(Exception):
                 report = await finops.report()  # also keeps the committed costs current for the switch
+            question = budgets.pace_check(memory)  # holds background paid work when a forecast passes a budget
+            if question and not await deliver("money", question):
+                budgets.not_delivered(memory)
             if connections:
                 for text in budgets.alerts(memory, report):
                     await deliver("money", text)
@@ -673,6 +676,13 @@ async def admin_set_budget(body: dict) -> dict:
         said = budgets.set_budget(memory, which, body.get("usd"))
     except ToolError as e:
         raise HTTPException(status_code=400, detail=str(e)) from e
+    return {"said": said, **(await admin_budgets())}
+
+
+@app.post("/admin/budgets/pace", dependencies=[Depends(require_admin)])
+async def admin_budget_pace(body: dict) -> dict:
+    """The user's answer to the pace question from the app: approve (background work resumes) or stay in saver."""
+    said = budgets.approve_pace(memory, bool(body.get("approve")))
     return {"said": said, **(await admin_budgets())}
 
 

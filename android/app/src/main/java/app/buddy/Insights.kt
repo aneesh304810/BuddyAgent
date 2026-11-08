@@ -83,10 +83,16 @@ object InsightsApi {
 
     suspend fun budgets(link: ServerLink): JSONObject = get(link, "/admin/budgets")
 
-    suspend fun setBudget(link: ServerLink, which: String, usd: Double): JSONObject = withContext(Dispatchers.IO) {
-        val body = JSONObject().put("which", which).put("usd", usd).toString()
+    suspend fun setBudget(link: ServerLink, which: String, usd: Double): JSONObject =
+        post(link, "/admin/budgets", JSONObject().put("which", which).put("usd", usd))
+
+    suspend fun pace(link: ServerLink, approve: Boolean): JSONObject =
+        post(link, "/admin/budgets/pace", JSONObject().put("approve", approve))
+
+    private suspend fun post(link: ServerLink, path: String, json: JSONObject): JSONObject = withContext(Dispatchers.IO) {
+        val body = json.toString()
         val request = Request.Builder()
-            .url(link.baseUrl + "/admin/budgets")
+            .url(link.baseUrl + path)
             .header("Authorization", "Bearer ${link.token}")
             .post(body.toRequestBody("application/json".toMediaType()))
             .build()
@@ -951,6 +957,15 @@ private fun BudgetCard(b: JSONObject, link: ServerLink?, onChanged: (JSONObject)
     var claudeText by remember(b) { mutableStateOf(if (claude.isNull("cutoff_usd")) "" else "%.0f".format(claude.optDouble("cutoff_usd"))) }
     var allText by remember(b) { mutableStateOf(if (all.isNull("budget_usd")) "" else "%.0f".format(all.optDouble("budget_usd"))) }
 
+    fun answer(approve: Boolean) {
+        if (link == null) return
+        scope.launch {
+            runCatching { InsightsApi.pace(link, approve) }
+                .onSuccess { message = it.optString("said"); onChanged(it) }
+                .onFailure { message = "Couldn't save (${it.message})." }
+        }
+    }
+
     fun save(which: String, text: String) {
         val usd = text.trim().ifEmpty { "0" }.toDoubleOrNull()
         if (usd == null || usd < 0) { message = "Give an amount in dollars (0 turns it off)."; return }
@@ -974,6 +989,27 @@ private fun BudgetCard(b: JSONObject, link: ServerLink?, onChanged: (JSONObject)
     Column(Modifier.fillMaxWidth().background(Card, RoundedCornerShape(12.dp)).padding(12.dp),
         verticalArrangement = Arrangement.spacedBy(8.dp)) {
         Text("Budgets this month", color = Pal.text, fontSize = 15.sp, fontWeight = FontWeight.SemiBold)
+
+        val prediction = b.optJSONObject("prediction")
+        prediction?.optJSONArray("limits")?.objects()?.forEach { l ->
+            val name = if (l.optString("which") == "claude") "Claude" else "Whole Buddy"
+            val reach = l.optString("reach_on").takeIf { it.isNotEmpty() && it != "null" }
+            Text("Where it's going: $name ${usd(l.optDouble("forecast_usd"))} by the month's end, budget ${usd(l.optDouble("cap_usd"))}" +
+                 (reach?.let { " · reached around $it" } ?: ""),
+                 color = if (l.optBoolean("over")) Pal.bad else Dim, fontSize = 12.sp)
+        }
+        prediction?.optJSONArray("drivers")?.objects()?.takeIf { it.isNotEmpty() }?.let { d ->
+            Text("Last 3 days: " + d.joinToString(", ") { "${it.optString("what").replace('_', ' ')} ${usd(it.optDouble("usd"))}" },
+                 color = Dim, fontSize = 11.sp)
+        }
+        if (b.optBoolean("held")) {
+            Text("Background paid work is paused until you approve this pace. Your chat still works.",
+                 color = Pal.warn, fontSize = 12.sp)
+            Row(horizontalArrangement = Arrangement.spacedBy(8.dp)) {
+                Chip("Approve the pace", false) { answer(true) }
+                Chip("Stay in saver", false) { answer(false) }
+            }
+        }
 
         val spent = claude.optDouble("spent_usd", 0.0)
         val cap = if (claude.isNull("cutoff_usd")) 0.0 else claude.optDouble("cutoff_usd")

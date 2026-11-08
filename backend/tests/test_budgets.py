@@ -126,3 +126,39 @@ def test_raising_the_overall_budget_needs_the_users_yes():
             return q
     asyncio.run(budgets.run_tool(m, {"action": "set", "which": "all_in", "usd": 0}, None, Thrift()))
     assert asked == ["Turn the overall budget off?"] and budgets.all_in_budget(m) == 30
+
+
+def _claude_calls(m, usd, n=10, purpose="briefing"):
+    for _ in range(n):
+        usage.record(m, "claude-sonnet-5-5", SimpleNamespace(input_tokens=int(usd / n * 500_000), output_tokens=0),
+                     purpose=purpose)
+
+
+def test_a_forecast_over_budget_holds_background_work_and_asks():
+    from buddy.config import claude_client
+    m = Memory(":memory:")
+    budgets.set_budget(m, "claude", 20)
+    budgets.attach(m)
+    try:
+        _claude_calls(m, 6)  # $6 in the last 3 days: about $2 a day, far over $20 by the month's end
+        p = budgets.predict(m)
+        claude = [l for l in p["limits"] if l["which"] == "claude"][0]
+        assert claude["over"] and p["drivers"][0]["what"] == "briefing"
+        q = budgets.pace_check(m)
+        if claude["forecast_usd"] <= 20:  # the 1st of the month: nothing to predict yet
+            return
+        assert "at this pace Claude will cost about" in q and "briefings and nudges" in q
+        assert budgets.held(m) and budgets.pace_check(m) == ""  # asked once
+        with pytest.raises(budgets.BudgetStop):  # background: held
+            asyncio.run(claude_client().messages.create(model="claude-haiku-5-5", max_tokens=5,
+                                                        messages=[{"role": "user", "content": "hi"}]))
+        token = usage.current_turn.set("turn1")  # the user's own chat still goes through (no network here)
+        try:
+            budgets.check_claude()
+        finally:
+            usage.current_turn.reset(token)
+        assert "Approved" in budgets.command(m, "approve the pace")
+        assert not budgets.held(m) and budgets.pace_check(m) == ""
+        assert "saver" in budgets.command(m, "stay in saver").lower() and budgets.held(m)
+    finally:
+        budgets.attach(None)

@@ -227,6 +227,11 @@ class Conversation:
             from . import budgets  # noqa: PLC0415
             try:
                 said = budgets.command(self.memory, user_text)
+                if not said and budgets.held(self.memory) and budgets.just_asked(self.memory) and \
+                        (not self.thrift or self.thrift.pending is None):
+                    from .thrift import answer_of  # noqa: PLC0415
+                    answer = answer_of(user_text)  # a plain yes or no to the pace question, read in code
+                    said = "" if answer is None else budgets.approve_pace(self.memory, answer)
             except ToolError as e:
                 said = str(e)
             if said:

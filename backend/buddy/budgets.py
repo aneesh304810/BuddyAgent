@@ -12,8 +12,13 @@ prices, FlightAware, Groq speech) must stay under it. When they reach it, every 
 (config.claude_client) and every paid outside service (an audit hook on urllib refuses PAID_HOSTS; Groq speech falls
 back to the local Whisper). Free services, reminders, the bank feed and the screens keep working.
 
-Alerts go out once each, per month, when spend passes 50%, 80% and 100% of either budget, and when the month's
-forecast heads over the overall budget.
+Alerts go out once each, per month, when spend passes 50%, 80% and 100% of either budget.
+
+Where it's going (predict): the month's end from the last 3 days' pace (it reacts to a sudden storm of calls, where a
+month average would hide it), the day a budget would be reached, and what's driving it. When a forecast passes a
+budget, Buddy says so and holds: background paid work (briefings, scans, research, the brain's reading, paid searches)
+waits for the user's approval; their own chat carries on. "Yes" approves this pace (asked again only if the forecast
+grows another 20%); "no" keeps the hold (saver) for the month. The answer is read in code, or given in Insights.
 """
 
 import logging
@@ -35,6 +40,8 @@ CLAUDE_KEY, ALL_IN_KEY, COMMITTED_KEY = "budget:claude_kill_usd", "budget:all_in
 # Claude is stopped in its client).
 PAID_HOSTS = {"google.serper.dev", "serpapi.com", "api.duffel.com", "aeroapi.flightaware.com", "api.groq.com"}
 _stop_cache: dict[int, tuple[float, bool]] = {}
+HOLD_KEY, ASKED_KEY, APPROVED_KEY = "budget:hold", "budget:pace_asked", "budget:pace_approved"
+PACE_DAYS, REASK_GROWTH, MIN_PACE_USD = 3, 1.2, 0.5
 STEPS = (50, 80, 100)
 _memory: Memory | None = None  # the server's memory, so the Claude client can check the cutoff
 
@@ -63,6 +70,8 @@ def _audit(event: str, args) -> None:
     if host in PAID_HOSTS and all_in_stopped(_memory):
         raise BudgetStop(f"{host}: paid services are stopped, this month's ${all_in_budget(_memory):.0f} budget is "
                          "reached.")
+    if host in PAID_HOSTS and not _foreground() and held(_memory):
+        raise BudgetStop(f"{host}: background paid work is paused until you approve this month's pace.")
 
 
 def _num(value, default: float) -> float:
@@ -144,10 +153,28 @@ def claude_stopped(memory: Memory | None = None) -> bool:
     return all_in_stopped(memory)
 
 
+def _foreground() -> bool:
+    """Inside the user's own turn (chat or talk), or work it started."""
+    return bool(usage.current_turn.get())
+
+
+def held(memory: Memory | None = None) -> bool:
+    """Background paid work is waiting for the user's approval of the forecast pace."""
+    memory = memory or _memory
+    if memory is None:
+        return False
+    try:
+        return (memory.get(HOLD_KEY) or "") == local_now().strftime("%Y-%m")
+    except Exception:
+        return False
+
+
 def check_claude() -> None:
     """Called before every Claude request (config.claude_client)."""
     if claude_stopped():
         raise BudgetStop("Claude is stopped for the month: a budget is reached.")
+    if held() and not _foreground():
+        raise BudgetStop("Background AI work is paused until you approve this month's pace.")
 
 
 def set_budget(memory: Memory, which: str, usd: float) -> str:
@@ -181,6 +208,10 @@ SET = re.compile(r"(?i)\b(?:set|raise|increase|change|make|lower|reduce|put)\s+(
 
 def command(memory: Memory, text: str) -> str:
     """A budget change in the user's own words, done in code (no Claude): '' when the text isn't one."""
+    if PACE.search(text or ""):
+        return approve_pace(memory, True)
+    if SAVER.search(text or ""):
+        return approve_pace(memory, False)
     m = SET.search(text or "")
     if not m:
         return ""
@@ -198,7 +229,8 @@ def status(memory: Memory, finops_report: dict | None = None) -> dict:
                       "pay_per_use_usd": round(variable, 2), "counted_usd": round(fixed + variable, 2),
                       "left_usd": round(max(budget - fixed - variable, 0), 2) if budget else None,
                       "stopped": all_in_stopped(memory),
-                      "counted_pct": round((fixed + variable) / budget * 100) if budget else None}}
+                      "counted_pct": round((fixed + variable) / budget * 100) if budget else None},
+           "held": held(memory), "prediction": predict(memory)}
     if finops_report:
         mtd, forecast = finops_report.get("month_to_date_usd", 0.0), finops_report.get("forecast_usd", 0.0)
         out["all_in"].update({"spent_usd": mtd, "forecast_usd": forecast,
@@ -254,15 +286,159 @@ def alerts(memory: Memory, finops_report: dict | None = None) -> list[str]:
     return out
 
 
+# where it's going --------------------------------------------------------------------------------------------
+def _since(days: float) -> str:
+    from datetime import timedelta  # noqa: PLC0415
+    return (datetime.now(timezone.utc) - timedelta(days=days)).isoformat()
+
+
+def _sum(memory: Memory, sql: str, args: tuple) -> float:
+    try:
+        return float(memory.db.execute(sql, args).fetchone()[0] or 0)
+    except Exception:
+        return 0.0
+
+
+def drivers(memory: Memory, days: float = PACE_DAYS, top: int = 3) -> list[dict]:
+    """What the pay-per-use money went on lately, biggest first."""
+    since = _since(days)
+    rows = []
+    try:
+        rows = [dict(r) for r in memory.db.execute(
+            "SELECT purpose AS what, provider, COUNT(*) AS calls, SUM(cost_usd) AS usd FROM model_calls WHERE at >= ? "
+            "AND cost_usd > 0 GROUP BY purpose, provider", (since,))]
+        rows += [dict(r) for r in memory.db.execute(
+            "SELECT provider AS what, provider, COUNT(*) AS calls, SUM(cost_usd) AS usd FROM api_calls WHERE at >= ? "
+            "AND cost_usd > 0 GROUP BY provider", (since,))]
+    except Exception:
+        pass
+    rows.sort(key=lambda r: -(r["usd"] or 0))
+    return [{"what": r["what"], "provider": r["provider"], "calls": r["calls"], "usd": round(r["usd"], 2)}
+            for r in rows[:top]]
+
+
+def predict(memory: Memory) -> dict:
+    """The month's end at the recent pace, for each budget that's set."""
+    import calendar  # noqa: PLC0415
+    from datetime import timedelta  # noqa: PLC0415
+    now = local_now()
+    days_in = calendar.monthrange(now.year, now.month)[1]
+    elapsed = max((now - now.replace(day=1, hour=0, minute=0, second=0, microsecond=0)).total_seconds() / 86400, 0.25)
+    left = max(days_in - elapsed, 0.0)
+    window = min(PACE_DAYS, elapsed)
+    claude_rate = _sum(memory, "SELECT SUM(cost_usd) FROM model_calls WHERE provider = 'claude' AND at >= ?",
+                       (_since(window),)) / window
+    other_rate = (_sum(memory, "SELECT SUM(cost_usd) FROM model_calls WHERE provider != 'claude' AND at >= ?",
+                       (_since(window),)) + _sum(memory, "SELECT SUM(cost_usd) FROM api_calls WHERE at >= ?",
+                                                 (_since(window),))) / window
+    claude_now, ppu_now, fixed = usage.month_to_date(memory), pay_per_use(memory), committed(memory)
+    out = {"daily_pace_usd": round(claude_rate + other_rate, 2), "days_left": round(left, 1),
+           "drivers": drivers(memory), "limits": []}
+
+    def limit(which: str, cap: float, spent: float, rate: float) -> None:
+        if not cap:
+            return
+        forecast = spent + rate * left
+        reach = None
+        if spent < cap and rate > 0 and forecast > cap:
+            reach = (now + timedelta(days=(cap - spent) / rate)).strftime("%a %b %-d")
+        out["limits"].append({"which": which, "cap_usd": round(cap, 2), "spent_usd": round(spent, 2),
+                              "forecast_usd": round(forecast, 2), "over": forecast > cap, "reach_on": reach})
+    limit("claude", claude_cap(memory), claude_now, claude_rate)
+    limit("all_in", all_in_budget(memory), fixed + ppu_now, claude_rate + other_rate)
+    return out
+
+
+NAMES = {"briefing": "briefings and nudges", "chat": "chat", "research": "research", "listen": "Listen-in",
+         "think": "Listen-in thinking", "expert": "the expert model", "lifelog": "the life log", "library": "the library",
+         "deals": "deal checks", "serper": "web search", "serpapi": "flight and hotel prices", "duffel": "flight offers",
+         "flightaware": "FlightAware", "speech": "speech to text"}
+
+
+def _driver_text(d: list[dict]) -> str:
+    return ", ".join(f"{NAMES.get(x['what'], x['what'].replace('_', ' '))} ${x['usd']:.2f} ({x['calls']} calls)"
+                     for x in d)
+
+
+def pace_check(memory: Memory) -> str:
+    """Every few minutes: when a forecast passes a budget, hold background paid work and ask (once per growth step).
+    Returns the question to send, or ''."""
+    month = local_now().strftime("%Y-%m")
+    p = predict(memory)
+    over = [l for l in p["limits"] if l["over"] and l["spent_usd"] < l["cap_usd"]]
+    if not over or p["daily_pace_usd"] * PACE_DAYS < MIN_PACE_USD:
+        return ""
+    worst = max(over, key=lambda l: l["forecast_usd"] / l["cap_usd"])
+    approved = _num((memory.get(APPROVED_KEY) or ":").split(":")[-1], 0.0) \
+        if (memory.get(APPROVED_KEY) or "").startswith(month + ":") else 0.0
+    if approved and worst["forecast_usd"] < approved * REASK_GROWTH:
+        return ""  # this pace is approved
+    asked = memory.get(ASKED_KEY) or ""
+    last = _num(asked.split(":")[-1], 0.0) if asked.startswith(month + ":") else 0.0
+    memory.set(HOLD_KEY, month)
+    if last and worst["forecast_usd"] < last * REASK_GROWTH:
+        return ""  # already asked about this pace; the hold stays until they answer
+    memory.set(ASKED_KEY, f"{month}:{worst['forecast_usd']:.2f}")
+    memory.set("budget:pace_asked_at", datetime.now(timezone.utc).isoformat())
+    name = "Claude cutoff" if worst["which"] == "claude" else "budget"
+    text = (f"Heads up: at this pace {'Claude' if worst['which'] == 'claude' else 'Buddy'} will cost about ${worst['forecast_usd']:.0f} this month, over your "
+            f"${worst['cap_usd']:.0f} {name}" + (f" (you'd reach it around {worst['reach_on']})" if worst["reach_on"]
+                                                  else "") + ". ")
+    if p["drivers"]:
+        text += f"The last {PACE_DAYS} days went mostly on {_driver_text(p['drivers'])}. "
+    return text + ("I've paused background paid work (briefings, scans, research, paid searches); your chat still "
+                   "works. Keep going at this pace? Say \"approve the pace\" or tap Approve in Insights; "
+                   "\"stay in saver\" keeps it paused.")
+
+
+def just_asked(memory: Memory, minutes: int = 30) -> bool:
+    """The pace question went out lately, so a plain yes or no is its answer."""
+    at = memory.get("budget:pace_asked_at") or ""
+    try:
+        return (datetime.now(timezone.utc) - datetime.fromisoformat(at)).total_seconds() < minutes * 60
+    except ValueError:
+        return False
+
+
+def not_delivered(memory: Memory) -> None:
+    """The question couldn't be sent: ask again next time (the hold stays)."""
+    memory.set(ASKED_KEY, "")
+    memory.set("budget:pace_asked_at", "")
+
+
+def approve_pace(memory: Memory, yes: bool) -> str:
+    month = local_now().strftime("%Y-%m")
+    if yes:
+        p = predict(memory)
+        top = max([l["forecast_usd"] for l in p["limits"]] or [0.0])
+        memory.set(APPROVED_KEY, f"{month}:{top:.2f}")
+        memory.set(HOLD_KEY, "")
+        memory.set("budget:pace_asked_at", "")
+        return (f"Approved: background work is back on, at a pace of about ${top:.0f} this month. I'll ask again if it "
+                "climbs another 20%. The budgets' hard stops still apply.")
+    memory.set(HOLD_KEY, month)
+    memory.set("budget:pace_asked_at", "")
+    return ("Staying in saver: background paid work stays paused this month (reminders in plain words, the bank feed "
+            "and your screens carry on; chat works). Say \"approve the pace\" anytime to resume.")
+
+
+PACE = re.compile(r"(?i)\b(approve (?:the |this )?(?:pace|spending|cost)|keep (?:going|spending) at this pace|"
+                  r"resume background(?: work)?)\b")
+SAVER = re.compile(r"(?i)\b(stay (?:in|on) saver|saver mode|keep (?:it |background (?:work )?)?paused|"
+                   r"pause background(?: work)?)\b")
+
+
 BUDGET_TOOL = {
     "name": "budgets",
     "description": "The user's monthly budgets: the Claude cutoff (Claude stops for the month when reached; default "
     "$20) and the overall budget, a switch for everything Buddy costs (when committed costs plus pay-per-use reach it, "
     "Claude and every paid service stop until the 1st), with alerts at 50%, 80% and 100%. status: both, spent and "
-    "forecast. set (which: claude | all_in, usd): lowering one is done at once; raising one, or turning it off, needs "
+    "forecast. predict: where the month is heading at the last 3 days' pace, the day a budget would be reached, and "
+    "what's driving it (if background work is paused waiting for approval, only the user's own words approve it: "
+    "\"approve the pace\" or Insights). set (which: claude | all_in, usd): lowering one is done at once; raising one, or turning it off, needs "
     "the user's yes. 0 turns one off.",
     "input_schema": {"type": "object", "properties": {
-        "action": {"type": "string", "enum": ["status", "set"]},
+        "action": {"type": "string", "enum": ["status", "predict", "set"]},
         "which": {"type": "string", "enum": ["claude", "all_in"]}, "usd": {"type": "number"}},
         "required": ["action"], "additionalProperties": False},
 }
@@ -271,6 +447,8 @@ BUDGET_TOOL = {
 async def run_tool(memory: Memory, args: dict, finops=None, thrift=None) -> str:
     import json  # noqa: PLC0415
 
+    if args.get("action") == "predict":
+        return json.dumps(predict(memory))
     if args.get("action") == "set":
         which = args.get("which") or "claude"
         usd = _num(args.get("usd"), -1)
