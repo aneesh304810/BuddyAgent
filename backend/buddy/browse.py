@@ -124,6 +124,22 @@ async def run_browse(job: dict, ctx: JobContext) -> JobResult:
             raise JobFailed("the sandbox on the server is the older version without the browser. Update it with: "
                             "sudo bash /opt/buddy/deploy/update.sh")
         raise JobFailed(f"The browser didn't start: {why}")
+    try:
+        return await _drive(job, ctx, session, first, model, fallback_kwargs)
+    except BaseException:
+        await _close(session)  # a task that fails never leaves its browser open
+        raise
+
+
+async def _close(session: str) -> None:
+    try:
+        await sandbox.call("browser_close", session=session)
+    except Exception:
+        pass
+
+
+async def _drive(job: dict, ctx: JobContext, session: str, first: dict, model: str, fallback_kwargs) -> JobResult:
+    params = job["params"]
     messages = [{"role": "user", "content": f"The task: {params['task']}\n\n" + (
         page_text(first) if params.get("url") else "The browser is open on an empty page.")}]
     system = SYSTEM.format(user=settings.user_name)

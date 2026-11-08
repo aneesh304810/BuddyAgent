@@ -81,3 +81,27 @@ def test_news_that_arrives_mid_reply_is_kept_for_the_next_turn():
     c.messages = [{"role": "user", "content": "did you fill the form"}]
     c.note_proactive("The browser task didn't finish.", "job_done")
     assert len(c.messages) == 1 and c._held_notes == [("The browser task didn't finish.", "job_done")]
+
+
+def test_a_task_that_fails_closes_its_browser(monkeypatch):
+    import pytest
+    closed = []
+
+    async def step(session, cmd):
+        return dict(PAGE)
+    monkeypatch.setattr(browse, "step", step)
+
+    async def call(op, **kw):
+        closed.append((op, kw.get("session")))
+        return {}
+    monkeypatch.setattr(browse.sandbox, "call", call)
+
+    async def create(**kw):
+        raise RuntimeError("Background AI work is paused")
+    monkeypatch.setattr(browse.client.beta.messages, "create", create)
+
+    class Ctx:
+        memory, cost = Memory(":memory:"), 0.0
+    with pytest.raises(RuntimeError):
+        asyncio.run(browse.run_browse({"title": "x", "params": {"task": "t", "url": "https://a.example"}}, Ctx()))
+    assert closed == [("browser_close", "s1")]

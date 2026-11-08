@@ -90,6 +90,9 @@ def _now() -> str:
     return datetime.now(timezone.utc).isoformat()
 
 
+USER_STARTED = {"browse", "code", "research", "build_agent"}  # jobs only the user starts
+
+
 class JobRunner:
     def __init__(self, memory: Memory, notify: Notify, max_parallel: int | None = None):
         self.memory = memory
@@ -217,6 +220,10 @@ class JobRunner:
                 raise JobFailed(f"No handler for {job['kind']} jobs.")
             if usage.month_to_date(self.memory) >= Thrift(self.memory).month_budget():
                 raise JobFailed("This month's AI budget is used up.")
+            if job["kind"] in USER_STARTED:
+                # The user asked for this: it's their own work, not background spending, so a pace hold doesn't stop
+                # it (the budgets' hard stops still do).
+                usage.current_turn.set(f"job:{job_id}")
             result = await handler(job, JobContext(self.memory, job))
             self._finish(
                 job_id, "done",
