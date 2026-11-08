@@ -394,15 +394,24 @@ COSTWATCH_TOOL = {
     "prompts without caching, answers cut off, failing services, duplicate reports), each with its cost, the monthly "
     "saving, the fix and where it is in the code (file:line). analyse (day?: YYYY-MM-DD, default yesterday). "
     "since_reset: the same from the last cost reset to now (what's expensive and failing since the fix; the costs "
-    "before it are in a 'Cost archive' report). "
+    "before it are in a 'Cost archive' report). trace (period: today | since_reset, or days): the request trace, an "
+    "Excel file of every model and API call with what each cost and why (cache, output...), plus summaries; it "
+    "appears in the chat. "
     "fix_brief: the brief for fixing them; when the user asks to fix the cost bugs, pass it to buddy_code fix.",
     "input_schema": {"type": "object", "properties": {
-        "action": {"type": "string", "enum": ["analyse", "since_reset", "fix_brief"]}, "day": {"type": "string"}},
+        "action": {"type": "string", "enum": ["analyse", "since_reset", "fix_brief", "trace"]}, "day": {"type": "string"},
+        "period": {"type": "string", "enum": ["today", "since_reset"]}, "days": {"type": "integer"}},
         "required": ["action"], "additionalProperties": False},
 }
 
 
 def run_tool(memory: Memory, args: dict) -> str:
+    if args.get("action") == "trace":
+        from . import makers, trace  # noqa: PLC0415
+        file = trace.make(memory, int(args.get("days") or 0), str(args.get("period") or ""))
+        card = makers._show(makers._card(file, "Request trace", "every call, its cost and why"))
+        return json.dumps({"made": file["name"], "file_id": file["id"], "card": card,
+                           "note": "It's in the chat; say what the Summary sheet shows in two lines."})
     if args.get("action") == "since_reset":
         r = since_reset(memory)
         if r is None:

@@ -180,3 +180,15 @@ def test_a_fresh_start_lets_this_months_spending_go_and_counts_from_now():
     _claude_calls(m, 31)  # new spending counts again
     budgets._stop_cache.clear()
     assert budgets.claude_stopped(m)
+
+
+def test_the_forecast_counts_from_the_reset_not_the_bug_before_it():
+    m = Memory(":memory:")
+    budgets.set_budget(m, "claude", 30)
+    _claude_calls(m, 25)  # the old loop
+    budgets.start_fresh(m)
+    claude = [l for l in budgets.predict(m)["limits"] if l["which"] == "claude"][0]
+    assert claude["forecast_usd"] < 1 and not claude["over"]
+    m.set(budgets.HOLD_KEY, __import__("buddy.tools", fromlist=["local_now"]).local_now().strftime("%Y-%m"))
+    budgets.pace_check(m)
+    assert not budgets.held(m)  # the pace is fine now: background work resumes by itself

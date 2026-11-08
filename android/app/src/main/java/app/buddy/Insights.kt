@@ -92,6 +92,10 @@ object InsightsApi {
 
     suspend fun fresh(link: ServerLink): JSONObject = post(link, "/admin/budgets/fresh", JSONObject())
 
+    /** The request trace (Excel): every call, what it cost and why. period: today | since_reset. */
+    suspend fun requestTrace(link: ServerLink, period: String): JSONObject =
+        post(link, "/admin/request_trace?period=$period", JSONObject())
+
     suspend fun pace(link: ServerLink, approve: Boolean): JSONObject =
         post(link, "/admin/budgets/pace", JSONObject().put("approve", approve))
 
@@ -234,6 +238,7 @@ fun InsightsScreen(link: ServerLink?) {
         }
         monthAllIn?.let { item { Text(it, color = Dim, fontSize = 13.sp) } }
         budgetData?.let { b -> item { BudgetCard(b, link) { budgetData = it } } }
+        item { TraceButtons(link) }
         item {
             Column(verticalArrangement = Arrangement.spacedBy(8.dp)) {
                 Row(horizontalArrangement = Arrangement.spacedBy(8.dp)) {
@@ -1035,7 +1040,7 @@ private fun BudgetCard(b: JSONObject, link: ServerLink?, onChanged: (JSONObject)
                  color = if (l.optBoolean("over")) Pal.bad else Dim, fontSize = 12.sp)
         }
         prediction?.optJSONArray("drivers")?.objects()?.takeIf { it.isNotEmpty() }?.let { d ->
-            Text("Last 3 days: " + d.joinToString(", ") { "${it.optString("what").replace('_', ' ')} ${usd(it.optDouble("usd"))}" },
+            Text("Lately: " + d.joinToString(", ") { "${it.optString("what").replace('_', ' ')} ${usd(it.optDouble("usd"))}" },
                  color = Dim, fontSize = 11.sp)
         }
         if (b.optBoolean("held")) {
@@ -1087,5 +1092,40 @@ private fun BudgetCard(b: JSONObject, link: ServerLink?, onChanged: (JSONObject)
              color = Dim, fontSize = 11.sp)
         Chip("Start fresh from now", false) { startFresh() }
         message?.let { Text(it, color = Dim, fontSize = 12.sp) }
+    }
+}
+
+
+/** Download the request trace: every model and API call, its cost split and previews, as Excel. */
+@Composable
+private fun TraceButtons(link: ServerLink?) {
+    val context = androidx.compose.ui.platform.LocalContext.current
+    val scope = rememberCoroutineScope()
+    var note by remember { mutableStateOf<String?>(null) }
+    fun open(period: String) {
+        if (link == null) return
+        note = "Making the trace…"
+        scope.launch {
+            runCatching { InsightsApi.requestTrace(link, period) }
+                .onSuccess {
+                    note = "Opening ${it.optString("name")}"
+                    runCatching {
+                        context.startActivity(android.content.Intent(android.content.Intent.ACTION_VIEW,
+                            android.net.Uri.parse(link.baseUrl + it.optString("url")))
+                            .addFlags(android.content.Intent.FLAG_ACTIVITY_NEW_TASK))
+                    }.onFailure { e -> note = "Couldn't open it (${e.message})." }
+                }
+                .onFailure { note = "Couldn't make the trace (${it.message})." }
+        }
+    }
+    Column(Modifier.fillMaxWidth().background(Card, RoundedCornerShape(12.dp)).padding(12.dp),
+        verticalArrangement = Arrangement.spacedBy(8.dp)) {
+        Text("Request trace", color = Pal.text, fontSize = 15.sp, fontWeight = FontWeight.SemiBold)
+        Text("Every call Buddy made, what it cost and why, as an Excel file to review.", color = Dim, fontSize = 12.sp)
+        Row(horizontalArrangement = Arrangement.spacedBy(8.dp)) {
+            Chip("Today", false) { open("today") }
+            Chip("Since reset", false) { open("since_reset") }
+        }
+        note?.let { Text(it, color = Dim, fontSize = 12.sp) }
     }
 }

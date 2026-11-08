@@ -751,6 +751,14 @@ async def admin_budget_pace(body: dict) -> dict:
     return {"said": said, **(await admin_budgets())}
 
 
+@app.post("/admin/request_trace", dependencies=[Depends(require_admin)])
+def admin_trace_file(request: Request, period: str = "today", days: int = 0) -> dict:
+    """The request trace (Excel: every call, what it cost and why), as a signed link the app opens."""
+    from . import trace as request_trace
+    file = request_trace.make(memory, days, "" if period == "since_reset" else period)
+    return {"url": makers.link(file["id"]), "name": file["name"]}
+
+
 @app.get("/admin/costs", dependencies=[Depends(require_admin)])
 async def admin_costs(fresh: bool = False) -> dict:
     """Everything running Buddy costs this month: Claude, DigitalOcean, Zapier, fixed costs."""

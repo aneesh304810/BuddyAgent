@@ -41,6 +41,7 @@ CLAUDE_KEY, ALL_IN_KEY, COMMITTED_KEY = "budget:claude_kill_usd", "budget:all_in
 PAID_HOSTS = {"google.serper.dev", "serpapi.com", "api.duffel.com", "aeroapi.flightaware.com", "api.groq.com"}
 _stop_cache: dict[int, tuple[float, bool]] = {}
 SINCE_KEY = "budget:since"
+SAVER_KEY = "budget:saver"
 HOLD_KEY, ASKED_KEY, APPROVED_KEY = "budget:hold", "budget:pace_asked", "budget:pace_approved"
 PACE_DAYS, REASK_GROWTH, MIN_PACE_USD = 3, 1.2, 0.5
 STEPS = (50, 80, 100)
@@ -119,7 +120,7 @@ def start_fresh(memory: Memory) -> str:
         log.exception("cost archive failed")
     memory.set(SINCE_KEY, now.isoformat())
     month = local_now().strftime("%Y-%m")
-    for key in (HOLD_KEY, ASKED_KEY, APPROVED_KEY, "budget:pace_asked_at", f"budget:told:claude:{month}",
+    for key in (HOLD_KEY, SAVER_KEY, ASKED_KEY, APPROVED_KEY, "budget:pace_asked_at", f"budget:told:claude:{month}",
                 f"budget:told:all_in:{month}"):
         memory.set(key, "")
     _stop_cache.clear()
@@ -384,14 +385,19 @@ def predict(memory: Memory) -> dict:
     elapsed = max((now - now.replace(day=1, hour=0, minute=0, second=0, microsecond=0)).total_seconds() / 86400, 0.25)
     left = max(days_in - elapsed, 0.0)
     window = min(PACE_DAYS, elapsed)
+    start = _since(window)
+    reset = counting_from(memory)
+    if reset and reset > start:  # since a cost reset, only what came after it says where things are going
+        start = reset
+        window = (datetime.now(timezone.utc) - datetime.fromisoformat(reset)).total_seconds() / 86400
+    per = max(window, 0.25)  # a few minutes of data don't make a daily pace
     claude_rate = _sum(memory, "SELECT SUM(cost_usd) FROM model_calls WHERE provider = 'claude' AND at >= ?",
-                       (_since(window),)) / window
+                       (start,)) / per
     other_rate = (_sum(memory, "SELECT SUM(cost_usd) FROM model_calls WHERE provider != 'claude' AND at >= ?",
-                       (_since(window),)) + _sum(memory, "SELECT SUM(cost_usd) FROM api_calls WHERE at >= ?",
-                                                 (_since(window),))) / window
+                       (start,)) + _sum(memory, "SELECT SUM(cost_usd) FROM api_calls WHERE at >= ?", (start,))) / per
     claude_now, ppu_now, fixed = claude_spent(memory), pay_per_use(memory), committed(memory)
     out = {"daily_pace_usd": round(claude_rate + other_rate, 2), "days_left": round(left, 1),
-           "drivers": drivers(memory), "limits": []}
+           "drivers": drivers(memory, max(window, 0.01)), "pace_days": round(per, 2), "limits": []}
 
     def limit(which: str, cap: float, spent: float, rate: float) -> None:
         if not cap:
@@ -426,6 +432,8 @@ def pace_check(memory: Memory) -> str:
     p = predict(memory)
     over = [l for l in p["limits"] if l["over"] and l["spent_usd"] < l["cap_usd"]]
     if not over or p["daily_pace_usd"] * PACE_DAYS < MIN_PACE_USD:
+        if held(memory) and memory.get(SAVER_KEY) != month:  # the pace came back down: background work resumes
+            memory.set(HOLD_KEY, "")
         return ""
     worst = max(over, key=lambda l: l["forecast_usd"] / l["cap_usd"])
     approved = _num((memory.get(APPROVED_KEY) or ":").split(":")[-1], 0.0) \
@@ -444,7 +452,8 @@ def pace_check(memory: Memory) -> str:
             f"${worst['cap_usd']:.0f} {name}" + (f" (you'd reach it around {worst['reach_on']})" if worst["reach_on"]
                                                   else "") + ". ")
     if p["drivers"]:
-        text += f"The last {PACE_DAYS} days went mostly on {_driver_text(p['drivers'])}. "
+        span = "day" if p["pace_days"] <= 1.05 else f"{p['pace_days']:.0f} days"
+        text += f"The last {span} went mostly on {_driver_text(p['drivers'])}. "
     return text + ("I've paused background paid work (briefings, scans, research, paid searches); your chat still "
                    "works. Keep going at this pace? Say \"approve the pace\" or tap Approve in Insights; "
                    "\"stay in saver\" keeps it paused.")
@@ -472,10 +481,12 @@ def approve_pace(memory: Memory, yes: bool) -> str:
         top = max([l["forecast_usd"] for l in p["limits"]] or [0.0])
         memory.set(APPROVED_KEY, f"{month}:{top:.2f}")
         memory.set(HOLD_KEY, "")
+        memory.set(SAVER_KEY, "")
         memory.set("budget:pace_asked_at", "")
         return (f"Approved: background work is back on, at a pace of about ${top:.0f} this month. I'll ask again if it "
                 "climbs another 20%. The budgets' hard stops still apply.")
     memory.set(HOLD_KEY, month)
+    memory.set(SAVER_KEY, month)  # the user's choice: stays until they approve, even if the pace drops
     memory.set("budget:pace_asked_at", "")
     return ("Staying in saver: background paid work stays paused this month (reminders in plain words, the bank feed "
             "and your screens carry on; chat works). Say \"approve the pace\" anytime to resume.")
