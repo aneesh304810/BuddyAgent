@@ -264,10 +264,21 @@ async def job_finished(job: dict) -> bool:
         found = [str(f).split(":", 1)[1] for f in (job.get("findings") or []) if str(f).startswith("output:")]
         results = [c for c in (makers.card_for(memory, fid) for fid in found) if c]
         if (job.get("params") or {}).get("repo") and "changed:yes" in str(job.get("findings")):
-            async def push_it() -> str:
-                return await codejob.push(job)
-            question = "Shall I push the changes to a new buddy branch on GitHub?"
-            thrift.ask_action(question, push_it)
+            from . import selfdeploy  # noqa: PLC0415
+            if selfdeploy.is_self(job):
+                # A fix to Buddy itself: the owner reviews it first; nothing is pushed until they ask.
+                selfdeploy.mark_ready(memory, job)
+                after = ("When you're happy, say \"deploy the fix\": I'll ask once more, then push it, and the "
+                         "server re-tests, merges and deploys it." if selfdeploy.enabled() else
+                         "When you're happy, say \"push the fix\" and I'll put it on a buddy branch for you to merge.")
+                text = (f"My fix is ready for your review: {job['title']}\n\n{selfdeploy.review_text(job)}\n\n"
+                        f"The full change (diff) is in Reports. {after}")
+                return await deliver("job_done", text, job_id=job["id"], cards=results)
+            else:
+                async def push_it() -> str:
+                    return await codejob.push(job)
+                question = "Shall I push the changes to a new buddy branch on GitHub?"
+                thrift.ask_action(question, push_it)
             text = f"{text} {question}"
         return await deliver("job_done", text, job_id=job["id"], cards=results)
     if job["status"] == "done":
@@ -298,7 +309,7 @@ if memory.get("budget:fresh_start_v1") != "1":  # the owner let November's spend
 
 
 async def _budget_alerts() -> None:
-    """Every 10 minutes: the budget alerts (50%, 80%, 100%, heading over), each once a month, code only."""
+    """Every minute: the budget alerts (50%, 80%, 100%, heading over), each once a month, code only."""
     while True:
         try:
             report = None
@@ -307,6 +318,10 @@ async def _budget_alerts() -> None:
             question = budgets.pace_check(memory)  # holds background paid work when a forecast passes a budget
             if question and not await deliver("money", question):
                 budgets.not_delivered(memory)
+            from . import selfdeploy  # noqa: PLC0415
+            told = selfdeploy.take_result() if connections else ""  # after a self-deploy (I restarted meanwhile)
+            if told:
+                await deliver("job_done", told)
             if connections:
                 for text in budgets.alerts(memory, report):
                     await deliver("money", text)
@@ -314,7 +329,7 @@ async def _budget_alerts() -> None:
                 await costwatch.run_daily(memory, deliver)  # the morning cost analysis (code only)
         except Exception:
             log.exception("budget alerts failed")
-        await asyncio.sleep(600)
+        await asyncio.sleep(60)  # cheap: costs are cached 30 minutes, alerts are once each
 mail = MailManager(memory, deliver)
 
 

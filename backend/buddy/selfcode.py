@@ -113,11 +113,14 @@ CODE_TOOL = {
     "description": "Your own code: Buddy's server (backend/buddy, Python), its Android app (android/, Kotlin), deploy "
     "scripts and data tools, exactly as running on this server. overview (folders), search (text or regex, "
     "optional path), read (a file, start line, up to 200 lines), recent (latest changes), fix (start a code task on "
-    "your GitHub repo to change yourself: it runs the tests and, after the user's yes, pushes a buddy/... branch "
-    "they merge; never deploys). Use it when the user asks how you or the app work, why you did something, or to "
+    "your GitHub repo to change yourself: it runs the tests, then you send the owner a review (what's new, files, "
+    "tests, how to test it) and wait). deploy (job?: the fix's job id, default the latest): only when the owner asks "
+    "to push or deploy a fix they reviewed; it asks their yes, then pushes, and with self-deploy on the server "
+    "re-tests, merges and deploys it (rolling back if unhealthy). Use it when the user asks how you or the app work, why you did something, or to "
     "fix or improve you. Read before you explain; quote file:line.",
     "input_schema": {"type": "object", "properties": {
-        "action": {"type": "string", "enum": ["overview", "search", "read", "recent", "fix"]},
+        "action": {"type": "string", "enum": ["overview", "search", "read", "recent", "fix", "deploy"]},
+        "job": {"type": "integer", "description": "deploy: which fix (job id)"},
         "query": {"type": "string", "description": "search: words or a regex"},
         "path": {"type": "string", "description": "read: the file; search: limit to this folder"},
         "start": {"type": "integer"}, "lines": {"type": "integer"},
@@ -129,13 +132,27 @@ FIX_BRIEF = (
     "This repo is Buddy itself (the assistant running this task): backend/buddy is the Python server, "
     "android/ the Kotlin app, deploy/ the server scripts. Make the smallest change that does the job, matching "
     "the surrounding code. Run the backend tests before finishing: cd backend && pip install -q -r "
-    "requirements-dev.txt && python -m pytest -q. Add or update a test for the change. Report what changed, "
-    "file by file, and the test result.\n\nThe change: ")
+    "requirements-dev.txt && python -m pytest -q. Add or update a test for the change. The owner reviews your "
+    "summary before anything is deployed, so write it for them, in plain words, with these parts:\n"
+    "What's new: each feature or fix, and what the owner will notice.\n"
+    "Files changed: file by file, one line each.\n"
+    "Tests: what you added and the result (passed or failed, with numbers).\n"
+    "How to test it yourself: 3 to 5 concrete scenarios the owner can try (what to say or tap, or a command on the "
+    "server, and what should happen), including one that checks nothing else broke.\n"
+    "Risks: anything that could go wrong, or 'none known'.\n"
+    "Changes to deploy/, .github/, dependencies or Buddy's guard rails (budgets, approvals, privacy, sandbox, "
+    "self-code, config) are never self-deployed: avoid them unless asked, and say so if you made one.\n\n"
+    "The change: ")
 
 
-async def run_tool(args: dict, start_task=None) -> str:
-    """start_task: async (args) -> str, the code-task tool (None when the sandbox isn't set up)."""
+async def run_tool(args: dict, start_task=None, deploy=None) -> str:
+    """start_task: async (args) -> str, the code-task tool (None when the sandbox isn't set up).
+    deploy: (job_id | None) -> str, asks the owner's yes to push (and self-deploy) a reviewed fix."""
     action = args.get("action")
+    if action == "deploy":
+        if deploy is None:
+            raise ToolError("Deploying a fix needs the code sandbox (sudo bash /opt/buddy/deploy/sandbox.sh).")
+        return deploy(args.get("job"))
     if action == "overview":
         return UNTRUSTED + overview()
     if action == "search":

@@ -45,6 +45,7 @@ done
 # Weekly patching and security check, auto-reboot for security updates, extra service lockdown.
 bash "$APP/deploy/security.sh" install
 bash "$APP/deploy/access.sh" install
+bash "$APP/deploy/selfdeploy.sh" refresh   # Buddy's self-deploy watcher, only if the owner turned it on
 HARDENED=0
 if [ ! -f /etc/systemd/system/buddy.service.d/hardening.conf ] && [ ! -f /etc/buddy/no-hardening ]; then
   HARDENED=1
