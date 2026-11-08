@@ -420,6 +420,8 @@ def test_a_ride_notification_doesnt_break_replies(monkeypatch):
 
 def test_conversation_carries_over_a_reconnect(monkeypatch):
     """The phone reconnecting kept nothing: Buddy forgot the weekly report it had just sent."""
+    from buddy.memory import Memory
+    monkeypatch.setattr(server, "memory", Memory(":memory:"))  # nothing in the saved chat log
     monkeypatch.setattr(server, "connections", {})
     monkeypatch.setattr(server, "_last_conversation", {"messages": [], "at": 0.0})
     old = SimpleNamespace(messages=[{"role": "user", "content": "hi"}, {"role": "assistant", "content": "hey"}],
@@ -435,7 +437,7 @@ def test_conversation_carries_over_a_reconnect(monkeypatch):
     newer = SimpleNamespace(messages=[], _repair_history=lambda: None)
     server._resume_conversation(newer)
     assert newer.messages == old.messages
-    # too old: start fresh
+    # too old, and nothing in the saved log: start fresh
     server.connections.clear()
     server._last_conversation["at"] -= 13 * 3600
     fresh = SimpleNamespace(messages=[], _repair_history=lambda: None)
@@ -449,3 +451,23 @@ def test_kept_history_never_starts_mid_tool_call():
             {"role": "assistant", "content": "done"},
             {"role": "user", "content": "next"}, {"role": "assistant", "content": "sure"}]
     assert server._tail(msgs)[0] == {"role": "user", "content": "next"}
+
+
+def test_conversation_survives_a_restart(monkeypatch, tmp_path):
+    """Nothing in the server's memory (it restarted): the chat comes back from the saved log."""
+    from buddy import convolog
+    from buddy.memory import Memory
+    m = Memory(tmp_path / "b.db")
+    monkeypatch.setattr(server, "memory", m)
+    monkeypatch.setattr(server, "connections", {})
+    monkeypatch.setattr(server, "_last_conversation", {"messages": [], "at": 0.0})
+    convolog.log(m, "assistant", "Your weekly money report: spent $412.")
+    convolog.log(m, "user", "thanks, and the soccer plan?")
+    convolog.log(m, "assistant", "Saturday 9 AM at the park.")
+    c = agent.Conversation(m)
+    server._resume_conversation(c)
+    assert c.messages[0]["role"] == "user"
+    assert any("weekly money report" in convolog.text_of(x) for x in c.messages)
+    assert c.messages[-1]["content"] == "Saturday 9 AM at the park."
+    c.log_new_messages()  # resumed lines are not logged twice
+    assert m.db.execute("SELECT COUNT(*) FROM convo_log").fetchone()[0] == 3

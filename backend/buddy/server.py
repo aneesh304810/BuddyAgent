@@ -204,20 +204,26 @@ def _keep_conversation(convo) -> None:
 
 def _resume_conversation(convo) -> None:
     """A new connection carries on the conversation: from a connection still open (the phone often reconnects before
-    the old socket is noticed as gone), else from the one that closed within the last 12 hours."""
+    the old socket is noticed as gone), else from the one that closed within the last 12 hours, else (Buddy
+    restarted) from the saved chat log: its latest lines as text."""
+    from . import convolog
     live = [c for c in connections.values() if getattr(c, "messages", None)]
     if live:
         messages = live[-1].messages
-    elif time.monotonic() - _last_conversation["at"] < CONVERSATION_KEEP_HOURS * 3600:
+    elif _last_conversation["messages"] and \
+            time.monotonic() - _last_conversation["at"] < CONVERSATION_KEEP_HOURS * 3600:
         messages = _last_conversation["messages"]
     else:
+        messages = []
+        with contextlib.suppress(Exception):
+            messages = convolog.recent(memory, CONVERSATION_KEEP_HOURS, 20)
+    if not messages:
         return
-    if messages:
-        convo.messages = _tail(messages, 20)
-        with contextlib.suppress(Exception):  # already in the chat log: not again
-            from . import convolog
-            convo._logged = {(m.get("role", ""), convolog.text_of(m)) for m in convo.messages}
-            convo._repair_history()
+    convo.messages = _tail(messages, 20)
+    with contextlib.suppress(Exception):  # already in the chat log: not again
+        known = {(m.get("role", ""), convolog.text_of(m)) for m in convo.messages}
+        convo._repair_history()
+        convo._logged = known | {(m.get("role", ""), convolog.text_of(m)) for m in convo.messages}
 
 
 async def deliver(kind: str, text: str, **extra) -> bool:
@@ -245,6 +251,7 @@ async def deliver(kind: str, text: str, **extra) -> bool:
                 message["cards"] = _absolute(extra["cards"], ws)  # full links for this phone
             await ws.send_json(message)
             convo.note_proactive(text, kind)
+            convo.log_new_messages()  # saved now: it survives a restart
     return True
 
 
@@ -1691,6 +1698,8 @@ async def talk(ws: WebSocket) -> None:
 
             started = time.monotonic()
             await convo.reply(text, say_and_keep, via)
+            with contextlib.suppress(Exception):
+                convo.log_new_messages()  # saved as soon as it's said: a restart doesn't lose it
             log.info("reply took %.1fs (%d sentences)", time.monotonic() - started, len(spoken))
             last_exchange.update(at=time.monotonic(), said=" ".join(spoken))
             # Buddy just asked for a yes (to send, book, spend...): the phone shows

@@ -94,6 +94,19 @@ def search(memory, query: str, days: int = 7, limit: int = 6) -> list[dict]:
     return [{"at": r[0], "role": r[1], "text": r[2]} for r in rows]
 
 
+def recent(memory, hours: float = 12, limit: int = 20) -> list[dict]:
+    """The latest lines of the chat, oldest first, as Claude messages: to carry on after Buddy restarted."""
+    db = memory.db
+    _ready(db)
+    since = (datetime.now(timezone.utc) - timedelta(hours=hours)).isoformat()
+    rows = db.execute("SELECT role, text FROM convo_log WHERE at >= ? ORDER BY id DESC LIMIT ?",
+                      (since, limit)).fetchall()[::-1]
+    out = [{"role": role, "content": text} for role, text in rows]
+    if out and out[0]["role"] == "assistant":  # it opens with something Buddy sent on its own
+        out.insert(0, {"role": "user", "content": "(Buddy spoke up on its own; no question asked.)"})
+    return out
+
+
 def run_tool(memory, args: dict) -> str:
     from .tools import user_tz
     found = search(memory, args.get("query", ""), args.get("days") or 7)
