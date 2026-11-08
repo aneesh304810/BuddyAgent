@@ -1026,15 +1026,18 @@ private fun BudgetCard(b: JSONObject, link: ServerLink?, onChanged: (JSONObject)
         val counted = all.optDouble("counted_usd", 0.0)
         val budget = if (all.isNull("budget_usd")) 0.0 else all.optDouble("budget_usd")
         val allStopped = all.optBoolean("stopped")
+        val oldServer = !all.has("counted_usd")  // a server from before the whole-Buddy switch
         Text(when {
+            oldServer -> "Whole Buddy: your server needs updating to show this and enforce the switch " +
+                "(cd /opt/buddy && sudo git pull && sudo systemctl restart buddy)"
             budget > 0 -> "Whole Buddy: ${usd(counted)} of ${usd(budget)}" +
-                (if (allStopped) " · paid services stopped until the 1st" else " · ${usd(all.optDouble("left_usd"))} left")
+                (if (allStopped) " · paid services stopped until the 1st" else " · ${usd(all.optDouble("left_usd", 0.0))} left")
             else -> "Whole Buddy: no budget set (no switch)"
         }, color = if (allStopped) Pal.bad else Pal.text, fontSize = 13.sp)
-        if (budget > 0) {
+        if (budget > 0 && !oldServer) {
             Meter(counted, budget)
-            Text("${usd(all.optDouble("committed_usd"))} committed (server, plans, fixed) + " +
-                 "${usd(all.optDouble("pay_per_use_usd"))} pay-per-use (Claude, AI models, search, travel prices)" +
+            Text("${usd(all.optDouble("committed_usd", 0.0))} committed (server, plans, fixed) + " +
+                 "${usd(all.optDouble("pay_per_use_usd", 0.0))} pay-per-use (Claude, AI models, search, travel prices)" +
                  (if (all.optBoolean("heading_over")) " · heading over at this pace" else ""), color = Dim, fontSize = 11.sp)
         }
         Row(verticalAlignment = Alignment.CenterVertically, horizontalArrangement = Arrangement.spacedBy(8.dp)) {
