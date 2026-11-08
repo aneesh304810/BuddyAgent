@@ -263,6 +263,22 @@ async def job_finished(job: dict) -> bool:
         text = f"Done: {job['title']}. {job.get('summary') or ''}".strip()
         found = [str(f).split(":", 1)[1] for f in (job.get("findings") or []) if str(f).startswith("output:")]
         results = [c for c in (makers.card_for(memory, fid) for fid in found) if c]
+        failed_free = next((str(f).split(":", 1)[1] for f in (job.get("findings") or [])
+                            if str(f).startswith("free_failed:")), "")
+        if failed_free:
+            # The free model couldn't do it: say so plainly, suggest the paid model, and wait for a yes.
+            from . import model_advisor  # noqa: PLC0415
+            params = dict(job.get("params") or {})
+            choice = "sonnet" if model_advisor.size(params.get("task", "")) == "large" else "haiku"
+            name, cost = model_advisor.PAID[choice]
+
+            async def retry() -> str:
+                jobs.submit("code", job["title"], {**params, "engine": f"claude:{choice}", "fresh": True})
+                return f"Started again on {name}. I'll tell you when it's done."
+            question = (f"The free model couldn't do this well: {failed_free}. None of the free models is good "
+                        f"enough for this one, so nothing was kept. I suggest {name}, {cost}. Shall I redo it?")
+            thrift.ask_action(question, retry)
+            return await deliver("job_done", question, job_id=job["id"])
         if (job.get("params") or {}).get("repo") and "changed:yes" in str(job.get("findings")):
             from . import selfdeploy  # noqa: PLC0415
             if selfdeploy.is_self(job):

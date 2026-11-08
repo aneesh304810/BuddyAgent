@@ -19,7 +19,7 @@ import os
 import re
 import secrets
 
-from . import datatools, registry, sandbox
+from . import datatools, model_advisor, registry, sandbox
 from .config import claude_client, settings
 from .jobs import JobContext, JobFailed, JobResult
 from .privacy import mask
@@ -152,10 +152,73 @@ async def _tool(ws: str, name: str, args: dict, log_lines: list[str]) -> str:
     return f"Unknown tool {name}"
 
 
+FREE_MAX_STEPS = 30
+CHECK_COMMAND = ("cd backend && (pip install -q -r requirements-dev.txt >/dev/null 2>&1 || true) && "
+                 "python -m pytest -q -p no:cacheprovider 2>&1 | tail -15")
+
+
+def _openai_tools() -> list[dict]:
+    return [{"type": "function", "function": {"name": t["name"], "description": t["description"],
+                                              "parameters": t["input_schema"]}} for t in TOOLS]
+
+
+async def _free_loop(ctx: JobContext, provider: str, system: str, first: str, ws: str,
+                     log_lines: list[str]) -> tuple[dict | None, str]:
+    """The same task loop on a free model (OpenAI-style tool calls). Returns (finished, problem)."""
+    import asyncio  # noqa: PLC0415
+    import time  # noqa: PLC0415
+
+    from . import usage  # noqa: PLC0415
+    from .free_models import PROVIDERS, FreeModels, _post  # noqa: PLC0415
+    free = FreeModels(ctx.memory)
+    p = PROVIDERS[provider]
+    key = (free.env.get(p["key"]) or "").strip()
+    model = free.model_of(provider, "code")
+    messages = [{"role": "system", "content": system}, {"role": "user", "content": first}]
+    for _ in range(FREE_MAX_STEPS):
+        started = time.monotonic()
+        try:
+            data = await asyncio.to_thread(_post, f"{p['base']}/chat/completions",
+                                           {"model": model, "messages": messages, "tools": _openai_tools(),
+                                            "temperature": 0.2, "max_tokens": 4000},
+                                           {"Authorization": f"Bearer {key}"}, 120)
+            msg = data["choices"][0]["message"]
+        except Exception as e:  # rate limit, an error, a model that can't use tools
+            free._failed(provider)
+            usage.log_call(ctx.memory, provider=provider, model=model, purpose="code", ok=False,
+                           stop=f"{type(e).__name__}: {str(e)[:150]}", seconds=time.monotonic() - started)
+            return None, f"the free model stopped with an error ({type(e).__name__})"
+        u = data.get("usage") or {}
+        usage.log_call(ctx.memory, provider=provider, model=model, purpose="code", input_tokens=u.get("prompt_tokens", 0),
+                       output_tokens=u.get("completion_tokens", 0), cost=0.0, seconds=time.monotonic() - started)
+        calls = msg.get("tool_calls") or []
+        messages.append({"role": "assistant", "content": msg.get("content") or "", **({"tool_calls": calls} if calls else {})})
+        if not calls:
+            return {"summary": (msg.get("content") or "").strip()}, ""
+        finished = None
+        for c in calls:
+            name = c.get("function", {}).get("name", "")
+            try:
+                args = json.loads(c.get("function", {}).get("arguments") or "{}")
+            except ValueError:
+                args = {}
+            if name == "finish":
+                finished, out = args, "Done."
+            else:
+                out = await _tool(ws, name, args, log_lines)
+            messages.append({"role": "tool", "tool_call_id": c.get("id", ""), "content": out})
+        if finished:
+            free._worked(provider)
+            return finished, ""
+    return None, f"it didn't finish in {FREE_MAX_STEPS} steps"
+
+
 async def run_code_task(job: dict, ctx: JobContext) -> JobResult:
     from .agent import fallback_kwargs
 
     params = job["params"]
+    engine = str(params.get("engine") or "")
+    code_model = model_advisor.paid_model(engine.split(":", 1)[1]) if engine.startswith("claude:") else CODE_MODEL
     ws, repo = params["workspace"], params.get("repo", "")
     try:
         await sandbox.call("create", workspace=ws)
@@ -165,6 +228,8 @@ async def run_code_task(job: dict, ctx: JobContext) -> JobResult:
                 cloned = await sandbox.call("clone", workspace=ws, repo=repo, branch=params.get("branch", ""))
                 if cloned["exit_code"] != 0:
                     raise JobFailed("Couldn't clone it: " + cloned["output"][-300:])
+        if params.get("fresh") and repo:  # a retry after a free model's attempt: start from clean code
+            await sandbox.call("run", workspace=ws, command="git reset -q --hard && git clean -qfd", timeout=60)
     except sandbox.SandboxError as e:
         raise JobFailed(str(e)) from e
 
@@ -175,10 +240,14 @@ async def run_code_task(job: dict, ctx: JobContext) -> JobResult:
     log_lines: list[str] = []
     finished: dict | None = None
     note = ""
-    for step in range(MAX_STEPS):
+    free_problem = ""
+    if engine.startswith("free:"):
+        finished, free_problem = await _free_loop(ctx, engine.split(":", 1)[1], system, messages[0]["content"], ws,
+                                                  log_lines)
+    for step in range(0 if engine.startswith("free:") else MAX_STEPS):
         async with client.beta.messages.stream(
-            model=CODE_MODEL, max_tokens=16_000, system=system, tools=TOOLS, messages=messages,
-            thinking={"type": "adaptive"}, cache_control={"type": "ephemeral"}, **fallback_kwargs(CODE_MODEL),
+            model=code_model, max_tokens=16_000, system=system, tools=TOOLS, messages=messages,
+            thinking={"type": "adaptive"}, cache_control={"type": "ephemeral"}, **fallback_kwargs(code_model),
         ) as stream:
             response = await stream.get_final_message()
         ctx.record(response)
@@ -204,7 +273,8 @@ async def run_code_task(job: dict, ctx: JobContext) -> JobResult:
             note = f"Stopped at the ${CAP_USD:.2f} limit for one task (BUDDY_CODE_TASK_CAP_USD)."
             break
     else:
-        note = f"Stopped after {MAX_STEPS} steps."
+        if not engine.startswith("free:"):
+            note = f"Stopped after {MAX_STEPS} steps."
 
     diff = ""
     try:
@@ -219,8 +289,29 @@ async def run_code_task(job: dict, ctx: JobContext) -> JobResult:
         except sandbox.SandboxError:
             pass
     changed = bool(re.search(r"^\s*[MADRCU?]{1,2}\s", diff.split("---")[0], re.M)) if diff else False
+    tests = ""
+    if engine.startswith("free:"):
+        # A free model's work is checked by running the tests here, not taken on its word.
+        provider = engine.split(":", 1)[1]
+        if not free_problem and repo and changed:
+            try:
+                r = await sandbox.call("run", workspace=ws, command=CHECK_COMMAND, timeout=1200)
+                tests = r["output"][-1500:]
+                if r["exit_code"] != 0 or re.search(r"\b\d+ (failed|errors?)\b", tests):
+                    free_problem = "the tests failed after its change"
+            except sandbox.SandboxError as e:
+                free_problem = f"the tests couldn't run ({e})"
+        elif not free_problem and repo:
+            free_problem = "it didn't change anything"
+        model_advisor.note_code_result(ctx.memory, provider, not free_problem)
     summary = (finished or {}).get("summary") or "I didn't get to a summary."
     report = [f"# {job['title']}", "", f"**Workspace:** `{ws}`" + (f" · **Repo:** {repo}" if repo else ""), ""]
+    if engine:
+        report += [f"**Model:** {engine.replace('free:', 'free model: ').replace('claude:', 'Claude ')}", ""]
+    if free_problem:
+        report += [f"_The free model couldn't do this well: {free_problem}._", ""]
+    if tests:
+        report += ["## Tests run by Buddy", "```", tests, "```", ""]
     if note:
         report += [f"_{note}_", ""]
     report += ["## What I did", summary, ""]
@@ -238,7 +329,8 @@ async def run_code_task(job: dict, ctx: JobContext) -> JobResult:
     if diff.strip():
         report += ["## Changes", "```diff", _cut(diff, 30_000), "```"]
     return JobResult(summary=(note + " " if note else "") + summary[:600], report="\n".join(report),
-                     findings=[f"changed:{'yes' if changed else 'no'}"] + [f"output:{fid}" for fid, _ in outputs])
+                     findings=[f"changed:{'yes' if changed else 'no'}"] + [f"output:{fid}" for fid, _ in outputs]
+                     + ([f"engine:{engine}"] if engine else []) + ([f"free_failed:{free_problem}"] if free_problem else []))
 
 
 INSTALLS = """CREATE TABLE IF NOT EXISTS sandbox_installs (
@@ -317,6 +409,9 @@ CODE_TOOLS = [
                 "repo": {"type": "string", "description": "https://github.com/owner/repo, if it's about a repo"},
                 "branch": {"type": "string", "description": "Branch to start from, if not the default"},
                 "workspace": {"type": "string", "description": "Continue in a workspace by name (kept afterwards)"},
+                "model": {"type": "string", "enum": ["auto", "free", "haiku", "sonnet"],
+                          "description": "Only when the user names one; auto (default) picks free when the code "
+                          "holds none of their data and a free model is good enough, else says why not"},
             },
             "required": ["task"],
             "additionalProperties": False,
@@ -367,6 +462,23 @@ async def run_code_tool(runner, name: str, args: dict, thrift=None) -> str:
     async def start() -> str:
         runner.submit("code", title, params)
         return "Started in the background. I'll tell you when it's done."
+
+    if repo and getattr(runner, "memory", None) is not None:  # which model: free when the code holds none of the
+        # user's data and a free model is good enough
+        wanted = str(args.get("model") or "auto")
+        advice = model_advisor.advise_code(runner.memory, task, repo)
+        if wanted == "free" and advice["route"] != "free":
+            return f"I can't use a free model for this: {advice['why']}."
+        if wanted in ("haiku", "sonnet"):
+            advice = {**advice, "route": "claude", "paid": wanted, "why": "you asked for it"}
+        if advice["route"] == "free":
+            params["engine"] = f"free:{advice['provider']}"
+            runner.submit("code", title, params)
+            return f"Started in the background. {model_advisor.say(advice)} I'll tell you when it's done."
+        params["engine"] = f"claude:{advice['paid']}"
+        if thrift:
+            return thrift.ask_action(f"{model_advisor.say(advice)} (at most ${CAP_USD:.0f}). Shall I start?", start)
+        return await start()
     estimate, in_words = COST if repo else QUICK_COST
     if thrift and estimate > settings.approve_over_usd:
         return thrift.ask_action(f"Working on that repo usually costs {in_words} (at most ${CAP_USD:.0f}). "
