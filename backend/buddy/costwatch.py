@@ -34,6 +34,9 @@ PREMIUM = ("claude-opus", "claude-sonnet", "claude-fable")
 BACKGROUND = {"briefing", "reminder", "evening_wrap", "health_digest", "market_scan", "markets:take", "trends", "web_digest", "deals", "lifelog",
               "library", "think", "connect", "card_lookup", "credit_email", "credit_deals", "bankfeed", "mail",
               "money_review", "card_credit_links", "finance:statement", "credit_report"}
+# Kinds of work that hold none of the user's data, which free models do first (Claude only when none answers well).
+PUBLIC_WORK = {"markets:take", "trends", "web_digest", "health_digest", "card_lookup", "credit_deals",
+               "card_credit_links"}
 LOOP_CALLS_PER_DAY = 96          # background work more often than every 15 minutes, all day
 REPEAT_MIN = 5                   # the same request this many times in a day
 SPIKE_X, SPIKE_MIN_USD = 3.0, 0.50
@@ -193,14 +196,26 @@ def analyse(memory: Memory, day: datetime | None = None, start: datetime | None 
         pass
 
     try:
-        for r in memory.db.execute("SELECT key, value FROM kv WHERE key LIKE 'free:fails:%'"):
-            if int(float(r["value"] or 0)) >= 5:
+        import time as _time  # noqa: PLC0415
+        for r in memory.db.execute("SELECT key, value FROM kv WHERE key LIKE 'free:rest:%'"):
+            if float(r["value"] or 0) > _time.time():
                 name = r["key"].split(":", 2)[2]
-                find("failing", f"free:{name}", 0.0, 0.0, f"the free model {name} keeps failing "
-                     f"({r['value']} in a row); it's resting, and its work goes to paid models meanwhile",
+                find("failing", f"free:{name}", 0.0, 0.0, f"the free model {name} keeps failing and is resting; "
+                     "its work goes to other free models or to paid Claude meanwhile",
                      f"Check {name}'s key and quota (GitHub Models: a fine-grained token with Models: read).")
     except Exception:
         pass
+
+    # Work that holds none of the user's data, done by paid Claude: the free models failed or weren't set up.
+    for purpose, e in today.items():
+        if purpose not in PUBLIC_WORK or e["usd"] < 0.05:
+            continue
+        paid = sum(n for m, n in e["models"].items() if m.startswith("claude"))
+        if paid:
+            find("could be free", purpose, e["usd"], e["usd"] / per * 30,
+                 f"{purpose}: {paid} of {e['calls']} calls went to paid Claude, though it holds none of your data",
+                 "The free models failed or aren't set up for this: fix the failing ones (see 'failing') or add a "
+                 "free key (Gemini, GitHub Models, OpenRouter), and it goes back to free.")
 
     findings.sort(key=lambda f: -f["saving_month_usd"])
     top = sorted(({"purpose": k, "usd": round(v["usd"], 2), "calls": v["calls"],

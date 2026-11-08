@@ -66,3 +66,13 @@ def test_a_reset_archives_the_old_costs_and_since_reset_shows_only_whats_new():
     ins = insights.report(m, since_reset=True)
     assert ins["since_reset"] and ins["totals"]["requests"] == 2
     assert ins["failing"][0]["purpose"] == "free:make" and "429" in ins["failing"][0]["reason"]
+
+
+def test_public_work_done_by_paid_claude_is_flagged():
+    m = Memory(":memory:")
+    today = datetime.now(timezone.utc).replace(hour=0, minute=0, second=0, microsecond=0)
+    for i in range(4):
+        add(m, today - timedelta(hours=10 - i), "markets:take", model="claude-haiku-5-5", cost=0.05, request=f"t{i}")
+    r = costwatch.analyse(m)
+    f = [x for x in r["findings"] if x["kind"] == "could be free"]
+    assert f and "none of your data" in f[0]["what"] and "free key" in f[0]["fix"]

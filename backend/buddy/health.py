@@ -374,15 +374,29 @@ async def digest_text(memory: Memory, report: dict) -> str:
     from .persona import build_system_prompt
 
     facts = digest_facts(memory, report)
+    ask = ("Write your daily health report for the user, as a short chat message they'll read and hear. "
+           "Plain words, no jargon, no tables. Start with one line: how you did this week, compared with the "
+           "week before. Then up to three recommendations, most useful first, each with what to do in a few "
+           "words (a setting to change, something to try, or 'nothing needed'). Mention money saved by "
+           "routing and accuracy of free models only if there's something worth saying. If everything is "
+           "fine, say so in two sentences. End with: 'Tap for the full picture.' Use only these facts. Facts (JSON): ")
+    facts_json = json.dumps(facts, ensure_ascii=False)
+    # Buddy's own speed and cost numbers, none of the user's data: a free model writes it when one can (the privacy
+    # check still runs on it), Claude only when none answers well.
+    from .free_models import FreeModels  # noqa: PLC0415
+    free = FreeModels(memory)
+    if free.enabled():
+        try:
+            got = await free.run("summarize", facts_json, instruction=ask, purpose="health_digest",
+                                 system="You are Buddy, a personal assistant, reporting on how you've been doing. "
+                                 "Warm, plain and short.", claude_fallback=False)
+            if len(got["answer"].split()) >= 12:
+                return got["answer"].strip()
+        except Exception:
+            log.info("free model for the health digest didn't answer; Claude writes it", exc_info=True)
     text = await compose(
         build_system_prompt(memory.recall(""), memory.open_goals()),
-        "Write your daily health report for the user, as a short chat message they'll read and hear. "
-        "Plain words, no jargon, no tables. Start with one line: how you did this week, compared with the "
-        "week before. Then up to three recommendations, most useful first, each with what to do in a few "
-        "words (a setting to change, something to try, or 'nothing needed'). Mention money saved by "
-        "routing and accuracy of free models only if there's something worth saying. If everything is "
-        "fine, say so in two sentences. End with: 'Tap for the full picture.' Facts (JSON): "
-        + json.dumps(facts, ensure_ascii=False),
+        ask + facts_json,
         memory, label="health_digest",
     )
     return text or plain_digest(report)
