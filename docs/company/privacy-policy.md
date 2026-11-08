@@ -1,6 +1,6 @@
 # Buddy Privacy and Data Retention Policy
 
-Source: https://claude.ai/artifact/MJVGZ7pWQvi26tg1MS914P, revision 47
+Source: https://claude.ai/artifact/MJVGZ7pWQvi26tg1MS914P, revision 48
 
 Nov 1, 2026 · @Aneesh
 

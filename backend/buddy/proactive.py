@@ -283,7 +283,7 @@ async def run(memory: Memory, deliver: Deliver) -> None:
                 thinker = reasoning.Reasoning(memory)
                 if memory.get("reasoning:self_checked") != local_now().strftime("%Y-%m-%dT%H"):
                     memory.set("reasoning:self_checked", local_now().strftime("%Y-%m-%dT%H"))  # hourly: code changed?
-                    await asyncio.to_thread(reasoning.refresh_self_knowledge, Brain(memory))
+                    reasoning.refresh_self_knowledge(Brain(memory))  # on the loop: it writes, and the DB is shared
                 if not in_quiet_hours() and local_now().hour >= 10:
                     for f in thinker.follow_ups():
                         if await deliver("followup", f["text"]):
@@ -303,7 +303,7 @@ async def run(memory: Memory, deliver: Deliver) -> None:
                 atlas = Maps(memory)
                 if memory.get("maps:learned") != local_now().date().isoformat():
                     memory.set("maps:learned", local_now().date().isoformat())  # home, work: once a day
-                    await asyncio.to_thread(atlas.learn_places)
+                    atlas.learn_places()  # on the loop: it writes to the shared DB
                 hold = await asyncio.to_thread(atlas.hold_non_urgent)  # driving or in a meeting: only urgent ones now
                 moments = Moments(memory)
                 for m in await asyncio.to_thread(moments.now) + await asyncio.to_thread(atlas.nudges):
