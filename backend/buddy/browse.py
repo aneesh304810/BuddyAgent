@@ -212,7 +212,8 @@ async def submit(memory, pending: dict) -> tuple[str, list[str]]:
 
 BROWSE_TOOL = {
     "name": "browse",
-    "description": "Use a real web browser for the user, in the background: sites that need clicking, typing, menus "
+    "description": "Buddy's own web browser on the server (Chromium): open a website, search, navigate, and FILL WEB "
+    "FORMS for the user, in the background: sites that need clicking, typing, menus "
     "or JavaScript, finding something across several pages, comparing on live sites, and filling web forms (contact, "
     "booking, applications, sign-ups that need no password). It fills the form and then shows the user a screenshot; "
     "only their yes submits it. It never pays or buys, never types passwords, never logs in, never uploads. Put every "

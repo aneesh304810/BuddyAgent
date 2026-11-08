@@ -701,7 +701,7 @@ class Conversation:
                      compliance.COMPLIANCE_TOOL, MERCHANTS_TOOL, CUSTOMIZE_TOOL, CREDIT_TOOL, MARKETS_TOOL, ROUTING_TOOL, TRENDS_TOOL,
                      TRANSIT_TOOL, FLIGHT_TOOL, DECISION_TOOL, MAPS_TOOL,
                      WEATHER_TOOL, PACKAGES_TOOL, MESSAGE_TOOL, BUDGET_TOOL, COSTWATCH_TOOL, ADVICE_TOOL, EDIT_TOOL]
-        spending += [BROWSE_TOOL] if self.jobs and sandbox.available() else []
+        spending += [BROWSE_TOOL] if self.jobs else []  # listed even when the sandbox is down: it says what to fix
         return (
             CLIENT_TOOLS + orchestration + job_tools + spending + [_expert_tool()]
             + agent_tools + web_tools()

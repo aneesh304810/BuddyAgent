@@ -90,7 +90,9 @@ def check_fills(fills: list[dict], nodes: list[dict]) -> list[dict]:
 
 FORM_TOOL = {
     "name": "fill_form",
-    "description": "Fill in a form open in the browser on the user's phone (Chrome or Samsung Internet). read: what's "
+    "description": "Fill in a form the user has open on their PHONE's browser right now (Chrome or Samsung Internet), "
+    "through the phone's form helper (Accessibility). For a website form Buddy can open itself (the user gives an "
+    "address, or says 'your browser' / 'server browser'), use browse instead. read: what's "
     "on screen (questions, text boxes, buttons, choices, current values). scroll: scroll down and read the next "
     "part. fill: type answers and tap choices: fills = [{field: 'f12', text: '...'}] for text boxes, "
     "[{field: 'f15', tap: true}] for a Yes/No button, choice or checkbox, [{field: 'f9', choose: 'Yes'}] for a dropdown "
