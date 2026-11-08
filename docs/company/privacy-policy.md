@@ -1,6 +1,6 @@
 # Buddy Privacy and Data Retention Policy
 
-Source: https://claude.ai/artifact/MJVGZ7pWQvi26tg1MS914P, revision 56
+Source: https://claude.ai/artifact/MJVGZ7pWQvi26tg1MS914P, revision 57
 
 Nov 1, 2026 · @Aneesh
 
@@ -24,6 +24,7 @@ Buddy collects only the owner's own data, and only what its features need.
 | Voice clips and speech transcripts | The owner's phone microphone while Buddy is listening | Processed, not kept as audio |
 | Voiceprint (for voice match) | Five sentences the owner reads once | Stored as numbers, no audio |
 | The owner's own lines in conversations (conversation coaching) | Listen-in, only when the owner turns coaching on; voice match picks out the owner's own voice | Only the owner's words, for their English review; other people's words are never kept |
+| The chat with Buddy (text of what the owner said and what Buddy replied or sent on its own) | The owner's conversation with Buddy | Kept on Buddy's server and searched there; only the few lines a search finds are sent, to Claude only (never a free model) |
 | Documents, photos, PDFs, spreadsheets, CSV and JSON files | Files the owner chooses to upload (Share to Buddy, or the paperclip in the app) | Stored encrypted; text, summaries, facts and search index kept |
 | People and things mentioned in those files and in conversations | Pulled out of the owner's own data | Names, relationships and short notes |
 | Preferences, choices and dates to act on | What the owner says they like, choices they make between options (such as Uber or Lyft after a price comparison), and dates found in their facts and documents | Short lines on the server; learned preferences are marked as learned |
@@ -143,6 +144,7 @@ Data is kept only as long as it is useful, then deleted automatically.
 | Room transcripts (Listen-in mode) | 2 days, unless the owner saves a stretch |
 | English-practice speech samples | 30 days |
 | The owner's own conversation lines (conversation coaching) | 30 days; turning coaching off deletes them |
+| The chat with Buddy (the owner's words and Buddy's replies, as text; no audio, no tool results) | 30 days, then deleted automatically; kept on the server so Buddy can look up earlier parts of the chat instead of resending all of it |
 | Browser task reports (steps, pages used, screenshots) | 90 days, then deleted automatically; the browser itself keeps nothing once the task ends |
 | Location | The latest is treated as expired after 3 hours; the history is kept 60 days (see below) |
 | Voice audio | Not stored; only the text is kept |

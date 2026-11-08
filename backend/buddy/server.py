@@ -195,8 +195,10 @@ def _tail(messages: list, n: int = 60) -> list:
 
 def _keep_conversation(convo) -> None:
     with contextlib.suppress(Exception):
+        convo.log_new_messages()
+    with contextlib.suppress(Exception):
         convo._repair_history()
-        _last_conversation["messages"] = _tail(convo.messages)
+        _last_conversation["messages"] = _tail(convo.messages, 20)
         _last_conversation["at"] = time.monotonic()
 
 
@@ -211,8 +213,10 @@ def _resume_conversation(convo) -> None:
     else:
         return
     if messages:
-        convo.messages = _tail(messages)
-        with contextlib.suppress(Exception):
+        convo.messages = _tail(messages, 20)
+        with contextlib.suppress(Exception):  # already in the chat log: not again
+            from . import convolog
+            convo._logged = {(m.get("role", ""), convolog.text_of(m)) for m in convo.messages}
             convo._repair_history()
 
 
@@ -402,6 +406,11 @@ async def _budget_alerts() -> None:
                     await deliver("money", text)
                 from . import costwatch  # noqa: PLC0415
                 await costwatch.run_daily(memory, deliver)  # the morning cost analysis (code only)
+            day = time.strftime("%Y-%m-%d")
+            if memory.get("convolog:pruned") != day:  # the searchable chat log keeps 30 days
+                from . import convolog  # noqa: PLC0415
+                convolog.prune(memory)
+                memory.set("convolog:pruned", day)
         except Exception:
             log.exception("budget alerts failed")
         await asyncio.sleep(60)  # cheap: costs are cached 30 minutes, alerts are once each

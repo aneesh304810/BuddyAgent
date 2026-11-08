@@ -48,6 +48,7 @@ from .weather import WEATHER_TOOL
 from .packages import PACKAGES_TOOL
 from .budgets import BUDGET_TOOL
 from .costwatch import COSTWATCH_TOOL
+from .convolog import TOOL as RECALL_CONVO_TOOL
 from .model_advisor import ADVICE_TOOL
 from .docedit import EDIT_TOOL
 from .browse import BROWSE_TOOL
@@ -116,9 +117,11 @@ UNTRUSTED_ROOM = ("What speech recognition heard in the room (other people's wor
 
 # Tools that only show or note something: when a response calls nothing else, the turn ends there.
 DISPLAY_ONLY = {"free_answer_verdict", "show_cards"}
-ALWAYS_LOADED = {"remember_fact", "recall_memory", "set_reminder", "confirm_action", "add_task", "switch_mode"}
-MAX_HISTORY = 40      # messages; above this, older turns are dropped
-KEEP_HISTORY = 24
+ALWAYS_LOADED = {"remember_fact", "recall_memory", "recall_conversation", "set_reminder", "confirm_action", "add_task", "switch_mode"}
+# Claude sees only the latest turns; older ones are kept on the server and searched when needed (recall_conversation),
+# so a long chat doesn't resend everything said today on every reply.
+MAX_HISTORY = 20      # messages; above this, older turns are dropped from what Claude sees (still searchable)
+KEEP_HISTORY = 10
 FILLERS = ("One sec, let me check.", "Give me a moment, looking that up.", "Hang on, checking.",
            "Let me look into that.", "One moment.")
 
@@ -536,8 +539,23 @@ class Conversation:
                 self.messages.insert(i + 1, {"role": "user", "content": stubs})
         self.messages = fixed
 
+    def log_new_messages(self) -> None:
+        """Each plain message once into the searchable chat log (convolog), so trimmed turns can be found again.
+        Known by role and words (the history is copied when repaired, so the same message isn't the same object)."""
+        from . import convolog  # noqa: PLC0415
+        logged = self.__dict__.setdefault("_logged", set())
+        now = set()
+        with contextlib.suppress(Exception):  # the log never breaks a reply
+            for m in self.messages:
+                key = (m.get("role", ""), convolog.text_of(m))
+                now.add(key)
+                if key[1] and key not in logged:
+                    convolog.log(self.memory, *key)
+        self._logged = now
+
     def _trim_history(self) -> None:
         """Long talks: keep the latest turns. Done in one jump, so the cache rebuilds only rarely."""
+        self.log_new_messages()
         if len(self.messages) <= MAX_HISTORY:
             return
         keep = self.messages[-KEEP_HISTORY:]
@@ -700,7 +718,8 @@ class Conversation:
                      advisor.ADVISOR_TOOL, benefits.BENEFITS_TOOL, plaid.BANK_TOOL, travel.TRAVEL_TOOL,
                      compliance.COMPLIANCE_TOOL, MERCHANTS_TOOL, CUSTOMIZE_TOOL, CREDIT_TOOL, MARKETS_TOOL, ROUTING_TOOL, TRENDS_TOOL,
                      TRANSIT_TOOL, FLIGHT_TOOL, DECISION_TOOL, MAPS_TOOL,
-                     WEATHER_TOOL, PACKAGES_TOOL, MESSAGE_TOOL, BUDGET_TOOL, COSTWATCH_TOOL, ADVICE_TOOL, EDIT_TOOL]
+                     WEATHER_TOOL, PACKAGES_TOOL, MESSAGE_TOOL, BUDGET_TOOL, COSTWATCH_TOOL, ADVICE_TOOL, EDIT_TOOL,
+                     RECALL_CONVO_TOOL]
         spending += [BROWSE_TOOL] if self.jobs else []  # listed even when the sandbox is down: it says what to fix
         if self.memory.get("forms:phone") != "1":  # the owner's choice: forms always in Buddy's own browser
             spending = [t for t in spending if t.get("name") != "fill_form"]
@@ -861,6 +880,9 @@ class Conversation:
         if name == "edit_document":
             from . import docedit  # noqa: PLC0415
             return await docedit.run_edit_tool(self.memory, args)
+        if name == "recall_conversation":
+            from . import convolog  # noqa: PLC0415
+            return convolog.run_tool(self.memory, args)
         if name == "model_advice":
             from . import model_advisor  # noqa: PLC0415
             return model_advisor.run_tool(self.memory, args)
