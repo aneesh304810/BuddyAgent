@@ -129,6 +129,10 @@ async def _topics_line(memory: Memory) -> str:
     topics = briefing_topics(memory)
     if not topics:
         return ""
+    day = f"briefing_topics:{local_now().date().isoformat()}"
+    if int(memory.get(day) or 0) >= 2:  # looked up with the briefing, at most twice a day whatever happens
+        return ""
+    memory.set(day, str(int(memory.get(day) or 0) + 1))
     from .agent import fallback_kwargs
     from .config import claude_client
 

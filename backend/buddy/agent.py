@@ -965,6 +965,8 @@ class Conversation:
 
 
 COMPOSE_PER_HOUR = 30  # background writing, per label: more than this is a loop, not useful work
+# And a hard cap a day: a briefing is written once, so even a bug that rewrites it can't cost more than a few cents.
+COMPOSE_PER_DAY = {"briefing": 4, "evening_wrap": 4, "health_digest": 4, "reminder": 60}
 
 
 class ComposeCapped(RuntimeError):
@@ -985,6 +987,16 @@ async def compose(system: str, instruction: str, memory: Memory | None = None, *
                 memory.set(hour, str(n + 1))
             raise ComposeCapped(f"{label}: {COMPOSE_PER_HOUR} background writes this hour already")
         memory.set(hour, str(n + 1))
+        day_cap = COMPOSE_PER_DAY.get(label)
+        if day_cap:
+            day = f"compose:{label}:{datetime.now(timezone.utc):%Y-%m-%d}"
+            d = int(memory.get(day) or 0)
+            if d >= day_cap:
+                if d == day_cap:
+                    log.warning("compose %s: %d calls today, holding until tomorrow", label, d)
+                    memory.set(day, str(d + 1))
+                raise ComposeCapped(f"{label}: {day_cap} writes today already")
+            memory.set(day, str(d + 1))
     started = time.monotonic()
     response = await client.beta.messages.create(
         **({**_request_kwargs(system, model), "max_tokens": 600} if model else _request_kwargs(system)),

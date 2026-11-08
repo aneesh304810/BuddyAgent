@@ -125,3 +125,29 @@ def test_short_reminders_need_no_ai_and_background_writing_is_capped(monkeypatch
     import pytest
     with pytest.raises(agent.ComposeCapped):
         asyncio.run(agent.compose("s", "i", m, label="briefing"))
+
+
+def test_the_briefing_is_written_at_most_4_times_a_day_whatever_loops(monkeypatch):
+    from buddy import agent
+    m = Memory(":memory:")
+    made = []
+
+    class Fake:
+        class beta:
+            class messages:
+                @staticmethod
+                async def create(**kw):
+                    made.append(1)
+                    from types import SimpleNamespace as NS
+                    return NS(model="claude-haiku-5-5", stop_reason="end_turn",
+                              usage=NS(input_tokens=10, output_tokens=5), content=[NS(type="text", text="Morning!")])
+    monkeypatch.setattr(agent, "client", Fake)
+    import pytest
+    for i in range(10):
+        m.set(f"compose:briefing:{__import__('datetime').datetime.now(__import__('datetime').timezone.utc):%Y-%m-%dT%H}", "0")
+        if i < 4:
+            asyncio.run(agent.compose("s", "i", m, label="briefing"))
+        else:
+            with pytest.raises(agent.ComposeCapped):
+                asyncio.run(agent.compose("s", "i", m, label="briefing"))
+    assert len(made) == 4
