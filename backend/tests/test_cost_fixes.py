@@ -151,3 +151,16 @@ def test_the_briefing_is_written_at_most_4_times_a_day_whatever_loops(monkeypatc
             with pytest.raises(agent.ComposeCapped):
                 asyncio.run(agent.compose("s", "i", m, label="briefing"))
     assert len(made) == 4
+
+
+def test_a_rejected_key_or_a_gone_model_rests_a_day_with_its_reason():
+    import io
+    import urllib.error
+    from buddy.free_models import FreeModels
+    m = Memory(":memory:")
+    f = FreeModels(m, env={})
+    e = urllib.error.HTTPError("u", 401, "Unauthorized", {}, io.BytesIO(b'{"error": "Bad credentials"}'))
+    assert f._broken("github", e).startswith("key rejected (HTTP 401): {\"error\": \"Bad credentials\"}")
+    assert f.resting("github") and "Bad credentials" in m.get("free:lasterr:github")
+    gone = urllib.error.HTTPError("u", 404, "Not Found", {}, io.BytesIO(b"model decommissioned"))
+    assert "BUDDY_GROQ_MODEL" in f._broken("groq", gone) and f.resting("groq")

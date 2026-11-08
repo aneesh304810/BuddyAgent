@@ -154,8 +154,9 @@ def check(memory: Memory, now: datetime | None = None, finops_report: dict | Non
     for name, p in week["providers"].items():
         if p["failure_rate"] and p["failure_rate"] > 0.2:
             setting = f"BUDDY_{name.upper()}_MODEL" if name != "claude" else "your Anthropic key and status page"
+            last = memory.get(f"free:lasterr:{name}") or ""
             find("act", "reliability", f"{name} fails {int(p['failure_rate'] * 100)}% of the time",
-                 f"{p['calls']} calls this week.",
+                 f"{p['calls']} calls this week." + (f" Last error: {last}." if last else ""),
                  f"Check its key and model name ({setting}); providers rename free models often.")
         if p["limit_rate"] and p["limit_rate"] > 0.3:
             find("watch", "reliability", f"{name} is at its free limit {int(p['limit_rate'] * 100)}% of the time",

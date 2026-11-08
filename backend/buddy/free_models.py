@@ -253,9 +253,39 @@ class FreeModels:
             self.memory.set(f"free:fails:{name}", "0")
             log.warning("free model %s failed %d times in a row: resting %d hours", name, n, self.REST_HOURS)
 
+    def _broken(self, name: str, e: Exception) -> str:
+        """Why a call failed, in words the health check can show. A rejected key or a model that's gone fails every
+        time: that provider rests a day instead of being tried (and failing) on every request."""
+        import urllib.error  # noqa: PLC0415
+        code = getattr(e, "code", None)
+        detail = ""
+        if isinstance(e, urllib.error.HTTPError):
+            try:
+                detail = re.sub(r"\s+", " ", e.read(400).decode("utf-8", "replace"))[:160]
+            except Exception:
+                detail = ""
+        if code in (401, 403):
+            reason = f"key rejected (HTTP {code})"
+        elif code in (400, 404, 410):
+            reason = f"model not available or request refused (HTTP {code}; check {PROVIDERS[name]['model_setting']})"
+        else:
+            reason = f"HTTP {code}" if code else type(e).__name__
+        if detail:
+            reason += f": {detail}"
+        if self.memory is not None:
+            self.memory.set(f"free:lasterr:{name}", f"{time.strftime('%Y-%m-%d %H:%M')} {reason}"[:300])
+            if code in (401, 403, 404, 410):
+                self.memory.set(f"free:rest:{name}", str(time.time() + 24 * 3600))
+                log.warning("free model %s: %s; resting a day", name, reason)
+                return reason
+        self._failed(name)
+        return reason
+
     def _worked(self, name: str) -> None:
         if self.memory is not None and self.memory.get(f"free:fails:{name}") not in (None, "", "0"):
             self.memory.set(f"free:fails:{name}", "0")
+        if self.memory is not None and self.memory.get(f"free:limits:{name}") not in (None, "", "0"):
+            self.memory.set(f"free:limits:{name}", "0")
 
     def accuracy(self, kind: str) -> dict[str, float]:
         """Share of each provider's answers Claude found usable (used or fixed) for this kind
@@ -343,6 +373,12 @@ class FreeModels:
                 self.cooldown[name] = time.time() + e.wait
                 if self.memory is not None and e.wait > 60:  # a long limit: remember it across calls too
                     self.memory.set(f"free:rest:{name}", str(time.time() + min(e.wait, 6 * 3600)))
+                elif self.memory is not None:  # short waits again and again: it's out of today's quota, rest an hour
+                    n = int(self.memory.get(f"free:limits:{name}") or 0) + 1
+                    self.memory.set(f"free:limits:{name}", str(n))
+                    if n >= 3:
+                        self.memory.set(f"free:rest:{name}", str(time.time() + 3600))
+                        self.memory.set(f"free:limits:{name}", "0")
                 tried.append(f"{name}: at its free limit")
                 usage.log_call(self.memory, provider=name, model=self._last_model or self.model_of(name), purpose=purpose,
                                seconds=time.monotonic() - started, ok=False, stop="at its free limit",
@@ -355,11 +391,11 @@ class FreeModels:
                                request=prompt, verdict="failed_check")
             except Exception as e:
                 self._learn(name, None)
-                self._failed(name)
+                reason = self._broken(name, e)
                 self.cooldown[name] = time.time() + 120
-                tried.append(f"{name}: {type(e).__name__}")
+                tried.append(f"{name}: {reason}")
                 usage.log_call(self.memory, provider=name, model=self._last_model or self.model_of(name), purpose=purpose,
-                               seconds=time.monotonic() - started, ok=False, stop=f"error: {type(e).__name__}",
+                               seconds=time.monotonic() - started, ok=False, stop=f"error: {reason}"[:200],
                                request=prompt)
                 log.info("free model %s failed: %s", name, e)
         if not claude_fallback:
