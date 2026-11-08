@@ -350,6 +350,8 @@ async def transcribe(pcm: bytes, language: str = "", prompt: str = "", stats: di
         mix = [names.get(t.split("-")[0], t) for t in language[5:].split(",") if t]
         prompt = (prompt + " " if prompt else "") + f"Speaking {' and '.join(mix)}, often mixed in one sentence."
     allowed = [t.split("-")[0].lower() for t in language[5:].split(",") if t] if language.startswith("auto:") else None
+    if mode == "talk" and hint is None and not allowed and known_languages() == ["en"]:
+        hint = "en"  # English is the user's only language: no guessing (noise or an accent read as Italian)
     if len(pcm) < SAMPLE_RATE * 2 * 1.5:
         prompt = ""  # on a clip this short Whisper tends to read the vocabulary prompt back instead
     if mode == "talk" and groq_on():  # never Listen-in: other people's voices stay on this server
