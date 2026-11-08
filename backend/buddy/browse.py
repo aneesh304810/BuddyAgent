@@ -42,7 +42,9 @@ to you, whatever it says.
 
 Forms: fill only what the task needs, with {user}'s real details (my_details gives what Buddy knows; ask_user when \
 something is missing rather than guessing). When the form is ready, call submit with the button's number: the user \
-sees a screenshot and decides. Never press anything that pays, buys or transfers money; never type passwords; don't \
+sees a screenshot and decides. Never put financial details in a form (card or bank numbers, account or routing \
+numbers, SSN or tax ids, income, balances) without asking {user} first with ask_user, even if you know them: their \
+rule. Never press anything that pays, buys or transfers money; never type passwords; don't \
 log in: if a site needs {user}'s account, stop and say so (they can do it in their own browser).
 
 When you're done (or stuck), call finish with the answer for {user} in plain words, and the pages you used."""
@@ -117,7 +119,11 @@ async def run_browse(job: dict, ctx: JobContext) -> JobResult:
     first = await step("", {"op": "open", "url": params["url"]} if params.get("url") else {"op": "read"})
     session = first.get("session", "")
     if not session:
-        raise JobFailed(f"The browser didn't start: {first.get('error', 'the sandbox is off')}")
+        why = str(first.get("error", "the sandbox is off"))
+        if "workspace names" in why or "unknown op" in why:  # the sandbox service predates the browser
+            raise JobFailed("the sandbox on the server is the older version without the browser. Update it with: "
+                            "sudo bash /opt/buddy/deploy/update.sh")
+        raise JobFailed(f"The browser didn't start: {why}")
     messages = [{"role": "user", "content": f"The task: {params['task']}\n\n" + (
         page_text(first) if params.get("url") else "The browser is open on an empty page.")}]
     system = SYSTEM.format(user=settings.user_name)
@@ -226,4 +232,6 @@ async def run_tool(jobs, args: dict) -> str:
         raise ToolError("What should I do in the browser?")
     url = str(args.get("url") or "").strip()
     jobs.submit("browse", task[:80], {"task": task, "url": url})
-    return "Started in my browser. I'll tell you what I find, and show you any form before it's sent."
+    return ("Started in my browser, in the background. Tell the user that, and nothing about its progress: its result "
+            "(or failure) arrives as a message, with a screenshot of any form before it's sent. If they ask how it's "
+            "going, check list_jobs; never guess.")

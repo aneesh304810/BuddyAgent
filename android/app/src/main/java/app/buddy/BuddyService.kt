@@ -604,6 +604,7 @@ class BuddyService : Service() {
                     "translation" -> "Translation: "
                     "about_you" -> "About you: "
                     "correction" -> "Fact check: "
+                    "plan" -> "Reminder? "
                     "answer" -> "Say this: "
                     else -> ""
                 }
@@ -927,13 +928,15 @@ class BuddyService : Service() {
             if (t.heardAt == 0L) { t.heardAt = android.os.SystemClock.elapsedRealtime(); missWatch.removeCallbacksAndMessages(null) }
         }
         if (activeMode == Mode.LISTEN_IN && final) {
-            val followUp = android.os.SystemClock.elapsedRealtime() < followUpUntil
             if (CHECK_IN.matches(text.trim())) {
                 wakeArmed = true
                 mouth.speak("Yes, I'm listening.", quiet = true)
                 return
             }
-            val request = if (wakeArmed || followUp) afterWakePhrase(text) ?: text else afterWakePhrase(text)
+            // Just after "Hey Buddy" (and a pause) the next words are the request. In the follow-up window after an
+            // answer, no: the server judges each line in context, so a chat with someone nearby doesn't become a
+            // string of messages to Buddy.
+            val request = if (wakeArmed) afterWakePhrase(text) ?: text else afterWakePhrase(text)
             when {
                 request == null -> Unit
                 request.isEmpty() -> { wakeArmed = true; mouth.speak("Yeah?", quiet = true); return }

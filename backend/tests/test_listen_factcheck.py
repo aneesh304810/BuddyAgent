@@ -80,3 +80,20 @@ def test_conversation_coaching_keeps_only_your_lines_when_on():
                                      "remind me to call mum tomorrow"]
     assert "deleted" in tutor.run_tutor_tool(m, None, {"action": "coach_off"})
     assert tutor.sentences(m, 1) == ["remind me to call mum tomorrow"]
+
+
+def test_a_plan_heard_in_the_room_gets_a_reminder_offer_once():
+    said = []
+
+    async def whisper(kind, text):
+        said.append((kind, text))
+    listener = ambient.AmbientListener.__new__(ambient.AmbientListener)
+    listener.whisper, listener._plan_at = whisper, 0.0
+    listener.whispered = __import__("collections").deque(maxlen=8)
+    listener.offered = __import__("collections").deque(maxlen=30)
+    asyncio.run(listener._offer_reminder([{"what": "Aishan's soccer", "when": "today at 10"}]))
+    assert said == [("plan", "Sounds like a plan: Aishan's soccer, today at 10. Want a reminder? Say \"Hey Buddy, "
+                             "remind me\".")]
+    listener._plan_at = 0.0
+    asyncio.run(listener._offer_reminder([{"what": "Aishan's soccer", "when": "today at 10"}]))
+    assert len(said) == 1  # not offered twice

@@ -103,6 +103,11 @@ no "he/she/I/you", nothing about anyone's private life ("Vaccines cause autism."
 immutable.", "The S&P 500 returned 30% last year."). Skip opinions, jokes, plans, feelings, personal \
 stories and anything you can't state without someone's personal details. At most 3; [] when none.
 
+3. plans: concrete plans for {user} or their family with a day or time, said in the NEW lines ("soccer \
+at 10", "dentist on Thursday at 4", "pick up Amma from the station at 6"). Each as {{"what": short, \
+"when": as said}}. Skip vague ones ("sometime", "later") and other people's plans that don't involve \
+{user}'s family. [] when none.
+
 Details that refer to {user}:
 {about}
 """
@@ -110,8 +115,11 @@ Details that refer to {user}:
 TRIAGE_SCHEMA = {
     "type": "object",
     "properties": {"attention": {"type": "boolean"},
-                   "claims": {"type": "array", "items": {"type": "string"}}},
-    "required": ["attention", "claims"],
+                   "claims": {"type": "array", "items": {"type": "string"}},
+                   "plans": {"type": "array", "items": {"type": "object", "properties": {
+                       "what": {"type": "string"}, "when": {"type": "string"}},
+                       "required": ["what", "when"], "additionalProperties": False}}},
+    "required": ["attention", "claims", "plans"],
     "additionalProperties": False,
 }
 
@@ -127,6 +135,7 @@ Be strict: don't call something false because of wording, rounding or a harmless
 with JSON only: {"checks": [{"claim": "...", "verdict": "...", "confidence": "...", "correct": "...", \
 "ask": "..."}]}"""
 FACT_GAP_SECONDS = 45     # at most one fact-check whisper this often: never a running commentary
+PLAN_GAP_SECONDS = 120    # at most one "want a reminder?" this often
 
 SCHEMA = {
     "type": "object",
@@ -214,6 +223,8 @@ class AmbientListener:
         self.whispered: deque[str] = deque(maxlen=8)
         self.checked: deque[str] = deque(maxlen=50)  # claims already fact-checked this session
         self._fact_at = 0.0
+        self._plan_at = 0.0
+        self.offered: deque[str] = deque(maxlen=30)  # plans already offered as reminders
         self._facts: asyncio.Task | None = None
         self._running: asyncio.Task | None = None
         self._again = False
@@ -317,10 +328,27 @@ class AmbientListener:
 
     async def _needs_attention(self, earlier: str, new: str) -> bool:
         """Cheap first pass. Any failure errs on the side of a close look."""
-        attention, claims = await self._triage(earlier, new)
+        attention, claims, plans = await self._triage(earlier, new)
         if claims:
             self._check_claims(claims)
+        if plans:
+            await self._offer_reminder(plans)
         return attention
+
+    async def _offer_reminder(self, plans: list[dict]) -> None:
+        """A plan heard in the room ("soccer at 10"): offer a reminder; "Hey Buddy, remind me" sets it."""
+        if time.monotonic() - self._plan_at < PLAN_GAP_SECONDS:
+            return
+        for p in plans:
+            key = f"{p.get('what', '')} {p.get('when', '')}".strip().lower()
+            if not key or key in self.offered:
+                continue
+            self.offered.append(key)
+            self._plan_at = time.monotonic()
+            words = (f"Sounds like a plan: {p['what']}, {p['when']}. Want a reminder? Say \"Hey Buddy, remind me\".")
+            self.whispered.append(words)
+            await self.whisper("plan", words)
+            return
 
     def _check_claims(self, claims: list[str]) -> None:
         fresh = [c.strip() for c in claims if c.strip() and c.strip().lower() not in self.checked][:3]
@@ -351,14 +379,14 @@ class AmbientListener:
         except Exception:
             log.exception("listen-in fact check failed")
 
-    async def _triage(self, earlier: str, new: str) -> tuple[bool, list[str]]:
+    async def _triage(self, earlier: str, new: str) -> tuple[bool, list[str], list[dict]]:
         if not settings.listen_triage_model:
-            return True, []
+            return True, [], []
         try:
             started = time.monotonic()
             response = await client.beta.messages.create(
                 model=settings.listen_triage_model,
-                max_tokens=1024,  # room for brief thinking plus the answer
+                max_tokens=1500,  # room for brief thinking plus the answer
                 system=[{"type": "text", "text": self.triage_system, "cache_control": {"type": "ephemeral"}}],
                 output_config={
                     "effort": "low",
@@ -370,13 +398,14 @@ class AmbientListener:
             if hasattr(response, "usage"):
                 usage.record(self.memory, response.model, response.usage, purpose="listen", response=response, started=started)
             if response.stop_reason in ("refusal", "max_tokens"):
-                return True, []
+                return True, [], []
             text = next((b.text for b in response.content if b.type == "text"), "")
             got = json.loads(text)
-            return bool(got["attention"]), [str(c) for c in got.get("claims") or [] if str(c).strip()][:3]
+            plans = [p for p in got.get("plans") or [] if isinstance(p, dict) and p.get("what") and p.get("when")]
+            return bool(got["attention"]), [str(c) for c in got.get("claims") or [] if str(c).strip()][:3], plans[:2]
         except Exception:
             log.exception("listen-in triage failed; checking closely instead")
-            return True, []
+            return True, [], []
 
     async def _analyse(self) -> None:
         cutoff = time.monotonic() - WINDOW_SECONDS

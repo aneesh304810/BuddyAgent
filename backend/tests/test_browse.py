@@ -59,3 +59,25 @@ def test_a_form_is_filled_then_waits_for_the_users_yes(monkeypatch):
     said, _ = asyncio.run(browse.submit(Memory(":memory:"), pending))
     assert said.startswith("Sent. The page now says: Thanks, you are booked.") and closed == ["browser_close"]
     assert calls[-2] == {"op": "click", "ref": 2, "approved": True}
+
+
+def test_an_old_sandbox_says_to_update(monkeypatch):
+    import pytest
+    from buddy.jobs import JobFailed
+
+    async def step(session, cmd):
+        return {"error": "workspace names are lowercase letters, digits and dashes", "session": ""}
+    monkeypatch.setattr(browse, "step", step)
+
+    class Ctx:
+        memory, cost = Memory(":memory:"), 0.0
+    with pytest.raises(JobFailed, match="update.sh"):
+        asyncio.run(browse.run_browse({"title": "x", "params": {"task": "t", "url": ""}}, Ctx()))
+
+
+def test_news_that_arrives_mid_reply_is_kept_for_the_next_turn():
+    from buddy.agent import Conversation
+    c = Conversation.__new__(Conversation)
+    c.messages = [{"role": "user", "content": "did you fill the form"}]
+    c.note_proactive("The browser task didn't finish.", "job_done")
+    assert len(c.messages) == 1 and c._held_notes == [("The browser task didn't finish.", "job_done")]

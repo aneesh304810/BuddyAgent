@@ -302,8 +302,9 @@ JOB_TOOLS = [
     },
     {
         "name": "list_jobs",
-        "description": "List recent background jobs (research and others) with status and short "
-        "summary. Optional keywords filter by topic.",
+        "description": "List recent background jobs (research, code, browser and others) with status and short "
+        "summary. Optional keywords filter by topic. Check it before saying how a background task is going: never "
+        "describe progress you haven't seen here.",
         "input_schema": {
             "type": "object",
             "properties": {"query": {"type": "string"}},

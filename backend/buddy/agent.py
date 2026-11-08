@@ -266,6 +266,8 @@ class Conversation:
             return
 
         stamp = local_now().strftime("%A %d %B %Y, %I:%M %p")
+        for held in self.__dict__.pop("_held_notes", []):  # background news that arrived mid-reply
+            self.note_proactive(*held)
         self._trim_history()
         self._repair_history()
         self.turn_question, self._step = mask(user_text), 0
@@ -949,7 +951,10 @@ class Conversation:
         like "why?" or "tell me more" has it as context. It came from Buddy's own background work (a finished
         market scan, a credit alert, a reminder), so it's marked as real: the model must never disown it."""
         if self.messages and self.messages[-1]["role"] == "user":
-            return  # a reply is on its way; don't split the user's turn
+            # A reply is on its way: don't split the user's turn, but keep it for the next one. (Dropping it once let
+            # Buddy say a failed task was "still working": it never saw the failure.)
+            self.__dict__.setdefault("_held_notes", []).append((text, kind))
+            return
         what = {"money": "money and markets watch", "job_done": "a finished background job", "travel": "travel watch",
                 "reminder": "a reminder", "briefing": "the morning briefing", "email": "email watch"}.get(kind, kind)
         self.messages.append({"role": "user", "content": (
