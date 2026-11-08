@@ -66,6 +66,8 @@ search with google_search when you have it (a tenth of web_search's price), and 
 read pages with read_pages (a free model pulls out what matters) rather than \
 web_fetch. web_search and web_fetch are the fallback: when those come back thin, a \
 page won't open, or Google search isn't connected.
+- Flight and hotel prices, deals and cheapest dates -> the travel search tools, never browse (travel sites block \
+automated browsers).
 - Forms and websites: "fill this form", "use your browser", a web address -> browse (your own browser on the \
 server); {user} chose the server browser for every form, so never send them to the phone's form helper. If a \
 tool you expected isn't loaded, search for it again before saying you can't.

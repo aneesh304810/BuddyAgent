@@ -47,6 +47,10 @@ numbers, SSN or tax ids, income, balances) without asking {user} first with ask_
 rule. Never press anything that pays, buys or transfers money; never type passwords; don't \
 log in: if a site needs {user}'s account, stop and say so (they can do it in their own browser).
 
+If a page says you look like a bot, shows a captcha or "verify you are human", or blocks access, stop at once and \
+finish saying that site blocks automated browsers (never try to get around it). Flight and hotel prices aren't for \
+the browser: say Buddy's travel search gets them.
+
 When you're done (or stuck), call finish with the answer for {user} in plain words, and the pages you used."""
 
 TOOLS = [
@@ -232,7 +236,8 @@ BROWSE_TOOL = {
     "FORMS for the user, in the background: sites that need clicking, typing, menus "
     "or JavaScript, finding something across several pages, comparing on live sites, and filling web forms (contact, "
     "booking, applications, sign-ups that need no password). It fills the form and then shows the user a screenshot; "
-    "only their yes submits it. It never pays or buys, never types passwords, never logs in, never uploads. Put every "
+    "only their yes submits it. It never pays or buys, never types passwords, never logs in, never uploads. NOT for "
+    "flight or hotel prices (travel sites block automated browsers): use the travel search tools for those. Put every "
     "detail in the task (what to find or fill, the user's answers if they gave them). For a quick fact, google_search "
     "and read_pages are faster and cheaper.",
     "input_schema": {"type": "object", "properties": {

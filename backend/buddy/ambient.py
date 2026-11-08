@@ -337,7 +337,7 @@ class AmbientListener:
 
     async def _offer_reminder(self, plans: list[dict]) -> None:
         """A plan heard in the room ("soccer at 10"): offer a reminder; "Hey Buddy, remind me" sets it."""
-        if time.monotonic() - self._plan_at < PLAN_GAP_SECONDS:
+        if self._plan_at and time.monotonic() - self._plan_at < PLAN_GAP_SECONDS:
             return
         for p in plans:
             key = f"{p.get('what', '')} {p.get('when', '')}".strip().lower()
@@ -363,7 +363,7 @@ class AmbientListener:
         no free model can (or a claim still carries personal details)."""
         try:
             checks = await fact_check(self.memory, claims)
-            if time.monotonic() - self._fact_at < FACT_GAP_SECONDS:
+            if self._fact_at and time.monotonic() - self._fact_at < FACT_GAP_SECONDS:
                 return
             for c in checks:
                 if c.get("verdict") in ("false", "misleading") and c.get("agreed") and c.get("correct"):
