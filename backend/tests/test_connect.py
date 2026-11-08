@@ -92,8 +92,15 @@ def trip(memory, day):
                  "confirmation": "H778899"}, "an email from Hilton")
 
 
+def lima_weather(url):
+    day = (date.today() + timedelta(days=1)).isoformat()
+    return json.dumps({"current": {}, "daily": {"time": [day], "weather_code": [2], "temperature_2m_max": [70.4],
+                                                "temperature_2m_min": [61.0], "precipitation_probability_max": [10]},
+                       "hourly": {}}).encode()
+
+
 def moments(memory):
-    return Moments(memory, geocode=lambda q: {"MIA airport": MIA, "LIM airport": LIM}.get(q))
+    return Moments(memory, geocode=lambda q: {"MIA airport": MIA, "LIM airport": LIM}.get(q), weather_fetch=lima_weather)
 
 
 def say_all(m, now, here):
@@ -111,6 +118,7 @@ def test_a_flight_day_without_being_asked():
     eve = datetime.combine(day - timedelta(days=1), datetime.min.time()).replace(hour=19)
     keys, out = say_all(m, eve, {"lat": HOME[0], "lng": HOME[1], "city": "Miami Beach"})
     assert keys == ["eve"] and "Tomorrow: AA1234 MIA -> LIM at 3:40 PM" in out[0]["text"]
+    assert "Weather in LIM tomorrow: partly cloudy, 70/61°F, 10% chance of rain." in out[0]["text"]
     assert say_all(m, eve, None)[0] == []  # said once
     morning = datetime.combine(day, datetime.min.time()).replace(hour=8)
     keys, out = say_all(m, morning, {"lat": HOME[0], "lng": HOME[1]})

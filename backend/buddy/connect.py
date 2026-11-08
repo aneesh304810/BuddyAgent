@@ -279,6 +279,12 @@ class Connect:
                                  (f" ({' '.join(e['snippet'].split())[:120]})" if e["snippet"] else ""))
             except Exception:
                 pass
+        if re.search(r"(?i)\b(package|parcel|delivery|delivered|tracking|shipment|shipped|order)\b", question):
+            try:
+                from .packages import Packages  # noqa: PLC0415
+                lines += Packages(self.memory).lines()
+            except Exception:
+                pass
         words = [w[:4] if w.isalpha() else w for w in re.findall(r"[a-z0-9]{4,}", question.lower())
                  if w not in STOP][:6]  # stems: "staying" finds "stay"
         if words:
@@ -349,8 +355,9 @@ class Moments:
     """What's worth saying now without being asked: the evening before a flight, the flight day, time to leave,
     at the airport, landed, hotel check-in day, a reservation coming up. Each said once."""
 
-    def __init__(self, memory: Memory, geocode=None, location=None, flights=None):
+    def __init__(self, memory: Memory, geocode=None, location=None, flights=None, weather_fetch=None):
         self.memory = memory
+        self.weather_fetch = weather_fetch
         self.connect = Connect(memory)
         self.geocode = geocode or _nominatim
         self.location = location
@@ -422,9 +429,21 @@ class Moments:
                     except ValueError:
                         pass
                 when = f" at {dep:%-I:%M %p}" if dep else ""
-                if day == tomorrow and now.hour >= 18:
+                if day == tomorrow and now.hour >= 18 and not self._said(f"eve:{p['key']}"):
+                    wx = ""
+                    try:  # the weather where they're going (Open-Meteo)
+                        dest = self.airport(to) if to else None
+                        if dest:
+                            from .weather import Weather  # noqa: PLC0415
+                            fc = Weather(self.memory, fetch=self.weather_fetch).forecast(dest[0], dest[1], 2)
+                            d = next((x for x in fc["days"] if x["day"] == day), None)
+                            if d:
+                                wx = (f" Weather in {to} tomorrow: {d['conditions']}, {d['high']}/{d['low']}{fc['unit']}"
+                                      + (f", {d['rain_chance']}% chance of rain" if d["rain_chance"] else "") + ".")
+                    except Exception:
+                        wx = ""
                     self._say(out, f"eve:{p['key']}", f"Tomorrow: {p['title']}{when}. Online check-in should be open "
-                              "(usually 24 hours before); I'm tracking the flight and will tell you about any change.")
+                              f"(usually 24 hours before); I'm tracking the flight and will tell you about any change.{wx}")
                 if day == today and now.hour >= 6 and (dep is None or now < dep):
                     extra = f" {st['summary']}" if st.get("summary") else ""
                     by = f" Aim to be at {frm or 'the airport'} by {dep - timedelta(hours=2):%-I:%M %p} (3 hours " \

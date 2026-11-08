@@ -44,6 +44,8 @@ from .transit import TRANSIT_TOOL
 from .flights import FLIGHT_TOOL
 from .reasoning import DECISION_TOOL
 from .maps import MAPS_TOOL
+from .weather import WEATHER_TOOL
+from .packages import PACKAGES_TOOL
 from .routing import ROUTING_TOOL
 from .trends import TRENDS_TOOL
 from . import advisor, benefits, brain, compliance, datatools, finance, plaid, travel, thinking, formfill, library, prices, rides, seats, selfcode, transcripts, tutor, vocabulary, voiceprint
@@ -668,7 +670,8 @@ class Conversation:
                      library.LIBRARY_TOOL, brain.BRAIN_TOOL, finance.FINANCE_TOOL,
                      advisor.ADVISOR_TOOL, benefits.BENEFITS_TOOL, plaid.BANK_TOOL, travel.TRAVEL_TOOL,
                      compliance.COMPLIANCE_TOOL, MERCHANTS_TOOL, CUSTOMIZE_TOOL, CREDIT_TOOL, MARKETS_TOOL, ROUTING_TOOL, TRENDS_TOOL,
-                     TRANSIT_TOOL, FLIGHT_TOOL, DECISION_TOOL, MAPS_TOOL]
+                     TRANSIT_TOOL, FLIGHT_TOOL, DECISION_TOOL, MAPS_TOOL,
+                     WEATHER_TOOL, PACKAGES_TOOL]
         return (
             CLIENT_TOOLS + orchestration + job_tools + spending + [_expert_tool()]
             + agent_tools + web_tools()
@@ -807,6 +810,12 @@ class Conversation:
         if name == "transit":
             from . import transit  # noqa: PLC0415
             return await asyncio.to_thread(transit.run_tool, self.memory, args)
+        if name == "weather":
+            from . import weather  # noqa: PLC0415
+            return await asyncio.to_thread(weather.run_tool, self.memory, args)
+        if name == "packages":
+            from . import packages  # noqa: PLC0415
+            return packages.run_tool(self.memory, args)
         if name == "buddy_maps":
             from . import maps  # noqa: PLC0415
             return await asyncio.to_thread(maps.run_tool, self.memory, args)
@@ -914,7 +923,7 @@ async def compose(system: str, instruction: str, memory: Memory | None = None, l
 
 # Tools whose results hold nothing of the user's: using them keeps general_task (free models) available this turn.
 GENERAL_TOOLS = {"hand_over", "general_task", "free_answer_verdict", "reply_style", "web_search", "web_fetch",
-                 "read_pages", "google_search", "trends", "markets", "transit", "model_routing"}
+                 "read_pages", "google_search", "trends", "markets", "transit", "model_routing", "weather"}
 
 
 def _just_uploaded(memory) -> bool:

@@ -305,8 +305,38 @@ async def run(memory: Memory, deliver: Deliver) -> None:
                     memory.set("maps:learned", local_now().date().isoformat())  # home, work: once a day
                     atlas.learn_places()  # on the loop: it writes to the shared DB
                 hold = await asyncio.to_thread(atlas.hold_non_urgent)  # driving or in a meeting: only urgent ones now
+                extra = []
+                try:  # packages: shipping emails and notifications (text rules), 17TRACK live status every 2 hours
+                    from .packages import Packages  # noqa: PLC0415
+                    parcels = Packages(memory)
+                    parcels.scan()
+                    if parcels.key and memory.get("packages:refreshed") != local_now().strftime("%Y-%m-%dT%H"):
+                        memory.set("packages:refreshed", local_now().strftime("%Y-%m-%dT%H"))
+                        parcels.refresh()
+                    away = atlas.situation().get("place") not in ("home", "")
+                    for item in parcels.news(away_from_home=away):
+                        if (item["urgent"] or (not in_quiet_hours() and not hold)) and \
+                                await deliver("travel", item["text"]):
+                            parcels.told(item)
+                except Exception:
+                    log.exception("packages failed")
+                try:  # the morning weather heads-up, only when rain or snow is likely where the user is
+                    now_l = local_now()
+                    if 6 <= now_l.hour < 10 and memory.get("weather:told") != now_l.date().isoformat():
+                        from .weather import Weather  # noqa: PLC0415
+                        fc = await asyncio.to_thread(Weather(memory).here, 1)
+                        memory.set("weather:told", now_l.date().isoformat())  # one look a morning, said or not
+                        today = (fc or {}).get("days", [{}])[0] if fc else {}
+                        if today and (today.get("wet") or (today.get("rain_chance") or 0) >= 60):
+                            when = Weather.wet_from(fc, today["day"])
+                            extra.append({"key": f"wx:{today['day']}", "urgent": False,
+                                          "text": f"{today['conditions'].capitalize()} likely today"
+                                                  f" ({today.get('rain_chance') or '?'}%{', ' + when if when else ''}), "
+                                                  f"{today['high']}/{today['low']}{fc['unit']}. Take an umbrella."})
+                except Exception:
+                    log.exception("weather heads-up failed")
                 moments = Moments(memory)
-                for m in await asyncio.to_thread(moments.now) + await asyncio.to_thread(atlas.nudges):
+                for m in await asyncio.to_thread(moments.now) + await asyncio.to_thread(atlas.nudges) + extra:
                     if (m["urgent"] or (not in_quiet_hours() and not hold)) and not moments._said(m["key"]) \
                             and await deliver("travel", m["text"]):
                         moments.told(m)

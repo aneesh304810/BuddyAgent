@@ -30,11 +30,12 @@ def test_architecture_questions_prefer_the_live_code():
 
 def test_no_source_yet_is_a_gap_and_a_suggestion():
     r = Reasoning(Memory(":memory:"))
-    note = r.plan_note("will it rain in Lima tomorrow?")
-    assert "No source connected for weather" in note and "Open-Meteo" in note
-    r.plan_note("weather this weekend?")
+    note = r.plan_note("what was the nba score last night?")
+    assert "No source connected for sports" in note and "API-Sports" in note
+    r.plan_note("is there an nba game tonight?")
     idea = asyncio.run(r.weekly_suggestion(ask=lambda m, e: None))
-    assert "weather (2 times): Open-Meteo" in idea
+    assert "sports (2 times): API-Sports" in idea
+    assert "weather" in [x["id"] for x in r.pick("will it rain in Lima tomorrow?")]  # a source now
     assert asyncio.run(r.weekly_suggestion()) == ""  # once a week
 
 

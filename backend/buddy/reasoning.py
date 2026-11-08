@@ -120,16 +120,17 @@ SOURCES = {
                      ["buddy_code", "recall_memory"],
                      r"\b(buddy|your (code|architecture|design|setup|features?)|architecture|how do you work|how does buddy|"
                      r"module|which model|your tools)\b", _always),
+    "weather": ("forecasts where you are or anywhere (Open-Meteo, free)", ["weather"],
+                r"\b(weather|rain|forecast|temperature|snow|umbrella|humid|hot|cold|sunny|storm)\b", _always),
+    "packages": ("packages on the way: carrier, status, estimate (shipping emails, notifications, 17TRACK)",
+                 ["packages"], r"\b(package|parcel|delivery|delivered|tracking|shipment|shipped|order|amazon|ups|"
+                               r"fedex|usps|dhl)\b", _always),
     "web": ("public facts, prices, how-tos (web search)", ["google_search", "read_pages"],
             r"\b(what is|how (do|to|does)|why|who|price of|compare|best|review|latest)\b", _always),
 }
 
 # Areas Buddy has no source for yet, and the source that would answer them (free or official first).
 CATALOG = {
-    "weather": (r"\b(weather|rain|forecast|temperature|snow|umbrella|humid)\b",
-                "Open-Meteo (free, no key) for forecasts where you are and at your trip's destination"),
-    "packages": (r"\b(package|parcel|delivery|tracking number|shipment|ups|fedex|usps|dhl|amazon order)\b",
-                 "17TRACK or AfterShip (free tiers) for package tracking; Buddy already reads shipping emails"),
     "fitness": (r"\b(steps|workout|heart rate|sleep score|calories burned|fitness)\b",
                 "Google Health Connect on the phone (steps, sleep, heart rate), read by the Buddy app"),
     "traffic": (r"\b(traffic|commute time|drive time|how long to drive|eta)\b",

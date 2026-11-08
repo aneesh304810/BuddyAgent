@@ -1,6 +1,6 @@
 # Buddy Privacy and Data Retention Policy
 
-Source: https://claude.ai/artifact/MJVGZ7pWQvi26tg1MS914P, revision 48
+Source: https://claude.ai/artifact/MJVGZ7pWQvi26tg1MS914P, revision 50
 
 Nov 1, 2026 · @Aneesh
 
@@ -40,6 +40,7 @@ Buddy collects only the owner's own data, and only what its features need.
 | Upcoming plans found in the owner's emails, phone notifications and uploads (flights, hotel stays, reservations: dates, times, places, confirmation codes; bills due in notifications and uploaded statements: biller, amount, due date), lessons Buddy learns from the owner's corrections (where to look for an answer), and which reminders it has already given | Travel-looking emails, notifications and uploads, read once by Claude's quick model (never a free model); the owner's corrections in conversation | To answer questions about the owner's plans and to remind them at the right time and place (for example the evening before a flight, time to leave, at the airport). Flights found are tracked automatically; nothing is booked or changed |
 | Buddy's own notes (findings it keeps after looking something up, with where each came from; finished reports), the advice it gave on decisions and how they turned out, and topics it had no source for | Buddy's conversations and tool results, read by Claude's quick model (never a free model); the owner's answers when Buddy asks how a decision went | So Buddy's knowledge grows beyond uploads, its answers are checked against what its tools returned, its advice improves from results, and it can suggest new sources the owner may want |
 | Promises with a date (from what the owner says, and from emails or chats asking them to do something by a date), how often each source turned out right, and when the owner last heard from close people | The owner's conversation with Buddy; emails and notifications (read by Claude's quick model, never a free model); Buddy's own fact-checks | To remind the owner of promises, prefer the more reliable source when sources disagree, and suggest checking in with family; never sent anywhere |
+| Packages on the way (tracking number, carrier, the shipping email's subject, status, latest event, estimated delivery) | Shipping emails and notifications, read on Buddy's server with text rules (no AI); numbers the owner gives; 17TRACK live status when its key is set | To tell the owner when a package is out for delivery, delivered, delayed or has a problem, and to answer where it is |
 
 Buddy never collects bank passwords. Bank sign-in happens inside Plaid Link (or the SimpleFIN Bridge site), between the owner and the bank. Buddy cannot move money, make payments or change accounts.
 
@@ -99,6 +100,8 @@ Buddy uses a few service providers to work. Each sees only what its job needs, u
 | AirLabs (airlabs.co) | Live status of the owner's tracked flights | Flight numbers only (for example AA1234); never the owner's name, booking or ticket details |
 | FlightAware AeroAPI (aeroapi.flightaware.com) | A backup for the owner's tracked flights when other sources lack the gate, delay or status | Flight numbers only (for example AA1234); never the owner's name, booking or ticket details |
 | OpenStreetMap Nominatim (nominatim.openstreetmap.org) | Turning the owner's shared location into a neighbourhood and city name, and finding an airport's position | The phone's shared coordinates (only when location sharing is on), airport codes, and the address of a calendar event with a place (to work out when to leave); never the owner's name or the event's details |
+| Open-Meteo (open-meteo.com) | Weather forecasts where the owner is, for places they ask about, and at a trip's destination | Coordinates rounded to about 1 km, or a place name; never the owner's name or plans |
+| 17TRACK (api.17track.net), optional | Live status of the owner's packages, when its key is set | Tracking numbers only |
 | Hacker News (Algolia search), Google News (Serper), Google Trends (SerpApi), arXiv, GitHub | What people are discussing on the topics the owner watches or asks about: stories, headlines, rising searches, new papers and projects | The topic's search words only; never anything personal |
 
 No provider receives data for its own marketing or advertising.
@@ -122,6 +125,7 @@ Data is kept only as long as it is useful, then deleted automatically.
 | Upcoming plans and lessons from corrections | Plans are deleted automatically 30 days after they end; lessons stay until the owner asks Buddy to forget them |
 | Buddy's notes, decisions and source gaps | Time-sensitive findings and market or news reports: 30 days. Other notes and advice: until the owner asks Buddy to forget them ("forget the note about …") |
 | Location history, learned places, promises and source reliability | Location history: 60 days, then deleted automatically; the owner can delete it and the saved places any time ("forget my location history"). Promises: until done or removed. Source reliability: counts only, kept |
+| Packages | Until 30 days after delivery (or 60 days with no news), then deleted automatically; the owner can remove one any time |
 | Watched trend topics; trend digests and daily mention counts | Topics until the owner removes them; digests and counts 60 days, then deleted automatically |
 | Uploaded documents and photos, with their text, summaries, facts and search index | Until the owner tells Buddy to forget them; forgetting deletes the file, its text, its index entries and the facts taken from it |
 | People and things noted from the owner's data | Until the owner edits or deletes them |

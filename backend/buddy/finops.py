@@ -299,13 +299,15 @@ class FinOps:
                  "yahoo": "Yahoo Finance (Indian stocks)", "openrouter_list": "OpenRouter model list",
                  "mta": "MTA alerts (subway, buses, LIRR, Metro-North)", "path": "PATH (arrivals and alerts)",
                  "njt": "NJ Transit (train and light rail alerts)", "airlabs": "AirLabs (flight status)",
-                 "flightaware": "FlightAware AeroAPI (flight status backup)"}
+                 "flightaware": "FlightAware AeroAPI (flight status backup)", "openmeteo": "Open-Meteo (weather)",
+                 "17track": "17TRACK (package tracking)"}
     # Free APIs: shown as free whatever they're called (no per-call price).
     FREE_APIS = {"alpaca": "free market data plan (paper account)", "reddit": "free public search",
                  "stocktwits": "free public API", "hackernews": "free, no key", "arxiv": "free public API",
                  "github": "free public search", "coinbase": "free public prices", "stooq": "free daily prices",
                  "yahoo": "free public chart data", "mta": "free, no key", "path": "free public feed",
-                 "njt": "free developer account", "airlabs": "free plan"}
+                 "njt": "free developer account", "airlabs": "free plan",
+                 "openmeteo": "free, no key", "17track": "free plan"}
 
     def outside_apis(self, calls: dict) -> list[CostLine]:
         lines = []
@@ -359,7 +361,9 @@ class FinOps:
             ("MTA alerts (subway, buses, LIRR, Metro-North)", "commute alerts", "free, no key"),
             ("PATH (arrivals and alerts)", "commute alerts and next trains", "free public feed"),
             ("NJ Transit (train and light rail alerts)", "commute alerts", "free developer account"),
-            ("AirLabs (flight status)", "your flights: delays, gates, landing", "free plan (about 1,000 calls a month)")]
+            ("AirLabs (flight status)", "your flights: delays, gates, landing", "free plan (about 1,000 calls a month)"),
+            ("Open-Meteo (weather)", "forecasts here and at trip destinations", "free, no key"),
+            ("17TRACK (package tracking)", "live package status (optional)", "free plan")]
     # FlightAware AeroAPI is pay per query: it shows as calls this month (price per your FlightAware plan).
 
     def free_services(self, named: set[str]) -> list[CostLine]:
