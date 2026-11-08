@@ -164,3 +164,14 @@ def test_a_rejected_key_or_a_gone_model_rests_a_day_with_its_reason():
     assert f.resting("github") and "Bad credentials" in m.get("free:lasterr:github")
     gone = urllib.error.HTTPError("u", 404, "Not Found", {}, io.BytesIO(b"model decommissioned"))
     assert "BUDDY_GROQ_MODEL" in f._broken("groq", gone) and f.resting("groq")
+
+
+def test_the_key_test_reports_the_providers_own_reason_and_the_fix(monkeypatch):
+    from buddy import keytest
+    monkeypatch.setattr(keytest, "_post", lambda url, body, headers, timeout=25:
+                        (404, '{"error":{"message":"The model llama-3.3-70b-versatile has been decommissioned"}}')
+                        if "groq" in url else (200, '{"choices":[{"message":{"content":"hi"}}]}'))
+    rows = keytest.run({"BUDDY_FREE_MODELS": "1", "BUDDY_GROQ_KEY": "k", "BUDDY_GEMINI_KEY": "k"})
+    text = "\n".join(rows)
+    assert "FAIL  groq" in text and "decommissioned" in text and "set.sh BUDDY_GROQ_MODEL" in text
+    assert "OK    gemini" in text and "k" not in [w for r in rows for w in r.split()]
