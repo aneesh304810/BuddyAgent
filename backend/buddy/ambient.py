@@ -88,14 +88,20 @@ Names and details that refer to {user}:
 
 TRIAGE_PROMPT = """\
 You screen a live transcript of the conversation around {user} for their AI \
-companion. Decide whether the NEW lines could possibly need a whisper to {user}. \
-Answer true if any NEW line:
+companion. Two jobs, for the NEW lines only.
+
+1. attention: true if any NEW line
 - is in a language other than these, which {user} understands: {known} (judge the language from \
 the words themselves: the [xx] tags are speech recognition's guesses and are often wrong)
 - mentions {user} or the details below, or seems to talk about someone present
-- confidently states a technical, scientific, financial or numeric claim that \
-might be wrong
-Otherwise answer false. When unsure, answer true.
+Otherwise false. When unsure, true.
+
+2. claims: factual claims someone states as true that could be wrong or made up: science, health, \
+technology, money and markets, history, law, statistics, numbers, how things work, general knowledge. \
+Rewrite each as one standalone, general statement in English that can be checked on its own: no names, \
+no "he/she/I/you", nothing about anyone's private life ("Vaccines cause autism.", "Python lists are \
+immutable.", "The S&P 500 returned 30% last year."). Skip opinions, jokes, plans, feelings, personal \
+stories and anything you can't state without someone's personal details. At most 3; [] when none.
 
 Details that refer to {user}:
 {about}
@@ -103,10 +109,24 @@ Details that refer to {user}:
 
 TRIAGE_SCHEMA = {
     "type": "object",
-    "properties": {"attention": {"type": "boolean"}},
-    "required": ["attention"],
+    "properties": {"attention": {"type": "boolean"},
+                   "claims": {"type": "array", "items": {"type": "string"}}},
+    "required": ["attention", "claims"],
     "additionalProperties": False,
 }
+
+FACT_PROMPT = """You fact-check general claims overheard in a conversation, for a person who wants to know \
+whether what they're hearing is true and how to question it politely. For each claim give:
+- verdict: "true", "false" (wrong), "misleading" (partly true, or missing what matters) or "unsure" (you \
+can't tell, it depends, or it's a matter of opinion)
+- confidence: "high" only when you are sure from well-established facts; else "medium" or "low"
+- correct: what is actually true, in one short sentence with a number or fact where it helps
+- ask: one short, polite question the person could ask to test the claim ("Where did you see that? I \
+thought...", "Is that nominal or after inflation?"), never rude
+Be strict: don't call something false because of wording, rounding or a harmless simplification. Answer \
+with JSON only: {"checks": [{"claim": "...", "verdict": "...", "confidence": "...", "correct": "...", \
+"ask": "..."}]}"""
+FACT_GAP_SECONDS = 45     # at most one fact-check whisper this often: never a running commentary
 
 SCHEMA = {
     "type": "object",
@@ -192,6 +212,9 @@ class AmbientListener:
         self.segments: deque[tuple[float, str, str]] = deque(maxlen=MAX_SEGMENTS)
         self.seen = 0            # segments already analysed
         self.whispered: deque[str] = deque(maxlen=8)
+        self.checked: deque[str] = deque(maxlen=50)  # claims already fact-checked this session
+        self._fact_at = 0.0
+        self._facts: asyncio.Task | None = None
         self._running: asyncio.Task | None = None
         self._again = False
 
@@ -294,8 +317,43 @@ class AmbientListener:
 
     async def _needs_attention(self, earlier: str, new: str) -> bool:
         """Cheap first pass. Any failure errs on the side of a close look."""
+        attention, claims = await self._triage(earlier, new)
+        if claims:
+            self._check_claims(claims)
+        return attention
+
+    def _check_claims(self, claims: list[str]) -> None:
+        fresh = [c.strip() for c in claims if c.strip() and c.strip().lower() not in self.checked][:3]
+        if not fresh or (self._facts and not self._facts.done()):
+            return
+        self.checked.extend(c.lower() for c in fresh)
+        self._facts = asyncio.create_task(self._fact_check(fresh))
+
+    async def _fact_check(self, claims: list[str]) -> None:
+        """General claims (no names, nothing private) checked by two free models; a whisper only when both say a
+        claim is wrong, so a free model's mistake doesn't put words in your mouth. Claude's quick model only when
+        no free model can (or a claim still carries personal details)."""
+        try:
+            checks = await fact_check(self.memory, claims)
+            if time.monotonic() - self._fact_at < FACT_GAP_SECONDS:
+                return
+            for c in checks:
+                if c.get("verdict") in ("false", "misleading") and c.get("agreed") and c.get("correct"):
+                    words = ("Not quite. " if c["verdict"] == "false" else "Partly true. ") + c["correct"].strip()
+                    if c.get("ask"):
+                        words += f" You could ask: {c['ask'].strip()}"
+                    self._fact_at = time.monotonic()
+                    self.whispered.append(words)
+                    await self.whisper("correction", words)
+                    return  # one at a time
+        except asyncio.CancelledError:
+            raise
+        except Exception:
+            log.exception("listen-in fact check failed")
+
+    async def _triage(self, earlier: str, new: str) -> tuple[bool, list[str]]:
         if not settings.listen_triage_model:
-            return True
+            return True, []
         try:
             started = time.monotonic()
             response = await client.beta.messages.create(
@@ -312,12 +370,13 @@ class AmbientListener:
             if hasattr(response, "usage"):
                 usage.record(self.memory, response.model, response.usage, purpose="listen", response=response, started=started)
             if response.stop_reason in ("refusal", "max_tokens"):
-                return True
+                return True, []
             text = next((b.text for b in response.content if b.type == "text"), "")
-            return bool(json.loads(text)["attention"])
+            got = json.loads(text)
+            return bool(got["attention"]), [str(c) for c in got.get("claims") or [] if str(c).strip()][:3]
         except Exception:
             log.exception("listen-in triage failed; checking closely instead")
-            return True
+            return True, []
 
     async def _analyse(self) -> None:
         cutoff = time.monotonic() - WINDOW_SECONDS
@@ -352,7 +411,8 @@ class AmbientListener:
             messages=[{
                 "role": "user",
                 "content": f"Earlier lines:\n{earlier or '(none)'}\n\nNEW lines:\n{new}\n\n"
-                f"Already whispered:\n{chr(10).join(self.whispered) or '(nothing)'}",
+                f"Already whispered:\n{chr(10).join(self.whispered) or '(nothing)'}\n\n"
+                f"Fact-checked separately, so no correction about these:\n{chr(10).join(self.checked) or '(none)'}",
             }],
         )
         if hasattr(response, "usage"):
@@ -364,3 +424,72 @@ class AmbientListener:
         if verdict["whisper"] and verdict["kind"] != "none" and verdict["message"].strip():
             self.whispered.append(verdict["message"])
             await self.whisper(verdict["kind"], verdict["message"].strip())
+
+
+# fact checks on free models ---------------------------------------------------------------------------------------
+def _parse_checks(text: str) -> list[dict]:
+    from .benefits import last_json  # noqa: PLC0415
+    got = last_json(text or "") or {}
+    return [c for c in got.get("checks") or [] if isinstance(c, dict)]
+
+
+async def fact_check(memory: Memory, claims: list[str]) -> list[dict]:
+    """Each claim's verdict. A false or misleading verdict is "agreed" only when a second, independent free model
+    says the same (or, with no second one, the first is highly confident). Free models get the general claims only;
+    claims that still look personal, or no working free model, go to Claude's quick model instead."""
+    from .free_models import FreeModels, PersonalData  # noqa: PLC0415
+    prompt = json.dumps({"claims": claims}, ensure_ascii=False)
+    free = FreeModels(memory)
+    first: list[dict] = []
+    used = ""
+    if free.enabled():
+        try:
+            got = await free.run("explain", prompt, system=FACT_PROMPT, purpose="listen:factcheck",
+                                 claude_fallback=False)
+            first, used = _parse_checks(got["answer"]), got["model"].split("/", 1)[0]
+        except PersonalData:
+            first = []
+        except Exception:
+            log.info("free fact check failed", exc_info=True)
+    if not first:
+        return [{**c, "agreed": c.get("confidence") == "high"} for c in await _claude_checks(memory, prompt)]
+    doubtful = [c for c in first if c.get("verdict") in ("false", "misleading")]
+    if not doubtful:
+        return first
+    second = await _second_opinion(free, used, json.dumps({"claims": [c.get("claim", "") for c in doubtful]}))
+    for c in first:
+        if c not in doubtful:
+            continue
+        other = next((o for o in second if str(o.get("claim", "")).strip().lower() ==
+                      str(c.get("claim", "")).strip().lower()), None)
+        if other is not None:
+            c["agreed"] = other.get("verdict") in ("false", "misleading")
+        else:
+            c["agreed"] = c.get("confidence") == "high" and not second
+    return first
+
+
+async def _second_opinion(free, used: str, prompt: str) -> list[dict]:
+    """The same claims to a different free provider, for an independent answer."""
+    for name in free.order("explain"):
+        if name == used:
+            continue
+        try:
+            answer, _ = await asyncio.wait_for(asyncio.to_thread(free._call, name, FACT_PROMPT, prompt, 25, 1500), 27)
+            usage.log_call(free.memory, provider=name, model=free._last_model or free.model_of(name),
+                           purpose="listen:factcheck", stop="free (second opinion)")
+            return _parse_checks(answer)
+        except Exception:
+            continue
+    return []
+
+
+async def _claude_checks(memory: Memory, prompt: str) -> list[dict]:
+    started = time.monotonic()
+    model = settings.fast_model or settings.listen_triage_model
+    response = await client.beta.messages.create(
+        model=model, max_tokens=1500, system=FACT_PROMPT, **fallback_kwargs(model),
+        messages=[{"role": "user", "content": prompt}])
+    if hasattr(response, "usage"):
+        usage.record(memory, response.model, response.usage, purpose="listen", response=response, started=started)
+    return _parse_checks(" ".join(b.text for b in response.content if getattr(b, "type", "") == "text"))

@@ -44,6 +44,7 @@ SPEECH_SCHEMA = """CREATE TABLE IF NOT EXISTS speech_samples (
     id INTEGER PRIMARY KEY, at TEXT NOT NULL, words INTEGER NOT NULL, seconds REAL NOT NULL,
     clarity REAL NOT NULL, unclear TEXT NOT NULL, lang TEXT NOT NULL DEFAULT '')"""
 LIVE_KEY = "tutor:live"
+ROOM_KEY = "tutor:room"  # conversation coaching: your own lines in Listen-in (voice match), never other people's
 LIVE_NOTE = ("\n[English tips are on: after your answer, if my sentence above had a clear grammar or word-choice "
              "mistake (not a speech-recognition slip), add one short friendly line: \"English tip: say ... "
              "instead of ...\". Nothing if it was fine.]")
@@ -73,11 +74,16 @@ REVIEW_SCHEMA = {
         "pace": {"type": "string", "description": "About speaking speed, from the speech data; empty if none"},
         "tone": {"type": "string", "description": "How they come across (polite, direct, clear) and how to sound "
                  "more natural or friendly when it matters"},
+        "conversation": {"type": "array", "description": "Lines said in conversations with people: a more "
+                         "charming way to say each; empty if none were given",
+                         "items": {"type": "object", "properties": {
+                             "you_said": {"type": "string"}, "charming": {"type": "string"}, "why": {"type": "string"}},
+                             "required": ["you_said", "charming", "why"], "additionalProperties": False}},
         "tips": {"type": "array", "items": {"type": "string"}},
         "practice": {"type": "array", "items": {"type": "string"}, "description": "3 short exercises"},
     },
     "required": ["summary", "level", "score", "strengths", "corrections", "patterns", "vocabulary",
-                 "pronunciation", "pace", "tone", "tips", "practice"],
+                 "pronunciation", "pace", "tone", "conversation", "tips", "practice"],
     "additionalProperties": False,
 }
 
@@ -94,6 +100,13 @@ Review the sentences below ({period}). Rules:
 - Pick the corrections that teach most (up to 12), most common pattern first. Keep {user}'s meaning.
 - Be encouraging and specific. Plain words, no jargon.
 
+- Lines starting "(with people)" are what {user} said in real conversations with other people (only
+  {user}'s side; the other people's words aren't kept). For the ones worth it (up to 8), write how {user}
+  could have said it more charmingly: warmer, more confident and clear, polite, a light touch of humour or
+  a compliment where it fits naturally, and a question back that keeps the conversation going. Keep the
+  meaning and {user}'s own voice; never fake or over the top. Say in a few words why it works better.
+  Empty if there are no such lines.
+
 - Pronunciation: use only the speech data below (words the speech engine was unsure of, many times
   over, are likely pronounced unclearly; names and rare words can be unclear for other reasons). For
   each, say how to pronounce it in simple respelling (e.g. "comfortable: KUMF-ter-bul") and one tip.
@@ -106,9 +119,15 @@ Sentences, oldest first:
 {sentences}"""
 
 
+def room_on(memory: Memory) -> bool:
+    return ON and memory.get(ROOM_KEY) == "1"
+
+
 def log_utterance(memory: Memory, text: str, via: str) -> None:
-    if not ON or via != "user" or len(text.split()) < 3:
-        return  # only Talk mode: anyone in the room can say "Hey Buddy"
+    """via "user": said or typed to Buddy (Talk mode: anyone in the room can say "Hey Buddy", so not "room").
+    via "room": the user's own line in a Listen-in conversation, recognised by voice match, with coaching on."""
+    if not ON or via not in ("user", "room") or len(text.split()) < 3 or (via == "room" and not room_on(memory)):
+        return
     now = datetime.now(timezone.utc)
     memory.db.execute(SCHEMA)
     memory.db.execute("INSERT INTO utterances (at, text, via) VALUES (?, ?, ?)", (now.isoformat(), mask(text)[:500], via))
@@ -149,7 +168,8 @@ def speech_summary(memory: Memory, days: int) -> dict:
 def sentences(memory: Memory, days: int) -> list[str]:
     memory.db.execute(SCHEMA)
     since = (datetime.now(timezone.utc) - timedelta(days=days)).isoformat()
-    return [r["text"] for r in memory.db.execute("SELECT text FROM utterances WHERE at >= ? ORDER BY at", (since,))]
+    return [("(with people) " if r["via"] == "room" else "") + r["text"]
+            for r in memory.db.execute("SELECT text, via FROM utterances WHERE at >= ? ORDER BY at", (since,))]
 
 
 def live(memory: Memory) -> bool:
@@ -179,6 +199,10 @@ def render(review: dict, period: str) -> str:
         lines += ["## Pace", review["pace"], ""]
     if review.get("tone"):
         lines += ["## Tone", review["tone"], ""]
+    if review.get("conversation"):
+        lines += ["## Charming ways to say it (your conversations)", "| You said | Try | Why it works |",
+                  "|---|---|---|", *[f"| {c['you_said']} | **{c['charming']}** | {c['why']} |"
+                                     for c in review["conversation"]], ""]
     if review["tips"]:
         lines += ["## Tips", *[f"- {t}" for t in review["tips"]], ""]
     if review["practice"]:
@@ -237,9 +261,11 @@ TUTOR_TOOL = {
     "name": "english_tutor",
     "description": "The user's English tutor. review: a review of how they spoke and wrote to you (corrections, "
     "patterns, words, tips, practice), today or over several days; it arrives in Reports. tips_on / tips_off: "
-    "a short live tip after your answers when they make a mistake. status: what's on.",
+    "a short live tip after your answers when they make a mistake. coach_on / coach_off: conversation coaching (in "
+    "Listen-in, the user's own lines, recognised by voice match, are kept and the review shows charming ways to "
+    "say them; other people's words never kept; only when the user asks). status: what's on.",
     "input_schema": {"type": "object", "properties": {
-        "action": {"type": "string", "enum": ["review", "tips_on", "tips_off", "status"]},
+        "action": {"type": "string", "enum": ["review", "tips_on", "tips_off", "coach_on", "coach_off", "status"]},
         "days": {"type": "integer", "description": "For review: 1 = today, 7 = this week"}},
         "required": ["action"], "additionalProperties": False},
 }
@@ -247,6 +273,20 @@ TUTOR_TOOL = {
 
 def run_tutor_tool(memory: Memory, jobs, args: dict) -> str:
     action = args.get("action")
+    if action == "coach_on":
+        from . import voiceprint  # noqa: PLC0415
+        memory.set(ROOM_KEY, "1")
+        note = "" if voiceprint.stored(memory) else (" First teach me your voice (Settings, Teach Buddy my voice): "
+                                                     "that's how I know which lines are yours.")
+        return ("Conversation coaching is on: in Listen-in, the lines I recognise as your voice are kept for 30 days "
+                "(other people's never are), and your English review shows more charming ways to say them. It "
+                "needs the Server or Automatic speech engine in Listen-in." + note)
+    if action == "coach_off":
+        memory.set(ROOM_KEY, "0")
+        memory.db.execute(SCHEMA)
+        memory.db.execute("DELETE FROM utterances WHERE via = 'room'")
+        memory.db.commit()
+        return "Conversation coaching is off, and the conversation lines I kept are deleted."
     if action == "tips_on":
         memory.set(LIVE_KEY, "1")
         return "English tips are on: one short tip after an answer when a sentence has a clear mistake."
@@ -255,6 +295,7 @@ def run_tutor_tool(memory: Memory, jobs, args: dict) -> str:
         return "English tips are off."
     if action == "status":
         return json.dumps({"daily_review": ON, "review_at": f"{REVIEW_AT_HOUR}:00", "live_tips": live(memory),
+                           "conversation_coaching": room_on(memory),
                            "sentences_today": len(sentences(memory, 1)),
                            "sentences_this_week": len(sentences(memory, 7))})
     if action == "review":

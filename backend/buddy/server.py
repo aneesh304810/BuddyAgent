@@ -1543,6 +1543,13 @@ async def talk(ws: WebSocket) -> None:
                     await send({"type": "heard", "text": "", "missed": "not_you", "id": msg.get("id"),
                                 "stt_ms": round((time.monotonic() - started) * 1000), "engine": "voice match"})
                     return
+            mine = False  # conversation coaching: is this Listen-in clip the user's own voice? (voice match, strict)
+            if msg.get("mode") != "talk" and tutor.room_on(memory) and voiceprint.stored(memory):
+                try:
+                    who, score = await asyncio.to_thread(voiceprint.check, memory, pcm, 9_999.0, learn=False)
+                    mine = who == "you" and score is not None and score >= voiceprint.THRESHOLD + 0.05
+                except voiceprint.VoiceMatchUnavailable:
+                    mine = False
             stats: dict | None = {} if msg.get("mode") == "talk" and tutor.ON else None
             meta: dict = {}
             heard, lang = await speech_to_text.transcribe(
@@ -1565,6 +1572,8 @@ async def talk(ws: WebSocket) -> None:
                     [f"mic-{msg.get('mic')}"] if mode == "room" and msg.get("mic") in ("phone", "headset") else []):
                 speech_quality(memory, group, meta.get("confidence"),
                                kept=bool(heard) and verdict != "drop", unsure=verdict == "unsure")
+            if mine and heard and verdict != "drop":  # your own line in a conversation, for your English coach
+                tutor.log_utterance(memory, heard, "room")
             if heard and verdict == "drop":  # Talk: TV or other people, not you; not answered
                 log.info("whisper: dropped an unsure %s clip (%.2f)", mode, meta.get("confidence") or 0)
                 heard = ""

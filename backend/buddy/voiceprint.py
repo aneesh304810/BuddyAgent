@@ -210,7 +210,7 @@ def _speech(pcm: bytes) -> bytes:
 
 
 def check(memory: Memory, pcm: bytes, since_buddy_spoke: float, embedder=embed,
-          trim=_speech) -> tuple[str, float | None]:
+          trim=_speech, learn: bool = True) -> tuple[str, float | None]:
     """('you' | 'not_you' | 'short', score) for a Talk clip, judged on its speech only (silence cut
     away). Under 0.4 s of speech: too short to judge, accepted only within the follow-up window; 0.4-1 s
     (a lone "Buddy"): judged with a slightly stricter bar. Matches nudge the voiceprint."""
@@ -228,7 +228,7 @@ def check(memory: Memory, pcm: bytes, since_buddy_spoke: float, embedder=embed,
         memory.set(LAST_USED_KEY, time.strftime("%Y-%m-%d"))
     bar = THRESHOLD + (SHORT_MARGIN if seconds < MIN_SECONDS else 0.0)
     if score >= bar:
-        if score >= THRESHOLD + 0.15 and print_["samples"] < 200:  # clearly you: learn a little
+        if learn and score >= THRESHOLD + 0.15 and print_["samples"] < 200:  # clearly you: learn a little
             n = print_["samples"]
             _save(memory, [(a * n + b) / (n + 1) for a, b in zip(print_["vector"], vector)], n + 1)
         return "you", score

@@ -64,6 +64,13 @@ private val CHECK_IN = Regex(
     RegexOption.IGNORE_CASE,
 )
 
+/** "Listen to me", "listen up", "Buddy listen": getting Buddy's attention, not a question yet. */
+private val LISTEN_ME = Regex(
+    "^(?:(?:hey\\s+)?(?:buddy|bro|$NICKNAMES)[\\s,]+)?listen(?: to me| up| here| buddy| bro)?" +
+        "(?:[\\s,]+(?:buddy|bro|$NICKNAMES))?[\\s.!?]*$",
+    RegexOption.IGNORE_CASE,
+)
+
 class BuddyService : Service() {
 
     companion object {
@@ -952,6 +959,13 @@ class BuddyService : Service() {
         // Barge-in needs a few words, so a cough or Buddy's own voice doesn't trigger it.
         if (!final && mouth.speaking && text.split(Regex("\\s+")).size >= 3) interrupt()
         if (final) {
+            // Only getting Buddy's attention ("Hey Buddy", "bro", "listen to me"): answer "Yeah?" and keep the mic
+            // on for the real request, instead of spending the tap on the wake words.
+            val t = text.trim()
+            if (CHECK_IN.matches(t) || LISTEN_ME.matches(t) || afterWakePhrase(t)?.isEmpty() == true) {
+                mouth.speak("Yeah?", quiet = true)
+                return
+            }
             sayToBuddy(text)
             if (!prefs.handsFree) stopListening()
         }

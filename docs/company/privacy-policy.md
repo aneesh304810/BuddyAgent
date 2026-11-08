@@ -1,6 +1,6 @@
 # Buddy Privacy and Data Retention Policy
 
-Source: https://claude.ai/artifact/MJVGZ7pWQvi26tg1MS914P, revision 54
+Source: https://claude.ai/artifact/MJVGZ7pWQvi26tg1MS914P, revision 55
 
 Nov 1, 2026 · @Aneesh
 
@@ -23,6 +23,7 @@ Buddy collects only the owner's own data, and only what its features need.
 | Location (neighbourhood and city), a 60-day history of where the phone was, and the places learned from it (home, work, places the owner names) with the usual weekday leave time | The owner's phone, only when location sharing is on | The latest, for answers about where the owner is; the history, to learn home, work and usual times, to remind at the right time and place, and to hold non-urgent messages while driving |
 | Voice clips and speech transcripts | The owner's phone microphone while Buddy is listening | Processed, not kept as audio |
 | Voiceprint (for voice match) | Five sentences the owner reads once | Stored as numbers, no audio |
+| The owner's own lines in conversations (conversation coaching) | Listen-in, only when the owner turns coaching on; voice match picks out the owner's own voice | Only the owner's words, for their English review; other people's words are never kept |
 | Documents, photos, PDFs, spreadsheets, CSV and JSON files | Files the owner chooses to upload (Share to Buddy, or the paperclip in the app) | Stored encrypted; text, summaries, facts and search index kept |
 | People and things mentioned in those files and in conversations | Pulled out of the owner's own data | Names, relationships and short notes |
 | Preferences, choices and dates to act on | What the owner says they like, choices they make between options (such as Uber or Lyft after a price comparison), and dates found in their facts and documents | Short lines on the server; learned preferences are marked as learned |
@@ -91,7 +92,8 @@ Buddy uses a few service providers to work. Each sees only what its job needs, u
 | SimpleFIN Bridge | Alternative read-only bank connection | Transactions and balances of linked accounts |
 | Anthropic (Claude) | Understands questions and writes answers; reads uploaded photos and scanned PDFs once to file them; reads a shared credit card statement once to fill the card calendar (card numbers masked first). Subscriptions are found by code on the server, and Claude only sees the finished list | The question and the data needed to answer it; an uploaded photo or scan when it is first filed, and a vault document only after the owner says yes; once a night, that day's requests and newly saved facts and documents (never vault documents) so Buddy can tidy its memory, merge duplicates and find dates to remind the owner about |
 | Groq | Turns the owner's speech into text | Short voice clips, not stored by Buddy afterwards |
-| Google Gemini (free tier) | General tasks with no personal data, such as summarising public web pages | General text only; personal or financial data is never sent. This includes public market notes (chart numbers, Reddit posts and headlines about a stock) and a card issuer's public pages with the card's name, to look up its published benefits |
+| Google Gemini (free tier) | General tasks with no personal data, such as summarising public web pages | General text only; personal or financial data is never sent. This includes public market notes (chart numbers, Reddit posts and headlines about a stock) and a card issuer's public pages with the card's name, to look up its published benefits; Buddy's own program code, for small fixes to itself (it holds none of the owner's data); and general factual claims overheard in Listen-in, rewritten without names or personal details, to check whether they are true |
+| Other free AI models (GitHub Models, OpenRouter, Mistral, Groq, Cerebras), when the owner sets them up | The same general tasks as Gemini, so Buddy can use the best free model for each | The same rule: general text only, never personal or financial data |
 | Serper | Web search | Search words only |
 | DigitalOcean | Hosts the server | Encrypted data at rest |
 | Tailscale | Private network between the phone and the server | Encrypted traffic it cannot read |
@@ -139,6 +141,7 @@ Data is kept only as long as it is useful, then deleted automatically.
 | Phone notifications | 7 days |
 | Room transcripts (Listen-in mode) | 2 days, unless the owner saves a stretch |
 | English-practice speech samples | 30 days |
+| The owner's own conversation lines (conversation coaching) | 30 days; turning coaching off deletes them |
 | Location | The latest is treated as expired after 3 hours; the history is kept 60 days (see below) |
 | Voice audio | Not stored; only the text is kept |
 | Diagnostics (microphone levels, connection, background and server events; no audio and no words; can be switched off in Settings) | 30 days |
