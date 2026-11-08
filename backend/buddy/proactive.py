@@ -277,6 +277,23 @@ async def run(memory: Memory, deliver: Deliver) -> None:
                                                    f"about {hot['usual']} on a usual day. {lead} Ask me for the details.")
             except Exception:
                 log.exception("trends failed")
+            try:  # how Buddy thinks (reasoning.py): its self-knowledge, follow-ups on advice, new sources to suggest
+                from . import reasoning  # noqa: PLC0415
+                from .brain import Brain  # noqa: PLC0415
+                thinker = reasoning.Reasoning(memory)
+                if memory.get("reasoning:self_checked") != local_now().strftime("%Y-%m-%dT%H"):
+                    memory.set("reasoning:self_checked", local_now().strftime("%Y-%m-%dT%H"))  # hourly: code changed?
+                    await asyncio.to_thread(reasoning.refresh_self_knowledge, Brain(memory))
+                if not in_quiet_hours() and local_now().hour >= 10:
+                    for f in thinker.follow_ups():
+                        if await deliver("followup", f["text"]):
+                            thinker.asked(f["id"])
+                    if local_now().weekday() == 6 and local_now().hour >= 11:  # Sundays: sources to add
+                        idea = await thinker.weekly_suggestion()
+                        if idea:
+                            await deliver("followup", idea)
+            except Exception:
+                log.exception("reasoning upkeep failed")
             try:  # the brain connects: plans in new emails, notifications and uploads; upcoming flights tracked
                 from .connect import Connect  # noqa: PLC0415
                 for text in await Connect(memory).scan():

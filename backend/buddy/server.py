@@ -214,6 +214,13 @@ def _ride_fare(app: str, fare: float, currency: str) -> None:
 
 async def job_finished(job: dict) -> bool:
     """Tell the user a background job is done (or why it failed)."""
+    if job.get("status") == "done" and (job.get("report") or "").strip() and job.get("kind") not in ("code",):
+        with contextlib.suppress(Exception):  # the brain grows: every finished report is knowledge Buddy can find
+            from .brain import Brain  # noqa: PLC0415
+            short = job.get("kind") in ("market_scan", "trends")  # prices and news go stale
+            Brain(memory).add_note("research" if job.get("kind") == "research" else "report",
+                                   job.get("title") or job.get("kind") or "Report", job["report"],
+                                   f"{job.get('kind', 'job')} {job.get('id', '')}".strip(), 30 if short else None)
     if job["kind"] == "build_agent" and job["status"] == "done":
         name = (job.get("params") or {}).get("name", "")
 

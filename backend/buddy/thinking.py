@@ -123,6 +123,8 @@ def prepare(brain: Brain, text: str, via: str = "user") -> Prep:
     for h in hits:
         if h["source"] == "fact":
             add(f"- fact (saved {h['saved']}): {h['text'][:400]}")
+        elif h["source"] == "note":
+            add(f"- Buddy's note ({h['kind']}, {h['saved']}, from {h['from'] or 'Buddy'}): {h['title']}: {h['text'][:500]}")
         else:
             add(f"- document \"{h['title'] or h['file']}\" (part {h['part']}, added {h['added']}, id {h['id']}): "
                 f"{h['text'][:700]}")

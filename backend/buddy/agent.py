@@ -42,6 +42,7 @@ from .credit import CREDIT_TOOL
 from .markets import MARKETS_TOOL
 from .transit import TRANSIT_TOOL
 from .flights import FLIGHT_TOOL
+from .reasoning import DECISION_TOOL
 from .routing import ROUTING_TOOL
 from .trends import TRENDS_TOOL
 from . import advisor, benefits, brain, compliance, datatools, finance, plaid, travel, thinking, formfill, library, prices, rides, seats, selfcode, transcripts, tutor, vocabulary, voiceprint
@@ -279,7 +280,13 @@ class Conversation:
         self.dual = self.memory.get(DUAL_KEY) or ""  # e.g. "ml": speak Malayalam, show English
         room_note = (" (Said in Listen-in mode: Listen-in is ON and you hear the room as text; check "
                      "room_conversation before saying you've heard nothing.)") if via == "room" else ""
-        self._add_user_text(f"({stamp}) {mask(user_text)}" + prep.pack + room_note + expert_note + (tutor.LIVE_NOTE if tutor.live(self.memory) else "")
+        think_note = ""
+        with contextlib.suppress(Exception):  # how to think about it (reasoning.py): sources, plan, checks, decisions
+            from .reasoning import Reasoning  # noqa: PLC0415
+            thinker = Reasoning(self.memory)
+            think_note = mask(thinker.plan_note(user_text)) + thinker.awaiting_note()
+        turn_start = len(self.messages)
+        self._add_user_text(f"({stamp}) {mask(user_text)}" + prep.pack + think_note + room_note + expert_note + (tutor.LIVE_NOTE if tutor.live(self.memory) else "")
                             + (DUAL_NOTE.format(language=DUAL_LANGUAGES.get(self.dual, self.dual)) if self.dual else ""))
         spoken: list[str] = []
         said_anything = asyncio.Event()
@@ -321,6 +328,7 @@ class Conversation:
                 perf["tools"] += [b.name for b in tool_uses]
                 if response.stop_reason != "tool_use" or not tool_uses:
                     await self._never_silent(perf, speak, response)
+                    self._after_turn(user_text, response, turn_start, perf["tools"])
                     return
                 if all(b.name in DISPLAY_ONLY for b in tool_uses) and perf["sentences"]:
                     # Only cards to show or a review note, after the answer: do it and finish, no extra round.
@@ -351,6 +359,48 @@ class Conversation:
                                total=time.monotonic() - perf["started"], rounds=perf["rounds"],
                                tools=perf["tools"], sentences=perf["sentences"], filler=perf["filler"],
                                outcome=perf["outcome"])
+
+    def _after_turn(self, question: str, response, turn_start: int, tools: list[str]) -> None:
+        """In the background, after the answer: fact-check it against the tool results, keep a decision for
+        follow-up, learn what's worth knowing later, and note a question Buddy had no source for."""
+        answer = " ".join(getattr(b, "text", "") or "" for b in response.content if getattr(b, "type", "") == "text")
+        evidence = []
+        for m in self.messages[turn_start:]:
+            c = m.get("content")
+            if m.get("role") == "user" and isinstance(c, list):
+                for b in c:
+                    if isinstance(b, dict) and b.get("type") == "tool_result":
+                        inner = b.get("content")
+                        evidence.append(inner if isinstance(inner, str) else json.dumps(inner, default=str)[:20000])
+            elif m.get("role") == "user" and isinstance(c, str):
+                evidence.append(c)  # the question with its memory pack
+        evidence_text = "\n".join(evidence)
+
+        async def work() -> None:
+            from . import reasoning  # noqa: PLC0415
+            thinker = reasoning.Reasoning(self.memory)
+            with contextlib.suppress(Exception):
+                if tools:
+                    fix = await thinker.verify(question, answer, evidence_text)
+                    if fix and self.say_now:
+                        await self.say_now(fix)
+                        self.messages.append({"role": "user", "content": f"(Buddy's own fact check after that "
+                                                                         f"answer: {fix})"})
+                        self.messages.append({"role": "assistant", "content": "Noted, corrected."})
+            with contextlib.suppress(Exception):
+                thinker.log_decision(question, answer)
+            with contextlib.suppress(Exception):
+                if tools:
+                    await reasoning.learn(self.brain, question, answer, evidence_text, tools)
+            with contextlib.suppress(Exception):
+                from .connect import DONT_KNOW  # noqa: PLC0415
+                if DONT_KNOW.search(answer):
+                    thinker.note_unanswered(question)
+        if answer.strip():
+            task = asyncio.create_task(work())
+            self._background = getattr(self, "_background", set())
+            self._background.add(task)
+            task.add_done_callback(self._background.discard)
 
     async def _never_silent(self, perf: dict, speak: Say, response) -> None:
         """A reply that ended without a word (only a filler, or nothing): say so, and log why."""
@@ -601,7 +651,7 @@ class Conversation:
                      library.LIBRARY_TOOL, brain.BRAIN_TOOL, finance.FINANCE_TOOL,
                      advisor.ADVISOR_TOOL, benefits.BENEFITS_TOOL, plaid.BANK_TOOL, travel.TRAVEL_TOOL,
                      compliance.COMPLIANCE_TOOL, MERCHANTS_TOOL, CUSTOMIZE_TOOL, CREDIT_TOOL, MARKETS_TOOL, ROUTING_TOOL, TRENDS_TOOL,
-                     TRANSIT_TOOL, FLIGHT_TOOL]
+                     TRANSIT_TOOL, FLIGHT_TOOL, DECISION_TOOL]
         return (
             CLIENT_TOOLS + orchestration + job_tools + spending + [_expert_tool()]
             + agent_tools + web_tools()
@@ -740,6 +790,9 @@ class Conversation:
         if name == "transit":
             from . import transit  # noqa: PLC0415
             return await asyncio.to_thread(transit.run_tool, self.memory, args)
+        if name == "decision_outcome":
+            from .reasoning import Reasoning  # noqa: PLC0415
+            return Reasoning(self.memory).outcome(int(args.get("id") or 0), str(args.get("outcome") or ""))
         if name == "flight_status":
             from . import flights  # noqa: PLC0415
             return await asyncio.to_thread(flights.run_tool, self.memory, args)

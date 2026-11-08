@@ -42,6 +42,15 @@ CREATE TABLE IF NOT EXISTS brain_vectors (
     vec BLOB NOT NULL,               -- float32, unit length
     PRIMARY KEY (source, ref)
 );
+CREATE TABLE IF NOT EXISTS brain_notes (     -- knowledge Buddy grows itself: research, reports, what it found out
+    id INTEGER PRIMARY KEY,
+    kind TEXT NOT NULL,              -- research | report | learned
+    title TEXT NOT NULL,
+    text TEXT NOT NULL,
+    source TEXT NOT NULL DEFAULT '', -- where it came from: "research job 12", "Chase email + Plaid", a URL
+    created_at TEXT NOT NULL,
+    expires TEXT                     -- time-sensitive knowledge (prices, news) goes stale; NULL = lasting
+);
 CREATE TABLE IF NOT EXISTS entities (
     id INTEGER PRIMARY KEY,
     name TEXT NOT NULL,
@@ -150,6 +159,10 @@ class Brain:
         db.execute("DELETE FROM brain_vectors WHERE source = 'chunk' AND ref NOT IN "
                    "(SELECT CAST(id AS TEXT) FROM library_chunks)")
         db.execute("DELETE FROM brain_vectors WHERE source = 'fact' AND ref NOT IN (SELECT CAST(id AS TEXT) FROM facts)")
+        db.execute("DELETE FROM brain_notes WHERE expires IS NOT NULL AND expires < ?",
+                   (datetime.now(timezone.utc).isoformat(),))
+        db.execute("DELETE FROM brain_vectors WHERE source = 'note' AND ref NOT IN "
+                   "(SELECT CAST(id AS TEXT) FROM brain_notes)")
         db.commit()
         embed = self.embed
         if embed is None:
@@ -160,6 +173,9 @@ class Brain:
         todo += [("fact", str(r["id"]), r["text"]) for r in db.execute(
             "SELECT id, text FROM facts WHERE CAST(id AS TEXT) NOT IN "
             "(SELECT ref FROM brain_vectors WHERE source = 'fact') LIMIT ?", (limit,))]
+        todo += [("note", str(r["id"]), f"{r['title']}: {r['text']}") for r in db.execute(
+            "SELECT id, title, text FROM brain_notes WHERE CAST(id AS TEXT) NOT IN "
+            "(SELECT ref FROM brain_vectors WHERE source = 'note') LIMIT ?", (limit,))]
         for i in range(0, len(todo), BATCH):
             batch = todo[i:i + BATCH]
             vecs = embed([t for _, _, t in batch])
@@ -215,9 +231,16 @@ class Brain:
             out += [("fact", str(r["id"])) for r in self.memory.db.execute(
                 f"SELECT id, ({clause}) AS hits FROM facts WHERE hits > 0 ORDER BY hits DESC, id DESC LIMIT ?",
                 [f"%{w}%" for w in long_words] + [k])]
+        if "note" in sources:
+            long_words = [w for w in words if len(w) > 2] or words
+            clause = " + ".join("(lower(title || ' ' || text) LIKE ?)" for _ in long_words)
+            out += [("note", str(r["id"])) for r in self.memory.db.execute(
+                f"SELECT id, ({clause}) AS hits FROM brain_notes WHERE hits > 0 AND (expires IS NULL OR expires > ?) "
+                "ORDER BY hits DESC, id DESC LIMIT ?",
+                [f"%{w}%" for w in long_words] + [datetime.now(timezone.utc).isoformat(), k])]
         return out
 
-    def recall(self, query: str, sources=("chunk", "fact"), k: int = 10) -> list[dict]:
+    def recall(self, query: str, sources=("chunk", "fact", "note"), k: int = 10) -> list[dict]:
         """Library passages and facts about the question, best first, each with where it came from."""
         query = str(query or "").strip()
         if not query:
@@ -266,6 +289,11 @@ class Brain:
         if source == "fact":
             row = db.execute("SELECT id, text, created_at FROM facts WHERE id = ?", (ref,)).fetchone()
             return {"source": "fact", "text": row["text"], "saved": row["created_at"][:10]} if row else None
+        if source == "note":
+            row = db.execute("SELECT * FROM brain_notes WHERE id = ? AND (expires IS NULL OR expires > ?)",
+                             (ref, datetime.now(timezone.utc).isoformat())).fetchone()
+            return {"source": "note", "kind": row["kind"], "title": row["title"], "text": row["text"][:1500],
+                    "from": row["source"], "saved": row["created_at"][:10]} if row else None
         row = db.execute("SELECT c.item_id, c.n, c.text, i.name, i.title, i.kind, i.vault, i.added_at "
                          "FROM library_chunks c JOIN library_items i ON i.id = c.item_id WHERE c.id = ?",
                          (ref,)).fetchone()
@@ -277,6 +305,49 @@ class Brain:
         return {"source": "document", "id": row["item_id"], "file": row["name"], "title": row["title"],
                 "kind": row["kind"], "part": row["n"] + 1, "added": row["added_at"][:10],
                 "text": "[vault item: ask the user before opening it]" if locked else row["text"][:1500]}
+
+    # --- Buddy's own notes: the knowledge that grows ------------------------------------------------
+    def add_note(self, kind: str, title: str, text: str, source: str = "", days: int | None = None) -> list[int]:
+        """Keep knowledge Buddy found or worked out (a report, a checked finding), in searchable pieces.
+        days: how long it stays true (prices, news); None = lasting. The same title and text isn't kept twice."""
+        text, title = str(text or "").strip(), " ".join(str(title or "").split())[:160]
+        if not text or not title:
+            return []
+        expires = (datetime.now(timezone.utc) + timedelta(days=days)).isoformat() if days else None
+        ids, piece = [], 1500
+        parts = [text[i:i + piece] for i in range(0, min(len(text), 30 * piece), piece)]
+        for n, part in enumerate(parts, 1):
+            t = title if len(parts) == 1 else f"{title} (part {n})"
+            if self.memory.db.execute("SELECT 1 FROM brain_notes WHERE title = ? AND text = ?", (t, part)).fetchone():
+                continue
+            ids.append(self.memory.db.execute(
+                "INSERT INTO brain_notes (kind, title, text, source, created_at, expires) VALUES (?, ?, ?, ?, ?, ?)",
+                (kind[:20], t, part, str(source)[:200], datetime.now(timezone.utc).isoformat(), expires)).lastrowid)
+        self.memory.db.commit()
+        return ids
+
+    def forget_notes(self, query: str) -> str:
+        """Delete Buddy's notes (and logged advice) that match the words; never its notes about itself."""
+        words = [w for w in re.findall(r"\w{3,}", query.lower())][:6]
+        if not words:
+            return "Say what to forget."
+        clause = " AND ".join("lower(title || ' ' || text) LIKE ?" for _ in words)
+        n = self.memory.db.execute(f"DELETE FROM brain_notes WHERE kind != 'self' AND {clause}",
+                                   [f"%{w}%" for w in words]).rowcount
+        try:
+            dclause = " AND ".join("lower(question || ' ' || advice || ' ' || outcome) LIKE ?" for _ in words)
+            n += self.memory.db.execute(f"DELETE FROM reasoning_decisions WHERE {dclause}",
+                                        [f"%{w}%" for w in words]).rowcount
+        except Exception:
+            pass
+        self.memory.db.commit()
+        return f"Forgot {n} note{'s' if n != 1 else ''}." if n else "No notes like that."
+
+    def notes(self, kind: str = "", limit: int = 50) -> list[dict]:
+        q, args = "SELECT * FROM brain_notes WHERE (expires IS NULL OR expires > ?)", [datetime.now(timezone.utc).isoformat()]
+        if kind:
+            q, args = q + " AND kind = ?", args + [kind]
+        return [dict(r) for r in self.memory.db.execute(q + " ORDER BY id DESC LIMIT ?", args + [limit])]
 
     # --- people and things -----------------------------------------------------------------------
     def note(self, name: str, kind: str = "thing", relation: str = "", notes: str = "",
@@ -452,10 +523,13 @@ BRAIN_TOOL = {
     "preferences (list, optional topic), forget_preference (query), decided (topic + chose, options, context: log a "
     "choice the user made between options, like a flight, hotel or restaurant; repeated choices become preferences), "
     "questions (facts that disagree, waiting for the user), resolve (id + keep a, b or both, after they answer), "
-    "dates (expiries, renewals and due dates Buddy is watching, with reminders set ahead).",
+    "dates (expiries, renewals and due dates Buddy is watching, with reminders set ahead), notes (Buddy's own notes: "
+    "findings it kept, finished reports, and how Buddy itself works now; optional kind), forget_note (query: delete "
+    "Buddy's notes matching it, and the advice decisions on it).",
     "input_schema": {"type": "object", "properties": {
         "action": {"type": "string", "enum": ["recall", "person", "people", "note", "status", "prefer", "preferences",
-                                              "forget_preference", "decided", "questions", "resolve", "dates"]},
+                                              "forget_preference", "decided", "questions", "resolve", "dates",
+                                              "notes", "forget_note"]},
         "query": {"type": "string"}, "name": {"type": "string"},
         "topic": {"type": "string"}, "text": {"type": "string"}, "chose": {"type": "string"},
         "options": {"type": "string"}, "context": {"type": "string"},
@@ -499,6 +573,12 @@ async def run_tool(brain: Brain, args: dict) -> str:
         brain.decided(str(args.get("topic", "")), str(args.get("chose", "")), str(args.get("options") or ""),
                       str(args.get("context") or ""))
         return "Logged."
+    if action == "notes":
+        found = [{k: n[k] for k in ("id", "kind", "title", "source", "created_at", "expires")}
+                 for n in brain.notes(str(args.get("kind") or ""))]
+        return json.dumps(found, ensure_ascii=False) if found else "No notes yet."
+    if action == "forget_note":
+        return brain.forget_notes(str(args.get("query") or args.get("text") or ""))
     if action == "questions":
         found = brain.conflicts()
         return UNTRUSTED + json.dumps(found, ensure_ascii=False) if found else "No open questions."
