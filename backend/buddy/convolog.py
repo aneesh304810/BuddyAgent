@@ -21,7 +21,8 @@ CREATE TABLE IF NOT EXISTS convo_log (
     text TEXT NOT NULL
 );
 CREATE INDEX IF NOT EXISTS convo_log_at ON convo_log (at);
-CREATE VIRTUAL TABLE IF NOT EXISTS convo_fts USING fts5(text, content='convo_log', content_rowid='id');
+CREATE VIRTUAL TABLE IF NOT EXISTS convo_fts USING fts5(text, content='convo_log', content_rowid='id',
+    tokenize='porter unicode61');
 """
 
 TOOL = {
@@ -29,7 +30,9 @@ TOOL = {
     "description": "Search what was said earlier in your chats with the user (their words, your replies, and "
     "reports or messages you sent on your own), beyond the few latest turns you can see. Use it when they refer to "
     "something said before that isn't in view ('the report you sent', 'what we discussed yesterday', 'that "
-    "restaurant you mentioned'). Pass a few keywords; optionally how many days back.",
+    "restaurant you mentioned'). It matches words (any word form: report/reports), not meaning, so pass the "
+    "key words plus related words and synonyms the earlier chat may have used (for 'car trouble': car brakes "
+    "noise dealer repair service). Nothing found: try once more with other words. Optionally how many days back.",
     "input_schema": {
         "type": "object",
         "properties": {"query": {"type": "string"},
@@ -41,6 +44,13 @@ TOOL = {
 
 
 def _ready(db: sqlite3.Connection) -> None:
+    old = db.execute("SELECT sql FROM sqlite_master WHERE name = 'convo_fts'").fetchone()
+    if old and "porter" not in old[0]:  # built before word forms matched: rebuild it from the log
+        db.execute("DROP TABLE convo_fts")
+        db.executescript(SCHEMA)
+        db.execute("INSERT INTO convo_fts (convo_fts) VALUES ('rebuild')")
+        db.commit()
+        return
     db.executescript(SCHEMA)
 
 
@@ -79,19 +89,39 @@ def _query(words: str) -> str:
     return " OR ".join(f'"{t}"' for t in terms)
 
 
-def search(memory, query: str, days: int = 7, limit: int = 6) -> list[dict]:
+RECENCY_DAYS = 14  # a match this many days old counts half as much as the same match today
+
+
+def search(memory, query: str, days: int = 7, limit: int = 6, around: int = 1) -> list[dict]:
+    """The best matching lines, newer ones first when equally good, each with the line before and after it."""
     db = memory.db
     _ready(db)
-    since = (datetime.now(timezone.utc) - timedelta(days=max(1, min(int(days or 7), KEEP_DAYS)))).isoformat()
+    now = datetime.now(timezone.utc)
+    since = (now - timedelta(days=max(1, min(int(days or 7), KEEP_DAYS)))).isoformat()
     q = _query(query)
-    if q:
-        rows = db.execute(
-            "SELECT l.at, l.role, l.text FROM convo_fts JOIN convo_log l ON l.id = convo_fts.rowid "
-            "WHERE convo_fts MATCH ? AND l.at >= ? ORDER BY bm25(convo_fts) LIMIT ?", (q, since, limit)).fetchall()
-    else:  # no keywords: the latest things said
-        rows = db.execute("SELECT at, role, text FROM convo_log WHERE at >= ? ORDER BY id DESC LIMIT ?",
+    if not q:  # no keywords: the latest things said
+        rows = db.execute("SELECT id, at, role, text FROM convo_log WHERE at >= ? ORDER BY id DESC LIMIT ?",
                           (since, limit)).fetchall()
-    return [{"at": r[0], "role": r[1], "text": r[2]} for r in rows]
+        return [{"id": r[0], "at": r[1], "role": r[2], "text": r[3], "hit": True} for r in rows]
+    rows = db.execute(
+        "SELECT l.id, l.at, bm25(convo_fts) FROM convo_fts JOIN convo_log l ON l.id = convo_fts.rowid "
+        "WHERE convo_fts MATCH ? AND l.at >= ? ORDER BY bm25(convo_fts) LIMIT ?", (q, since, limit * 4)).fetchall()
+
+    def score(row):  # bm25: lower is better; age pulls it toward 0
+        at = datetime.fromisoformat(row[1])
+        at = at if at.tzinfo else at.replace(tzinfo=timezone.utc)
+        age = max(0.0, (now - at).total_seconds() / 86400)
+        return row[2] / (1 + age / RECENCY_DAYS)
+    hits = [r[0] for r in sorted(rows, key=score)[:limit]]
+    if not hits:
+        return []
+    wanted = {i + d for i in hits for d in range(-around, around + 1)}
+    marks = ",".join("?" * len(wanted))
+    near = db.execute(f"SELECT id, at, role, text FROM convo_log WHERE id IN ({marks}) AND at >= ? ORDER BY id",
+                      (*wanted, since)).fetchall()
+    rank = {i: n for n, i in enumerate(hits, 1)}  # 1 = best match; 0 = a line around a match
+    return [{"id": r[0], "at": r[1], "role": r[2], "text": r[3], "hit": r[0] in rank, "rank": rank.get(r[0], 0)}
+            for r in near]
 
 
 def recent(memory, hours: float = 12, limit: int = 20) -> list[dict]:
@@ -111,13 +141,18 @@ def run_tool(memory, args: dict) -> str:
     from .tools import user_tz
     found = search(memory, args.get("query", ""), args.get("days") or 7)
     if not found:
-        return "Nothing about that in the chats I kept (30 days). Ask the user, or check Reports and list_jobs."
-    lines = []
-    for f in sorted(found, key=lambda f: f["at"]):
+        return ("Nothing about that in the chats I kept (30 days). Try other or related words once, else ask the "
+                "user, or check Reports and list_jobs.")
+    lines, last = [], None
+    for f in sorted(found, key=lambda f: f["id"]):
+        if last is not None and f["id"] != last + 1:
+            lines.append("  ...")
+        last = f["id"]
         when = datetime.fromisoformat(f["at"]).astimezone(user_tz()).strftime("%a %d %b %I:%M %p")
         who = "User" if f["role"] == "user" else "You (Buddy)"
-        lines.append(f"[{when}] {who}: {f['text'][:600]}")
-    return "Earlier in your chats (most relevant lines):\n" + "\n".join(lines)
+        lines.append(f"{'>' if f['hit'] else ' '} [{when}] {who}: {f['text'][:600 if f['hit'] else 300]}")
+    return ("Earlier in your chats (lines marked > matched; the others are what was said around them):\n"
+            + "\n".join(lines))
 
 
 def prune(memory, days: int = KEEP_DAYS) -> int:

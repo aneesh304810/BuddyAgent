@@ -1,5 +1,7 @@
 """The chat log: Claude sees the latest turns, older ones are found by search."""
 
+from datetime import datetime, timedelta, timezone
+
 from buddy import agent, convolog
 from buddy.memory import Memory
 
@@ -41,3 +43,41 @@ def test_trimmed_turns_stay_searchable_and_are_logged_once(tmp_path):
 
 def test_recall_tool_is_always_offered():
     assert "recall_conversation" in agent.ALWAYS_LOADED
+
+
+def test_word_forms_match(tmp_path):
+    m = Memory(tmp_path / "b.db")
+    convolog.log(m, "assistant", "I sent two reports about your spending this week.")
+    assert convolog.search(m, "report spend")[0]["text"].startswith("I sent two reports")
+
+
+def test_old_index_is_rebuilt_with_word_forms(tmp_path):
+    m = Memory(tmp_path / "b.db")
+    m.db.executescript("""CREATE TABLE convo_log (id INTEGER PRIMARY KEY, at TEXT NOT NULL, role TEXT NOT NULL,
+        text TEXT NOT NULL);
+        CREATE VIRTUAL TABLE convo_fts USING fts5(text, content='convo_log', content_rowid='id');""")
+    m.db.execute("INSERT INTO convo_log (at, role, text) VALUES (?, 'user', 'the soccer reminders')",
+                 (datetime.now(timezone.utc).isoformat(timespec="seconds"),))
+    m.db.commit()
+    assert convolog.search(m, "reminder")[0]["text"] == "the soccer reminders"
+
+
+def test_lines_around_a_match_come_back(tmp_path):
+    m = Memory(tmp_path / "b.db")
+    convolog.log(m, "user", "my car makes a grinding sound when I stop")
+    convolog.log(m, "assistant", "Sounds like worn brakes; book the dealer.")
+    convolog.log(m, "user", "ok")
+    convolog.log(m, "user", "weather?")
+    out = convolog.run_tool(m, {"query": "brakes dealer"})
+    assert "grinding sound" in out and "> [" in out and "weather" not in out
+
+
+def test_newer_wins_when_equally_good(tmp_path):
+    m = Memory(tmp_path / "b.db")
+    convolog.log(m, "user", "dinner plan at the italian place")
+    convolog.log(m, "user", "dinner plan at the thai place")
+    m.db.execute("UPDATE convo_log SET at = ? WHERE text LIKE '%italian%'",
+                 ((datetime.now(timezone.utc) - timedelta(days=10)).isoformat(timespec="seconds"),))
+    m.db.commit()
+    hits = sorted((f for f in convolog.search(m, "dinner plan", days=30, around=0) if f["hit"]), key=lambda f: f["rank"])
+    assert "thai" in hits[0]["text"]
