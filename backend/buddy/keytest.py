@@ -12,6 +12,7 @@ import os
 import sys
 import time
 import urllib.error
+import urllib.parse
 import urllib.request
 
 FIX = {401: "the key is wrong or expired: make a new one and save it with set.sh",
@@ -118,6 +119,43 @@ def _openrouter_pick(name: str) -> str:
     return max(models, key=lambda m: cat.score(m, task))["id"] if models else ""
 
 
+def trace(env, name: str) -> list[str]:
+    """Every hop of one request to a provider, without following redirects: status, where it points, what came back."""
+    from .free_models import PROVIDERS
+    p = PROVIDERS[name]
+    k = (env.get(p["key"]) or "").strip()
+    if not k:
+        return [f"{name}: no key"]
+
+    class NoRedirect(urllib.request.HTTPRedirectHandler):
+        def redirect_request(self, *a, **kw):
+            return None
+    opener = urllib.request.build_opener(NoRedirect)
+    url = f"{p['base']}/chat/completions"
+    body = json.dumps({"model": (env.get(p["model_setting"]) or "").strip() or p["model"], "max_tokens": 8,
+                       "messages": [{"role": "user", "content": "Say hi."}]}).encode()
+    out = []
+    for hop in range(4):
+        req = urllib.request.Request(url, data=body, method="POST", headers={
+            "Content-Type": "application/json", "User-Agent": "Buddy/1.0", "Authorization": f"Bearer {k}",
+            **p.get("headers", {})})
+        try:
+            r = opener.open(req, timeout=25)
+            status, headers, raw = r.status, r.headers, r.read(400)
+        except urllib.error.HTTPError as e:
+            status, headers, raw = e.code, e.headers, e.read(400)
+        except Exception as e:
+            return out + [f"  hop {hop + 1}: {url} -> {type(e).__name__}: {e}"]
+        out.append(f"  hop {hop + 1}: POST {url} -> HTTP {status}, type {headers.get('Content-Type', '?')}, "
+                   f"server {headers.get('Server', '?')}, location {headers.get('Location', '-')}, "
+                   f"body {raw[:200]!r}")
+        if status in (301, 302, 303, 307, 308) and headers.get("Location"):
+            url = urllib.parse.urljoin(url, headers["Location"])
+            continue
+        break
+    return out
+
+
 def read_env(path: str) -> dict:
     """KEY=value lines of Buddy's settings file (as systemd reads it), without running anything."""
     env = {}
@@ -131,6 +169,11 @@ def read_env(path: str) -> dict:
 if __name__ == "__main__":
     env = read_env(sys.argv[1]) if len(sys.argv) > 1 else dict(os.environ)
     os.environ.update({k: v for k, v in env.items() if k == "ANTHROPIC_API_KEY"})  # Buddy's modules expect it
+    if len(sys.argv) > 2:  # keys.sh github: every hop of one request, to see why it fails
+        print(f"Tracing one request to {sys.argv[2]} (redirects not followed; the key is never shown):")
+        for row in trace(env, sys.argv[2]):
+            print(row)
+        sys.exit(0)
     print("Testing Buddy's keys (one tiny request each; keys are never shown):")
     for row in run(env):
         print(row)
