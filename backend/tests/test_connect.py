@@ -131,3 +131,66 @@ def test_nothing_without_plans_or_far_from_the_day():
     memory = setup()
     trip(memory, (date.today() + timedelta(days=10)).isoformat())
     assert moments(memory).now(now=datetime.now().replace(hour=19), here=None) == []
+
+
+def add_event(memory, title, start_local, end_local, where=""):
+    from buddy.tools import local_now
+    tz = local_now().tzinfo
+    s = start_local.replace(tzinfo=tz).astimezone(timezone.utc).isoformat()
+    e = end_local.replace(tzinfo=tz).astimezone(timezone.utc).isoformat()
+    memory.db.execute("INSERT INTO records (source, external_id, kind, title, body, start_at, end_at, data, synced_at) "
+                      "VALUES ('calendar', ?, 'event', ?, ?, ?, ?, ?, ?)",
+                      (title + s, title, f"Where: {where}" if where else "", s, e, json.dumps({"location": where}), s))
+
+
+def test_a_bill_in_a_bank_notification_is_kept_and_recalled():
+    memory = setup()
+    now = datetime.now(timezone.utc).isoformat()
+    due = (date.today() + timedelta(days=4)).isoformat()
+    memory.db.execute("INSERT INTO records (source, external_id, kind, title, body, start_at, data, synced_at) VALUES "
+                      "('notifications', 'n1', 'notification', 'Chase: Payment due', ?, ?, ?, ?)",
+                      (f"Your payment of $412.00 is due on {due}.", now, json.dumps({"app_name": "Chase"}), now))
+
+    async def extract(mem, content):
+        return {"plans": [{"kind": "bill", "date": due, "title": "Chase", "biller": "Chase Sapphire", "amount": 412.0,
+                           "currency": "USD"}]}
+    told = asyncio.run(Connect(memory).scan(extract=extract))
+    assert told and "Chase Sapphire, 412.00 USD due" in told[0]
+    assert any("open bill: Chase Sapphire 412.00 USD" in x for x in Connect(memory).pack_lines("when is my bill due"))
+    assert asyncio.run(Connect(memory).scan(extract=extract)) == []
+
+
+def test_bills_more_than_the_cash(monkeypatch):
+    memory = setup()
+    from buddy.money import Money
+    from buddy import plaid
+    Money(memory).add_bill("Rent", 2400, "USD", (date.today() + timedelta(days=2)).isoformat())
+    monkeypatch.setattr(plaid.Plaid, "accounts_overview", lambda self: {
+        "groups": {"cash": [{"balance": 1800}]}, "totals": {"cash": 1800.0}})
+    out = moments(memory).now(now=datetime.now().replace(hour=10), here=None)
+    assert any("$2,400 in bills is due" in m["text"] and "have $1,800" in m["text"] for m in out)
+
+
+def test_time_to_leave_for_an_appointment_and_tomorrows_overlap():
+    memory = setup()
+    today = date.today()
+    start = datetime.combine(today, datetime.min.time()).replace(hour=15)
+    add_event(memory, "Dentist", start, start + timedelta(hours=1), "123 Collins Ave, Miami Beach")
+    tomorrow = datetime.combine(today + timedelta(days=1), datetime.min.time())
+    add_event(memory, "Team sync", tomorrow.replace(hour=10), tomorrow.replace(hour=11), "Zoom")
+    add_event(memory, "Doctor", tomorrow.replace(hour=10, minute=30), tomorrow.replace(hour=11, minute=30))
+    m = Moments(memory, geocode=lambda q: (25.86, -80.12) if "Collins" in q else None)  # ~8 km from HOME
+    here = {"lat": HOME[0], "lng": HOME[1]}
+    assert m.now(now=start - timedelta(hours=2), here=here) == []  # too early to leave
+    out = m.now(now=start - timedelta(minutes=35), here=here)
+    assert out[0]["text"].startswith("Time to leave for Dentist at 3:00 PM") and out[0]["urgent"]
+    evening = datetime.combine(today, datetime.min.time()).replace(hour=19)
+    out = m.now(now=evening, here=None)
+    assert any("Team sync (10:00–11:00 AM) overlaps Doctor (10:30 AM)" in x["text"] for x in out)
+
+
+def test_calendar_questions_get_the_agenda():
+    memory = setup()
+    soon = datetime.now() + timedelta(hours=3)
+    add_event(memory, "Lunch with Neha", soon, soon + timedelta(hours=1))
+    assert any("Lunch with Neha" in x for x in Connect(memory).pack_lines("what's on my calendar today"))

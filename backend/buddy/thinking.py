@@ -89,8 +89,9 @@ def prepare(brain: Brain, text: str, via: str = "user") -> Prep:
     if len(text.split()) < 3 or SMALL_TALK.match(text) or CLOSER.match(text):
         return Prep()
     named = _entities_named(brain, text)
-    from .connect import PLAN_Q, Connect  # noqa: PLC0415
-    if not named and not PERSONAL.search(text) and not PLAN_Q.search(text):
+    from .connect import BILL_Q, CAL_Q, PLAN_Q, Connect  # noqa: PLC0415
+    if not named and not PERSONAL.search(text) and not (PLAN_Q.search(text) or BILL_Q.search(text)
+                                                        or CAL_Q.search(text)):
         return Prep()  # not about the user's own life: nothing in memory to add
     lookup = bool(LOOKUP.search(text)) and len(text.split()) <= 18
     if lookup and via == "user" and brain.memory.get(DIRECT_KEY) != "0":
