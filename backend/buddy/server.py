@@ -72,6 +72,7 @@ from .bankfeed import BankFeed
 from .builder import AgentBuilder
 from .deals import PriceWatcher
 from .finops import FinOps
+from . import budgets
 from . import lifelog
 from .lifelog import LifeLog
 from .library import Library, report as library_report
@@ -290,6 +291,22 @@ async def job_finished(job: dict) -> bool:
 thrift = Thrift(memory)
 hub = ConnectorHub(memory)
 finops = FinOps(memory)
+budgets.attach(memory)  # the Claude cutoff, checked before every Claude call
+
+
+async def _budget_alerts() -> None:
+    """Every 10 minutes: the budget alerts (50%, 80%, 100%, heading over), each once a month, code only."""
+    while True:
+        try:
+            if connections:
+                report = None
+                with contextlib.suppress(Exception):
+                    report = await finops.report()
+                for text in budgets.alerts(memory, report):
+                    await deliver("money", text)
+        except Exception:
+            log.exception("budget alerts failed")
+        await asyncio.sleep(600)
 mail = MailManager(memory, deliver)
 
 
@@ -357,6 +374,14 @@ async def lifespan(app: FastAPI):
     health_loop = asyncio.create_task(healthcheck.run(memory, finops, deliver))
     tutor_loop = asyncio.create_task(tutor.run(memory, jobs))
     brain_loop = asyncio.create_task(_index_brain())
+    budget_loop = asyncio.create_task(_budget_alerts())
+    try:  # the copies of a repeating market scan (one report per day stays, the newest)
+        from .finance import purge_reports
+        from .jobs import SCHEMA as JOBS_SCHEMA
+        memory.db.executescript(JOBS_SCHEMA)
+        purge_reports(memory)
+    except Exception:
+        log.exception("report cleanup failed")
     if memory.get("merchants:cleaned") != "1":  # once: every stored transaction gets a clean merchant name
         from .merchants import Merchants
 
@@ -392,6 +417,7 @@ async def lifespan(app: FastAPI):
         health_loop.cancel()
         tutor_loop.cancel()
         brain_loop.cancel()
+        budget_loop.cancel()
         await registry.close()
 
 
@@ -626,6 +652,28 @@ def admin_trace(on: bool) -> dict:
     """Switch the live message trace on or off (deploy/trace.sh), without a restart."""
     tracing["on"] = on
     return {"tracing": on}
+
+
+@app.get("/admin/budgets", dependencies=[Depends(require_admin)])
+async def admin_budgets() -> dict:
+    """The Claude cutoff and the overall monthly budget, with this month's spend and forecast."""
+    report = None
+    with contextlib.suppress(Exception):
+        report = await finops.report()
+    return budgets.status(memory, report)
+
+
+@app.post("/admin/budgets", dependencies=[Depends(require_admin)])
+async def admin_set_budget(body: dict) -> dict:
+    """Set one budget from the app (which: claude | all_in, usd; 0 turns it off)."""
+    which = body.get("which")
+    if which not in ("claude", "all_in"):
+        raise HTTPException(status_code=400, detail="which: claude or all_in")
+    try:
+        said = budgets.set_budget(memory, which, body.get("usd"))
+    except ToolError as e:
+        raise HTTPException(status_code=400, detail=str(e)) from e
+    return {"said": said, **(await admin_budgets())}
 
 
 @app.get("/admin/costs", dependencies=[Depends(require_admin)])

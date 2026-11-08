@@ -46,6 +46,7 @@ from .reasoning import DECISION_TOOL
 from .maps import MAPS_TOOL
 from .weather import WEATHER_TOOL
 from .packages import PACKAGES_TOOL
+from .budgets import BUDGET_TOOL
 from .messaging import MESSAGE_TOOL
 from .routing import ROUTING_TOOL
 from .trends import TRENDS_TOOL
@@ -222,6 +223,21 @@ class Conversation:
         usage.current_turn.set(self.turn_key)
         self.cards = cards.CardBox()
         cards.current.set(self.cards)
+        if via != "room":  # budgets, in the user's own words, in code: works even when Claude is stopped
+            from . import budgets  # noqa: PLC0415
+            try:
+                said = budgets.command(self.memory, user_text)
+            except ToolError as e:
+                said = str(e)
+            if said:
+                await say(said)
+                self._note_exchange(user_text, said)
+                return
+            if budgets.claude_stopped(self.memory):
+                said = budgets.stop_message(self.memory)
+                await say(said)
+                self._note_exchange(user_text, said)
+                return
         if self.thrift:
             # Money questions are answered in code, at no cost: Claude never approves spending.
             said, resume = await self.thrift.resolve(user_text, trusted=via != "room")
@@ -673,7 +689,7 @@ class Conversation:
                      advisor.ADVISOR_TOOL, benefits.BENEFITS_TOOL, plaid.BANK_TOOL, travel.TRAVEL_TOOL,
                      compliance.COMPLIANCE_TOOL, MERCHANTS_TOOL, CUSTOMIZE_TOOL, CREDIT_TOOL, MARKETS_TOOL, ROUTING_TOOL, TRENDS_TOOL,
                      TRANSIT_TOOL, FLIGHT_TOOL, DECISION_TOOL, MAPS_TOOL,
-                     WEATHER_TOOL, PACKAGES_TOOL, MESSAGE_TOOL]
+                     WEATHER_TOOL, PACKAGES_TOOL, MESSAGE_TOOL, BUDGET_TOOL]
         return (
             CLIENT_TOOLS + orchestration + job_tools + spending + [_expert_tool()]
             + agent_tools + web_tools()
@@ -821,6 +837,9 @@ class Conversation:
         if name == "weather":
             from . import weather  # noqa: PLC0415
             return await asyncio.to_thread(weather.run_tool, self.memory, args)
+        if name == "budgets":
+            from . import budgets  # noqa: PLC0415
+            return await budgets.run_tool(self.memory, args, self.finops, self.thrift)
         if name == "packages":
             from . import packages  # noqa: PLC0415
             return packages.run_tool(self.memory, args)

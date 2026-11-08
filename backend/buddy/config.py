@@ -108,4 +108,20 @@ def claude_client():
 
     workspace = os.getenv("ANTHROPIC_WORKSPACE_ID", "").strip()
     headers = {"anthropic-workspace-id": workspace} if workspace else None
-    return anthropic.AsyncAnthropic(default_headers=headers)
+    return _guarded(anthropic)(default_headers=headers)
+
+
+_GUARDED = None
+
+
+def _guarded(anthropic):
+    """The Claude client with the monthly cutoff checked before every request (budgets.py), streams included."""
+    global _GUARDED
+    if _GUARDED is None:
+        class Guarded(anthropic.AsyncAnthropic):
+            async def request(self, *args, **kwargs):
+                from .budgets import check_claude  # noqa: PLC0415
+                check_claude()
+                return await super().request(*args, **kwargs)
+        _GUARDED = Guarded
+    return _GUARDED

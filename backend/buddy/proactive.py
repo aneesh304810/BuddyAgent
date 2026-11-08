@@ -147,13 +147,20 @@ def wrap_up_due(memory: Memory) -> bool:
     return _due(memory, settings.evening_wrap_at, "last_wrap_up")
 
 
-async def _written_once(memory: Memory, key: str, write) -> str:
+async def _written_once(memory: Memory, key: str, write, plain: str = "") -> str:
     """Text an AI wrote for a nudge, kept until it's delivered: written once, not again on every 15-second pass
-    while the phone isn't connected (that loop once cost about $30 a week)."""
+    while the phone isn't connected (that loop once cost about $30 a week). With Claude stopped by the monthly
+    cutoff (budgets.py): `plain`, written in code ('' skips the nudge)."""
     saved = memory.get(f"nudge_text:{key}")
     if saved:
         return saved
-    text = await write()
+    from . import budgets  # noqa: PLC0415
+    if budgets.claude_stopped(memory):
+        return plain
+    try:
+        text = await write()
+    except budgets.BudgetStop:
+        return plain
     if text:
         memory.set(f"nudge_text:{key}", text)
     return text
@@ -171,8 +178,9 @@ async def run(memory: Memory, deliver: Deliver, connected=None) -> None:
             online = connected() if connected else True
             for reminder in memory.due_reminders() if online else []:
                 key = f"reminder:{reminder['id']}"
-                text = await _written_once(memory, key, lambda r=reminder: reminder_nudge(memory, r))
-                if await deliver("reminder", text):
+                text = await _written_once(memory, key, lambda r=reminder: reminder_nudge(memory, r),
+                                           plain=f"Reminder: {reminder['text']}")
+                if text and await deliver("reminder", text):
                     memory.mark_delivered(reminder["id"])
                     _sent(memory, key)
             if online and briefing_due(memory):

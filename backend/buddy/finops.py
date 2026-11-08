@@ -399,7 +399,12 @@ class FinOps:
         lines += self.domain(named) + self.free_services(named)
         mtd = round(sum(l.month_to_date for l in lines), 2)
         forecast = round(sum(l.forecast for l in lines), 2)
-        budget = float(self.setting("BUDDY_ALLIN_BUDGET_USD", "0"))
+        try:  # set in the app or by voice (budgets.py), else BUDDY_ALLIN_BUDGET_USD
+            from .budgets import all_in_budget  # noqa: PLC0415
+            budget = all_in_budget(self.memory) if self.memory.get("budget:all_in_usd") else \
+                float(self.setting("BUDDY_ALLIN_BUDGET_USD", "0"))
+        except Exception:
+            budget = float(self.setting("BUDDY_ALLIN_BUDGET_USD", "0"))
         _, days = _month_progress()
         report = {
             "month": local_now().strftime("%B %Y"),

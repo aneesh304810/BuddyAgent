@@ -60,3 +60,21 @@ def test_a_failing_free_model_rests():
     f2 = FreeModels(m, env={})
     f2._worked("groq")
     assert not f2.resting("groq")
+
+
+def test_repeated_market_scan_reports_are_cleared_to_one_per_day():
+    from buddy.finance import purge_reports
+    from buddy.jobs import SCHEMA
+    m = Memory(":memory:")
+    m.db.executescript(SCHEMA)
+    for i in range(6):
+        m.db.execute("INSERT INTO jobs (kind, title, params, status, created_at, summary, report, findings, sources, "
+                     "delivered) VALUES ('market_scan', 'Market scan, Nov 07, 2026', '{}', 'done', datetime('now'), "
+                     "?, '', '[]', '[]', 1)", (f"copy {i}",))
+    m.db.execute("INSERT INTO jobs (kind, title, params, status, created_at, summary, report, findings, sources, "
+                 "delivered) VALUES ('market_scan', 'Market scan, Nov 06, 2026', '{}', 'done', datetime('now'), "
+                 "'other day', '', '[]', '[]', 1)")
+    purge_reports(m)
+    rows = m.db.execute("SELECT title, summary FROM jobs WHERE kind = 'market_scan' ORDER BY title").fetchall()
+    assert [(r["title"], r["summary"]) for r in rows] == [("Market scan, Nov 06, 2026", "other day"),
+                                                          ("Market scan, Nov 07, 2026", "copy 5")]

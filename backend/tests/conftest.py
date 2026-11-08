@@ -34,3 +34,9 @@ def _no_lockouts():
 
     guard.guard.reset()
     yield
+
+
+@pytest.fixture(autouse=True)
+def _no_claude_cutoff(monkeypatch):
+    """The monthly Claude cutoff (budgets.py) is off unless a test sets one."""
+    monkeypatch.setenv("BUDDY_CLAUDE_KILL_USD", "0")

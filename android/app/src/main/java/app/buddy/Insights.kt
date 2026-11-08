@@ -16,7 +16,10 @@ import androidx.compose.foundation.layout.size
 import androidx.compose.foundation.lazy.LazyColumn
 import androidx.compose.foundation.lazy.items
 import androidx.compose.foundation.shape.RoundedCornerShape
+import androidx.compose.material3.OutlinedTextField
 import androidx.compose.material3.Text
+import androidx.compose.foundation.text.KeyboardOptions
+import androidx.compose.ui.text.input.KeyboardType
 import androidx.compose.runtime.Composable
 import androidx.compose.runtime.LaunchedEffect
 import androidx.compose.runtime.getValue
@@ -34,6 +37,7 @@ import androidx.compose.ui.unit.sp
 import kotlinx.coroutines.Dispatchers
 import kotlinx.coroutines.launch
 import kotlinx.coroutines.withContext
+import okhttp3.MediaType.Companion.toMediaType
 import okhttp3.OkHttpClient
 import okhttp3.Request
 import okhttp3.RequestBody.Companion.toRequestBody
@@ -76,6 +80,23 @@ object InsightsApi {
     suspend fun costs(link: ServerLink): JSONObject = get(link, "/admin/costs")
 
     suspend fun health(link: ServerLink): JSONObject = get(link, "/admin/health?history=14")
+
+    suspend fun budgets(link: ServerLink): JSONObject = get(link, "/admin/budgets")
+
+    suspend fun setBudget(link: ServerLink, which: String, usd: Double): JSONObject = withContext(Dispatchers.IO) {
+        val body = JSONObject().put("which", which).put("usd", usd).toString()
+        val request = Request.Builder()
+            .url(link.baseUrl + "/admin/budgets")
+            .header("Authorization", "Bearer ${link.token}")
+            .post(body.toRequestBody("application/json".toMediaType()))
+            .build()
+        http.newCall(request).execute().use { response ->
+            val text = response.body?.string() ?: "{}"
+            if (!response.isSuccessful) error(runCatching { JSONObject(text).optString("detail") }.getOrNull()
+                ?.takeIf { it.isNotEmpty() } ?: "server said ${response.code}")
+            JSONObject(text)
+        }
+    }
 
     suspend fun runHealth(link: ServerLink): JSONObject = withContext(Dispatchers.IO) {
         val request = Request.Builder()
@@ -133,7 +154,13 @@ fun InsightsScreen(link: ServerLink?) {
     var problem by remember { mutableStateOf<String?>(null) }
     var healthData by remember { mutableStateOf<JSONObject?>(null) }
     var checking by remember { mutableStateOf(false) }
+    var budgetData by remember { mutableStateOf<JSONObject?>(null) }
     val scope = rememberCoroutineScope()
+
+    LaunchedEffect(link) {
+        if (link == null) return@LaunchedEffect
+        runCatching { InsightsApi.budgets(link) }.onSuccess { budgetData = it }
+    }
 
     LaunchedEffect(link) {
         if (link == null) return@LaunchedEffect
@@ -177,6 +204,7 @@ fun InsightsScreen(link: ServerLink?) {
         }
         val t = d.getJSONObject("totals")
         monthAllIn?.let { item { Text(it, color = Dim, fontSize = 13.sp) } }
+        budgetData?.let { b -> item { BudgetCard(b, link) { budgetData = it } } }
         item {
             Column(verticalArrangement = Arrangement.spacedBy(8.dp)) {
                 Row(horizontalArrangement = Arrangement.spacedBy(8.dp)) {
@@ -909,5 +937,72 @@ private fun ServiceCost(c: JSONObject, share: Float) {
         Text("Heading for ${usd(c.optDouble("forecast"))} this month · $source", color =
             if (source == "price not set") Pal.warn else Dim, fontSize = 12.sp)
         c.optString("note").takeIf { it.isNotBlank() }?.let { Text(it, color = Dim, fontSize = 12.sp) }
+    }
+}
+
+
+/** The Claude cutoff (Claude stops for the month when reached) and the overall monthly budget, editable. */
+@Composable
+private fun BudgetCard(b: JSONObject, link: ServerLink?, onChanged: (JSONObject) -> Unit) {
+    val scope = rememberCoroutineScope()
+    var message by remember { mutableStateOf<String?>(null) }
+    val claude = b.optJSONObject("claude") ?: JSONObject()
+    val all = b.optJSONObject("all_in") ?: JSONObject()
+    var claudeText by remember(b) { mutableStateOf(if (claude.isNull("cutoff_usd")) "" else "%.0f".format(claude.optDouble("cutoff_usd"))) }
+    var allText by remember(b) { mutableStateOf(if (all.isNull("budget_usd")) "" else "%.0f".format(all.optDouble("budget_usd"))) }
+
+    fun save(which: String, text: String) {
+        val usd = text.trim().ifEmpty { "0" }.toDoubleOrNull()
+        if (usd == null || usd < 0) { message = "Give an amount in dollars (0 turns it off)."; return }
+        if (link == null) return
+        scope.launch {
+            runCatching { InsightsApi.setBudget(link, which, usd) }
+                .onSuccess { message = it.optString("said"); onChanged(it) }
+                .onFailure { message = "Couldn't save (${it.message})." }
+        }
+    }
+
+    @Composable
+    fun Meter(used: Double, cap: Double) {
+        val share = if (cap > 0) (used / cap).coerceIn(0.0, 1.0).toFloat() else 0f
+        val colour = when { share >= 1f -> Pal.bad; share >= 0.8f -> Pal.warn; else -> Bar }
+        Box(Modifier.fillMaxWidth().height(8.dp).background(BarTrack, RoundedCornerShape(4.dp))) {
+            Box(Modifier.fillMaxWidth(share).fillMaxHeight().background(colour, RoundedCornerShape(4.dp)))
+        }
+    }
+
+    Column(Modifier.fillMaxWidth().background(Card, RoundedCornerShape(12.dp)).padding(12.dp),
+        verticalArrangement = Arrangement.spacedBy(8.dp)) {
+        Text("Budgets this month", color = Pal.text, fontSize = 15.sp, fontWeight = FontWeight.SemiBold)
+
+        val spent = claude.optDouble("spent_usd", 0.0)
+        val cap = if (claude.isNull("cutoff_usd")) 0.0 else claude.optDouble("cutoff_usd")
+        Text(if (cap > 0) "Claude: ${usd(spent)} of ${usd(cap)}" + (if (claude.optBoolean("stopped")) " · stopped until the 1st" else "")
+             else "Claude: ${usd(spent)} · no cutoff", color = if (claude.optBoolean("stopped")) Pal.bad else Pal.text, fontSize = 13.sp)
+        if (cap > 0) Meter(spent, cap)
+        Row(verticalAlignment = Alignment.CenterVertically, horizontalArrangement = Arrangement.spacedBy(8.dp)) {
+            OutlinedTextField(claudeText, { claudeText = it.filter { c -> c.isDigit() || c == '.' }.take(7) },
+                label = { Text("Claude cutoff $") }, singleLine = true, modifier = Modifier.weight(1f),
+                keyboardOptions = KeyboardOptions(keyboardType = KeyboardType.Decimal))
+            Chip("Save", false) { save("claude", claudeText) }
+        }
+
+        val allSpent = all.optDouble("spent_usd", Double.NaN)
+        val budget = if (all.isNull("budget_usd")) 0.0 else all.optDouble("budget_usd")
+        Text(when {
+            budget > 0 && !allSpent.isNaN() -> "Everything: ${usd(allSpent)} of ${usd(budget)}, heading for ${usd(all.optDouble("forecast_usd"))}"
+            budget > 0 -> "Everything: budget ${usd(budget)}"
+            else -> "Everything: no overall budget set"
+        }, color = if (all.optBoolean("heading_over")) Pal.bad else Pal.text, fontSize = 13.sp)
+        if (budget > 0 && !allSpent.isNaN()) Meter(allSpent, budget)
+        Row(verticalAlignment = Alignment.CenterVertically, horizontalArrangement = Arrangement.spacedBy(8.dp)) {
+            OutlinedTextField(allText, { allText = it.filter { c -> c.isDigit() || c == '.' }.take(7) },
+                label = { Text("Overall budget $") }, singleLine = true, modifier = Modifier.weight(1f),
+                keyboardOptions = KeyboardOptions(keyboardType = KeyboardType.Decimal))
+            Chip("Save", false) { save("all_in", allText) }
+        }
+        Text("Alerts at 50%, 80% and 100%, and if the month is heading over. At the Claude cutoff, Claude stops " +
+             "until the 1st; reminders and your screens keep working.", color = Dim, fontSize = 11.sp)
+        message?.let { Text(it, color = Dim, fontSize = 12.sp) }
     }
 }

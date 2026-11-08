@@ -744,6 +744,9 @@ def purge_reports(memory: Memory) -> None:
     for kind, days in REPORT_KEEP_DAYS.items():
         memory.db.execute("DELETE FROM jobs WHERE kind = ? AND created_at < ?",
                           (kind, (datetime.now(timezone.utc) - timedelta(days=days)).isoformat()))
+    # one market scan report per day: the newest (clears the copies a repeating scan left behind)
+    memory.db.execute("DELETE FROM jobs WHERE kind = 'market_scan' AND id NOT IN "
+                      "(SELECT MAX(id) FROM jobs WHERE kind = 'market_scan' GROUP BY title)")
     memory.db.commit()
 
 

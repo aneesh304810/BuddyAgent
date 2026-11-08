@@ -620,7 +620,7 @@ class Markets:
         """The daily scan: setups in every market that's on, chatter and news for the best, a report, a message."""
         from .finance import purge_reports  # noqa: PLC0415
         from .jobs import SCHEMA as JOBS_SCHEMA  # noqa: PLC0415
-        today = today or local_now().date()
+        today = today or date.fromisoformat(scan_day())  # New York's trading day, as scan_due counts it
         s = self.settings()
         found = []
         import asyncio  # noqa: PLC0415
@@ -677,10 +677,12 @@ class Markets:
         now = datetime.now(timezone.utc).isoformat()
         self.memory.db.executescript(JOBS_SCHEMA)
         purge_reports(self.memory)
+        title = f"Market scan, {today:%b %d, %Y}"
+        self.memory.db.execute("DELETE FROM jobs WHERE kind = 'market_scan' AND title = ?", (title,))  # one per day
         job_id = self.memory.db.execute(
             "INSERT INTO jobs (kind, title, params, status, created_at, started_at, finished_at, summary, report, findings, "
             "sources, delivered) VALUES ('market_scan', ?, '{}', 'done', ?, ?, ?, ?, ?, '[]', '[]', 1)",
-            (f"Market scan, {today:%b %d, %Y}", now, now, now, summary, report)).lastrowid
+            (title, now, now, now, summary, report)).lastrowid
         self.memory.set("markets:scanned", scan_day())
         self.memory.db.commit()
         return job_id, summary
