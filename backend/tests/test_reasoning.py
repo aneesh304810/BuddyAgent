@@ -48,7 +48,12 @@ def test_fact_check_finds_a_wrong_number():
     async def ask(memory, q, a, ev, doubtful):
         return {"issues": [{"claim": "$421", "correct": "$412", "source": "bills"}]}
     fix = asyncio.run(r.verify("chase bill?", "Your Chase bill is $421.", evidence, ask=ask))
-    assert fix == "Fact check: $421 should be $412 (bills)."
+    assert fix == "Correction: $421 should be $412."
+
+    async def ask_say(memory, q, a, ev, doubtful):
+        return {"issues": [{"claim": "$421", "correct": "$412"}], "say": "Sorry, your Chase bill is $412, not $421."}
+    assert asyncio.run(r.verify("chase bill?", "Your Chase bill is $421.", evidence, ask=ask_say)) == \
+        "Correction: Sorry, your Chase bill is $412, not $421."
     assert asyncio.run(r.verify("chase bill?", "Your Chase bill is $412.", evidence, ask=ask)) == ""
 
 

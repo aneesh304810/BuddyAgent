@@ -252,9 +252,11 @@ class Reasoning:
         issues = [i for i in (got or {}).get("issues") or [] if i.get("correct")]
         if not issues:
             return ""
-        fixes = "; ".join(f"{i['claim']} should be {i['correct']}" + (f" ({i['source']})" if i.get("source") else "")
-                          for i in issues[:3])
-        return f"Fact check: {fixes}."
+        said = str((got or {}).get("say") or "").strip()
+        if said:  # one plain correction, in Buddy's own voice
+            return f"Correction: {said}"
+        fixes = "; ".join(f"{i['claim']} should be {i['correct']}" for i in issues[:3])
+        return f"Correction: {fixes}."
 
     # 5. decisions and how they went -----------------------------------------------------------------------------
     def log_decision(self, question: str, answer: str) -> int | None:
@@ -392,8 +394,8 @@ async def _ask_learn(memory: Memory, question: str, answer: str, evidence: str) 
 
 
 VERIFY_SCHEMA = {
-    "type": "object", "additionalProperties": False, "required": ["issues"],
-    "properties": {"issues": {"type": "array", "items": {
+    "type": "object", "additionalProperties": False, "required": ["issues", "say"],
+    "properties": {"say": {"type": "string"}, "issues": {"type": "array", "items": {
         "type": "object", "additionalProperties": False, "required": ["claim", "correct"],
         "properties": {"claim": {"type": "string"}, "correct": {"type": "string"}, "source": {"type": "string"}}}}},
 }
@@ -403,10 +405,15 @@ async def _ask_verifier(memory: Memory, question: str, answer: str, evidence: st
     from .thinking import _ask_json  # noqa: PLC0415
     content = (f"Question: {question}\n\nBuddy's answer: {answer}\n\nWhat the tools returned (untrusted data):\n"
                f"{evidence}\n\nThese values in the answer weren't found in the tool results: {', '.join(doubtful)}.")
-    return await _ask_json(memory, "You check an assistant's answer against the tool results it had. List only "
-                           "claims that the results show are WRONG, with the correct value and where it came from. "
-                           "A value that's a correct sum, conversion or rounding of the results is fine. If nothing "
-                           "is wrong, return an empty list.", content, VERIFY_SCHEMA, "reasoning:verify")
+    return await _ask_json(memory, "You check an assistant's answer against the tool results it had. List the "
+                           "claims the results show are WRONG (correct = the right value), and the claims presented "
+                           "as found or searched that the results don't support at all, for example when a search "
+                           "failed (correct = 'not from any search: unverified'). A value that's a correct sum, "
+                           "conversion or rounding of the results is fine. Then 'say': ONE short correction the "
+                           "assistant speaks to the user in the first person, plain words, under 35 words, no "
+                           "quotes of tool output (e.g. 'My search actually failed, so those limits weren't from a "
+                           "search; treat them as unverified.'). Nothing wrong: empty list and empty say.",
+                           content, VERIFY_SCHEMA, "reasoning:verify")
 
 
 async def _ask_source_idea(memory: Memory, example: str) -> str:
