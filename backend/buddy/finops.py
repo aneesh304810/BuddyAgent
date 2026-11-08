@@ -27,6 +27,7 @@ Network answers are cached for 30 minutes; the providers ask not to be polled ha
 
 import asyncio
 import calendar
+import contextlib
 import json
 import logging
 import os
@@ -397,6 +398,9 @@ class FinOps:
         lines += fixed
         named = {line.provider.lower() for line in lines}
         lines += self.domain(named) + self.free_services(named)
+        with contextlib.suppress(Exception):  # the whole-Buddy switch counts committed costs in full (budgets.py)
+            from .budgets import save_committed  # noqa: PLC0415
+            save_committed(self.memory, lines)
         mtd = round(sum(l.month_to_date for l in lines), 2)
         forecast = round(sum(l.forecast for l in lines), 2)
         try:  # set in the app or by voice (budgets.py), else BUDDY_ALLIN_BUDGET_USD

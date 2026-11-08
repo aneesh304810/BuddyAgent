@@ -46,16 +46,18 @@ def test_alerts_once_each_at_50_80_100_and_heading_over():
     m = Memory(":memory:")
     budgets.set_budget(m, "claude", 20)
     budgets.set_budget(m, "all_in", 50)
-    spend(m, 11)
-    said = budgets.alerts(m, {"month_to_date_usd": 26.0, "forecast_usd": 70.0})
+    m.set(budgets.COMMITTED_KEY, "15")
+    spend(m, 11)  # 15 + 11 = 26: 52% of 50
+    said = budgets.alerts(m, {"month_to_date_usd": 20.0, "forecast_usd": 70.0})
     assert any("Claude has used 50%" in s for s in said)
-    assert any("52% of your $50 budget" in s or "50% of your $50" in s for s in said)
+    assert any("used 50% of this month's $50 budget" in s for s in said)
     assert any("over your $50 budget" in s for s in said)
-    assert budgets.alerts(m, {"month_to_date_usd": 26.0, "forecast_usd": 70.0}) == []  # once each
-    spend(m, 9.5)
-    said = budgets.alerts(m, {"month_to_date_usd": 51.0, "forecast_usd": 70.0})
+    assert budgets.alerts(m, {"month_to_date_usd": 20.0, "forecast_usd": 70.0}) == []  # once each
+    spend(m, 25)  # 15 + 36 >= 50, and Claude's 36 is past its 20
+    budgets._stop_cache.clear()
+    said = budgets.alerts(m, {"month_to_date_usd": 40.0, "forecast_usd": 70.0})
     assert len([s for s in said if s.startswith("Claude")]) == 1 and "cutoff" in said[0]
-    assert any("the whole budget" in s for s in said)
+    assert any("$50 budget, so Claude and every paid service are stopped" in s for s in said)
 
 
 def test_claude_cannot_raise_the_cutoff_without_a_yes():
@@ -84,3 +86,43 @@ def test_reminders_still_come_in_plain_words_when_claude_is_stopped():
     assert asyncio.run(proactive._written_once(m, "reminder:1", write, plain="Reminder: call Amma")) == \
         "Reminder: call Amma"
     assert asyncio.run(proactive._written_once(m, "briefing:x", write)) == ""
+
+
+def test_the_whole_buddy_switch_stops_claude_and_paid_services_but_not_free_ones(monkeypatch):
+    import urllib.request
+    from buddy.config import claude_client
+    monkeypatch.setenv("ANTHROPIC_API_KEY", "x")
+    m = Memory(":memory:")
+    budgets.attach(m)
+    try:
+        budgets.set_budget(m, "all_in", 30)
+        m.set(budgets.COMMITTED_KEY, "24")  # the server, owed whatever Buddy does
+        spend(m, 3)
+        assert not budgets.all_in_stopped(m)
+        spend(m, 3.5)  # 24 + 6.5 >= 30
+        budgets._stop_cache.clear()
+        assert budgets.all_in_stopped(m) and budgets.claude_stopped(m)
+        with pytest.raises(budgets.BudgetStop):
+            urllib.request.urlopen(urllib.request.Request("https://google.serper.dev/search"), timeout=1)
+        with pytest.raises(budgets.BudgetStop):
+            asyncio.run(claude_client().messages.create(model="claude-haiku-5-5", max_tokens=5,
+                                                        messages=[{"role": "user", "content": "hi"}]))
+        with pytest.raises(Exception) as free:  # a free host is not refused by the switch (offline here)
+            urllib.request.urlopen(urllib.request.Request("https://127.0.0.1:9/"), timeout=1)
+        assert not isinstance(free.value, budgets.BudgetStop)
+        assert "every paid service are stopped" in budgets.stop_message(m)
+    finally:
+        budgets.attach(None)
+
+
+def test_raising_the_overall_budget_needs_the_users_yes():
+    m = Memory(":memory:")
+    budgets.set_budget(m, "all_in", 30)
+    asked = []
+
+    class Thrift:
+        def ask_action(self, q, run):
+            asked.append(q)
+            return q
+    asyncio.run(budgets.run_tool(m, {"action": "set", "which": "all_in", "usd": 0}, None, Thrift()))
+    assert asked == ["Turn the overall budget off?"] and budgets.all_in_budget(m) == 30

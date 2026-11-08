@@ -298,10 +298,10 @@ async def _budget_alerts() -> None:
     """Every 10 minutes: the budget alerts (50%, 80%, 100%, heading over), each once a month, code only."""
     while True:
         try:
+            report = None
+            with contextlib.suppress(Exception):
+                report = await finops.report()  # also keeps the committed costs current for the switch
             if connections:
-                report = None
-                with contextlib.suppress(Exception):
-                    report = await finops.report()
                 for text in budgets.alerts(memory, report):
                     await deliver("money", text)
         except Exception:

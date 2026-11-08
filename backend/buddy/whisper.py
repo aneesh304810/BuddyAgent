@@ -291,6 +291,9 @@ async def _groq(pcm: bytes, hint: str | None, prompt: str, allowed: list[str] | 
     global _groq_resting_until, _groq_rest_reason
     import httpx
 
+    from . import budgets  # noqa: PLC0415
+    if budgets.all_in_stopped():
+        raise GroqSkipped("the month's budget is reached")
     if time.monotonic() < _groq_resting_until:
         raise GroqSkipped(f"resting after {'its free limit' if _groq_rest_reason == 'limit' else 'an error'}")
     data = {"model": groq_model(), "response_format": "verbose_json", "temperature": "0"}

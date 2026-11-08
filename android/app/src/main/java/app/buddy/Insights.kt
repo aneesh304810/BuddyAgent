@@ -987,22 +987,29 @@ private fun BudgetCard(b: JSONObject, link: ServerLink?, onChanged: (JSONObject)
             Chip("Save", false) { save("claude", claudeText) }
         }
 
-        val allSpent = all.optDouble("spent_usd", Double.NaN)
+        val counted = all.optDouble("counted_usd", 0.0)
         val budget = if (all.isNull("budget_usd")) 0.0 else all.optDouble("budget_usd")
+        val allStopped = all.optBoolean("stopped")
         Text(when {
-            budget > 0 && !allSpent.isNaN() -> "Everything: ${usd(allSpent)} of ${usd(budget)}, heading for ${usd(all.optDouble("forecast_usd"))}"
-            budget > 0 -> "Everything: budget ${usd(budget)}"
-            else -> "Everything: no overall budget set"
-        }, color = if (all.optBoolean("heading_over")) Pal.bad else Pal.text, fontSize = 13.sp)
-        if (budget > 0 && !allSpent.isNaN()) Meter(allSpent, budget)
+            budget > 0 -> "Whole Buddy: ${usd(counted)} of ${usd(budget)}" +
+                (if (allStopped) " · paid services stopped until the 1st" else " · ${usd(all.optDouble("left_usd"))} left")
+            else -> "Whole Buddy: no budget set (no switch)"
+        }, color = if (allStopped) Pal.bad else Pal.text, fontSize = 13.sp)
+        if (budget > 0) {
+            Meter(counted, budget)
+            Text("${usd(all.optDouble("committed_usd"))} committed (server, plans, fixed) + " +
+                 "${usd(all.optDouble("pay_per_use_usd"))} pay-per-use (Claude, AI models, search, travel prices)" +
+                 (if (all.optBoolean("heading_over")) " · heading over at this pace" else ""), color = Dim, fontSize = 11.sp)
+        }
         Row(verticalAlignment = Alignment.CenterVertically, horizontalArrangement = Arrangement.spacedBy(8.dp)) {
             OutlinedTextField(allText, { allText = it.filter { c -> c.isDigit() || c == '.' }.take(7) },
                 label = { Text("Overall budget $") }, singleLine = true, modifier = Modifier.weight(1f),
                 keyboardOptions = KeyboardOptions(keyboardType = KeyboardType.Decimal))
             Chip("Save", false) { save("all_in", allText) }
         }
-        Text("Alerts at 50%, 80% and 100%, and if the month is heading over. At the Claude cutoff, Claude stops " +
-             "until the 1st; reminders and your screens keep working.", color = Dim, fontSize = 11.sp)
+        Text("Alerts at 50%, 80% and 100%. At the Claude cutoff, Claude stops; at the whole-Buddy budget, Claude and " +
+             "every paid service stop, until the 1st. Reminders, the bank feed and your screens keep working.",
+             color = Dim, fontSize = 11.sp)
         message?.let { Text(it, color = Dim, fontSize = 12.sp) }
     }
 }
