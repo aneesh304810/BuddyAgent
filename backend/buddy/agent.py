@@ -332,8 +332,10 @@ class Conversation:
                 think_note += (f"\n\n(Noted a promise: '{promise['what']}' by {promise['due']}; mention you'll remind "
                                "them the day before and on the day.)")
         turn_start = len(self.messages)
+        self._said(f"({stamp}) {mask(user_text)}", mask(user_text))
         self._add_user_text(f"({stamp}) {mask(user_text)}" + prep.pack + think_note + room_note + expert_note + (tutor.LIVE_NOTE if tutor.live(self.memory) else "")
                             + (DUAL_NOTE.format(language=DUAL_LANGUAGES.get(self.dual, self.dual)) if self.dual else ""))
+        self._attach_earlier(user_text)
         spoken: list[str] = []
         said_anything = asyncio.Event()
         # Performance of this turn, for Insights and the daily health check.
@@ -539,19 +541,54 @@ class Conversation:
                 self.messages.insert(i + 1, {"role": "user", "content": stubs})
         self.messages = fixed
 
+    def _said(self, stamped: str, words: str) -> None:
+        """The user's own words for a message Buddy sends with extras (time, memory notes, room lines): only the
+        words go into the chat log."""
+        self.__dict__.setdefault("_clean", {})[stamped] = words
+
+    def _words(self, message: dict) -> str:
+        """What a message said, for the chat log: the user's own words without what Buddy added to them."""
+        from . import convolog  # noqa: PLC0415
+        text = convolog.text_of(message)
+        if message.get("role") != "user" or not text:
+            return text
+        for stamped, words in self.__dict__.get("_clean", {}).items():
+            if text.startswith(stamped):
+                return words
+        # Not one this conversation sent (it carried on from before): drop the time stamp and any added notes.
+        return re.sub(r"^\([^)]*\d{4}[^)]*\)\s*", "", text).split("\n\n")[0]
+
     def log_new_messages(self) -> None:
         """Each plain message once into the searchable chat log (convolog), so trimmed turns can be found again.
-        Known by role and words (the history is copied when repaired, so the same message isn't the same object)."""
+        Known by role and words (the history is copied when repaired, so the same message isn't the same object).
+        Listen-in whispers stay out: they are about other people's talk in the room."""
         from . import convolog  # noqa: PLC0415
         logged = self.__dict__.setdefault("_logged", set())
         now = set()
         with contextlib.suppress(Exception):  # the log never breaks a reply
+            room = False
             for m in self.messages:
                 key = (m.get("role", ""), convolog.text_of(m))
                 now.add(key)
-                if key[1] and key not in logged:
-                    convolog.log(self.memory, *key)
+                if key[1] and key not in logged and not (room and key[0] == "assistant"):
+                    convolog.log(self.memory, key[0], self._words(m))
+                room = key[0] == "user" and LISTEN_IN_NOTE in key[1]
         self._logged = now
+        clean = self.__dict__.get("_clean", {})
+        self._clean = {k: v for k, v in clean.items() if any(t.startswith(k) for _, t in now)}
+
+    def _attach_earlier(self, user_text: str) -> None:
+        """'You said', 'yesterday', 'that report': the matching earlier lines go with the message, found here for
+        free, so Claude doesn't need a round of its own to search."""
+        from . import convolog  # noqa: PLC0415
+        with contextlib.suppress(Exception):
+            in_view = {" ".join(self._words(m).split()) for m in self.messages}
+            found = convolog.auto_context(self.memory, user_text, in_view)
+            last = self.messages[-1] if self.messages else None
+            if found and last and last["role"] == "user":
+                blocks = last["content"] if isinstance(last["content"], list) else \
+                    [{"type": "text", "text": last["content"]}]
+                last["content"] = blocks + [{"type": "text", "text": found}]
 
     def _trim_history(self) -> None:
         """Long talks: keep the latest turns. Done in one jump, so the cache rebuilds only rarely."""
@@ -560,8 +597,33 @@ class Conversation:
             return
         keep = self.messages[-KEEP_HISTORY:]
         # Start at a plain user message (never a tool result, whose tool call would be cut off).
-        while keep and not (keep[0]["role"] == "user" and isinstance(keep[0]["content"], str)):
+        def plain_user(m):  # the user speaking, not tool results answering a call
+            c = m["content"]
+            return m["role"] == "user" and (isinstance(c, str) or not any(
+                (b.get("type") if isinstance(b, dict) else getattr(b, "type", None)) == "tool_result" for b in c))
+        while keep and not plain_user(keep[0]):
             keep = keep[1:]
+        if keep:  # what dropped out, named in one line, so Claude knows to search for it (free: no model writes it)
+            from . import convolog  # noqa: PLC0415
+            topics = self.__dict__.setdefault("_earlier", [])
+            sent = False  # the message after "(Buddy spoke up on its own...)": a report or reminder Buddy sent
+            for m in self.messages[:len(self.messages) - len(keep)]:
+                words = self._words(m)
+                if m["role"] == "user":
+                    sent = words.startswith("(Buddy spoke up on its own")
+                    if not sent and (t := convolog.topic(words)):
+                        topics.append(t)
+                elif sent and (t := convolog.topic(words, 7)):
+                    topics.append("you sent: " + t)
+            self._earlier = topics[-12:]
+            if self._earlier:
+                keep = [{"role": "user", "content": [
+                    {"type": "text", "text": f"{convolog.EARLIER_MARK}; search recall_conversation for details: "
+                                             + "; ".join(self._earlier) + ")"},
+                    *([{"type": "text", "text": keep[0]["content"]}] if isinstance(keep[0]["content"], str)
+                      else [b for b in keep[0]["content"]
+                            if not str(b.get("text", "") if isinstance(b, dict) else "").startswith(
+                                convolog.EARLIER_MARK)])]}] + keep[1:]
         self.messages = keep
 
     def _last_exchange(self) -> tuple[str, str]:
@@ -586,6 +648,7 @@ class Conversation:
     def _note_exchange(self, user_text: str, answer: str) -> None:
         """Keep an exchange handled without Claude in the history, for context."""
         stamp = local_now().strftime("%A %d %B %Y, %I:%M %p")
+        self._said(f"({stamp}) {mask(user_text)}", mask(user_text))
         self._add_user_text(f"({stamp}) {mask(user_text)}")
         self.messages.append({"role": "assistant", "content": answer})
 
@@ -968,6 +1031,11 @@ class Conversation:
                 return f"The {args['name']} agent is now off."
             if name in self.registry.tools:
                 return await self.registry.call(name, args, self.turn)
+        if name == "forget_fact":  # and out of the chat in view, not only the saved facts and chat log
+            gone = (args.get("text") or "").strip().lower()
+            for m in self.messages[:-1]:
+                if len(gone) >= 3 and isinstance(m.get("content"), str) and gone in m["content"].lower():
+                    m["content"] = "(removed at the user's request)"
         return run_tool(self.memory, name, args)
 
     def note_proactive(self, text: str, kind: str = "") -> None:
@@ -979,7 +1047,7 @@ class Conversation:
             # Buddy say a failed task was "still working": it never saw the failure.)
             self.__dict__.setdefault("_held_notes", []).append((text, kind))
             return
-        what = {"money": "money and markets watch", "job_done": "a finished background job", "travel": "travel watch",
+        what = {"listen_in": LISTEN_IN_NOTE, "money": "money and markets watch", "job_done": "a finished background job", "travel": "travel watch",
                 "reminder": "a reminder", "briefing": "the morning briefing", "email": "email watch"}.get(kind, kind)
         self.messages.append({"role": "user", "content": (
             f"(Buddy spoke up on its own; no question asked. This message came from Buddy's background work"
@@ -987,6 +1055,8 @@ class Conversation:
             "Reports. Never call it made up; check the tool (markets ideas, credit overview...) for details.)")})
         self.messages.append({"role": "assistant", "content": text})
 
+
+LISTEN_IN_NOTE = "a Listen-in whisper about talk in the room"  # never kept in the chat log
 
 COMPOSE_PER_HOUR = 30  # background writing, per label: more than this is a loop, not useful work
 # And a hard cap a day: a briefing is written once, so even a bug that rewrites it can't cost more than a few cents.

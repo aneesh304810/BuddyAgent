@@ -54,7 +54,7 @@ CLIENT_TOOLS = [
     },
     {
         "name": "forget_fact",
-        "description": "Delete remembered facts containing this text. Only when the "
+        "description": "Delete remembered facts, and lines of past chats, containing this text. Only when the "
         "user asks you to forget something.",
         "input_schema": {
             "type": "object",
@@ -200,7 +200,9 @@ def run_tool(memory: Memory, name: str, args: dict) -> str:
         facts = memory.recall(args.get("query", ""))
         return "\n".join(facts) if facts else "Nothing remembered about that."
     if name == "forget_fact":
-        return f"Forgot {memory.forget(args['text'])} fact(s)."
+        from . import convolog  # noqa: PLC0415
+        facts, lines = memory.forget(args["text"]), convolog.forget(memory, args["text"])
+        return f"Forgot {facts} fact(s) and {lines} line(s) of our chats."
     if name == "set_reminder":
         if args.get("in_minutes") is not None:
             due = local_now() + timedelta(minutes=float(args["in_minutes"]))

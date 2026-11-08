@@ -1,6 +1,6 @@
 # Buddy Privacy and Data Retention Policy
 
-Source: https://claude.ai/artifact/MJVGZ7pWQvi26tg1MS914P, revision 57
+Source: https://claude.ai/artifact/MJVGZ7pWQvi26tg1MS914P, revision 58
 
 Nov 1, 2026 · @Aneesh
 
@@ -144,7 +144,7 @@ Data is kept only as long as it is useful, then deleted automatically.
 | Room transcripts (Listen-in mode) | 2 days, unless the owner saves a stretch |
 | English-practice speech samples | 30 days |
 | The owner's own conversation lines (conversation coaching) | 30 days; turning coaching off deletes them |
-| The chat with Buddy (the owner's words and Buddy's replies, as text; no audio, no tool results) | 30 days, then deleted automatically; kept on the server so Buddy can look up earlier parts of the chat instead of resending all of it |
+| The chat with Buddy (the owner's words and Buddy's replies, as text; no audio, no tool results, no Listen-in whispers or room talk) | 30 days, then deleted automatically; kept on the server so Buddy can look up earlier parts of the chat instead of resending all of it |
 | Browser task reports (steps, pages used, screenshots) | 90 days, then deleted automatically; the browser itself keeps nothing once the task ends |
 | Location | The latest is treated as expired after 3 hours; the history is kept 60 days (see below) |
 | Voice audio | Not stored; only the text is kept |

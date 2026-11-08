@@ -1524,7 +1524,7 @@ async def talk(ws: WebSocket) -> None:
 
     async def whisper(kind: str, text: str) -> None:
         await send({"type": "whisper", "kind": kind, "text": text})
-        convo.note_proactive(text)
+        convo.note_proactive(text, "listen_in")  # in view for "why?", never in the saved chat log
 
     listener = AmbientListener(memory, whisper, thrift)
     convo.room = listener.recent  # "what are they talking about?" in Listen-in
