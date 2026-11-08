@@ -416,3 +416,36 @@ def test_a_ride_notification_doesnt_break_replies(monkeypatch):
         ws.send_json({"type": "user", "text": "what's new with my week buddy"})
         got = [ws.receive_json() for _ in range(3)]
     assert [m["type"] for m in got] == ["thinking", "say", "done"] and got[1]["text"] == "Still here."
+
+
+def test_conversation_carries_over_a_reconnect(monkeypatch):
+    """The phone reconnecting kept nothing: Buddy forgot the weekly report it had just sent."""
+    monkeypatch.setattr(server, "connections", {})
+    monkeypatch.setattr(server, "_last_conversation", {"messages": [], "at": 0.0})
+    old = SimpleNamespace(messages=[{"role": "user", "content": "hi"}, {"role": "assistant", "content": "hey"}],
+                          _repair_history=lambda: None)
+    old.messages += [{"role": "user", "content": "(Buddy spoke up on its own)"},
+                     {"role": "assistant", "content": "Your weekly money report: spent $412."}]
+    server._keep_conversation(old)
+    new = SimpleNamespace(messages=[], _repair_history=lambda: None)
+    server._resume_conversation(new)
+    assert new.messages[-1]["content"].startswith("Your weekly money report")
+    # the old socket not yet noticed as closed: carry on from it
+    server.connections["old-ws"] = old
+    newer = SimpleNamespace(messages=[], _repair_history=lambda: None)
+    server._resume_conversation(newer)
+    assert newer.messages == old.messages
+    # too old: start fresh
+    server.connections.clear()
+    server._last_conversation["at"] -= 13 * 3600
+    fresh = SimpleNamespace(messages=[], _repair_history=lambda: None)
+    server._resume_conversation(fresh)
+    assert fresh.messages == []
+
+
+def test_kept_history_never_starts_mid_tool_call():
+    msgs = [{"role": "assistant", "content": "x"},
+            {"role": "user", "content": [{"type": "tool_result", "tool_use_id": "t", "content": "ok"}]},
+            {"role": "assistant", "content": "done"},
+            {"role": "user", "content": "next"}, {"role": "assistant", "content": "sure"}]
+    assert server._tail(msgs)[0] == {"role": "user", "content": "next"}

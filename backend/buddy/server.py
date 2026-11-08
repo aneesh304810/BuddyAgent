@@ -177,6 +177,45 @@ _recent_nudges: dict[tuple[str, str], float] = {}
 REPEAT_HOURS = 12
 
 
+# The conversation outlives one connection: phones reconnect all the time (network changes, the app in the
+# background), and a fresh, empty conversation each time lost what was just said, and the reports Buddy sent.
+CONVERSATION_KEEP_HOURS = 12
+_last_conversation: dict = {"messages": [], "at": 0.0}
+
+
+def _tail(messages: list, n: int = 60) -> list:
+    """The last messages, starting at a plain user message (never mid tool call, which Claude would refuse)."""
+    out = list(messages[-n:])
+    while out and not (out[0].get("role") == "user" and not any(
+            (b.get("type") if isinstance(b, dict) else getattr(b, "type", None)) == "tool_result"
+            for b in (out[0]["content"] if isinstance(out[0]["content"], list) else []))):
+        out.pop(0)
+    return out
+
+
+def _keep_conversation(convo) -> None:
+    with contextlib.suppress(Exception):
+        convo._repair_history()
+        _last_conversation["messages"] = _tail(convo.messages)
+        _last_conversation["at"] = time.monotonic()
+
+
+def _resume_conversation(convo) -> None:
+    """A new connection carries on the conversation: from a connection still open (the phone often reconnects before
+    the old socket is noticed as gone), else from the one that closed within the last 12 hours."""
+    live = [c for c in connections.values() if getattr(c, "messages", None)]
+    if live:
+        messages = live[-1].messages
+    elif time.monotonic() - _last_conversation["at"] < CONVERSATION_KEEP_HOURS * 3600:
+        messages = _last_conversation["messages"]
+    else:
+        return
+    if messages:
+        convo.messages = _tail(messages)
+        with contextlib.suppress(Exception):
+            convo._repair_history()
+
+
 async def deliver(kind: str, text: str, **extra) -> bool:
     if not connections:
         return False
@@ -1442,6 +1481,7 @@ async def talk(ws: WebSocket) -> None:
     guard.guard.record("ws", ip, user, "WS", "/ws", 101)
     await ws.accept()
     convo = Conversation(memory, registry, jobs, thrift, hub, finops, mail, watcher, builder)
+    _resume_conversation(convo)  # the phone reconnected: carry on the same conversation (and what Buddy said meanwhile)
     connections[ws] = convo
     session_started = time.monotonic()
     diagnostics.server_event(memory, "network", "phone_connected")
@@ -1829,6 +1869,7 @@ async def talk(ws: WebSocket) -> None:
         listener.stop()
         connections.pop(ws, None)
         await stop_current()
+        _keep_conversation(convo)
 
 
 # The voice client (works in phone browsers today; native apps come later).
