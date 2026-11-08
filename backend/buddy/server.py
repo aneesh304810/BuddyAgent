@@ -307,6 +307,8 @@ async def _budget_alerts() -> None:
             if connections:
                 for text in budgets.alerts(memory, report):
                     await deliver("money", text)
+                from . import costwatch  # noqa: PLC0415
+                await costwatch.run_daily(memory, deliver)  # the morning cost analysis (code only)
         except Exception:
             log.exception("budget alerts failed")
         await asyncio.sleep(600)

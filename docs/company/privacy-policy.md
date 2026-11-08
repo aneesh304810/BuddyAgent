@@ -1,6 +1,6 @@
 # Buddy Privacy and Data Retention Policy
 
-Source: https://claude.ai/artifact/MJVGZ7pWQvi26tg1MS914P, revision 51
+Source: https://claude.ai/artifact/MJVGZ7pWQvi26tg1MS914P, revision 52
 
 Nov 1, 2026 · @Aneesh
 
@@ -126,6 +126,7 @@ Data is kept only as long as it is useful, then deleted automatically.
 | Upcoming plans and lessons from corrections | Plans are deleted automatically 30 days after they end; lessons stay until the owner asks Buddy to forget them |
 | Buddy's notes, decisions and source gaps | Time-sensitive findings and market or news reports: 30 days. Other notes and advice: until the owner asks Buddy to forget them ("forget the note about …") |
 | Location history, learned places, promises and source reliability | Location history: 60 days, then deleted automatically; the owner can delete it and the saved places any time ("forget my location history"). Promises: until done or removed. Source reliability: counts only, kept |
+| Budgets and cost watch reports (Buddy's own spending: costs by kind of work, never what was asked) | Budgets until the owner changes them; cost watch reports 60 days, then deleted automatically |
 | Packages | Until 30 days after delivery (or 60 days with no news), then deleted automatically; the owner can remove one any time |
 | Chat notifications, auto-reply rules and the auto-reply log | Notifications (chats included): 7 days. Auto-reply rules: until the owner removes them. Auto-reply log: 30 days. Facts learned about people: as Buddy's notes (see above) |
 | Watched trend topics; trend digests and daily mention counts | Topics until the owner removes them; digests and counts 60 days, then deleted automatically |
