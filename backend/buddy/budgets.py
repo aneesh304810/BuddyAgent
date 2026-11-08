@@ -407,7 +407,8 @@ def predict(memory: Memory) -> dict:
     return out
 
 
-NAMES = {"briefing": "briefings and nudges", "chat": "chat", "research": "research", "listen": "Listen-in",
+NAMES = {"briefing": "the morning briefing", "reminder": "reminders", "evening_wrap": "the evening wrap-up",
+         "health_digest": "the daily health report", "chat": "chat", "research": "research", "listen": "Listen-in",
          "think": "Listen-in thinking", "expert": "the expert model", "lifelog": "the life log", "library": "the library",
          "deals": "deal checks", "serper": "web search", "serpapi": "flight and hotel prices", "duffel": "flight offers",
          "flightaware": "FlightAware", "speech": "speech to text"}

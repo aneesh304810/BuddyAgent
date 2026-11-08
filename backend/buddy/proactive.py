@@ -5,7 +5,7 @@ import json
 import logging
 import os
 import time
-from datetime import datetime
+from datetime import datetime, timezone
 from collections.abc import Awaitable, Callable
 
 from . import advisor, benefits, finance, review, health, thinking, travel
@@ -35,15 +35,22 @@ CHECK_EVERY_SECONDS = 15
 Deliver = Callable[[str, str], Awaitable[bool]]
 
 
+REMINDER_PLAIN_WORDS = 5  # a reminder this short is said as it is: no AI call
+
+
 async def reminder_nudge(memory: Memory, reminder: dict) -> str:
-    system = build_system_prompt(memory.recall(""), memory.open_goals())
+    """A due reminder in one friendly sentence: plain words for short ones, else the quick model with a small prompt
+    (no memory recall, no tools): a reminder doesn't need the main model or the whole brain."""
+    plain = f"Hey, reminder: {reminder['text']}."
+    if len(reminder["text"].split()) <= REMINDER_PLAIN_WORDS:
+        return plain
     text = await compose(
-        system,
+        "You are Buddy, the user's personal assistant and friend. Warm, brief, spoken English.",
         "A reminder the user set has just come due. Tell them in one short, natural "
         f"spoken sentence, as their friend would. Reminder: {reminder['text']}",
-        memory,
+        memory, label="reminder", model=settings.fast_model,
     )
-    return text or f"Hey, reminder: {reminder['text']}."
+    return text or plain
 
 
 async def morning_briefing(memory: Memory) -> str:
@@ -68,7 +75,7 @@ async def morning_briefing(memory: Memory) -> str:
         f"{thinking.morning_note(memory)}"
         + (f" They asked for these in every briefing, say them briefly: {topics}" if (topics := await _topics_line(memory))
            else ""),
-        memory,
+        memory, label="briefing",
     )
 
 
@@ -86,7 +93,7 @@ async def evening_wrap(memory: Memory) -> str:
         f"Tomorrow's calendar: {'; '.join(tomorrow) or 'nothing or not connected'}. "
         f"Email still worth a look: {MailManager(memory, None).briefing_line()}. "
         f"Spent today: {Money(memory).today_line()} (mention only if notable).",
-        memory,
+        memory, label="evening_wrap",
     )
 
 
@@ -147,27 +154,47 @@ def wrap_up_due(memory: Memory) -> bool:
     return _due(memory, settings.evening_wrap_at, "last_wrap_up")
 
 
+WRITE_TRIES_PER_DAY, WRITE_TRY_GAP_MINUTES = 3, 10
+
+
 async def _written_once(memory: Memory, key: str, write, plain: str = "") -> str:
     """Text an AI wrote for a nudge, kept until it's delivered: written once, not again on every 15-second pass
     while the phone isn't connected (that loop once cost about $30 a week). With Claude stopped by the monthly
-    cutoff (budgets.py): `plain`, written in code ('' skips the nudge)."""
+    cutoff (budgets.py): `plain`, written in code ('' skips the nudge).
+
+    An empty answer or an error is not retried on the next pass: at most 3 tries a day per nudge, 10 minutes apart,
+    then `plain` (one warning in the log)."""
     saved = memory.get(f"nudge_text:{key}")
     if saved:
         return saved
     from . import budgets  # noqa: PLC0415
     if budgets.claude_stopped(memory):
         return plain
+    now = datetime.now(timezone.utc)
+    day, tries, last = (memory.get(f"nudge_try:{key}") or "||").split("|")[:3]
+    tries = int(tries or 0) if day == now.date().isoformat() else 0
+    if tries >= WRITE_TRIES_PER_DAY:
+        return plain
+    if last and (now - datetime.fromisoformat(last)).total_seconds() < WRITE_TRY_GAP_MINUTES * 60:
+        return plain
+    memory.set(f"nudge_try:{key}", f"{now.date().isoformat()}|{tries + 1}|{now.isoformat()}")
     try:
         text = await write()
     except budgets.BudgetStop:
         return plain
+    except Exception:
+        log.warning("writing %s failed (try %d of %d)", key, tries + 1, WRITE_TRIES_PER_DAY, exc_info=True)
+        text = ""
+    if not text and tries + 1 >= WRITE_TRIES_PER_DAY:
+        log.warning("writing %s: no text after %d tries today; using plain words", key, WRITE_TRIES_PER_DAY)
     if text:
         memory.set(f"nudge_text:{key}", text)
-    return text
+    return text or plain
 
 
 def _sent(memory: Memory, key: str) -> None:
     memory.set(f"nudge_text:{key}", "")
+    memory.set(f"nudge_try:{key}", "")  # delivered: a later nudge with this key starts fresh
 
 
 async def run(memory: Memory, deliver: Deliver, connected=None) -> None:

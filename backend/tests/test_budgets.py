@@ -147,7 +147,7 @@ def test_a_forecast_over_budget_holds_background_work_and_asks():
         q = budgets.pace_check(m)
         if claude["forecast_usd"] <= 20:  # the 1st of the month: nothing to predict yet
             return
-        assert "at this pace Claude will cost about" in q and "briefings and nudges" in q
+        assert "at this pace Claude will cost about" in q and "the morning briefing" in q
         assert budgets.held(m) and budgets.pace_check(m) == ""  # asked once
         with pytest.raises(budgets.BudgetStop):  # background: held
             asyncio.run(claude_client().messages.create(model="claude-haiku-5-5", max_tokens=5,

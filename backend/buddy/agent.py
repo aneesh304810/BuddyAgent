@@ -942,11 +942,30 @@ class Conversation:
         self.messages.append({"role": "assistant", "content": text})
 
 
-async def compose(system: str, instruction: str, memory: Memory | None = None, label: str = "briefing") -> str:
-    """One-shot generation with no tools, for briefings and nudges."""
+COMPOSE_PER_HOUR = 30  # background writing, per label: more than this is a loop, not useful work
+
+
+class ComposeCapped(RuntimeError):
+    """Too many background writes of one kind this hour: held (a guard against loops that cost money)."""
+
+
+async def compose(system: str, instruction: str, memory: Memory | None = None, *, label: str,
+                  model: str | None = None) -> str:
+    """One-shot generation with no tools, for briefings and nudges. `label` names it in the cost reports (required:
+    a shared default once hid reminders, the wrap-up and the health digest under "briefing")."""
+    if memory is not None:
+        from datetime import datetime, timezone  # noqa: PLC0415
+        hour = f"compose:{label}:{datetime.now(timezone.utc):%Y-%m-%dT%H}"
+        n = int(memory.get(hour) or 0)
+        if n >= COMPOSE_PER_HOUR:
+            if n == COMPOSE_PER_HOUR:
+                log.warning("compose %s: %d calls this hour, holding until the next hour", label, n)
+                memory.set(hour, str(n + 1))
+            raise ComposeCapped(f"{label}: {COMPOSE_PER_HOUR} background writes this hour already")
+        memory.set(hour, str(n + 1))
     started = time.monotonic()
     response = await client.beta.messages.create(
-        **_request_kwargs(system),
+        **({**_request_kwargs(system, model), "max_tokens": 600} if model else _request_kwargs(system)),
         messages=[{"role": "user", "content": instruction}],
     )
     if memory is not None:

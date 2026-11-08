@@ -31,7 +31,7 @@ from .tools import local_now
 log = logging.getLogger(__name__)
 
 PREMIUM = ("claude-opus", "claude-sonnet", "claude-fable")
-BACKGROUND = {"briefing", "health_digest", "market_scan", "markets:take", "trends", "web_digest", "deals", "lifelog",
+BACKGROUND = {"briefing", "reminder", "evening_wrap", "health_digest", "market_scan", "markets:take", "trends", "web_digest", "deals", "lifelog",
               "library", "think", "connect", "card_lookup", "credit_email", "credit_deals", "bankfeed", "mail",
               "money_review", "card_credit_links", "finance:statement", "credit_report"}
 LOOP_CALLS_PER_DAY = 96          # background work more often than every 15 minutes, all day

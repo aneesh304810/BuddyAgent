@@ -78,3 +78,50 @@ def test_repeated_market_scan_reports_are_cleared_to_one_per_day():
     rows = m.db.execute("SELECT title, summary FROM jobs WHERE kind = 'market_scan' ORDER BY title").fetchall()
     assert [(r["title"], r["summary"]) for r in rows] == [("Market scan, Nov 06, 2026", "other day"),
                                                           ("Market scan, Nov 07, 2026", "copy 5")]
+
+
+def test_an_empty_or_failing_write_is_tried_at_most_3_times_a_day_10_minutes_apart(monkeypatch):
+    from datetime import datetime as real, timedelta, timezone
+    m = Memory(":memory:")
+    calls = []
+    clock = [real(2026, 11, 8, 12, 0, tzinfo=timezone.utc)]
+
+    class Clock(real):
+        @classmethod
+        def now(cls, tz=None):
+            return clock[0]
+    monkeypatch.setattr(proactive, "datetime", Clock)
+
+    async def empty():
+        calls.append(1)
+        return ""
+    for _ in range(100):  # 100 passes, 15 seconds apart, Claude answering nothing
+        asyncio.run(proactive._written_once(m, "briefing:x", empty))
+        clock[0] += timedelta(seconds=15)
+    assert len(calls) == 3  # not 100
+
+    async def boom():
+        calls.append(1)
+        raise RuntimeError("overloaded")
+    assert asyncio.run(proactive._written_once(m, "reminder:9", boom, plain="Hey, reminder: x.")) == "Hey, reminder: x."
+    assert asyncio.run(proactive._written_once(m, "reminder:9", boom, plain="Hey, reminder: x.")) == "Hey, reminder: x."
+    assert len(calls) == 4  # the error counted once; the next pass used plain words, no retry
+
+
+def test_short_reminders_need_no_ai_and_background_writing_is_capped(monkeypatch):
+    from buddy import agent
+    m = Memory(":memory:")
+    assert asyncio.run(proactive.reminder_nudge(m, {"text": "call Amma"})) == "Hey, reminder: call Amma."
+
+    class Fake:
+        class beta:
+            class messages:
+                @staticmethod
+                async def create(**kw):
+                    raise AssertionError("over the cap: no call")
+    m.set(f"compose:briefing:{__import__('datetime').datetime.now(__import__('datetime').timezone.utc):%Y-%m-%dT%H}",
+          str(agent.COMPOSE_PER_HOUR))
+    monkeypatch.setattr(agent, "client", Fake)
+    import pytest
+    with pytest.raises(agent.ComposeCapped):
+        asyncio.run(agent.compose("s", "i", m, label="briefing"))
