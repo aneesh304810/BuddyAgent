@@ -277,6 +277,17 @@ async def run(memory: Memory, deliver: Deliver) -> None:
                                                    f"about {hot['usual']} on a usual day. {lead} Ask me for the details.")
             except Exception:
                 log.exception("trends failed")
+            try:  # the brain connects: plans in new emails, notifications and uploads; upcoming flights tracked
+                from .connect import Connect  # noqa: PLC0415
+                for text in await Connect(memory).scan():
+                    await deliver("travel", text)
+                from .connect import Moments  # noqa: PLC0415  Buddy speaks first: plans, where you are, the time
+                moments = Moments(memory)
+                for m in await asyncio.to_thread(moments.now):
+                    if (m["urgent"] or not in_quiet_hours()) and await deliver("travel", m["text"]):
+                        moments.told(m)
+            except Exception:
+                log.exception("connecting plans failed")
             try:  # flights: the user's tracked flights, every 15 minutes from 4 hours before take-off to landing
                 from .flights import Flights  # noqa: PLC0415
                 fl = Flights(memory)

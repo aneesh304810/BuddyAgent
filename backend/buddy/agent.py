@@ -258,6 +258,12 @@ class Conversation:
             return
         from . import routing  # noqa: PLC0415
         routing.note_correction(self.memory, self.previous_turn, user_text)  # "no, that's wrong": the last pick missed
+        with contextlib.suppress(Exception):  # "it's in my email": a lesson on where to look, for next time
+            from .connect import learn_from_correction  # noqa: PLC0415
+            last_q, last_a = self._last_exchange()
+            lesson = learn_from_correction(self.brain, last_q, last_a, user_text)
+            if lesson:
+                prep.pack += f"\n\n(Lesson just learned from the user's correction: {lesson} Do that now.)"
         decision = self.router.decide(user_text, self.memory, via)
         self.model = decision.model
         if prep.lookup and prep.pack and settings.fast_model and len(user_text.split()) <= 18:
@@ -441,6 +447,25 @@ class Conversation:
         while keep and not (keep[0]["role"] == "user" and isinstance(keep[0]["content"], str)):
             keep = keep[1:]
         self.messages = keep
+
+    def _last_exchange(self) -> tuple[str, str]:
+        """The previous question and Buddy's answer to it, as text."""
+        def text_of(m):
+            c = m.get("content")
+            if isinstance(c, str):
+                return c
+            return " ".join(b.get("text", "") if isinstance(b, dict) else getattr(b, "text", "") or "" for b in c or [])
+        answer = question = ""
+        for m in reversed(self.messages):
+            t = text_of(m).strip()
+            if not t:
+                continue
+            if m.get("role") == "assistant" and not answer:
+                answer = t
+            elif m.get("role") == "user" and answer and not t.startswith("(Tool") and "tool_result" not in str(m)[:200]:
+                question = t
+                break
+        return question, answer
 
     def _note_exchange(self, user_text: str, answer: str) -> None:
         """Keep an exchange handled without Claude in the history, for context."""

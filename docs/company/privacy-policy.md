@@ -1,6 +1,6 @@
 # Buddy Privacy and Data Retention Policy
 
-Source: https://claude.ai/artifact/MJVGZ7pWQvi26tg1MS914P, revision 41
+Source: https://claude.ai/artifact/MJVGZ7pWQvi26tg1MS914P, revision 42
 
 Nov 1, 2026 · @Aneesh
 
@@ -37,6 +37,7 @@ Buddy collects only the owner's own data, and only what its features need.
 | Market watchlist, trade ideas Buddy found (setups with entry, stop and targets), and trades the owner tells Buddy they made (symbol, price, size, stop) | Buddy's daily market scan, and what the owner tells Buddy | Ideas only, never financial advice; Buddy never places, changes or cancels a trade |
 | Commute lines the owner asks Buddy to watch (for example a subway line, PATH line or NJ Transit light rail), the station, and the days and times they ride; transit alerts already told | What the owner tells Buddy; the official MTA, NJ Transit and PATH alert feeds | Read-only; Buddy only reads public alerts and never books or buys anything |
 | Flights the owner asks Buddy to track (flight number, date, an optional note) and their latest status (times, gates, delays, landing) | What the owner tells Buddy or a booking email the owner agrees to use; AirLabs and FlightAware flight status; the airline's own app notifications and emails about that flight (gate, new time, delay, boarding, cancellation), read on Buddy's server without AI | Read-only; Buddy never changes or books a flight |
+| Upcoming plans found in the owner's emails, phone notifications and uploads (flights, hotel stays, reservations: dates, times, places, confirmation codes), lessons Buddy learns from the owner's corrections (where to look for an answer), and which reminders it has already given | Travel-looking emails, notifications and uploads, read once by Claude's quick model (never a free model); the owner's corrections in conversation | To answer questions about the owner's plans and to remind them at the right time and place (for example the evening before a flight, time to leave, at the airport). Flights found are tracked automatically; nothing is booked or changed |
 
 Buddy never collects bank passwords. Bank sign-in happens inside Plaid Link (or the SimpleFIN Bridge site), between the owner and the bank. Buddy cannot move money, make payments or change accounts.
 
@@ -95,6 +96,7 @@ Buddy uses a few service providers to work. Each sees only what its job needs, u
 | MTA (api-endpoint.mta.info), NJ Transit (raildata.njt.gov for trains, pcsdata.njtransit.com for buses and light rail), Port Authority PATH (panynj.gov) | Live service alerts and next trains for the lines the owner rides | No personal data: MTA and PATH feeds are downloaded whole and filtered on Buddy's server. NJ Transit receives the owner's NJ Transit developer username and password, to issue an access token |
 | AirLabs (airlabs.co) | Live status of the owner's tracked flights | Flight numbers only (for example AA1234); never the owner's name, booking or ticket details |
 | FlightAware AeroAPI (aeroapi.flightaware.com) | A backup for the owner's tracked flights when other sources lack the gate, delay or status | Flight numbers only (for example AA1234); never the owner's name, booking or ticket details |
+| OpenStreetMap Nominatim (nominatim.openstreetmap.org) | Turning the owner's shared location into a neighbourhood and city name, and finding an airport's position | The phone's shared coordinates (only when location sharing is on) and airport codes; never the owner's name or plans |
 | Hacker News (Algolia search), Google News (Serper), Google Trends (SerpApi), arXiv, GitHub | What people are discussing on the topics the owner watches or asks about: stories, headlines, rising searches, new papers and projects | The topic's search words only; never anything personal |
 
 No provider receives data for its own marketing or advertising.
@@ -115,6 +117,7 @@ Data is kept only as long as it is useful, then deleted automatically.
 | Market watchlist, trade ideas and tracked trades; market scan reports | Watchlist and trades until the owner removes them; market scan reports 90 days, then deleted automatically |
 | Watched commute lines and the transit alerts already told | Lines until the owner removes them; a told alert until it clears |
 | Tracked flights and their status | Checked until the flight lands or is cancelled; deleted automatically 30 days after the flight date. The owner can remove one any time |
+| Upcoming plans and lessons from corrections | Plans are deleted automatically 30 days after they end; lessons stay until the owner asks Buddy to forget them |
 | Watched trend topics; trend digests and daily mention counts | Topics until the owner removes them; digests and counts 60 days, then deleted automatically |
 | Uploaded documents and photos, with their text, summaries, facts and search index | Until the owner tells Buddy to forget them; forgetting deletes the file, its text, its index entries and the facts taken from it |
 | People and things noted from the owner's data | Until the owner edits or deletes them |

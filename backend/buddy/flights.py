@@ -627,7 +627,8 @@ class Flights:
 
 FLIGHT_TOOL = {
     "name": "flight_status",
-    "description": "Live status of the user's flights: AirLabs, then what the airline's own app notifications and "
+    "description": "Live status of the user's flights (status with no flight: every upcoming flight Buddy knows from "
+    "tracked flights, emails and uploads; never ask for the number before trying that): AirLabs, then what the airline's own app notifications and "
     "emails said (gate, new time, delay, boarding, cancellation), then FlightAware for what's still missing. status (flight like 'AA 1234', day?): on time or "
     "delayed, gates, terminals, departed/landed, bag carousel. track (flight, day YYYY-MM-DD, note?): Buddy checks it "
     "every 15 minutes from 4 hours before departure until it lands and messages on delays, gate or terminal changes, "
@@ -655,5 +656,26 @@ def run_tool(memory: Memory, args: dict) -> str:
         items = f.tracked()
         return json.dumps([{k: x[k] for k in ("flight", "day", "note", "summary")} for x in items]) if items else \
             "No flights tracked."
+    if not (args.get("flight") or "").strip():  # "what's my flight status?": the flights Buddy knows about
+        known = [x for x in f.tracked()]
+        if not known:
+            try:
+                from .connect import Connect  # noqa: PLC0415
+                for p in Connect(memory).upcoming(days=14):
+                    if p["kind"] == "flight" and p["details"].get("flight"):
+                        known.append({"flight": p["details"]["flight"], "day": p["starts"][:10]})
+            except Exception:
+                pass
+        if not known:
+            return ("No upcoming flight found in tracked flights, emails or uploads. Search the user's email (gmail) "
+                    "and library for a booking before asking them for the flight number.")
+        out = []
+        for k in known[:3]:
+            try:
+                s = f.lookup(k["flight"], k["day"])
+                out.append({"summary": f.describe(s), **s})
+            except Exception as e:
+                out.append({"flight": k["flight"], "day": k["day"], "error": str(e)})
+        return json.dumps(out, ensure_ascii=False)
     s = f.lookup(args.get("flight", ""), (args.get("day") or "")[:10])
     return json.dumps({"summary": f.describe(s), **s}, ensure_ascii=False)

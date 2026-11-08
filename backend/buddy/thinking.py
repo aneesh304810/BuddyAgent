@@ -89,7 +89,8 @@ def prepare(brain: Brain, text: str, via: str = "user") -> Prep:
     if len(text.split()) < 3 or SMALL_TALK.match(text) or CLOSER.match(text):
         return Prep()
     named = _entities_named(brain, text)
-    if not named and not PERSONAL.search(text):
+    from .connect import PLAN_Q, Connect  # noqa: PLC0415
+    if not named and not PERSONAL.search(text) and not PLAN_Q.search(text):
         return Prep()  # not about the user's own life: nothing in memory to add
     lookup = bool(LOOKUP.search(text)) and len(text.split()) <= 18
     if lookup and via == "user" and brain.memory.get(DIRECT_KEY) != "0":
@@ -112,6 +113,11 @@ def prepare(brain: Brain, text: str, via: str = "user") -> Prep:
                 + (f": {who['notes'][:300]}" if who["notes"] else "")
                 + (f"; documents: {', '.join(d['title'] or d['file'] for d in who['documents'][:4])}"
                    if who["documents"] else ""))
+    try:  # upcoming plans and matching emails / notifications (connect.py): what the brain didn't search before
+        for line in Connect(brain.memory).pack_lines(text):
+            add(line)
+    except Exception:
+        log.info("connect pack failed", exc_info=True)
     hits = brain.recall(text, k=PACK_ITEMS)
     for h in hits:
         if h["source"] == "fact":
