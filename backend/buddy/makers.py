@@ -366,14 +366,19 @@ MAKER_TOOLS = [
          "unit": {"type": "string"}},
          "required": ["title", "type", "labels", "series"], "additionalProperties": False}},
     {"name": "make_document",
-     "description": "Write a Word document (docx) or PowerPoint deck (pptx) the user can open, share and edit. "
+     "description": "Write a Word document (docx), PDF, Excel spreadsheet (xlsx) or PowerPoint deck (pptx) the user "
+     "can open, share and edit. For xlsx give sheets (name, columns, rows; a cell may be a formula like "
+     "=SUM(B2:B9)) instead of sections. "
      "Give the whole content as an outline: sections with a heading, paragraphs, bullets, an optional table, "
      "and optionally a diagram, chart or image you made earlier (image_file_id). For slides, one section per "
      "slide, 3-6 short bullets each, speaker notes if useful. Appears in the chat as a file to open.",
      "input_schema": {"type": "object", "properties": {
-         "format": {"type": "string", "enum": ["docx", "pptx"]}, "title": {"type": "string"},
-         "subtitle": {"type": "string"}, "sections": {"type": "array", "items": SECTION}},
-         "required": ["format", "title", "sections"], "additionalProperties": False}},
+         "format": {"type": "string", "enum": ["docx", "pdf", "xlsx", "pptx"]}, "title": {"type": "string"},
+         "subtitle": {"type": "string"}, "sections": {"type": "array", "items": SECTION},
+         "sheets": {"type": "array", "items": {"type": "object", "properties": {
+             "name": {"type": "string"}, "columns": {"type": "array", "items": {"type": "string"}},
+             "rows": {"type": "array", "items": {"type": "array"}}}}}},
+         "required": ["format", "title"], "additionalProperties": False}},
     {"name": "make_image",
      "description": "Create an AI image (illustration, picture, logo idea, scene) from a detailed prompt; it "
      "appears in the chat. General prompts only: nothing personal about the user (it's refused).",
@@ -395,11 +400,16 @@ async def run_maker_tool(memory: Memory, name: str, args: dict) -> str:
         file = save(memory, data, title, "png", "chart")
     elif name == "make_document":
         fmt = args.get("format")
-        if fmt not in ("docx", "pptx"):
-            raise ToolError("format is docx or pptx.")
-        build = build_docx if fmt == "docx" else build_pptx
-        data = await asyncio.to_thread(build, memory, args)
-        file = save(memory, data, title, fmt, "document" if fmt == "docx" else "slides")
+        if fmt not in ("docx", "pdf", "xlsx", "pptx"):
+            raise ToolError("format is docx, pdf, xlsx or pptx.")
+        from . import docedit  # noqa: PLC0415
+        if fmt == "pdf":
+            data = await asyncio.to_thread(docedit.build_pdf, args)
+        elif fmt == "xlsx":
+            data = await asyncio.to_thread(docedit.build_xlsx, args)
+        else:
+            data = await asyncio.to_thread(build_docx if fmt == "docx" else build_pptx, memory, args)
+        file = save(memory, data, title, fmt, "slides" if fmt == "pptx" else "document")
     elif name == "make_image":
         from .free_models import check_general
 
