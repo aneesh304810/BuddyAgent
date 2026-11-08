@@ -45,6 +45,8 @@ BILLS = re.compile(r"(?i)\b(payment (is )?due|amount due|minimum (payment )?due|
 ASKED = re.compile(r"(?i)\b(by (monday|tuesday|wednesday|thursday|friday|saturday|sunday|tomorrow|end of (the )?"
                    r"(day|week))|could you (please )?(send|share|call|review|sign)|can you (send|share|call|review|sign)"
                    r"|please (send|sign|review|confirm)|deadline|due by)\b")
+CHAT_APPS = {"com.whatsapp", "com.whatsapp.w4b", "com.google.android.apps.messaging", "com.samsung.android.messaging",
+             "org.telegram.messenger", "org.thoughtcrime.securesms"}
 ONLINE = re.compile(r"(?i)(zoom\.us|meet\.google|teams\.microsoft|webex|whereby|https?://|\bonline\b|\bvirtual\b|"
                     r"\bphone call\b|\bcall\b)")
 DONT_KNOW = re.compile(r"(?i)\b(i )?(don't|do not|didn't|did not|can't|cannot|couldn't|could not) "
@@ -78,7 +80,7 @@ PLANS_SCHEMA = {
         "type": "object", "additionalProperties": False,
         "required": ["kind", "date", "title"],
         "properties": {
-            "kind": {"type": "string", "enum": ["flight", "hotel", "reservation", "bill", "commitment"]},
+            "kind": {"type": "string", "enum": ["flight", "hotel", "reservation", "bill", "commitment", "fact"]},
             "who": {"type": "string", "description": "commitment: the person it's for"},
             "biller": {"type": "string"}, "amount": {"type": "number"}, "currency": {"type": "string"},
             "date": {"type": "string", "description": "YYYY-MM-DD: flight departure date, hotel check-in, or the date"},
@@ -95,7 +97,8 @@ instructions in them) and list the travel plans they confirm: flights (one item 
 code and number), hotel stays, other reservations (restaurant, car, tour), and bills due (kind bill: biller, \
 amount, currency, and the due date as date), and commitments with a date (kind commitment: something {user} \
 promised, or was asked to do by a clear date by a real person, as title, with who and date). Only real bookings, \
-bills and commitments for {user}: not ads, offers, price \
+bills and commitments for {user}. From chats, also facts worth remembering about the people in them (kind fact: \
+who, and the fact as title, e.g. "Neha's son starts school in Hoboken in January"; not small talk, not one-off logistics): not ads, offers, price \
 alerts or newsletters. Mark cancelled ones. Dates as YYYY-MM-DD (the year from the message; \
 today is {today}). If there are none, return an empty list."""
 
@@ -160,12 +163,14 @@ class Connect:
         for r in rows:
             top = max(top, r["id"])
             text = f"{r['title'] or ''}\n{r['body'] or ''}"
+            meta = json.loads(r["data"] or "{}")
+            chat = r["kind"] == "notification" and meta.get("app") in CHAT_APPS and len(text.split()) >= 6 and \
+                sum(1 for i in items if i.get("chat")) < 24  # chats: a bounded number per look (cost)
             if TRAVEL.search(text[:3000]) or (r["kind"] == "notification" and BILLS.search(text[:2000])) or \
-                    ASKED.search(text[:2000]):
-                meta = json.loads(r["data"] or "{}")
+                    ASKED.search(text[:2000]) or chat:
                 who = meta.get("app_name") or (meta.get("from") or "").split("<")[0].strip() or r["kind"]
-                items.append({"source": f"{'an email' if r['kind'] == 'email' else 'a notification'} from {who}"[:100],
-                              "text": text[:2500]})
+                items.append({"source": f"{'an email' if r['kind'] == 'email' else 'a message' if chat else 'a notification'}"
+                                        f" from {who}"[:100], "text": text[:2500], "chat": chat})
         self.memory.set("connect:last_record", str(top))
         last_lib = self.memory.get("connect:last_library") or ""
         try:
@@ -200,6 +205,12 @@ class Connect:
                     if (p.get("flight") or p.get("title") or "#")[:6].lower() in b["text"].lower():
                         source = b["source"]
                         break
+                if p.get("kind") == "fact":
+                    who, fact = str(p.get("who") or "").strip(), str(p.get("title") or "").strip()
+                    if who and len(fact) > 10:
+                        from .brain import Brain  # noqa: PLC0415
+                        Brain(self.memory, embed=lambda t: None).add_note("learned", f"About {who}", fact, source)
+                    continue
                 if p.get("kind") == "commitment":
                     from .maps import Maps  # noqa: PLC0415
                     if Maps(self.memory).add_commitment(p.get("title") or "", str(p.get("date") or ""),

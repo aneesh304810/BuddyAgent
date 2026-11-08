@@ -140,9 +140,13 @@ class BuddyNotificationListener : NotificationListenerService() {
         recent.addLast(fingerprint)
         if (recent.size > 200) recent.removeFirst()
 
+        // A chat's "Reply" action (WhatsApp, Messages...): kept so Buddy can answer from the user's own account.
+        val reply = n.actions?.firstOrNull { a -> a.remoteInputs?.any { it.allowFreeFormInput } == true }
+        if (reply != null && sbn.packageName in ReplyStore.CHAT_APPS) ReplyStore.keep(sbn.packageName, title, reply)
         PhoneBridge.send(
             JSONObject()
                 .put("type", "notification")
+                .put("can_reply", reply != null && sbn.packageName in ReplyStore.CHAT_APPS)
                 .put("device", PhoneBridge.deviceName(this))
                 .put("app", sbn.packageName)
                 .put("app_name", appName(sbn.packageName))
@@ -176,5 +180,44 @@ class BuddyNotificationListener : NotificationListenerService() {
             "com.samsung.android.messaging" to "Messages",
             "com.google.android.apps.messaging" to "Messages",
         )
+    }
+}
+
+
+/**
+ * The latest "Reply" action of each chat (from its notification), so Buddy can send a message from the user's own
+ * WhatsApp / Messages / Telegram / Signal account, only after the user's yes (or by their own auto-reply rule).
+ */
+object ReplyStore {
+    val CHAT_APPS = setOf("com.whatsapp", "com.whatsapp.w4b", "com.google.android.apps.messaging",
+        "com.samsung.android.messaging", "org.telegram.messenger", "org.thoughtcrime.securesms")
+    private const val MAX = 60
+    private val actions = LinkedHashMap<String, Notification.Action>()
+
+    @Synchronized
+    fun keep(app: String, chat: String, action: Notification.Action) {
+        val key = "$app|${chat.trim().lowercase()}"
+        actions.remove(key)
+        actions[key] = action
+        while (actions.size > MAX) actions.remove(actions.keys.first())
+    }
+
+    /** Send [text] into [chat] of [app]; null when sent, else why not. */
+    @Synchronized
+    fun send(context: android.content.Context, app: String, chat: String, text: String): String? {
+        val want = chat.trim().lowercase()
+        val key = actions.keys.lastOrNull { it == "$app|$want" }
+            ?: actions.keys.lastOrNull { it.startsWith("$app|") && it.substringAfter("|").contains(want) }
+            ?: return "no recent notification from that chat on this phone"
+        val action = actions[key] ?: return "no reply action"
+        val inputs = action.remoteInputs ?: return "this notification can't be replied to"
+        return runCatching {
+            val intent = android.content.Intent()
+            val results = android.os.Bundle()
+            inputs.forEach { results.putCharSequence(it.resultKey, text) }
+            android.app.RemoteInput.addResultsToIntent(inputs, intent, results)
+            action.actionIntent.send(context, 0, intent)
+            null
+        }.getOrElse { "the app refused the reply (${it.javaClass.simpleName})" }
     }
 }

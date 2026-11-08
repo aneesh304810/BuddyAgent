@@ -41,6 +41,8 @@ sealed interface ServerEvent {
     data class OpenLinks(val links: List<RideLink>, val compare: String = "") : ServerEvent
     /** The form helper: read, scroll or fill the form in the browser (fills: JSON array). */
     data class Form(val action: String, val id: String, val fills: String?) : ServerEvent
+    /** Send a chat reply through the notification's Reply action (messaging.py). */
+    data class Reply(val id: String, val app: String, val chat: String, val text: String) : ServerEvent
     /** You paused mid-sentence: Buddy is waiting for the rest. */
     data object Waiting : ServerEvent
     data class DiagPong(val t: Long) : ServerEvent  // diagnostics: the round trip to the server
@@ -73,6 +75,7 @@ sealed interface ServerEvent {
                 "waiting" -> Waiting
                 "diag_pong" -> DiagPong(msg.optLong("t"))
                 "diag_off" -> DiagOff
+                "reply" -> Reply(msg.optString("id"), msg.optString("app"), msg.optString("chat"), msg.optString("text"))
                 "form" -> Form(msg.optString("action"), msg.optString("id"), msg.optJSONArray("fills")?.toString())
                 "open" -> msg.getJSONArray("links").let { a ->
                     OpenLinks((0 until a.length()).map { a.getJSONObject(it) }.map {

@@ -40,7 +40,8 @@ class NotificationsConnector(Connector):
             title=f"{app}: {title}" if title else app,
             body=f"[{device}] {str(msg.get('text', ''))[:1500]}",
             start_at=posted,
-            data={"app": str(msg.get("app", ""))[:120], "app_name": app, "device": device},
+            data={"app": str(msg.get("app", ""))[:120], "app_name": app, "device": device,
+                  **({"can_reply": True} if msg.get("can_reply") else {})},  # a chat Buddy can answer (messaging.py)
         )
 
 

@@ -1,6 +1,6 @@
 # Buddy Privacy and Data Retention Policy
 
-Source: https://claude.ai/artifact/MJVGZ7pWQvi26tg1MS914P, revision 50
+Source: https://claude.ai/artifact/MJVGZ7pWQvi26tg1MS914P, revision 51
 
 Nov 1, 2026 · @Aneesh
 
@@ -41,6 +41,7 @@ Buddy collects only the owner's own data, and only what its features need.
 | Buddy's own notes (findings it keeps after looking something up, with where each came from; finished reports), the advice it gave on decisions and how they turned out, and topics it had no source for | Buddy's conversations and tool results, read by Claude's quick model (never a free model); the owner's answers when Buddy asks how a decision went | So Buddy's knowledge grows beyond uploads, its answers are checked against what its tools returned, its advice improves from results, and it can suggest new sources the owner may want |
 | Promises with a date (from what the owner says, and from emails or chats asking them to do something by a date), how often each source turned out right, and when the owner last heard from close people | The owner's conversation with Buddy; emails and notifications (read by Claude's quick model, never a free model); Buddy's own fact-checks | To remind the owner of promises, prefer the more reliable source when sources disagree, and suggest checking in with family; never sent anywhere |
 | Packages on the way (tracking number, carrier, the shipping email's subject, status, latest event, estimated delivery) | Shipping emails and notifications, read on Buddy's server with text rules (no AI); numbers the owner gives; 17TRACK live status when its key is set | To tell the owner when a package is out for delivery, delivered, delayed or has a problem, and to answer where it is |
+| Chat messages (WhatsApp, Messages, Telegram, Signal) as they appear in the phone's notifications; facts about people learned from them; replies the owner approves; the owner's auto-reply rules and a log of auto-replies sent | The phone's notifications (only with Notification access on); chats are read by Claude's quick model for memories (never a free model); replies go out through the chat app's own notification Reply, from the owner's account | To remember what matters about people and promises, and to reply for the owner: each reply only after their yes; automatic replies only by their own rules (their own words, signed as Buddy, never to groups or unknown numbers, at most once per chat every 2 hours) |
 
 Buddy never collects bank passwords. Bank sign-in happens inside Plaid Link (or the SimpleFIN Bridge site), between the owner and the bank. Buddy cannot move money, make payments or change accounts.
 
@@ -126,6 +127,7 @@ Data is kept only as long as it is useful, then deleted automatically.
 | Buddy's notes, decisions and source gaps | Time-sensitive findings and market or news reports: 30 days. Other notes and advice: until the owner asks Buddy to forget them ("forget the note about …") |
 | Location history, learned places, promises and source reliability | Location history: 60 days, then deleted automatically; the owner can delete it and the saved places any time ("forget my location history"). Promises: until done or removed. Source reliability: counts only, kept |
 | Packages | Until 30 days after delivery (or 60 days with no news), then deleted automatically; the owner can remove one any time |
+| Chat notifications, auto-reply rules and the auto-reply log | Notifications (chats included): 7 days. Auto-reply rules: until the owner removes them. Auto-reply log: 30 days. Facts learned about people: as Buddy's notes (see above) |
 | Watched trend topics; trend digests and daily mention counts | Topics until the owner removes them; digests and counts 60 days, then deleted automatically |
 | Uploaded documents and photos, with their text, summaries, facts and search index | Until the owner tells Buddy to forget them; forgetting deletes the file, its text, its index entries and the facts taken from it |
 | People and things noted from the owner's data | Until the owner edits or deletes them |

@@ -544,6 +544,11 @@ class BuddyService : Service() {
                 pendingMode = if (event.mode == "listen") Mode.LISTEN_IN else Mode.TALK
                 if (!mouth.speaking && !replyOpen) applyPendingMode()
             }
+            is ServerEvent.Reply -> {
+                val error = ReplyStore.send(this, event.app, event.chat, event.text)
+                PhoneBridge.send(JSONObject().put("type", "reply_result").put("id", event.id).put("ok", error == null)
+                    .apply { if (error != null) put("error", error) })
+            }
             is ServerEvent.Form -> if (!FormHelper.request(event.action, event.id, event.fills?.let { JSONArray(it) })) {
                 PhoneBridge.send(JSONObject().put("type", if (event.action == "fill") "form_result" else "form_screen")
                     .put("id", event.id).put("error", "helper_off"))

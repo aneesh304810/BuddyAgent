@@ -204,6 +204,26 @@ async def deliver(kind: str, text: str, **extra) -> bool:
     return True
 
 
+async def _auto_reply(msg: dict, phone_request) -> None:
+    """An incoming chat message that one of the user's auto-reply rules covers: send their away-message, tell them."""
+    from .maps import Maps
+    from .messaging import Messages
+    try:
+        msgs = Messages(memory)
+        text = msgs.auto_reply_for(msg, await asyncio.to_thread(Maps(memory).situation))
+        if not text:
+            return
+        chat = str(msg.get("title") or "")
+        msgs.log_auto(chat, text)  # before sending: a second message can't trigger a second reply
+        got = await phone_request({"type": "reply", "app": msg.get("app"), "chat": chat, "text": text})
+        if got.get("ok"):
+            await deliver("notification", f"Auto-replied to {chat}: \"{text}\"")
+        else:
+            log.info("auto-reply to %s not sent: %s", chat, got.get("error"))
+    except Exception:
+        log.exception("auto-reply failed")
+
+
 def _ride_fare(app: str, fare: float, currency: str) -> None:
     """A finished ride's fare goes into spending, unless the email receipt already put it there."""
     money = Money(memory)
@@ -1588,6 +1608,8 @@ async def talk(ws: WebSocket) -> None:
                     asyncio.create_task(room_or_buddy(text, str(msg.get("lang", ""))))
             elif msg.get("type") == "notification":
                 added = hub.ingest("notifications", [NotificationsConnector.to_record(msg)])
+                if added and msg.get("can_reply"):  # the user's own auto-reply rules (messaging.py), not blocking
+                    asyncio.create_task(_auto_reply(msg, phone_request))
                 if RideFollower.is_ride(msg):  # Uber / Lyft: follow the trip, say what matters
                     # (not `say`: that's this connection's speaking function)
                     ride_news, card = RideFollower(memory, record_fare=_ride_fare).update(msg)
@@ -1598,7 +1620,7 @@ async def talk(ws: WebSocket) -> None:
                     said = mask(str(msg.get("text", "")).strip())[:200]
                     app_name = str(msg.get("app_name") or "a notification")
                     await deliver("notification", f"{app_name}{', ' + who if who else ''}: {said}")
-            elif msg.get("type") in ("form_screen", "form_result"):  # the form helper answering phone_request
+            elif msg.get("type") in ("form_screen", "form_result", "reply_result"):  # the phone answering phone_request
                 waiting = replies.get(str(msg.get("id", "")))
                 if waiting is not None and not waiting.done():
                     waiting.set_result(msg)
