@@ -400,11 +400,15 @@ async def send_digest(memory: Memory, deliver) -> bool:
     report = latest(memory)
     if not report:
         return False
-    try:
-        text = await digest_text(memory, report)
-    except Exception:
-        log.exception("health digest: writing failed")
-        text = plain_digest(report)
+    key = f"health:digest_text:{local_now().date().isoformat()}"
+    text = memory.get(key) or ""  # written once a day, kept until delivered (not rewritten on every check)
+    if not text:
+        try:
+            text = await digest_text(memory, report)
+        except Exception:
+            log.exception("health digest: writing failed")
+            text = plain_digest(report)
+        memory.set(key, text)
     if not await deliver("health", text, status=report["status"]):  # no phone connected yet: try later
         return False
     memory.set("health:digest_sent", local_now().date().isoformat())

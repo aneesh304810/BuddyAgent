@@ -220,7 +220,8 @@ class FreeModels:
 
     def order(self, kind: str) -> list[str]:
         """Providers to try, best first: suited to the task, then fast and reliable lately."""
-        candidates = [n for n in BEST_FOR[kind] if n in self.enabled() and self.cooldown.get(n, 0) <= time.time()]
+        candidates = [n for n in BEST_FOR[kind] if n in self.enabled() and self.cooldown.get(n, 0) <= time.time()
+                      and not self.resting(n)]
         rank = {n: i for i, n in enumerate(candidates)}
 
         accuracy = self.accuracy(kind)
@@ -233,6 +234,28 @@ class FreeModels:
                 return self.speed.get(name, 3.0) + 10 * unreliable + 8 * wrong + 0.3 * rank[name]
             return rank[name] + 5 * unreliable + 6 * wrong  # capability first; flaky or wrong drops back
         return sorted(candidates, key=score)
+
+    # A provider that keeps failing (a bad key, a model gone, over its limit) rests for a while, remembered
+    # across calls: otherwise every request tries it first and fails again.
+    REST_AFTER, REST_HOURS = 5, 6
+
+    def resting(self, name: str) -> bool:
+        until = self.memory.get(f"free:rest:{name}") if self.memory is not None else ""
+        return bool(until) and float(until) > time.time()
+
+    def _failed(self, name: str) -> None:
+        if self.memory is None:
+            return
+        n = int(self.memory.get(f"free:fails:{name}") or 0) + 1
+        self.memory.set(f"free:fails:{name}", str(n))
+        if n >= self.REST_AFTER:
+            self.memory.set(f"free:rest:{name}", str(time.time() + self.REST_HOURS * 3600))
+            self.memory.set(f"free:fails:{name}", "0")
+            log.warning("free model %s failed %d times in a row: resting %d hours", name, n, self.REST_HOURS)
+
+    def _worked(self, name: str) -> None:
+        if self.memory is not None and self.memory.get(f"free:fails:{name}") not in (None, "", "0"):
+            self.memory.set(f"free:fails:{name}", "0")
 
     def accuracy(self, kind: str) -> dict[str, float]:
         """Share of each provider's answers Claude found usable (used or fixed) for this kind
@@ -305,6 +328,7 @@ class FreeModels:
                                    request=prompt, verdict="redone")
                     raise NeedsClaude("not sure")
                 self._learn(name, time.monotonic() - started)
+                self._worked(name)
                 usage.count(self.memory, f"free:{name}")
                 call_id = usage.log_call(
                                self.memory, provider=name, model=self._last_model or self.model_of(name), purpose=purpose,
@@ -317,6 +341,8 @@ class FreeModels:
                 raise  # not a failure: this one should be Claude's
             except RateLimited as e:
                 self.cooldown[name] = time.time() + e.wait
+                if self.memory is not None and e.wait > 60:  # a long limit: remember it across calls too
+                    self.memory.set(f"free:rest:{name}", str(time.time() + min(e.wait, 6 * 3600)))
                 tried.append(f"{name}: at its free limit")
                 usage.log_call(self.memory, provider=name, model=self._last_model or self.model_of(name), purpose=purpose,
                                seconds=time.monotonic() - started, ok=False, stop="at its free limit",
@@ -329,6 +355,7 @@ class FreeModels:
                                request=prompt, verdict="failed_check")
             except Exception as e:
                 self._learn(name, None)
+                self._failed(name)
                 self.cooldown[name] = time.time() + 120
                 tried.append(f"{name}: {type(e).__name__}")
                 usage.log_call(self.memory, provider=name, model=self._last_model or self.model_of(name), purpose=purpose,

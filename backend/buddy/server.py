@@ -347,7 +347,7 @@ async def lifespan(app: FastAPI):
 
     social_module.METER = lambda provider, endpoint: travel.log_call(memory, provider, endpoint, True, 0.0, "search")
     await registry.start()
-    task = asyncio.create_task(proactive.run(memory, deliver))
+    task = asyncio.create_task(proactive.run(memory, deliver, connected=lambda: bool(connections)))
     job_loop = asyncio.create_task(jobs.run())
     sync_loop = asyncio.create_task(hub.run())
     mail_loop = asyncio.create_task(mail.run())

@@ -147,18 +147,41 @@ def wrap_up_due(memory: Memory) -> bool:
     return _due(memory, settings.evening_wrap_at, "last_wrap_up")
 
 
-async def run(memory: Memory, deliver: Deliver) -> None:
-    """Loop forever, pushing due nudges. Undelivered ones wait for a connection."""
+async def _written_once(memory: Memory, key: str, write) -> str:
+    """Text an AI wrote for a nudge, kept until it's delivered: written once, not again on every 15-second pass
+    while the phone isn't connected (that loop once cost about $30 a week)."""
+    saved = memory.get(f"nudge_text:{key}")
+    if saved:
+        return saved
+    text = await write()
+    if text:
+        memory.set(f"nudge_text:{key}", text)
+    return text
+
+
+def _sent(memory: Memory, key: str) -> None:
+    memory.set(f"nudge_text:{key}", "")
+
+
+async def run(memory: Memory, deliver: Deliver, connected=None) -> None:
+    """Loop forever, pushing due nudges. Undelivered ones wait for a connection.
+    connected(): is a phone listening? Nothing is written by an AI while none is (it would only be rewritten)."""
     while True:
         try:
-            for reminder in memory.due_reminders():
-                if await deliver("reminder", await reminder_nudge(memory, reminder)):
+            online = connected() if connected else True
+            for reminder in memory.due_reminders() if online else []:
+                key = f"reminder:{reminder['id']}"
+                text = await _written_once(memory, key, lambda r=reminder: reminder_nudge(memory, r))
+                if await deliver("reminder", text):
                     memory.mark_delivered(reminder["id"])
-            if briefing_due(memory):
-                text = await morning_briefing(memory)
+                    _sent(memory, key)
+            if online and briefing_due(memory):
+                key = f"briefing:{local_now().date().isoformat()}"
+                text = await _written_once(memory, key, lambda: morning_briefing(memory))
                 if text and await deliver("briefing", text):
                     memory.set("last_briefing", local_now().date().isoformat())
                     thinking.taken(memory)
+                    _sent(memory, key)
             today = local_now().date().isoformat()
             if memory.get("finance:refreshed") != today:
                 await asyncio.to_thread(finance.Finance(memory).refresh)
@@ -428,10 +451,12 @@ async def run(memory: Memory, deliver: Deliver) -> None:
                 for bill in money.bills_to_remind():
                     if await deliver("bill", bill_reminder_text(bill)):
                         money.reminded(bill["id"])
-            if wrap_up_due(memory):
-                text = await evening_wrap(memory)
+            if online and wrap_up_due(memory):
+                key = f"wrap_up:{local_now().date().isoformat()}"
+                text = await _written_once(memory, key, lambda: evening_wrap(memory))
                 if text and await deliver("wrap_up", text):
                     memory.set("last_wrap_up", local_now().date().isoformat())
+                    _sent(memory, key)
                     LifeLog(memory).log_day(day_facts(memory))
         except Exception:
             log.exception("proactive loop error")
