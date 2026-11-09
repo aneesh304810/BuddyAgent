@@ -413,6 +413,9 @@ async def _budget_alerts() -> None:
                     await deliver("money", text)
                 from . import costwatch  # noqa: PLC0415
                 await costwatch.run_daily(memory, deliver)  # the morning cost analysis (code only)
+            if connections:
+                from . import claudefix  # noqa: PLC0415
+                await claudefix.check(memory, deliver, time.time())  # Claude Code finished a fix: say so once
             day = time.strftime("%Y-%m-%d")
             if memory.get("convolog:pruned") != day:  # the searchable chat log keeps 30 days
                 from . import convolog  # noqa: PLC0415

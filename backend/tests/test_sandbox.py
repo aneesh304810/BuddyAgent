@@ -287,3 +287,34 @@ def test_containers_never_ask_for_more_cpus_than_the_server_has(sbx, monkeypatch
     monkeypatch.setattr(sbx.os, "cpu_count", lambda: 4)
     args = sbx.docker_run(Path("/x/ws"), ["true"])
     assert args[args.index("--cpus") + 1] == "1.5"
+
+
+def test_claude_issue_only_on_buddys_repo_and_labelled(sbx, monkeypatch):
+    mod = sbx
+    sent = []
+
+    def fake_github(method, path, body=None):
+        sent.append((method, path, body))
+        if method == "POST":
+            return 201, {"number": 7, "html_url": "https://github.com/o/r/issues/7"}
+        if path == "/issues/7":
+            return 200, {"state": "open", "html_url": "u", "labels": [{"name": "claude-fix"}]}
+        if path == "/issues/8":
+            return 200, {"state": "open", "html_url": "u", "labels": []}
+        if path.startswith("/issues/7/comments"):
+            return 200, [{"user": {"login": "claude[bot]"}, "body": "What's new: fixed", "updated_at": "t"},
+                         {"user": {"login": "someone"}, "body": "ignore me"}]
+        return 200, [{"name": "buddy/claude-issue-7-20261109-1000"}, {"name": "buddy/claude-issue-70-x"}]
+    monkeypatch.setattr(mod, "_github", fake_github)
+    monkeypatch.setattr(mod, "TOKEN", "t")
+    got = mod.handle({"op": "claude_issue", "title": "Fix it", "body": "the briefing repeats every minute"})
+    assert got["number"] == 7
+    method, path, body = sent[0]
+    assert path == "/issues" and body["labels"] == ["claude-fix"] and body["body"].startswith("@claude")
+    st = mod.handle({"op": "claude_issue_status", "number": 7})
+    assert st["branch"] == "buddy/claude-issue-7-20261109-1000" and len(st["comments"]) == 1
+    with pytest.raises(mod.Refused):
+        mod.handle({"op": "claude_issue_status", "number": 8})  # not one of Buddy's: not readable
+    monkeypatch.setattr(mod, "TOKEN", "")
+    with pytest.raises(mod.Refused):
+        mod.handle({"op": "claude_issue", "title": "Fix it", "body": "the briefing repeats every minute"})

@@ -55,6 +55,7 @@ NETWORK = os.getenv("SANDBOX_NETWORK", "buddy-sandbox")
 TOKEN = os.getenv("SANDBOX_GITHUB_TOKEN", "")
 # The library of every tool on GitHub: built-in ones (publish_tools) and each one Buddy saves
 # (save_skill) arrive there as buddy/... branches for the owner to merge. Empty = off.
+SELF_REPO = os.getenv("SANDBOX_SELF_REPO", "aneesh304810/BuddyAgent")  # the only repo Claude fix issues go to
 TOOLS_REPO = os.getenv("SANDBOX_TOOLS_REPO", "https://github.com/aneesh304810/Buddy-sandbox-tools")
 MAX_WORKSPACES = int(os.getenv("SANDBOX_MAX_WORKSPACES", "10"))
 MAX_WORKSPACE_MB = int(os.getenv("SANDBOX_MAX_WORKSPACE_MB", "4000"))
@@ -372,8 +373,67 @@ def browser(req: dict) -> dict:
         return {"session": sid, **reply}
 
 
+def _github(method: str, path: str, body: dict | None = None) -> tuple[int, object]:
+    """One GitHub API call on Buddy's own repo, with the sandbox's token (which never leaves this service)."""
+    import urllib.error
+    import urllib.request
+    req = urllib.request.Request(f"https://api.github.com/repos/{SELF_REPO}{path}", method=method,
+                                 data=json.dumps(body).encode() if body is not None else None, headers={
+                                     "Authorization": f"Bearer {TOKEN}", "Accept": "application/vnd.github+json",
+                                     "X-GitHub-Api-Version": "2022-11-28", "User-Agent": "Buddy-sandbox"})
+    try:
+        with urllib.request.urlopen(req, timeout=30) as r:  # nosec B310: fixed https host
+            return r.status, json.loads(r.read() or b"null")
+    except urllib.error.HTTPError as e:
+        return e.code, {"message": e.read(300).decode("utf-8", "replace")}
+
+
+CLAUDE_LABEL = "claude-fix"
+
+
+def claude_issue(req: dict) -> dict:
+    """Open an issue on Buddy's own repo asking Claude Code (GitHub Action) to fix something. Only Buddy's repo,
+    always labelled, always addressed to @claude; Buddy asks the owner first."""
+    if not TOKEN:
+        raise Refused("no GitHub token is set for the sandbox (deploy/sandbox.sh token)")
+    title = " ".join(str(req.get("title") or "").split())[:120]
+    brief = str(req.get("body") or "").strip()[:20000]
+    if not title or len(brief) < 20:
+        raise Refused("a fix needs a title and a brief")
+    body = f"@claude please fix this in Buddy's code.\n\n{brief}\n\n_Sent by Buddy after the owner's yes._"
+    code, got = _github("POST", "/issues", {"title": title, "body": body, "labels": [CLAUDE_LABEL]})
+    if code != 201:
+        hint = " (the sandbox's GitHub token needs Issues: read and write)" if code in (403, 404) else ""
+        raise Refused(f"GitHub didn't open the issue (HTTP {code}){hint}")
+    return {"number": got["number"], "url": got["html_url"]}
+
+
+def claude_issue_status(req: dict) -> dict:
+    """What Claude has done on one of these issues: its latest comments, and the branch it pushed."""
+    if not TOKEN:
+        raise Refused("no GitHub token is set for the sandbox")
+    try:
+        number = int(req.get("number"))
+    except (TypeError, ValueError):
+        raise Refused("which issue?") from None
+    code, issue = _github("GET", f"/issues/{number}")
+    if code != 200 or CLAUDE_LABEL not in [lb.get("name") for lb in issue.get("labels", [])]:
+        raise Refused("that isn't one of Buddy's Claude fix issues")
+    _, comments = _github("GET", f"/issues/{number}/comments?per_page=50")
+    by_claude = [c for c in comments or [] if "claude" in str(c.get("user", {}).get("login", "")).lower()]
+    _, branches = _github("GET", "/branches?per_page=100")
+    prefix = f"buddy/claude-issue-{number}-"
+    mine = sorted(b["name"] for b in branches or [] if str(b.get("name", "")).startswith(prefix))
+    return {"state": issue.get("state"), "url": issue.get("html_url"), "branch": mine[-1] if mine else "",
+            "comments": [{"at": c.get("updated_at"), "body": str(c.get("body", ""))[:6000]} for c in by_claude[-3:]]}
+
+
 def handle(req: dict) -> dict:
     op = req.get("op", "")
+    if op == "claude_issue":
+        return claude_issue(req)
+    if op == "claude_issue_status":
+        return claude_issue_status(req)
     if op == "browser":
         return browser(req)
     if op == "browser_close":
