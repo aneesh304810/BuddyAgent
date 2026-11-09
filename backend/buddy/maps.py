@@ -415,6 +415,9 @@ class Maps:
         now = now or local_now().replace(tzinfo=None)
         out = []
         leave = self.usual_leave()
+        from .commute import routine as commute_routine  # noqa: PLC0415
+        if commute_routine(self.memory):
+            leave = None  # the learned commute gives its own heads-up (commute.py): not twice
         if leave and now.weekday() < 5:
             h, m = map(int, leave.split(":"))
             at = now.replace(hour=h, minute=m, second=0, microsecond=0)

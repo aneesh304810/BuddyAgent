@@ -377,6 +377,10 @@ async def run(memory: Memory, deliver: Deliver, connected=None) -> None:
                 if memory.get("maps:learned") != local_now().date().isoformat():
                     memory.set("maps:learned", local_now().date().isoformat())  # home, work: once a day
                     atlas.learn_places()  # on the loop: it writes to the shared DB
+                    from . import commute  # noqa: PLC0415  the weekday routine, from where the phone goes
+                    said = await asyncio.to_thread(commute.relearn, memory)
+                    if said:
+                        await deliver("travel", said)
                 hold = await asyncio.to_thread(atlas.hold_non_urgent)  # driving or in a meeting: only urgent ones now
                 extra = []
                 try:  # packages: shipping emails and notifications (text rules), 17TRACK live status every 2 hours
@@ -409,7 +413,9 @@ async def run(memory: Memory, deliver: Deliver, connected=None) -> None:
                 except Exception:
                     log.exception("weather heads-up failed")
                 moments = Moments(memory)
-                for m in await asyncio.to_thread(moments.now) + await asyncio.to_thread(atlas.nudges) + extra:
+                from . import commute  # noqa: PLC0415
+                heads = await asyncio.to_thread(commute.nudges, memory)  # before the usual leave: trains, alerts
+                for m in await asyncio.to_thread(moments.now) + await asyncio.to_thread(atlas.nudges) + heads + extra:
                     if (m["urgent"] or (not in_quiet_hours() and not hold)) and not moments._said(m["key"]) \
                             and await deliver("travel", m["text"]):
                         moments.told(m)
