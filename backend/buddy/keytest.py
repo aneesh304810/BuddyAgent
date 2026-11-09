@@ -133,9 +133,15 @@ def _njt(env) -> list[str]:
         if ok:
             out.append(f"  OK    {name:<11} {'sign in':<40} {time.monotonic() - t:.1f}s")
         else:
-            hint = ("NJ Transit refused this login for this API: check that the API is approved under My APIs on "
+            reason = njt_reason(got).lower()
+            hint = ("NJ Transit doesn't know this username: re-enter it exactly as you type it to sign in to "
+                    "developer.njtransit.com (email or username): set.sh BUDDY_NJT_USERNAME") \
+                if "missing user" in reason or "user account" in reason else \
+                ("the username is right but the password isn't: set.sh BUDDY_NJT_PASSWORD") \
+                if "password" in reason else \
+                ("NJ Transit refused this login for this API: check that the API is approved under My APIs on "
                     "developer.njtransit.com, and that the username and password are the portal's (set.sh "
-                    "BUDDY_NJT_USERNAME / BUDDY_NJT_PASSWORD)") if code in (200, 401, 403) else \
+                    "BUDDY_NJT_USERNAME / BUDDY_NJT_PASSWORD)") if code in (200, 401, 403, 500) else \
                 "can't reach it (network or the service is down)" if code == 0 else "see the message"
             out.append(f"  FAIL  {name:<11} {'sign in':<40} HTTP {code or '-'}: {njt_reason(got)}\n"
                        f"        fix: {hint}")
