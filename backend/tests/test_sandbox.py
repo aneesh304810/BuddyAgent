@@ -300,7 +300,10 @@ def test_claude_issue_only_on_buddys_repo_and_labelled(sbx, monkeypatch):
         if method == "POST" and path == "/issues":
             return 201, {"number": 7, "html_url": "https://github.com/o/r/issues/7", "labels": []}  # dropped
         if method == "POST" and path == "/issues/7/labels":
-            return 200, [{"name": "claude-fix"}]
+            return 403, {"message": "Resource not accessible by personal access token"}  # may open, not label
+        if path == "/issues/9":
+            return 200, {"state": "open", "html_url": "u", "labels": [],
+                         "body": "@claude fix\n\n_Sent by Buddy after the owner's yes._"}
         if path == "/issues/7":
             return 200, {"state": "open", "html_url": "u", "labels": [{"name": "claude-fix"}]}
         if path == "/issues/8":
@@ -320,6 +323,7 @@ def test_claude_issue_only_on_buddys_repo_and_labelled(sbx, monkeypatch):
     assert st["branch"] == "buddy/claude-issue-7-20261109-1000" and len(st["comments"]) == 1
     with pytest.raises(mod.Refused):
         mod.handle({"op": "claude_issue_status", "number": 8})  # not one of Buddy's: not readable
+    assert mod.handle({"op": "claude_issue_status", "number": 9})["state"] == "open"  # Buddy's, unlabelled
     monkeypatch.setattr(mod, "TOKEN", "")
     with pytest.raises(mod.Refused):
         mod.handle({"op": "claude_issue", "title": "Fix it", "body": "the briefing repeats every minute"})

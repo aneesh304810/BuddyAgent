@@ -389,6 +389,7 @@ def _github(method: str, path: str, body: dict | None = None) -> tuple[int, obje
 
 
 CLAUDE_LABEL = "claude-fix"
+BUDDY_MARK = "_Sent by Buddy after the owner's yes._"  # in every issue Buddy opens: how Buddy knows its own issues
 
 
 def claude_issue(req: dict) -> dict:
@@ -400,7 +401,7 @@ def claude_issue(req: dict) -> dict:
     brief = str(req.get("body") or "").strip()[:20000]
     if not title or len(brief) < 20:
         raise Refused("a fix needs a title and a brief")
-    body = f"@claude please fix this in Buddy's code.\n\n{brief}\n\n_Sent by Buddy after the owner's yes._"
+    body = f"@claude please fix this in Buddy's code.\n\n{brief}\n\n{BUDDY_MARK}"
     # The label must exist first: GitHub quietly drops a label it doesn't know, and the workflow then skips the issue.
     _github("POST", "/labels", {"name": CLAUDE_LABEL, "color": "d97757",
                                 "description": "Claude Code fixes this (sent by Buddy)"})  # 422 = already there
@@ -409,10 +410,9 @@ def claude_issue(req: dict) -> dict:
         hint = " (the sandbox's GitHub token needs Issues: read and write)" if code in (403, 404) else ""
         raise Refused(f"GitHub didn't open the issue (HTTP {code}){hint}")
     if CLAUDE_LABEL not in [lb.get("name") for lb in got.get("labels", [])]:
-        lc, _ = _github("POST", f"/issues/{got['number']}/labels", {"labels": [CLAUDE_LABEL]})
-        if lc != 200:
-            raise Refused(f"GitHub opened issue #{got['number']} but wouldn't label it {CLAUDE_LABEL} (HTTP {lc}), "
-                          "so Claude won't start: add the label on GitHub")
+        # Only a marker: the workflow starts on the owner's issue with @claude. A token that may open issues but not
+        # label them (HTTP 403) still works.
+        _github("POST", f"/issues/{got['number']}/labels", {"labels": [CLAUDE_LABEL]})
     return {"number": got["number"], "url": got["html_url"]}
 
 
@@ -425,7 +425,8 @@ def claude_issue_status(req: dict) -> dict:
     except (TypeError, ValueError):
         raise Refused("which issue?") from None
     code, issue = _github("GET", f"/issues/{number}")
-    if code != 200 or CLAUDE_LABEL not in [lb.get("name") for lb in issue.get("labels", [])]:
+    if code != 200 or not (CLAUDE_LABEL in [lb.get("name") for lb in issue.get("labels", [])]
+                           or BUDDY_MARK in str(issue.get("body") or "")):
         raise Refused("that isn't one of Buddy's Claude fix issues")
     _, comments = _github("GET", f"/issues/{number}/comments?per_page=50")
     by_claude = [c for c in comments or [] if "claude" in str(c.get("user", {}).get("login", "")).lower()]

@@ -11,7 +11,7 @@ name: Claude fix
 
 on:
   issues:
-    types: [opened, labeled]
+    types: [opened]
   issue_comment:
     types: [created]
 
@@ -27,15 +27,16 @@ concurrency:
 
 jobs:
   claude:
+    # Only the repository owner can start Claude: an issue they opened, or a comment they wrote, with @claude in it.
+    # (The claude-fix label is a marker Buddy adds when its token may; it isn't needed to start, and adding it later
+    # doesn't start a second run. To retry, comment "@claude please start".)
     if: >-
       (github.event_name == 'issues'
         && github.event.issue.user.login == github.repository_owner
-        && contains(github.event.issue.labels.*.name, 'claude-fix')
         && contains(github.event.issue.body, '@claude'))
       || (github.event_name == 'issue_comment'
         && !github.event.issue.pull_request
         && github.event.comment.user.login == github.repository_owner
-        && contains(github.event.issue.labels.*.name, 'claude-fix')
         && contains(github.event.comment.body, '@claude'))
     runs-on: ubuntu-latest
     timeout-minutes: 45
