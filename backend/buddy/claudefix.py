@@ -155,7 +155,15 @@ async def check(memory, deliver, now: float) -> None:
         except sandbox.SandboxError:
             continue
         report = finished(st.get("comments", []))
-        if report and st.get("branch"):
+        failed = next((c["body"] for c in reversed(st.get("comments") or [])
+                       if re.search(r"encountered an error", c.get("body", ""), re.IGNORECASE)), "")
+        if failed and not report:
+            link = re.search(r"\((https://github\.com/[^)]+/actions/runs/\d+)\)", failed)
+            if await deliver("job_done", f"Claude Code stopped with an error on issue #{item['number']} "
+                             f"(\"{item['title'][:60]}\"). The run's log says why: {link.group(1) if link else item['url']}. "
+                             "To try again, comment \"@claude please start\" on the issue."):
+                item["told"] = True
+        elif report and st.get("branch"):
             if await deliver("job_done", f"Claude Code finished \"{item['title'][:80]}\" (issue #{item['number']}, "
                              f"branch {st['branch']}).\n{_short(report)}\nReview it, then say \"deploy Claude's fix\" "
                              "to test, merge and deploy it."):

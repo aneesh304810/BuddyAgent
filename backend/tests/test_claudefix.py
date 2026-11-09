@@ -74,3 +74,19 @@ def test_no_deploy_before_claude_has_finished(monkeypatch, tmp_path):
     _sandbox(monkeypatch, {"state": "open", "url": "u", "branch": "", "comments": [{"body": "Claude is working…"}]})
     assert "hasn't pushed" in asyncio.run(claudefix.run_tool(m, t, {"action": "deploy"})) and not t.asked
     assert "still on it" in asyncio.run(claudefix.run_tool(m, t, {"action": "status"}))
+
+
+def test_says_when_claude_stopped_with_an_error(monkeypatch, tmp_path):
+    m = Memory(tmp_path / "b.db")
+    claudefix._save(m, [{"number": 26, "url": "u", "title": "Add test", "at": "2026-11-09T10:00:00+00:00",
+                         "told": False, "checked": 0}])
+    _sandbox(monkeypatch, {"state": "open", "url": "u", "branch": "", "comments": [{"body": (
+        "**Claude encountered an error after 2s** —— [View job](https://github.com/o/r/actions/runs/42)")}]})
+    told = []
+
+    async def deliver(kind, text, **kw):
+        told.append(text)
+        return True
+    asyncio.run(claudefix.check(m, deliver, 1000.0))
+    asyncio.run(claudefix.check(m, deliver, 2000.0))
+    assert len(told) == 1 and "actions/runs/42" in told[0] and "@claude please start" in told[0]
