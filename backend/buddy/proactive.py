@@ -12,7 +12,6 @@ from . import advisor, benefits, finance, review, health, thinking, travel
 from .agent import compose
 from .config import settings
 from .memory import Memory
-from .persona import build_system_prompt
 from .connectors import agenda
 from .mailbrain import MailManager
 from .money import Money, bill_reminder_text
@@ -53,8 +52,20 @@ async def reminder_nudge(memory: Memory, reminder: dict) -> str:
     return text or plain
 
 
+def _spoken_system(memory: Memory) -> str:
+    """A small prompt for background writing (briefing, wrap-up): who Buddy is, how it talks, a few facts and the
+    goals. Not the full chat prompt: its ~30 KB of tool rules are useless here and were most of the briefing's cost."""
+    facts = "; ".join(memory.recall("", limit=12))
+    goals = "; ".join(g["text"] for g in memory.open_goals()[:6])
+    return (f"You are {settings.assistant_name}, {settings.user_name}'s personal assistant and friend. Warm, brief, "
+            "natural spoken English: no markdown, lists or emoji; it is read aloud. Use only the facts given; never "
+            "invent events, numbers or news. "
+            + (f"About {settings.user_name}: {facts}. " if facts else "")
+            + (f"Their goals: {goals}." if goals else ""))
+
+
 async def morning_briefing(memory: Memory) -> str:
-    system = build_system_prompt(memory.recall(""), memory.open_goals())
+    system = _spoken_system(memory)
     reminders = [
         f"{r['text']} at {format_local(r['due_at'])}" for r in memory.upcoming_reminders()
     ]
@@ -75,12 +86,12 @@ async def morning_briefing(memory: Memory) -> str:
         f"{thinking.morning_note(memory)}"
         + (f" They asked for these in every briefing, say them briefly: {topics}" if (topics := await _topics_line(memory))
            else ""),
-        memory, label="briefing",
+        memory, label="briefing", model=settings.fast_model,  # quick model: a few spoken sentences from given facts
     )
 
 
 async def evening_wrap(memory: Memory) -> str:
-    system = build_system_prompt(memory.recall(""), memory.open_goals())
+    system = _spoken_system(memory)
     today = local_now().date()
     tomorrow = [e["when"] + " " + e["title"] for e in agenda(memory, 2)
                 if e.get("start_at") and datetime.fromisoformat(e["start_at"]).astimezone(user_tz()).date() > today]
@@ -93,7 +104,7 @@ async def evening_wrap(memory: Memory) -> str:
         f"Tomorrow's calendar: {'; '.join(tomorrow) or 'nothing or not connected'}. "
         f"Email still worth a look: {MailManager(memory, None).briefing_line()}. "
         f"Spent today: {Money(memory).today_line()} (mention only if notable).",
-        memory, label="evening_wrap",
+        memory, label="evening_wrap", model=settings.fast_model,
     )
 
 

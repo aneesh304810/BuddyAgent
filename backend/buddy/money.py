@@ -328,9 +328,13 @@ class Money:
 def bill_reminder_text(bill: dict) -> str:
     when = date.fromisoformat(bill["due_date"])
     days = (when - local_now().date()).days
-    day = "today" if days == 0 else "tomorrow" if days == 1 else (
-        f"on {when.strftime('%A')}" if days > 1 else f"— it was due {when.strftime('%A %d %B')}")
-    return f"Your {bill['biller']} bill of {bill['amount']:.2f} {bill['currency']} is due {day}."
+    what = f"Your {bill['biller']} bill of {bill['amount']:.2f} {bill['currency']}"
+    if days < 0:  # overdue: say so plainly, and how to stop the reminder if it's actually paid
+        ago = "yesterday" if days == -1 else f"{-days} days ago"
+        return (f"{what} was due {when.strftime('%A %d %B')} ({ago}) and still shows as unpaid. If you've paid it, "
+                f"say \"I paid {bill['biller']}\" and I'll stop reminding you.")
+    day = "today" if days == 0 else "tomorrow" if days == 1 else f"on {when.strftime('%A')}"
+    return f"{what} is due {day}."
 
 
 MONEY_TOOLS = [
