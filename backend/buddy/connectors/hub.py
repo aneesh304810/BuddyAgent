@@ -213,6 +213,19 @@ def agenda(memory: Memory, days: int = 1) -> list[dict]:
     return [_view(r) for r in rows]
 
 
+def calendar_connected(memory: Memory) -> bool:
+    """True when any calendar source exists: the ICS link(s) or events synced from a phone's shared calendar."""
+    if CalendarConnector().configured():
+        return True
+    try:
+        row = memory.db.execute(
+            "SELECT COUNT(*) AS n FROM records WHERE kind = 'event' AND source IN ('calendar', 'phone_calendar')"
+        ).fetchone()
+    except Exception:  # no connectors table yet
+        return False
+    return bool(row and row["n"])
+
+
 def _view(row) -> dict:
     return {
         "source": row["source"], "kind": row["kind"], "title": row["title"],
@@ -276,8 +289,7 @@ async def run_connector_tool(hub: ConnectorHub, name: str, args: dict) -> str:
     if name == "agenda":
         events = hub.agenda(int(args.get("days") or 1))
         if not events:
-            connected = any(s["name"] == "calendar" and s["configured"] for s in hub.status())
-            return "No events." if connected else "The calendar isn't connected yet."
+            return "No events." if calendar_connected(hub.memory) else "The calendar isn't connected yet."
         return UNTRUSTED + json.dumps(events)
     if name == "app_connections":
         note = ""

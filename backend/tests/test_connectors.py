@@ -8,7 +8,7 @@ import pytest
 from buddy.connectors import calendar as cal_mod
 from buddy.connectors import mail as mail_mod
 from buddy.connectors.base import Connector, Record
-from buddy.connectors.hub import ConnectorHub, run_connector_tool
+from buddy.connectors.hub import ConnectorHub, calendar_connected, run_connector_tool
 from buddy.memory import Memory
 from buddy.tools import ToolError
 
@@ -258,3 +258,17 @@ def test_search_puts_the_best_match_first_not_the_newest():
     asyncio.run(hub.sync("fake"))
     found = hub.search("etihad booking")
     assert found[0]["title"] == "Your Etihad booking confirmation"
+
+
+def test_agenda_uses_phone_shared_events_and_only_says_not_connected_without_any_source(monkeypatch):
+    monkeypatch.delenv("BUDDY_CALENDAR_ICS_URLS", raising=False)
+    hub = make_hub()
+    assert asyncio.run(run_connector_tool(hub, "agenda", {"days": 2})) == "The calendar isn't connected yet."
+    start = datetime.now(timezone.utc) + timedelta(hours=1)
+    hub.memory.db.execute(  # what the phone's Share calendar push stores
+        "INSERT INTO records (source, external_id, kind, title, body, start_at, synced_at) VALUES (?,?,?,?,?,?,?)",
+        ("phone_calendar", "p|1", "event", "Flight to Lima", "[Fold 8] Personal", start.isoformat(), start.isoformat()),
+    )
+    out = asyncio.run(run_connector_tool(hub, "agenda", {"days": 2}))
+    assert "Flight to Lima" in out and "isn't connected" not in out
+    assert calendar_connected(hub.memory)
