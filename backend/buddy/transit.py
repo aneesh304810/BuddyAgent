@@ -99,6 +99,17 @@ def _multipart(fields: dict) -> tuple[bytes, str]:
     return body, f"multipart/form-data; boundary={boundary}"
 
 
+def njt_reason(got) -> str:
+    """What NJ Transit said when it refused a sign-in, without any token, short."""
+    if isinstance(got, dict):
+        got = {k: v for k, v in got.items() if "token" not in k.lower()}
+        text = " ".join(str(v) for k, v in got.items() if k.lower() in ("errormessage", "message", "error", "detail"))
+        text = text or json.dumps(got)
+    else:
+        text = str(got or "")
+    return " ".join(text.split())[:200]
+
+
 def provider_of(line: str) -> str:
     low = line.lower()
     if re.search(r"\bpath\b|newark-wtc|hoboken-wtc|jsq-33|hob-33", low):
@@ -388,8 +399,10 @@ class Transit:
             got = self._njt_rail("getToken", body, ctype)
         token = (got or {}).get("UserToken") if (got or {}).get("Authenticated") in (True, "True", "true") else ""
         if not token:
+            said = njt_reason(got)  # NJ Transit's own words (e.g. the account isn't approved for this API)
             raise ToolError("NJ Transit didn't accept the developer username and password" +
-                            (" for the bus and light rail data (GTFS-BUS)" if api == "gtfs_bus" else "") + ".")
+                            (" for the bus and light rail data (GTFS-BUS)" if api == "gtfs_bus" else "") +
+                            (f"; it said: {said}" if said else "") + ".")
         self.memory.set(f"transit:njt_token:{api}", json.dumps({"token": token,
                                                                   "at": datetime.now(timezone.utc).isoformat()}))
         return token

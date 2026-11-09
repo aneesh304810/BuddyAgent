@@ -3,6 +3,7 @@ fails. Run on the server: sudo bash /opt/buddy/deploy/keys.sh  (never prints a k
 
   Claude          lists models (free)
   Serper          one search (one credit)
+  NJ Transit      signs in to the train API and the bus/light rail API (free; the token is never shown)
   free models     one 5-word chat with the model Buddy is set to use (Groq, GitHub Models, Gemini, Mistral,
                   Cerebras, OpenRouter, DeepSeek through OpenRouter)
 """
@@ -76,6 +77,7 @@ def run(env=os.environ) -> list[str]:
                         "BUDDY_SERPER_KEY"))
     else:
         out.append("  --    serper      no key set (google_search falls back to Claude's web search)")
+    out += _njt(env)
     if (env.get("BUDDY_FREE_MODELS") or "").strip() != "1":
         out.append("  --    free models are switched off: set.sh BUDDY_FREE_MODELS and type 1")
     for name, p in PROVIDERS.items():
@@ -102,6 +104,37 @@ def run(env=os.environ) -> list[str]:
             if (best := pick_model(name, ids, model)):
                 out.append(f"        Buddy switches to {best} by itself on the next failure (or set it: "
                            f"set.sh {p['model_setting']})")
+    return out
+
+
+def _njt(env) -> list[str]:
+    """NJ Transit: sign in to each API Buddy uses (trains; buses and light rail) and show its answer, token hidden."""
+    from .transit import NJT_BASES, NJT_GTFS_BUS, _multipart, njt_reason
+    user, pw = (env.get("BUDDY_NJT_USERNAME") or "").strip(), (env.get("BUDDY_NJT_PASSWORD") or "").strip()
+    if not (user and pw):
+        return ["  --    nj transit  no login (BUDDY_NJT_USERNAME and BUDDY_NJT_PASSWORD)"]
+    out = []
+    for name, url in (("njt rail", NJT_BASES[0] + "getToken"), ("njt bus/lr", NJT_GTFS_BUS + "authenticateUser")):
+        body, ctype = _multipart({"username": user, "password": pw})
+        t = time.monotonic()
+        req = urllib.request.Request(url, data=body, method="POST",
+                                     headers={"Content-Type": ctype, "User-Agent": "Buddy/1.0"})
+        code, said = _send(req, 25)
+        try:
+            got = json.loads(said)
+        except ValueError:
+            got = said
+        ok = code == 200 and isinstance(got, dict) and got.get("Authenticated") in (True, "True", "true") \
+            and bool(got.get("UserToken"))
+        if ok:
+            out.append(f"  OK    {name:<11} {'sign in':<40} {time.monotonic() - t:.1f}s")
+        else:
+            hint = ("NJ Transit refused this login for this API: check that the API is approved under My APIs on "
+                    "developer.njtransit.com, and that the username and password are the portal's (set.sh "
+                    "BUDDY_NJT_USERNAME / BUDDY_NJT_PASSWORD)") if code in (200, 401, 403) else \
+                "can't reach it (network or the service is down)" if code == 0 else "see the message"
+            out.append(f"  FAIL  {name:<11} {'sign in':<40} HTTP {code or '-'}: {njt_reason(got)}\n"
+                       f"        fix: {hint}")
     return out
 
 
