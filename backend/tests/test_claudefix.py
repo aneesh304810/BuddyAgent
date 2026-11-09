@@ -90,3 +90,15 @@ def test_says_when_claude_stopped_with_an_error(monkeypatch, tmp_path):
     asyncio.run(claudefix.check(m, deliver, 1000.0))
     asyncio.run(claudefix.check(m, deliver, 2000.0))
     assert len(told) == 1 and "actions/runs/42" in told[0] and "send it again" in told[0]
+
+
+def test_an_issue_not_in_my_list_is_looked_up_by_number(monkeypatch, tmp_path):
+    """Issue #27 was opened but the send looked failed (label 403), so Buddy had no record and couldn't deploy it."""
+    m, t = Memory(tmp_path / "b.db"), Thrift()
+    calls = _sandbox(monkeypatch, {"state": "open", "url": "u", "branch": "buddy/claude-issue-27-20261109-2151",
+                                   "comments": [{"body": "Claude Code finished\\n## What's new\\nCalendar check fixed."}]})
+    monkeypatch.setattr(selfdeploy, "request", lambda branch, job_id=None: f"requested {branch}")
+    assert "finished issue #27" in asyncio.run(claudefix.run_tool(m, t, {"action": "status", "number": 27}))
+    assert asyncio.run(claudefix.run_tool(m, t, {"action": "deploy", "number": 27})).startswith("APPROVAL NEEDED")
+    assert asyncio.run(t.asked[-1][1]()) == "requested buddy/claude-issue-27-20261109-2151"
+    assert calls[0] == ("claude_issue_status", {"number": 27, "timeout": 60})

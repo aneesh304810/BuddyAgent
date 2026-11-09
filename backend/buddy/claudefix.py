@@ -110,6 +110,11 @@ async def run_tool(memory, thrift, args: dict) -> str:
                                  "Claude subscription and only pushes a branch; nothing is deployed without you.", go)
 
     item = _pick(memory, args.get("number"))
+    if not item and args.get("number"):
+        # Not in my list (e.g. the send looked failed but GitHub did open it): look it up. The sandbox only answers
+        # for issues Buddy opened (they carry Buddy's line), so this can't reach anyone else's issue.
+        item = {"number": int(args["number"]), "url": "", "title": f"issue #{args['number']}",
+                "at": datetime.now(timezone.utc).isoformat(), "told": True, "checked": 0}
     if not item:
         return "There's no fix sent to Claude Code yet."
     try:
