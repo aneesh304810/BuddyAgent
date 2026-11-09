@@ -122,8 +122,9 @@ async def run_tool(memory, thrift, args: dict) -> str:
             return f"Claude finished issue #{item['number']} (branch {st.get('branch') or 'not found'}):\n{_short(report)}"
         latest = (st.get("comments") or [{}])[-1].get("body", "")
         return (f"Issue #{item['number']} ({st.get('url')}): Claude is still on it."
-                + (f" Latest: {_short(latest, 400)}" if latest else " No reply from Claude yet: check the Actions "
-                   "tab on GitHub (is the CLAUDE_CODE_OAUTH_TOKEN secret set?)."))
+                + (f" Latest: {_short(latest, 400)}" if latest else " No comment from Claude on it yet. I can't see "
+                   "GitHub's Actions runs, so I don't know why: the Actions tab shows whether a run started, was "
+                   "skipped or failed."))
     if action == "deploy":
         branch = st.get("branch", "")
         if not branch or not report:
