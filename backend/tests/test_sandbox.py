@@ -295,8 +295,12 @@ def test_claude_issue_only_on_buddys_repo_and_labelled(sbx, monkeypatch):
 
     def fake_github(method, path, body=None):
         sent.append((method, path, body))
-        if method == "POST":
-            return 201, {"number": 7, "html_url": "https://github.com/o/r/issues/7"}
+        if method == "POST" and path == "/labels":
+            return 422, {"message": "already_exists"}
+        if method == "POST" and path == "/issues":
+            return 201, {"number": 7, "html_url": "https://github.com/o/r/issues/7", "labels": []}  # dropped
+        if method == "POST" and path == "/issues/7/labels":
+            return 200, [{"name": "claude-fix"}]
         if path == "/issues/7":
             return 200, {"state": "open", "html_url": "u", "labels": [{"name": "claude-fix"}]}
         if path == "/issues/8":
@@ -309,8 +313,9 @@ def test_claude_issue_only_on_buddys_repo_and_labelled(sbx, monkeypatch):
     monkeypatch.setattr(mod, "TOKEN", "t")
     got = mod.handle({"op": "claude_issue", "title": "Fix it", "body": "the briefing repeats every minute"})
     assert got["number"] == 7
-    method, path, body = sent[0]
-    assert path == "/issues" and body["labels"] == ["claude-fix"] and body["body"].startswith("@claude")
+    assert [p for _, p, _ in sent] == ["/labels", "/issues", "/issues/7/labels"]  # label made, then re-added
+    method, path, body = sent[1]
+    assert body["labels"] == ["claude-fix"] and body["body"].startswith("@claude")
     st = mod.handle({"op": "claude_issue_status", "number": 7})
     assert st["branch"] == "buddy/claude-issue-7-20261109-1000" and len(st["comments"]) == 1
     with pytest.raises(mod.Refused):

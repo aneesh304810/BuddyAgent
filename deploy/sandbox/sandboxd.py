@@ -401,10 +401,18 @@ def claude_issue(req: dict) -> dict:
     if not title or len(brief) < 20:
         raise Refused("a fix needs a title and a brief")
     body = f"@claude please fix this in Buddy's code.\n\n{brief}\n\n_Sent by Buddy after the owner's yes._"
+    # The label must exist first: GitHub quietly drops a label it doesn't know, and the workflow then skips the issue.
+    _github("POST", "/labels", {"name": CLAUDE_LABEL, "color": "d97757",
+                                "description": "Claude Code fixes this (sent by Buddy)"})  # 422 = already there
     code, got = _github("POST", "/issues", {"title": title, "body": body, "labels": [CLAUDE_LABEL]})
     if code != 201:
         hint = " (the sandbox's GitHub token needs Issues: read and write)" if code in (403, 404) else ""
         raise Refused(f"GitHub didn't open the issue (HTTP {code}){hint}")
+    if CLAUDE_LABEL not in [lb.get("name") for lb in got.get("labels", [])]:
+        lc, _ = _github("POST", f"/issues/{got['number']}/labels", {"labels": [CLAUDE_LABEL]})
+        if lc != 200:
+            raise Refused(f"GitHub opened issue #{got['number']} but wouldn't label it {CLAUDE_LABEL} (HTTP {lc}), "
+                          "so Claude won't start: add the label on GitHub")
     return {"number": got["number"], "url": got["html_url"]}
 
 
