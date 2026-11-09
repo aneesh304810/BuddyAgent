@@ -30,8 +30,8 @@ log = logging.getLogger(__name__)
 MTA_ALERTS = "https://api-endpoint.mta.info/Dataservice/mtagtfsfeeds/camsys%2Fall-alerts.json"
 PATH_ARRIVALS = "https://www.panynj.gov/bin/portauthority/ridepath.json"
 PATH_INCIDENTS = "https://www.panynj.gov/bin/portauthority/everbridge/incidents?status=All&department=Path"
-NJT_BASES = ("https://raildata.njt.gov/api/TrainData/",       # RailData's current host (NJT's docs)
-             "https://raildata.njtransit.com/api/TrainData/")  # the earlier one, if the new one can't be reached
+NJT_BASES = ("https://raildata.njtransit.com/api/TrainData/",  # RailData's host (answers today)
+             "https://raildata.njt.gov/api/TrainData/")       # named in NJT's newer docs, but not in DNS yet
 NJT_GTFS_BUS = "https://pcsdata.njtransit.com/api/GTFSG2/"     # GTFS-BUS (bus and light rail): GTFS-realtime alerts
 TOKEN_HOURS = 23                                                # NJT tokens last 24 hours: renew a bit before
 UA = "Buddy/1.0 (personal assistant; read-only)"

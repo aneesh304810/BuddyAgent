@@ -114,12 +114,16 @@ def _njt(env) -> list[str]:
     if not (user and pw):
         return ["  --    nj transit  no login (BUDDY_NJT_USERNAME and BUDDY_NJT_PASSWORD)"]
     out = []
-    for name, url in (("njt rail", NJT_BASES[0] + "getToken"), ("njt bus/lr", NJT_GTFS_BUS + "authenticateUser")):
-        body, ctype = _multipart({"username": user, "password": pw})
+    for name, urls in (("njt rail", [b + "getToken" for b in NJT_BASES]),
+                       ("njt bus/lr", [NJT_GTFS_BUS + "authenticateUser"])):
         t = time.monotonic()
-        req = urllib.request.Request(url, data=body, method="POST",
-                                     headers={"Content-Type": ctype, "User-Agent": "Buddy/1.0"})
-        code, said = _send(req, 25)
+        for url in urls:  # like Buddy: the next host only when this one can't be reached
+            body, ctype = _multipart({"username": user, "password": pw})
+            req = urllib.request.Request(url, data=body, method="POST",
+                                         headers={"Content-Type": ctype, "User-Agent": "Buddy/1.0"})
+            code, said = _send(req, 25)
+            if code:
+                break
         try:
             got = json.loads(said)
         except ValueError:

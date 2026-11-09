@@ -1,6 +1,6 @@
 # Buddy Privacy and Data Retention Policy
 
-Source: https://claude.ai/artifact/MJVGZ7pWQvi26tg1MS914P, revision 59
+Source: https://claude.ai/artifact/MJVGZ7pWQvi26tg1MS914P, revision 60
 
 Nov 1, 2026 · @Aneesh
 
@@ -102,7 +102,7 @@ Buddy uses a few service providers to work. Each sees only what its job needs, u
 | Tailscale | Private network between the phone and the server | Encrypted traffic it cannot read |
 | Duffel, SerpApi, Travelpayouts | Flight offers, Google Flights and Hotels prices, cheapest travel dates | Airports or place, dates and number of travellers only |
 | Alpaca (market data), Stooq, Coinbase, Yahoo Finance (public chart data), Reddit, StockTwits | Prices, charts, option prices and news for trade ideas; what people post about a stock or coin | Ticker symbols and search words only; never the owner's trades, holdings or account details. Buddy uses Alpaca's market data only and never places trades |
-| MTA (api-endpoint.mta.info), NJ Transit (raildata.njt.gov for trains, pcsdata.njtransit.com for buses and light rail), Port Authority PATH (panynj.gov) | Live service alerts and next trains for the lines the owner rides | No personal data: MTA and PATH feeds are downloaded whole and filtered on Buddy's server. NJ Transit receives the owner's NJ Transit developer username and password, to issue an access token |
+| MTA (api-endpoint.mta.info), NJ Transit (raildata.njtransit.com for trains, pcsdata.njtransit.com for buses and light rail), Port Authority PATH (panynj.gov) | Live service alerts and next trains for the lines the owner rides | No personal data: MTA and PATH feeds are downloaded whole and filtered on Buddy's server. NJ Transit receives the owner's NJ Transit developer username and password, to issue an access token |
 | AirLabs (airlabs.co) | Live status of the owner's tracked flights | Flight numbers only (for example AA1234); never the owner's name, booking or ticket details |
 | FlightAware AeroAPI (aeroapi.flightaware.com) | A backup for the owner's tracked flights when other sources lack the gate, delay or status | Flight numbers only (for example AA1234); never the owner's name, booking or ticket details |
 | OpenStreetMap Nominatim (nominatim.openstreetmap.org) | Turning the owner's shared location into a neighbourhood and city name, and finding an airport's position | The phone's shared coordinates (only when location sharing is on), airport codes, and the address of a calendar event with a place (to work out when to leave); never the owner's name or the event's details |
