@@ -156,12 +156,12 @@ async def check(memory, deliver, now: float) -> None:
             continue
         report = finished(st.get("comments", []))
         failed = next((c["body"] for c in reversed(st.get("comments") or [])
-                       if re.search(r"encountered an error", c.get("body", ""), re.IGNORECASE)), "")
+                       if re.search(r"encountered an error|couldn't finish", c.get("body", ""), re.IGNORECASE)), "")
         if failed and not report:
             link = re.search(r"\((https://github\.com/[^)]+/actions/runs/\d+)\)", failed)
             if await deliver("job_done", f"Claude Code stopped with an error on issue #{item['number']} "
                              f"(\"{item['title'][:60]}\"). The run's log says why: {link.group(1) if link else item['url']}. "
-                             "To try again, comment \"@claude please start\" on the issue."):
+                             "Tell me what to change and I'll send it again."):
                 item["told"] = True
         elif report and st.get("branch"):
             if await deliver("job_done", f"Claude Code finished \"{item['title'][:80]}\" (issue #{item['number']}, "

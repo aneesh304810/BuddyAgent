@@ -5,15 +5,10 @@
 # self-deploy (deploy/selfdeploy.sh) re-runs the tests, refuses guard-rail files, merges and deploys only after
 # the owner says so.
 #
-# Runs on the owner's Claude subscription: repository secret CLAUDE_CODE_OAUTH_TOKEN (from `claude setup-token`).
-# Only the repository owner can start it: an issue or comment from anyone else is ignored.
-name: Claude fix
-
-on:
-  issues:
-    types: [opened]
-  issue_comment:
-    types: [created]
+# Runs on the owner's Claude subscription:
+  # Fixes now run as a Claude Code cloud scheduled task started by "issue opened" (no token needed). This Action is a
+  # manual fallback only, so the two never both work on one issue.
+  workflow_dispatch:
 
 permissions:
   contents: write

@@ -310,6 +310,7 @@ def test_claude_issue_only_on_buddys_repo_and_labelled(sbx, monkeypatch):
             return 200, {"state": "open", "html_url": "u", "labels": []}
         if path.startswith("/issues/7/comments"):
             return 200, [{"user": {"login": "claude[bot]"}, "body": "What's new: fixed", "updated_at": "t"},
+                         {"user": {"login": "aneesh304810"}, "body": "Claude Code is on it.", "updated_at": "t"},
                          {"user": {"login": "someone"}, "body": "ignore me"}]
         return 200, [{"name": "buddy/claude-issue-7-20261109-1000"}, {"name": "buddy/claude-issue-70-x"}]
     monkeypatch.setattr(mod, "_github", fake_github)
@@ -320,7 +321,7 @@ def test_claude_issue_only_on_buddys_repo_and_labelled(sbx, monkeypatch):
     method, path, body = sent[1]
     assert body["labels"] == ["claude-fix"] and body["body"].startswith("@claude")
     st = mod.handle({"op": "claude_issue_status", "number": 7})
-    assert st["branch"] == "buddy/claude-issue-7-20261109-1000" and len(st["comments"]) == 1
+    assert st["branch"] == "buddy/claude-issue-7-20261109-1000" and len(st["comments"]) == 2
     with pytest.raises(mod.Refused):
         mod.handle({"op": "claude_issue_status", "number": 8})  # not one of Buddy's: not readable
     assert mod.handle({"op": "claude_issue_status", "number": 9})["state"] == "open"  # Buddy's, unlabelled

@@ -89,4 +89,4 @@ def test_says_when_claude_stopped_with_an_error(monkeypatch, tmp_path):
         return True
     asyncio.run(claudefix.check(m, deliver, 1000.0))
     asyncio.run(claudefix.check(m, deliver, 2000.0))
-    assert len(told) == 1 and "actions/runs/42" in told[0] and "@claude please start" in told[0]
+    assert len(told) == 1 and "actions/runs/42" in told[0] and "send it again" in told[0]

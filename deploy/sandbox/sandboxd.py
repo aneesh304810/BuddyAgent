@@ -429,7 +429,11 @@ def claude_issue_status(req: dict) -> dict:
                            or BUDDY_MARK in str(issue.get("body") or "")):
         raise Refused("that isn't one of Buddy's Claude fix issues")
     _, comments = _github("GET", f"/issues/{number}/comments?per_page=50")
-    by_claude = [c for c in comments or [] if "claude" in str(c.get("user", {}).get("login", "")).lower()]
+    # Claude's comments: from the Claude app (claude[bot]), or a cloud session writing as the owner (its report and
+    # progress lines say so). The owner's own "@claude please start" is not one.
+    by_claude = [c for c in comments or [] if "claude" in str(c.get("user", {}).get("login", "")).lower()
+                 or re.match(r"\s*(\*\*)?claude code\b", str(c.get("body", "")), re.IGNORECASE)
+                 or re.search(r"what's new", str(c.get("body", "")), re.IGNORECASE)]
     _, branches = _github("GET", "/branches?per_page=100")
     prefix = f"buddy/claude-issue-{number}-"
     mine = sorted(b["name"] for b in branches or [] if str(b.get("name", "")).startswith(prefix))
