@@ -165,3 +165,18 @@ def test_status_says_how_to_set_up_and_what_can_be_tested(tmp_path):
     assert st["njt_rail"]["setup"] == ("sudo bash /opt/buddy/deploy/set.sh BUDDY_NJT_USERNAME; "
                                        "sudo bash /opt/buddy/deploy/set.sh BUDDY_NJT_PASSWORD")
     assert st["mta"]["setup"] == "" and st["mta"]["can_test"] and not st["reddit"]["can_test"]
+
+
+def test_status_uses_the_real_last_call_from_the_logs(tmp_path):
+    from buddy import usage
+    from buddy.travel import log_call
+    m = Memory(tmp_path / "b.db")
+    gateway._table(m)
+    log_call(m, "github", "/search/repositories", True, 0.2, "trends", cost=0.0)  # before Buddy Connect noted any
+    usage.log_call(m, provider="claude", model="claude-sonnet-5-5", purpose="chat", seconds=1.0)
+    usage.log_call(m, provider="github", model="openai/gpt-4.1-mini", purpose="general", seconds=1.0, ok=False,
+                   stop="error: HTTP 200: OK")
+    st = {s["name"]: s for s in gateway.status(m, env={})}
+    assert st["github"]["last_ok"] is True and st["github"]["calls_this_month"] == 1
+    assert st["claude"]["last_ok"] is True and st["claude"]["calls_this_month"] == 1
+    assert st["github_models"]["last_ok"] is False and "HTTP 200" in st["github_models"]["last_error"]

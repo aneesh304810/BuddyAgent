@@ -371,15 +371,33 @@ def health(name: str, memory=None, env=None, fetch=None) -> tuple[bool, str]:
         return False, str(e)
 
 
+MODEL_NAMES = {"github_models": ("github",), "openrouter": ("openrouter", "deepseek")}  # model_calls' names
+
+
 def status(memory, env=None) -> list[dict]:
-    """Every service: set up or not, last result, calls and cost this month."""
+    """Every service: set up or not, last result, calls and cost this month. The last result is the newest of
+    what Buddy Connect noted and the service's real last call in the logs Buddy keeps (API calls; model calls for
+    Claude and the free models), so services used before Buddy Connect existed show their true state too."""
     since = datetime.now(timezone.utc).replace(day=1, hour=0, minute=0, second=0, microsecond=0).isoformat()
-    usage = {}
+    usage, latest = {}, {}
     try:
         _table(memory)
         for r in memory.db.execute("SELECT provider, COUNT(*) AS n, SUM(1 - ok) AS bad, SUM(cost_usd) AS usd "
                                    "FROM api_calls WHERE at >= ? GROUP BY provider", (since,)):
             usage[r["provider"]] = (r["n"], r["bad"] or 0, r["usd"] or 0.0)
+        for r in memory.db.execute("SELECT provider, at, ok, error FROM api_calls WHERE id IN "
+                                   "(SELECT MAX(id) FROM api_calls GROUP BY provider)"):
+            latest[r["provider"]] = {"ok": bool(r["ok"]), "at": r["at"], "error": r["error"] or ""}
+    except Exception:
+        pass
+    m_usage, m_latest = {}, {}  # Claude and the free models: their calls are in model_calls (own names)
+    try:
+        for r in memory.db.execute("SELECT provider, COUNT(*) AS n, SUM(1 - ok) AS bad, SUM(cost_usd) AS usd "
+                                   "FROM model_calls WHERE at >= ? GROUP BY provider", (since,)):
+            m_usage[r["provider"]] = (r["n"], r["bad"] or 0, r["usd"] or 0.0)
+        for r in memory.db.execute("SELECT provider, at, ok, stop FROM model_calls WHERE id IN "
+                                   "(SELECT MAX(id) FROM model_calls GROUP BY provider)"):
+            m_latest[r["provider"]] = {"ok": bool(r["ok"]), "at": r["at"], "error": "" if r["ok"] else r["stop"] or ""}
     except Exception:
         pass
     out = []
@@ -388,12 +406,22 @@ def status(memory, env=None) -> list[dict]:
             last = json.loads(memory.get(f"connect:last:{name}") or "{}")
         except ValueError:
             last = {}
-        n, bad, usd = usage.get(name, (0, 0, 0.0))
+        is_model = bool(entry.get("reports")) or name == "claude"
+        aliases = MODEL_NAMES.get(name, (name,)) if is_model else (name,)
+        src_latest, src_usage = (m_latest, m_usage) if is_model else (latest, usage)
+        logged = [src_latest[n] for n in aliases if n in src_latest]
+        newest = max(logged, key=lambda x: x["at"]) if logged else {}
+        if newest and newest["at"] > last.get("at", ""):
+            last = newest
+        n, bad, usd = 0, 0, 0.0
+        for alias in aliases:
+            a, b, c = src_usage.get(alias, (0, 0, 0.0))
+            n, bad, usd = n + a, bad + b, usd + c
         out.append({"name": name, "title": entry["title"], "used_for": entry.get("used_for", ""),
                     "privacy": entry.get("privacy", "public"), "set_up": configured(name, env),
-                    "in_connect": bool(entry.get("moved") or entry.get("reports")), "last_ok": last.get("ok"), "last_at": last.get("at", ""),
-                    "last_error": last.get("error", ""), "calls_this_month": n, "failed_this_month": bad,
-                    "cost_this_month": round(usd, 4), "can_test": bool(entry.get("health")),
+                    "in_connect": bool(entry.get("moved") or entry.get("reports")), "last_ok": last.get("ok"),
+                    "last_at": last.get("at", ""), "last_error": last.get("error", ""), "calls_this_month": n,
+                    "failed_this_month": bad, "cost_this_month": round(usd, 4), "can_test": bool(entry.get("health")),
                     "setup": setup_hint(name)})
     return out
 
