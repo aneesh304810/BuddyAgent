@@ -50,6 +50,7 @@ from .budgets import BUDGET_TOOL
 from .costwatch import COSTWATCH_TOOL
 from .claudefix import TOOL as CLAUDE_FIX_TOOL
 from .commute import TOOL as COMMUTE_TOOL
+from .routine import TOOL as ROUTINE_TOOL
 from .amazon import TOOL as AMAZON_TOOL
 from .gateway import TOOL as CONNECTIONS_TOOL
 from .health_data import HEALTH_INFO_TOOL, MY_HEALTH_TOOL
@@ -789,7 +790,7 @@ class Conversation:
                      compliance.COMPLIANCE_TOOL, MERCHANTS_TOOL, CUSTOMIZE_TOOL, CREDIT_TOOL, MARKETS_TOOL, ROUTING_TOOL, TRENDS_TOOL,
                      TRANSIT_TOOL, FLIGHT_TOOL, DECISION_TOOL, MAPS_TOOL,
                      WEATHER_TOOL, PACKAGES_TOOL, MESSAGE_TOOL, BUDGET_TOOL, COSTWATCH_TOOL, ADVICE_TOOL, EDIT_TOOL,
-                     RECALL_CONVO_TOOL, CLAUDE_FIX_TOOL, COMMUTE_TOOL,
+                     RECALL_CONVO_TOOL, CLAUDE_FIX_TOOL, COMMUTE_TOOL, ROUTINE_TOOL,
                      CONNECTIONS_TOOL, AMAZON_TOOL, MY_HEALTH_TOOL, HEALTH_INFO_TOOL,
                      THERMOSTAT_TOOL, PHONE_CALL_TOOL]
         spending += [BROWSE_TOOL] if self.jobs else []  # listed even when the sandbox is down: it says what to fix
@@ -971,6 +972,9 @@ class Conversation:
         if name == "commute":
             from . import commute  # noqa: PLC0415
             return commute.run_tool(self.memory, args)
+        if name == "my_routine":
+            from . import routine  # noqa: PLC0415
+            return await asyncio.to_thread(routine.run_tool, self.memory, args)
         if name == "claude_code_fix":
             from . import claudefix  # noqa: PLC0415
             return await claudefix.run_tool(self.memory, self.thrift, args)

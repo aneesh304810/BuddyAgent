@@ -384,6 +384,11 @@ async def run(memory: Memory, deliver: Deliver, connected=None) -> None:
                     said = await asyncio.to_thread(commute.relearn, memory)
                     if said:
                         await deliver("travel", said)
+                    from . import routine  # noqa: PLC0415  the whole week's routine (quietly)
+                    try:
+                        await asyncio.to_thread(routine.relearn, memory)
+                    except Exception:
+                        log.exception("routine learning failed")
                 hold = await asyncio.to_thread(atlas.hold_non_urgent)  # driving or in a meeting: only urgent ones now
                 extra = []
                 try:  # packages: shipping emails and notifications (text rules), 17TRACK live status every 2 hours

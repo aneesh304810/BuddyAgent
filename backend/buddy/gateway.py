@@ -118,6 +118,9 @@ CATALOG: dict[str, dict] = {
     "health_connect": {"group": "Health", "title": "Phone health data (Health Connect)", "auth": {"type": "phone"},
                        "privacy": "personal", "used_for": "your steps, sleep, heart rate and workouts, from the phone",
                        "reports": True},
+    "phone_contacts": {"group": "Calls", "title": "Phone contacts (who's calling)", "auth": {"type": "phone"},
+                       "privacy": "personal", "used_for": "names and numbers from your phone, so Buddy greets callers "
+                       "by name; kept only on your server", "reports": True},
     "openfda": {"group": "Health", "title": "openFDA (medicines)", "hosts": ["https://api.fda.gov"],
                 "auth": {"type": "none"}, "cost": 0.0, "per_minute": 40, "privacy": "public",
                 "used_for": "what a medicine is for, warnings, interactions, recalls",

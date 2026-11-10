@@ -891,6 +891,15 @@ async def call_stream(websocket: WebSocket, call_id: int, token: str):
         _call_streams.discard(call_id)
 
 
+@app.post("/api/contacts/sync", dependencies=[Depends(require_admin)])
+async def contacts_sync(body: dict) -> dict:
+    """The phone's contacts (names and numbers only, the owner's permission): who's calling, for phone calls."""
+    from . import contacts, gateway  # noqa: PLC0415
+    n = await asyncio.to_thread(contacts.ingest, memory, body)
+    gateway.report(memory, "phone_contacts", True)
+    return {"ok": True, "numbers": n}
+
+
 @app.get("/admin/connections", dependencies=[Depends(require_admin)])
 async def admin_connections() -> dict:
     """Buddy Connect: every outside service, set up or not, its last result, calls and cost this month."""

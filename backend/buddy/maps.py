@@ -129,6 +129,7 @@ class Maps:
         n = self.memory.db.execute("DELETE FROM map_location_log").rowcount
         p = self.memory.db.execute("DELETE FROM map_places").rowcount
         self.memory.db.commit()
+        self.memory.set("routine:week", "")  # the routine learned from it goes too
         return f"Deleted the location history ({n} points) and {p} saved place{'s' if p != 1 else ''}."
 
     def places(self) -> list[dict]:

@@ -162,6 +162,20 @@ fun ConnectionsScreen(link: ServerLink?) {
     val askHealth = rememberLauncherForActivityResult(PermissionController.createRequestPermissionResultContract()) {
         granted -> if (granted.isNotEmpty()) syncHealth() else healthNote = "Nothing allowed, so nothing was read."
     }
+    var contactsNote by remember { mutableStateOf("") }
+    fun syncContacts() {
+        if (link == null) return
+        contactsNote = "Syncing…"
+        scope.launch {
+            contactsNote = runCatching { "✓ Sent ${ContactsSync.sync(context, link)} contacts to your server" }
+                .getOrElse { "✗ ${it.message}" }
+            reload++
+        }
+    }
+    val askContacts = rememberLauncherForActivityResult(
+        androidx.activity.result.contract.ActivityResultContracts.RequestPermission()) { ok ->
+        if (ok) syncContacts() else contactsNote = "Not allowed, so nothing was read."
+    }
 
     LaunchedEffect(link, reload) {
         if (link == null) {
@@ -272,6 +286,20 @@ fun ConnectionsScreen(link: ServerLink?) {
                             else -> Pal.dim
                         }, fontSize = 13.sp,
                             modifier = Modifier.padding(top = 6.dp))
+                    }
+                    if (s.name == "phone_contacts" && link != null) {  // names and numbers only, read on the phone
+                        Text("Names and phone numbers only, with your permission; sent only to your Buddy server.",
+                            color = Pal.dim, fontSize = 12.sp, modifier = Modifier.padding(top = 6.dp))
+                        if (contactsNote.isNotEmpty()) Text(contactsNote, color = Pal.soft, fontSize = 13.sp)
+                        Row {
+                            if (!ContactsSync.allowed(context)) {
+                                TextButton(onClick = { askContacts.launch(android.Manifest.permission.READ_CONTACTS) }) {
+                                    Text("Allow", color = Pal.link)
+                                }
+                            } else {
+                                TextButton(onClick = { syncContacts() }) { Text("Sync now", color = Pal.link) }
+                            }
+                        }
                     }
                     if (s.name == "health_connect") {  // the phone's own data: permission here, read on the phone
                         Text(

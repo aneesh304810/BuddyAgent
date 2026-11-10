@@ -401,15 +401,35 @@ def _busy(memory: Memory) -> str:
         return "calendar unknown: offer times and say you'll confirm"
 
 
-def screen_greeting(env=None) -> str:
+def _caller(call: dict) -> tuple[str, str]:
+    """(name, how Buddy knows them: "contact" | "saved" | "known" | "") from the screened call's row."""
+    how, _, rest = (call.get("goal") or "").partition(": ")
+    return (rest, how) if how in ("contact", "saved", "known") else ("", "")
+
+
+def screen_greeting(env=None, call: dict | None = None) -> str:
     first = (owner(env)["name"].split() or ["the owner"])[0]
+    name, how = _caller(call or {})
+    if how in ("contact", "saved") and name:
+        return (f"Hi {name.split()[0]}, this is {first}'s assistant. {first} can't pick up right now. "
+                "What can I do for you?")
     return (f"Hi, you've reached {first}'s phone, I'm the assistant. {first} can't come to the phone right now. "
             "Who's calling, please?")
 
 
 def _schedule(memory: Memory) -> str:
-    """Today's and tomorrow's calendar and the usual routine, for the assistant's own judgment on a screened call."""
+    """Today's and tomorrow's calendar, the learned routine and what the owner is doing now, for the assistant's
+    own judgment on a screened call."""
     lines = []
+    try:
+        from . import routine  # noqa: PLC0415
+        if (now := routine.now_line(memory)):
+            lines.append(f"- right now: {now}")
+        if (learned := routine.describe(routine.week(memory))):
+            lines.append(f"- learned routine: {learned}")
+        lines += [f"- they told Buddy: {t}" for t in routine.told(memory)[:4]]
+    except Exception:
+        pass
     try:
         from .connectors.hub import agenda  # noqa: PLC0415
         events = agenda(memory, 2)
@@ -429,10 +449,12 @@ def _schedule(memory: Memory) -> str:
 def screen_prompt(memory: Memory, call: dict, env=None) -> str:
     o = owner(env)
     first = (o["name"].split() or ["the owner"])[0]
-    known = call.get("goal", "").removeprefix("known: ")
-    who = f"someone Buddy knows: {known}" if known else "an unknown number"
+    name, how = _caller(call)
+    who = {"contact": f"{name}, in {first}'s contacts", "saved": f"{name}, a caller Buddy saved before",
+           "known": f"a number Buddy has seen: {name}"}.get(how, "an unknown number, not in the contacts")
+    knows = how in ("contact", "saved", "known")
     return f"""You're {first}'s personal assistant (a secretary), answering a call to {first}'s phone because {first} \
-couldn't pick up. You already said: "{screen_greeting(env)}". It's {local_now().strftime("%A %d %B %Y, %I:%M %p")}.
+couldn't pick up. You already said: "{screen_greeting(env, call)}". It's {local_now().strftime("%A %d %B %Y, %I:%M %p")}.
 Caller's number: {call['number']} ({who}). Carrier check of the caller ID: {call.get('windows') or 'unknown'}.
 {first}'s schedule (for your judgment only):
 {_schedule(memory)}
@@ -445,9 +467,12 @@ five..."). Refer to {first} by name, not as he or she. If they ask whether you'r
 honest and easy about it: "I'm actually an AI assistant, but I'll make sure {first} gets this." Never deny it.
 
 Availability, from the schedule above:
-- Someone Buddy knows: you may be specific about timing ("{first}'s in a meeting until three, I'll have {first} call \
-you right after", "{first}'s out for the evening, so first thing tomorrow"). Not the meeting's topic or who with.
-- An unknown caller: only general timing ("{first}'s tied up this afternoon, but I'll pass your message on today").
+- {"This caller is someone Buddy knows, so" if knows else "Only if the caller were someone Buddy knows would"} you \
+may say what {first} is doing and until when ("{first}'s on the train, should be free around 6:15", "{first}'s at a \
+doctor's appointment until three", "{first}'s in a meeting, I'll have {first} call you right after"). Not the \
+meeting's topic, who with, or where.
+- An unknown caller: only general timing ("{first}'s tied up this afternoon, but I'll pass your message on today"). \
+Ask their name early ("Sorry, who am I speaking with?") and use it.
 - Never say where {first} is, that {first} is travelling or away from home, the home address, or anything about \
 accounts, health or family. Never confirm personal details, agree to anything, pay, or verify codes.
 
@@ -901,7 +926,7 @@ async def run_stream(memory: Memory, websocket, call: dict, deliver=None, env=No
         if call["kind"] == SCREEN:  # they called: Buddy speaks first
             await asyncio.sleep(0.6)
             mind.spoke_any = True
-            await speak(screen_greeting(env))
+            await speak(screen_greeting(env, call))
             await asyncio.sleep(QUIET_START_S + 4)
         else:
             await asyncio.sleep(QUIET_START_S)
@@ -996,13 +1021,16 @@ def screen_call(memory: Memory, form: dict, env=None) -> dict | None:
         number = normalise(raw)
     except ToolError:
         number = "unknown"
-    known = known_caller(memory, number)
+    from . import contacts  # noqa: PLC0415
+    name, how = contacts.name_for(memory, number)
+    if not name:
+        name, how = known_caller(memory, number), "known"
     stir = str(form.get("STIRVerification") or form.get("STIRAttestation") or "")
     cur = memory.db.execute(
         "INSERT INTO phone_calls (created_at, who, number, kind, goal, windows, token, call_sid, status) "
         "VALUES (?, ?, ?, ?, ?, ?, ?, ?, 'calling')",
-        (datetime.now(timezone.utc).isoformat(), (known or number)[:80], number, SCREEN,
-         f"known: {known}" if known else "", stir[:60], secrets.token_urlsafe(24), str(form.get("CallUUID") or "")))
+        (datetime.now(timezone.utc).isoformat(), (name or number)[:80], number, SCREEN,
+         f"{how}: {name}" if name else "", stir[:60], secrets.token_urlsafe(24), str(form.get("CallUUID") or "")))
     memory.db.commit()
     return get(memory, cur.lastrowid)
 
@@ -1014,6 +1042,10 @@ def screened(memory: Memory, call: dict, move: dict) -> None:
     if move.get("priority") == "scam":
         key = f"calls:scams:{local_now().date().isoformat()}"
         memory.set(key, str(int(memory.get(key) or 0) + 1))
+    elif move.get("priority") in ("urgent", "normal") and move.get("caller") and _caller(call)[1] not in (
+            "contact", "saved"):
+        from . import contacts  # noqa: PLC0415
+        contacts.save_caller(memory, call["number"], move["caller"], move.get("outcome", "")[:120])
 
 
 def screen_hung_up(memory: Memory, form: dict) -> str:
@@ -1029,7 +1061,7 @@ def screen_hung_up(memory: Memory, form: dict) -> str:
     update(memory, call["id"], status="done", minutes=minutes,
            outcome=call["outcome"] or "They hung up without leaving a message.")
     add_cost(memory, call["id"], "plivo", "call minutes", minutes * price("BUDDY_CALL_PRICE_LINE_MIN"), minutes * 60)
-    if finished or not call["goal"].startswith("known: "):
+    if finished or not _caller(call)[1]:
         return ""
     return f"📞 Missed call from {call['who']} ({call['number']}); they hung up without leaving a message."
 
@@ -1076,9 +1108,10 @@ TOOL = {
     "when a person answers; only the user verifies). Find the number first (memory, library, contacts, places "
     "search) and confirm it. The user approves every call before it's made. status: the latest calls and their "
     "outcomes, including calls Buddy answered for the user when they didn't pick up (kind screen: who called, the "
-    "message, scams hung up on today).",
+    "message, scams hung up on today). forget_caller (number): forget a caller Buddy saved after an important "
+    "call.",
     "input_schema": {"type": "object", "properties": {
-        "action": {"type": "string", "enum": ["call", "status"]},
+        "action": {"type": "string", "enum": ["call", "status", "forget_caller"]},
         "who": {"type": "string", "description": "who is being called, e.g. Dr. Mehta's office"},
         "number": {"type": "string", "description": "the number to call; \"me\" calls the user's own saved "
                    "mobile (e.g. a test call)"},
@@ -1102,6 +1135,10 @@ def status_text(memory: Memory) -> str:
 async def run_tool(memory: Memory, thrift, args: dict) -> str:
     if args.get("action") == "status":
         return status_text(memory)
+    if args.get("action") == "forget_caller":
+        from . import contacts  # noqa: PLC0415
+        return ("Forgotten." if contacts.forget_caller(memory, str(args.get("number") or ""))
+                else "No saved caller with that number (phone contacts are managed on the phone).")
     missing = ready()
     if missing:
         return missing
