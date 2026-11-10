@@ -57,3 +57,14 @@ Never write "SOC 2 compliant" or "certified" until a CPA firm issues a report.
 
 Regenerate the site: `cd <Buddywebsite clone> && python3 <BuddyAgent>/docs/website-src/mksite.py <BuddyAgent>/docs/website-src/pages.py`
 (writes every .html page; commit to Buddywebsite main, Cloudflare Pages deploys it).
+
+## Buddy Connect (added 10 November 2026, at the owner's request)
+
+- Public: a Buddy Connect card on the home page and `connect.html`, a gist only (one secure gateway, grouped by
+  area, explained connections, privacy by rule, costs in the open). No vendor names or internals there.
+- `/docs/` is the Buddy Connect API documentation (`apidocs.py`), for approved partners only, behind a password
+  sign-in: `functions/docs/_middleware.js` and `functions/api/docs-login.js` in the site repo. The password is the
+  Cloudflare Pages secret `DOCS_PASSWORD`, set only by the owner in the dashboard; it never goes in a repo, chat or
+  page. Changing it signs everyone out. Ten tries an hour per visitor. `/docs/` is noindex and in robots.txt.
+- The docs may name services and describe how Buddy Connect works (they're behind the sign-in), but never a server
+  address, token, key, password or file path. Keep them in step with `backend/buddy/gateway.py`.

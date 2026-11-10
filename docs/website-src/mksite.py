@@ -9,7 +9,7 @@ SITE = "https://buddylabs.io"
 CUR = ' aria-current="page"'
 
 def page(file, title, desc, body, current=""):
-    nav = [("index.html", "Home"), ("trust.html", "Trust Center"),
+    nav = [("index.html", "Home"), ("connect.html", "Buddy Connect"), ("trust.html", "Trust Center"),
            ("security.html", "Security"), ("privacy.html", "Privacy"), ("contact.html", "Contact")]
     links = "".join(f'<a href="{h}"{CUR if h == current else ""}>{t}</a>' for h, t in nav)
     html = f"""<!doctype html>

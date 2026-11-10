@@ -1,3 +1,5 @@
+import os
+import sys
 page("index.html", f"Buddy: 1,000 apps, one Buddy · {CO}", "One app to rule them all: a personal assistant who knows you and organizes, manages and tailors everything around your style. Coming soon.", f"""
 <section class="hero teaser"><div class="wrap">
   <span class="eyebrow">Coming soon</span>
@@ -53,6 +55,7 @@ page("index.html", f"Buddy: 1,000 apps, one Buddy · {CO}", "One app to rule the
   <p class="lead">The same idea, built for the people who feed us: less guessing, fewer mistakes, faster service.</p>
   <div class="grid wide">
     <div class="card"><h3>Buddy Serve</h3><p>An AI point of sale your team wears, not one they walk back to. Smart glasses and a headset: orders go in hands-free, and nothing gets lost between the table and the kitchen.</p><p style="margin-top:14px"><a href="buddy-serve.mp4">Watch the teaser (35 s)</a></p></div>
+    <div class="card"><h3>Buddy Connect</h3><p>One secure gateway between Buddy and the services you use, grouped by travel, finance, shopping, health and more. Every connection is checked, explained and kept private.</p><p style="margin-top:14px"><a href="connect.html">Learn more</a></p></div>
     <div class="card"><h3>Buddy Watch</h3><p>A second pair of eyes on every shift. Food safety, how fast guests are served, every order tracked from kitchen to table, and every pour at the bar.</p><p style="margin-top:14px"><a href="buddy-watch.mp4">Watch the teaser (35 s)</a></p></div>
   </div>
   <p class="fine">In development. Interested in an early pilot for your restaurant? Email <a href="mailto:{EMAIL}?subject=Restaurant%20pilot">{EMAIL}</a>.</p>
@@ -533,3 +536,28 @@ page("biometric-privacy.html", f"Biometric Information Privacy Policy · {CO}", 
   <p>You can see, withdraw and delete your voiceprint at any time in the app, or by emailing <a href="mailto:{PRIVACY_EMAIL}?subject=Biometric%20request">{PRIVACY_EMAIL}</a> with "Biometric request" in the subject. We act within 30 days.</p>
 </div>
 """, "biometric-privacy.html")
+
+page("connect.html", f"Buddy Connect · {CO}", "Buddy Connect: one secure gateway between Buddy and the services you use, organised by travel, finance, shopping, health and more.", f"""
+<section class="hero"><div class="wrap">
+  <span class="eyebrow">Buddy Connect</span>
+  <h1>Every service.<br><span class="accent">One secure gateway.</span></h1>
+  <p class="lead">Buddy Connect is how Buddy, and apps we approve, reach the services in your life: travel, finance, shopping, health, news and more. One place to connect them, see that they work, and keep your data where it belongs.</p>
+  <div class="actions"><a class="btn primary" href="docs/">API documentation</a><a class="btn" href="mailto:{EMAIL}?subject=Buddy%20Connect">Talk to us</a></div>
+</div></section>
+
+<section class="block"><div class="wrap">
+  <h2>What it does</h2>
+  <div class="grid">
+    <div class="card"><h3>One way in</h3><p>Every outside service goes through the same gateway, so each one is handled the same careful way.</p></div>
+    <div class="card"><h3>Organised by your life</h3><p>Travel and transit, finance and markets, shopping, health, search, news and weather, each in its own group.</p></div>
+    <div class="card"><h3>Always explained</h3><p>See which connections work, which don't and why, in plain words, with a one-tap test.</p></div>
+    <div class="card"><h3>Private by rule</h3><p>Each service is cleared for what it may see. Personal data only goes where it's allowed, and never to services that don't need it.</p></div>
+    <div class="card"><h3>Costs in the open</h3><p>Every call is counted, so what each service costs is never a surprise.</p></div>
+    <div class="card"><h3>Built to grow</h3><p>New services join in one step, and Buddy can use them right away.</p></div>
+  </div>
+  <p class="fine">Buddy Connect is in private testing. The API documentation is available to approved partners: <a href="mailto:{EMAIL}?subject=Buddy%20Connect%20access">ask for access</a>.</p>
+</div></section>
+""", "connect.html")
+
+# Buddy Connect's API documentation (/docs/, behind the password login)
+exec(open(os.path.join(os.path.dirname(os.path.abspath(sys.argv[1])), "apidocs.py")).read())
