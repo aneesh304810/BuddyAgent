@@ -1,0 +1,3 @@
+# Phone calls (calls.py), installed by deploy/calls.sh (and kept up to date by update.sh once installed):
+# Pipecat runs each call's audio on this server; Deepgram hears, ElevenLabs speaks, Silero detects speech here.
+pipecat-ai[deepgram,elevenlabs,silero]>=1.15,<2

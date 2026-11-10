@@ -36,6 +36,10 @@ if ! command -v dot >/dev/null; then
     || echo "  !! Graphviz didn't install; diagrams won't work until: sudo apt-get update && sudo apt-get install -y graphviz"
 fi
 sudo -u buddy "$APP/backend/.venv/bin/pip" install -q --upgrade -r "$APP/backend/requirements.txt"
+# Phone calls' engine (Pipecat): only on servers where deploy/calls.sh installed it.
+if sudo -u buddy "$APP/backend/.venv/bin/python" -c "import pipecat" 2>/dev/null; then
+  sudo -u buddy "$APP/backend/.venv/bin/pip" install -q --upgrade -r "$APP/backend/requirements-calls.txt"
+fi
 # Voice match (Talk mode answers only your voice): small, so always installed.
 bash "$APP/deploy/voice.sh" >/dev/null || echo "  !! Voice match didn't install; try: sudo bash $APP/deploy/voice.sh"
 # The settings hold every secret: root only (systemd hands Buddy what it needs).

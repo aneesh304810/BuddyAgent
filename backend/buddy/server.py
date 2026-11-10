@@ -561,7 +561,7 @@ async def protect(request: Request, call_next):
     if response.status_code == 401 and not wait:
         guard.guard.failed(ip, user, path)
     if guard.wants_log(path, response.status_code):
-        guard.guard.record("http", ip, user, request.method, path, response.status_code,
+        guard.guard.record("http", ip, user, request.method, _HideTokens.TOKEN.sub(r"\1***", path), response.status_code,
                            int((time.monotonic() - started) * 1000))
     existing = {k.lower() for k in response.headers.keys()}
     for name, value in guard.security_headers(path, request.headers.get("host", ""), existing).items():
@@ -572,7 +572,7 @@ async def protect(request: Request, call_next):
 class _HideTokens(logging.Filter):
     """The phone connects with ?token=...: keep it out of the server's logs."""
 
-    TOKEN = re.compile(r"(token=)[^&\s\"']+")
+    TOKEN = re.compile(r"(token=|/calls/[a-z]+/\d+/)[^&/\s\"']+")  # phone calls carry theirs in the path
 
     def filter(self, record: logging.LogRecord) -> bool:
         if isinstance(record.args, tuple):
@@ -778,6 +778,74 @@ async def health_sync(body: dict) -> dict:
     """Daily totals from Health Connect on the phone (the owner's permission): kept on this server, 90 days."""
     from . import health_data  # noqa: PLC0415
     return {"ok": True, "days": await asyncio.to_thread(health_data.ingest, memory, body)}
+
+
+# --- phone calls (calls.py): /calls/* is all Tailscale Funnel makes public -----------------------------------------
+_call_streams: set[int] = set()
+
+
+async def _plivo_call(request: Request, call_id: int, token: str, what: str, *, ended_ok: bool = False):
+    """The call a Plivo request is for, after checking its token and Plivo's signature; 403 otherwise."""
+    from . import calls  # noqa: PLC0415
+    call = calls.token_ok(memory, call_id, token, ended_ok=ended_ok)
+    form = {k: str(v) for k, v in (await request.form()).items()}
+    if not call or not calls.signature_ok(calls.url_for(call, what), form,
+                                          request.headers.get("x-plivo-signature-v3-nonce", ""),
+                                          request.headers.get("x-plivo-signature-v3", "")):
+        raise HTTPException(403, "no")
+    return call, form
+
+
+def _xml(text: str):
+    from fastapi.responses import Response  # noqa: PLC0415
+    return Response(content=text, media_type="application/xml")
+
+
+@app.post("/calls/answer/{call_id}/{token}")
+async def call_answer(call_id: int, token: str, request: Request):
+    from . import calls  # noqa: PLC0415
+    call, form = await _plivo_call(request, call_id, token, "answer")
+    return _xml(calls.answer_xml(memory, call, form))
+
+
+@app.post("/calls/connect/{call_id}/{token}")
+async def call_connect(call_id: int, token: str, request: Request):
+    from . import calls  # noqa: PLC0415
+    call, _form = await _plivo_call(request, call_id, token, "connect")
+    return _xml(calls.connect_xml(call))
+
+
+@app.post("/calls/hangup/{call_id}/{token}")
+async def call_hangup(call_id: int, token: str, request: Request):
+    from . import calls  # noqa: PLC0415
+    call, form = await _plivo_call(request, call_id, token, "hangup", ended_ok=True)
+    message = calls.hung_up(memory, call, form)
+    _call_streams.discard(call_id)
+    if message:
+        await deliver("call", message)
+    return {"ok": True}
+
+
+@app.websocket("/calls/stream/{call_id}/{token}")
+async def call_stream(websocket: WebSocket, call_id: int, token: str):
+    """The call's live audio (Plivo's stream): one stream per answered call, nothing else."""
+    from . import calls  # noqa: PLC0415
+    call = calls.token_ok(memory, call_id, token)
+    if not call or call["status"] != "answered" or call_id in _call_streams:
+        await websocket.close(code=1008)
+        return
+    _call_streams.add(call_id)
+    await websocket.accept()
+    try:
+        await calls.run_stream(memory, websocket, call, deliver)
+    except Exception:
+        log.exception("call %s: the call's audio stopped", call_id)
+        with contextlib.suppress(Exception):
+            if calls.get(memory, call_id)["status"] == "answered":
+                await deliver("call", f"My call to {call['who']} broke off on my side; nothing was settled. "
+                                      "Want me to try again?")
+    finally:
+        _call_streams.discard(call_id)
 
 
 @app.get("/admin/connections", dependencies=[Depends(require_admin)])

@@ -15,9 +15,11 @@ PATH and Serper here; stage 2 markets, trends and news, flights and weather. The
 failover and report each result; Claude and Plaid keep their own clients and are listed for the status.
 """
 
+import base64
 import json
 import logging
 import os
+import re
 import threading
 import time
 import urllib.error
@@ -157,12 +159,30 @@ CATALOG: dict[str, dict] = {
     # Listed for the status; they keep their own clients.
     "claude": {"group": "AI models", "title": "Claude (Anthropic)", "auth": {"type": "header", "secret": "ANTHROPIC_API_KEY"},
                "privacy": "personal", "used_for": "Buddy's thinking: everything personal goes only here"},
+    # Phone calls (calls.py): Plivo places them; Deepgram hears and ElevenLabs speaks over Pipecat's live audio
+    # links, which report how each call went here.
+    "plivo": {"group": "Calls", "title": "Plivo (phone calls)", "hosts": ["https://api.plivo.com"],
+              "auth": {"type": "basic", "fields": {"user": "BUDDY_PLIVO_AUTH_ID", "password": "BUDDY_PLIVO_AUTH_TOKEN",
+                                                  "number": "BUDDY_PLIVO_NUMBER"}},
+              "cost": 0.0, "per_minute": 60, "privacy": "personal", "no_backup": True,
+              "used_for": "phone calls for you (appointments, questions, hold-and-connect); each one after your yes",
+              "setup_command": "sudo bash /opt/buddy/deploy/calls.sh", "health": {"custom": "calls.plivo_health"}},
+    "deepgram": {"group": "Calls", "title": "Deepgram (hears calls)", "hosts": ["https://api.deepgram.com"],
+                 "auth": {"type": "header", "secret": "BUDDY_DEEPGRAM_KEY", "prefix": "Token "},
+                 "cost": 0.0, "per_minute": 30, "privacy": "personal", "reports": True,
+                 "used_for": "turns the other side's words into text on Buddy's calls (only while someone talks)",
+                 "setup_command": "sudo bash /opt/buddy/deploy/calls.sh", "health": {"path": "/v1/projects"}},
+    "elevenlabs": {"group": "Calls", "title": "ElevenLabs (Buddy's call voice)", "hosts": ["https://api.elevenlabs.io"],
+                   "auth": {"type": "header", "header": "xi-api-key", "secret": "BUDDY_ELEVENLABS_KEY"},
+                   "cost": 0.0, "per_minute": 30, "privacy": "personal", "reports": True,
+                   "used_for": "the natural voice Buddy speaks with on calls",
+                   "setup_command": "sudo bash /opt/buddy/deploy/calls.sh", "health": {"path": "/v1/user"}},
     "plaid": {"group": "Finance & markets", "title": "Plaid (banks)", "auth": {"type": "header", "secret": "BUDDY_PLAID_CLIENT_ID"},
               "privacy": "personal", "used_for": "bank and card transactions (read-only)"},
 }
 
 
-GROUPS = ["Travel & transit", "Finance & markets", "Shopping", "Health", "Home", "Search", "News & trends",
+GROUPS = ["Travel & transit", "Finance & markets", "Shopping", "Health", "Home", "Calls", "Search", "News & trends",
           "Weather", "AI models"]  # app order
 
 
@@ -179,9 +199,11 @@ class ConnectError(ToolError):
         self.code = status  # like urllib's HTTPError, for callers that check e.code
 
 
-def _transport(url: str, data: bytes | None = None, headers: dict | None = None, timeout: int = 30) -> bytes:
+def _transport(url: str, data: bytes | None = None, headers: dict | None = None, method: str | None = None,
+               timeout: int = 30) -> bytes:
     from .tools import require_https  # noqa: PLC0415
-    req = urllib.request.Request(require_https(url), data=data, headers={"User-Agent": UA, **(headers or {})})
+    req = urllib.request.Request(require_https(url), data=data, headers={"User-Agent": UA, **(headers or {})},
+                                 method=method or None)
     with urllib.request.urlopen(req, timeout=timeout) as r:  # https only  # nosec B310
         return r.read(20_000_000)
 
@@ -211,7 +233,7 @@ def _secret(env, name: str) -> str:
 
 def configured(name: str, env=None) -> bool:
     auth = CATALOG[name].get("auth") or {}
-    if auth.get("type") in ("token", "oauth"):
+    if auth.get("type") in ("token", "oauth", "basic"):
         return all(_secret(env, s) for s in auth["fields"].values())
     return not auth.get("secret") or bool(_secret(env, auth["secret"]))
 
@@ -282,7 +304,8 @@ def reason_of(got) -> str:
 
 
 def call_url(memory, name: str, urls: list[str], *, data: bytes | None = None, headers: dict | None = None,
-             raw: bool = False, fetch=None, purpose: str = "", personal: bool = False, endpoint: str = ""):
+             raw: bool = False, fetch=None, purpose: str = "", personal: bool = False, endpoint: str = "",
+             method: str = ""):
     """The one place outside calls go through: tries each url (a backup host only when one can't be reached),
     retries once on a 5xx or timeout, logs it, and returns JSON (or bytes with raw=True)."""
     entry = CATALOG.get(name)
@@ -299,10 +322,10 @@ def call_url(memory, name: str, urls: list[str], *, data: bytes | None = None, h
     for url in urls:
         for attempt in (0, 1):
             try:
-                body = fetch(url, data, headers)
+                body = fetch(url, data, headers, method) if method else fetch(url, data, headers)
             except urllib.error.HTTPError as e:
                 said = reason_of(e.read(400) if hasattr(e, "read") else "")
-                if e.code >= 500 and attempt == 0 and data is None:  # reads only: never re-send a login or a post
+                if e.code >= 500 and attempt == 0 and data is None and not method:  # reads only: never re-send
                     last = e
                     continue
                 _note(memory, name, False, endpoint, time.monotonic() - started, f"HTTP {e.code}: {said}", purpose)
@@ -310,7 +333,7 @@ def call_url(memory, name: str, urls: list[str], *, data: bytes | None = None, h
                                    e.code, said) from e
             except (urllib.error.URLError, OSError, TimeoutError) as e:
                 last = e
-                if attempt == 0 and isinstance(e, TimeoutError) and data is None:
+                if attempt == 0 and isinstance(e, TimeoutError) and data is None and not method:
                     continue
                 break  # can't reach this host: the next one, if any
             else:
@@ -327,8 +350,13 @@ def call_url(memory, name: str, urls: list[str], *, data: bytes | None = None, h
     raise ConnectError(name, f"{entry['title']} can't be reached right now.", 0, str(last)[:200])
 
 
+def _redact(path: str) -> str:
+    """What the logs keep of a path: Plivo's account id (it's in every path) is left out."""
+    return re.sub(r"/Account/[^/]+", "/Account/~", path)
+
+
 def call(memory, name: str, path: str = "", *, data: bytes | None = None, json_body=None, headers: dict | None = None,
-         raw: bool = False, fetch=None, env=None, purpose: str = "", personal: bool = False):
+         raw: bool = False, fetch=None, env=None, purpose: str = "", personal: bool = False, method: str = ""):
     """Call a catalog service by name and path: its hosts in order, with its key added."""
     entry = CATALOG[name]
     auth = entry.get("auth") or {}
@@ -341,10 +369,15 @@ def call(memory, name: str, path: str = "", *, data: bytes | None = None, json_b
         if not key:
             raise ConnectError(name, f"{entry['title']} isn't set up: sudo bash /opt/buddy/deploy/set.sh "
                                      f"{auth['secret']}")
-        headers[auth.get("header", "Authorization")] = key
+        headers[auth.get("header", "Authorization")] = auth.get("prefix", "") + key
+    elif auth.get("type") == "basic":
+        user, password = _secret(env, auth["fields"]["user"]), _secret(env, auth["fields"]["password"])
+        if not (user and password):
+            raise ConnectError(name, f"{entry['title']} isn't set up: {setup_hint(name)}")
+        headers["Authorization"] = "Basic " + base64.b64encode(f"{user}:{password}".encode()).decode()
     urls = [h + path for h in (entry["hosts"][:1] if entry.get("no_backup") else entry["hosts"])]
     return call_url(memory, name, urls, data=data, headers=headers, raw=raw, fetch=fetch, purpose=purpose,
-                    personal=personal, endpoint=path[:60])
+                    personal=personal, endpoint=_redact(path)[:60], method=method)
 
 
 def token(memory, name: str, *, fresh: bool = False, env=None, fetch=None) -> str:
@@ -393,7 +426,7 @@ def setup_hint(name: str) -> str:
     if CATALOG[name].get("setup_command"):
         return CATALOG[name]["setup_command"]
     auth = CATALOG[name].get("auth") or {}
-    names = list(auth["fields"].values()) if auth.get("type") == "token" else [auth["secret"]] \
+    names = list(auth["fields"].values()) if auth.get("type") in ("token", "basic") else [auth["secret"]] \
         if auth.get("secret") else []
     return "; ".join(f"sudo bash /opt/buddy/deploy/set.sh {n}" for n in names)
 

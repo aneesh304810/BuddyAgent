@@ -6,3 +6,5 @@ pandas
 openpyxl
 reportlab
 lxml
+# The phone-call tests (tests/test_calls.py) run the real call pipeline:
+-r requirements-calls.txt

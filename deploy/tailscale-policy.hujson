@@ -17,6 +17,12 @@
 		// Everyone else (invited members, shared users): no access to the server at all.
 	],
 
+	// Phone calls (deploy/calls.sh): Tailscale Funnel publishes ONLY /calls on port 8443 so Plivo can reach it;
+	// every request there needs the call's random token and Plivo's signature. Leave this out if you don't use calls.
+	"nodeAttrs": [
+		{"target": ["tag:buddy-server"], "attr": ["funnel"]},
+	],
+
 	"ssh": [
 		// Re-confirm your identity with your sign-in (Google, with two-step) every 12 hours.
 		{

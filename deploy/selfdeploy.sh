@@ -19,7 +19,7 @@ LIB=/usr/local/lib/buddy-deploy
 DIR=${BUDDY_SELFDEPLOY_DIR:-/var/lib/buddy/deploy}
 FLAG=${BUDDY_SELFDEPLOY_FLAG:-/etc/buddy/selfdeploy-on}
 SANDBOX_ENV=${BUDDY_SELFDEPLOY_SANDBOX_ENV:-/etc/buddy-sandbox/sandbox.env}
-PROTECTED='^(deploy/|\.github/|backend/requirements|backend/pyproject|backend/tests/conftest\.py$|backend/buddy/(budgets|thrift|guard|privacy|config|selfcode|codejob|sandbox|selfdeploy|claudefix|access|compliance|usage)\.py$)'
+PROTECTED='^(deploy/|\.github/|backend/requirements|backend/pyproject|backend/tests/conftest\.py$|backend/buddy/(budgets|thrift|guard|privacy|config|selfcode|codejob|sandbox|selfdeploy|claudefix|access|compliance|usage|calls)\.py$)'
 [[ $EUID -eq 0 ]] || { echo "Run as root (sudo)."; exit 1; }
 
 g() { git -c safe.directory="$1" -c core.hooksPath=/dev/null -c core.fsmonitor= -c credential.helper= -C "$1" "${@:2}"; }

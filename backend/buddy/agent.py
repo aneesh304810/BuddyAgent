@@ -54,6 +54,7 @@ from .amazon import TOOL as AMAZON_TOOL
 from .gateway import TOOL as CONNECTIONS_TOOL
 from .health_data import HEALTH_INFO_TOOL, MY_HEALTH_TOOL
 from .nest import TOOL as THERMOSTAT_TOOL
+from .calls import TOOL as PHONE_CALL_TOOL
 from .convolog import TOOL as RECALL_CONVO_TOOL
 from .model_advisor import ADVICE_TOOL
 from .docedit import EDIT_TOOL
@@ -790,7 +791,7 @@ class Conversation:
                      WEATHER_TOOL, PACKAGES_TOOL, MESSAGE_TOOL, BUDGET_TOOL, COSTWATCH_TOOL, ADVICE_TOOL, EDIT_TOOL,
                      RECALL_CONVO_TOOL, CLAUDE_FIX_TOOL, COMMUTE_TOOL,
                      CONNECTIONS_TOOL, AMAZON_TOOL, MY_HEALTH_TOOL, HEALTH_INFO_TOOL,
-                     THERMOSTAT_TOOL]
+                     THERMOSTAT_TOOL, PHONE_CALL_TOOL]
         spending += [BROWSE_TOOL] if self.jobs else []  # listed even when the sandbox is down: it says what to fix
         if self.memory.get("forms:phone") != "1":  # the owner's choice: forms always in Buddy's own browser
             spending = [t for t in spending if t.get("name") != "fill_form"]
@@ -951,6 +952,9 @@ class Conversation:
         if name == "edit_document":
             from . import docedit  # noqa: PLC0415
             return await docedit.run_edit_tool(self.memory, args)
+        if name == "phone_call":  # a real call for the owner: only after their yes (calls.run_tool asks)
+            from . import calls  # noqa: PLC0415
+            return await calls.run_tool(self.memory, self.thrift, args)
         if name == "thermostat":  # the owner's home: changes only after a yes (nest.run_tool asks)
             from . import nest  # noqa: PLC0415
             return await nest.run_tool(self.memory, self.thrift, args)
