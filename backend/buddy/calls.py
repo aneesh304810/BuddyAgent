@@ -135,6 +135,13 @@ def update(memory: Memory, call_id: int, **fields) -> None:
     memory.db.commit()
 
 
+def per_day(env=None) -> int:
+    try:
+        return max(1, min(int(_env("BUDDY_CALLS_PER_DAY", env) or CALLS_PER_DAY), 50))
+    except ValueError:
+        return CALLS_PER_DAY
+
+
 def plan(memory: Memory, who: str, number: str, kind: str, goal: str, windows: str = "") -> dict:
     _ready(memory)
     if kind not in KINDS:
@@ -142,10 +149,17 @@ def plan(memory: Memory, who: str, number: str, kind: str, goal: str, windows: s
     if not (goal or "").strip():
         raise ToolError("What is the call for?")
     today = local_now().date().isoformat()
-    n = memory.db.execute("SELECT COUNT(*) FROM phone_calls WHERE created_at >= ? AND status != 'planned'",
-                          (today,)).fetchone()[0]
-    if n >= CALLS_PER_DAY:
-        raise ToolError(f"I've made {CALLS_PER_DAY} calls today already; let's continue tomorrow.")
+    limit = per_day()
+    mine = ""
+    try:
+        mine = normalise(owner()["phone"]) if owner()["phone"] else ""
+    except ToolError:
+        pass
+    # Only calls that got through count, and test calls to the owner's own mobile don't.
+    n = memory.db.execute("SELECT COUNT(*) FROM phone_calls WHERE created_at >= ? AND status IN "
+                          "('calling', 'answered', 'connected', 'done') AND number != ?", (today, mine)).fetchone()[0]
+    if n >= limit and normalise(number) != mine:
+        raise ToolError(f"I've made {limit} calls today already (BUDDY_CALLS_PER_DAY); let's continue tomorrow.")
     cur = memory.db.execute(
         "INSERT INTO phone_calls (created_at, who, number, kind, goal, windows, token) VALUES (?, ?, ?, ?, ?, ?, ?)",
         (datetime.now(timezone.utc).isoformat(), who.strip()[:80], normalise(number), kind, goal.strip()[:500],

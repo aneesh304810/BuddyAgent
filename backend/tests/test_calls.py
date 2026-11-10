@@ -554,3 +554,17 @@ def test_debug_switch_logs_what_was_heard_only_when_on(tmp_path, monkeypatch, ca
         monkeypatch.setenv("BUDDY_CALL_DEBUG", "1")
         asyncio.run(mind.heard("We open at nine"))
     assert "heard: We open at nine" in caplog.text and "decided:" in caplog.text
+
+
+def test_daily_limit_skips_test_calls_and_calls_that_never_connected(tmp_path, env, monkeypatch):
+    m = Memory(tmp_path / "b.db")
+    monkeypatch.setenv("BUDDY_CALLS_PER_DAY", "2")
+    for _ in range(4):  # test calls to the owner's own mobile
+        calls.update(m, calls.plan(m, "me", "201-555-0199", "question", "test")["id"], status="done")
+    for _ in range(3):  # busy, no answer
+        calls.update(m, calls.plan(m, "Shop", "2015550124", "question", "hours?")["id"], status="failed")
+    for _ in range(2):
+        calls.update(m, calls.plan(m, "Shop", "2015550124", "question", "hours?")["id"], status="done")
+    with pytest.raises(ToolError, match="2 calls today"):
+        calls.plan(m, "Shop", "2015550124", "question", "hours?")
+    assert calls.plan(m, "me", "2015550199", "question", "one more test")  # still allowed
