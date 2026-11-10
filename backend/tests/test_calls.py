@@ -457,3 +457,19 @@ def test_prices_can_be_changed(monkeypatch):
     assert calls.price("BUDDY_CALL_PRICE_LINE_MIN") == 0.02
     monkeypatch.setenv("BUDDY_CALL_PRICE_LINE_MIN", "lots")
     assert calls.price("BUDDY_CALL_PRICE_LINE_MIN") == 0.013
+
+
+def test_phone_numbers_reach_the_call_tool_but_accounts_stay_masked():
+    from buddy.privacy import mask
+    assert mask("I did my phone number is 9254874248") == "I did my phone number is 9254874248"
+    assert mask("call 19254874248 and ask their hours") == "call 19254874248 and ask their hours"
+    assert mask("my account number is 9254874248") == "my account number is account ****4248"
+    assert mask("routing 021000021 for the call") == "routing account ****0021 for the call"
+    assert mask("9254874248") == "account ****4248"  # no word about phoning: still hidden
+
+
+def test_me_calls_the_owners_saved_mobile(tmp_path, env):
+    m, t = Memory(tmp_path / "b.db"), Thrift()
+    asyncio.run(calls.run_tool(m, t, {"action": "call", "who": "my mobile", "number": "me", "kind": "question",
+                                      "goal": "a test call"}))
+    assert "+12015550199" in t.asked[0][0]

@@ -63,6 +63,19 @@ _PASSWORD = re.compile(
 )
 # Bank account and routing numbers: 9-18 digit runs (after cards and IDs are handled).
 _ACCOUNT = re.compile(r"\b\d{9,18}\b")
+# ...except a phone number typed without dashes ("call 9254874248", "my mobile is 19254874248"): 10 digits (11 with
+# the US 1), right after words about phoning, with no word about accounts nearby.
+_PHONE_WORDS = re.compile(r"\b(phone|mobile|cell|call|calling|ring|dial|text|sms|whatsapp|tel|contact|callback)\b", _I)
+_ACCOUNT_WORDS = re.compile(r"\b(account|acct|routing|iban|aba|swift|bank|card|member|policy|ssn|social)\b", _I)
+
+
+def _account(match: re.Match) -> str:
+    digits = match.group()
+    before = match.string[max(0, match.start() - 40):match.start()]
+    if (len(digits) == 10 or (len(digits) == 11 and digits.startswith("1"))) and _PHONE_WORDS.search(before) \
+            and not _ACCOUNT_WORDS.search(before):
+        return digits
+    return f"account ****{digits[-4:]}"
 
 
 def _luhn_ok(digits: str) -> bool:
@@ -104,7 +117,7 @@ def mask(text: str) -> str:
     text = _CARD.sub(_card, text)
     text = _AADHAAR.sub("[Aadhaar hidden]", text)
     text = _PAN.sub("[PAN hidden]", text)
-    text = _ACCOUNT.sub(lambda m: f"account ****{m.group()[-4:]}", text)
+    text = _ACCOUNT.sub(_account, text)
     return text
 
 

@@ -745,7 +745,8 @@ TOOL = {
     "input_schema": {"type": "object", "properties": {
         "action": {"type": "string", "enum": ["call", "status"]},
         "who": {"type": "string", "description": "who is being called, e.g. Dr. Mehta's office"},
-        "number": {"type": "string"},
+        "number": {"type": "string", "description": "the number to call; \"me\" calls the user's own saved "
+                   "mobile (e.g. a test call)"},
         "kind": {"type": "string", "enum": list(KINDS)},
         "goal": {"type": "string", "description": "what to get done, with the facts they'll need"},
         "windows": {"type": "string", "description": "appointment: allowed days and times, e.g. 'mornings next week'"}},
@@ -769,7 +770,12 @@ async def run_tool(memory: Memory, thrift, args: dict) -> str:
         return missing
     if thrift is None:
         return "I need your yes before calling, and I can't ask right now."
-    call = plan(memory, args.get("who") or "the business", args.get("number") or "", args.get("kind") or "question",
+    number = str(args.get("number") or "").strip()
+    if number.lower() in ("me", "my mobile", "my phone", "owner", "mine", "callback"):  # e.g. a test call to the owner
+        number = owner()["phone"]
+        if not number:
+            return f"Your mobile number isn't saved yet: {SETUP}"
+    call = plan(memory, args.get("who") or "the business", number, args.get("kind") or "question",
                 args.get("goal") or "", args.get("windows") or "")
     first = (owner()["name"].split() or ["your"])[0]
     shares = ["your name", "callback number"] + (["date of birth", "insurance"] if call["kind"] == "appointment"
