@@ -111,6 +111,24 @@ CATALOG: dict[str, dict] = {
               "auth": {"type": "param", "secret": "BUDDY_KEEPA_KEY"}, "cost": 0.0, "per_minute": 20,
               "privacy": "public", "used_for": "Amazon's exact price and 90-day average (optional, paid plan)",
               "moved": True},
+    # Health (health_data.py): the phone's own data stays on this server; the public ones get only a drug,
+    # topic or product name.
+    "health_connect": {"group": "Health", "title": "Phone health data (Health Connect)", "auth": {"type": "phone"},
+                       "privacy": "personal", "used_for": "your steps, sleep, heart rate and workouts, from the phone",
+                       "reports": True},
+    "openfda": {"group": "Health", "title": "openFDA (medicines)", "hosts": ["https://api.fda.gov"],
+                "auth": {"type": "none"}, "cost": 0.0, "per_minute": 40, "privacy": "public",
+                "used_for": "what a medicine is for, warnings, interactions, recalls",
+                "health": {"path": "/drug/label.json?search=openfda.generic_name:ibuprofen&limit=1"}, "moved": True},
+    "medlineplus": {"group": "Health", "title": "MedlinePlus (NIH health topics)",
+                    "hosts": ["https://wsearch.nlm.nih.gov"], "auth": {"type": "none"}, "cost": 0.0,
+                    "per_minute": 40, "privacy": "public", "used_for": "conditions and lab tests explained",
+                    "health": {"path": "/ws/query?db=healthTopics&term=sleep&retmax=1", "raw": True},
+                    "moved": True},
+    "openfoodfacts": {"group": "Health", "title": "Open Food Facts (nutrition)",
+                      "hosts": ["https://world.openfoodfacts.org"], "auth": {"type": "none"}, "cost": 0.0,
+                      "per_minute": 30, "privacy": "public", "used_for": "nutrition and allergens of food products",
+                      "health": {"path": "/api/v2/product/3017624010701.json"}, "moved": True},
     # The free AI models keep their own failover (rests, model swaps) and report each result here.
     "groq": {"group": "AI models", "title": "Groq (free AI)", "auth": {"type": "header", "secret": "BUDDY_GROQ_KEY"},
              "privacy": "public", "used_for": "free models for general work", "reports": True},
@@ -133,7 +151,8 @@ CATALOG: dict[str, dict] = {
 }
 
 
-GROUPS = ["Travel & transit", "Finance & markets", "Shopping", "Search", "News & trends", "Weather", "AI models"]  # app order
+GROUPS = ["Travel & transit", "Finance & markets", "Shopping", "Health", "Search", "News & trends", "Weather",
+          "AI models"]  # app order
 
 
 def group_of(name: str) -> str:
@@ -384,7 +403,7 @@ def health(name: str, memory=None, env=None, fetch=None) -> tuple[bool, str]:
                          purpose="health")
             else:
                 call(memory, name, check["path"], json_body=check.get("json"), env=env, fetch=fetch,
-                     purpose="health")
+                     purpose="health", raw=bool(check.get("raw")))
         return True, "ok"
     except ConnectError as e:
         return False, str(e)

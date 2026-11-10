@@ -1,5 +1,7 @@
 package app.buddy
 
+import kotlinx.coroutines.launch
+import androidx.lifecycle.lifecycleScope
 import android.Manifest
 import android.annotation.SuppressLint
 import android.content.Intent
@@ -175,6 +177,7 @@ class MainActivity : ComponentActivity() {
     override fun onResume() {
         super.onResume()
         LocationShare.maybeSend(this)
+        lifecycleScope.launch { HealthSync.maybeSync(this@MainActivity, prefs.link) }  // the Health group, every 6 h
         BuddyService.instance?.claimEarbud() // opening Buddy takes the earbud button back from music apps
         Links.buddyInFront = true
         Links.resumed(this)

@@ -17,7 +17,10 @@ import androidx.compose.foundation.lazy.items
 import androidx.compose.foundation.shape.CircleShape
 import androidx.compose.foundation.shape.RoundedCornerShape
 import androidx.compose.foundation.text.selection.SelectionContainer
+import androidx.activity.compose.rememberLauncherForActivityResult
 import androidx.compose.material3.OutlinedTextField
+import androidx.compose.ui.platform.LocalContext
+import androidx.health.connect.client.PermissionController
 import androidx.compose.material3.Text
 import androidx.compose.material3.TextButton
 import androidx.compose.runtime.Composable
@@ -123,7 +126,7 @@ object ConnectionsApi {
 }
 
 /** The areas services are grouped in, in the order the screen shows them (gateway.GROUPS). */
-val ConnectGroups = listOf("Travel & transit", "Finance & markets", "Shopping", "Search", "News & trends", "Weather", "AI models")
+val ConnectGroups = listOf("Travel & transit", "Finance & markets", "Shopping", "Health", "Search", "News & trends", "Weather", "AI models")
 
 fun groupOrder(group: String): Int = ConnectGroups.indexOf(group).let { if (it < 0) ConnectGroups.size else it }
 
@@ -145,6 +148,20 @@ fun ConnectionsScreen(link: ServerLink?) {
     var query by remember { mutableStateOf("") }
     var group by remember { mutableStateOf("All") }
     val scope = rememberCoroutineScope()
+    val context = LocalContext.current
+    var healthNote by remember { mutableStateOf("") }
+    fun syncHealth() {
+        if (link == null) return
+        healthNote = "Syncing…"
+        scope.launch {
+            healthNote = runCatching { "✓ Sent ${HealthSync.sync(context, link)} days to your server" }
+                .getOrElse { "✗ ${it.message}" }
+            reload++
+        }
+    }
+    val askHealth = rememberLauncherForActivityResult(PermissionController.createRequestPermissionResultContract()) {
+        granted -> if (granted.isNotEmpty()) syncHealth() else healthNote = "Nothing allowed, so nothing was read."
+    }
 
     LaunchedEffect(link, reload) {
         if (link == null) {
@@ -255,6 +272,21 @@ fun ConnectionsScreen(link: ServerLink?) {
                             else -> Pal.dim
                         }, fontSize = 13.sp,
                             modifier = Modifier.padding(top = 6.dp))
+                    }
+                    if (s.name == "health_connect") {  // the phone's own data: permission here, read on the phone
+                        Text(
+                            if (!HealthSync.available(context)) "Health Connect isn't on this phone (install it from Play)."
+                            else "Read only, with your permission; sent only to your Buddy server.",
+                            color = Pal.dim, fontSize = 12.sp, modifier = Modifier.padding(top = 6.dp))
+                        if (healthNote.isNotEmpty()) Text(healthNote, color = Pal.soft, fontSize = 13.sp)
+                        if (HealthSync.available(context) && link != null) {
+                            Row {
+                                TextButton(onClick = { askHealth.launch(HealthSync.PERMISSIONS) }) {
+                                    Text(if (s.lastOk == true) "Permissions" else "Connect", color = Pal.link)
+                                }
+                                TextButton(onClick = { syncHealth() }) { Text("Sync now", color = Pal.link) }
+                            }
+                        }
                     }
                     if (s.canTest && s.setUp && link != null) {
                         TextButton(onClick = {

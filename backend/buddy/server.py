@@ -773,6 +773,13 @@ def admin_trace(on: bool) -> dict:
     return {"tracing": on}
 
 
+@app.post("/api/health/sync", dependencies=[Depends(require_admin)])
+async def health_sync(body: dict) -> dict:
+    """Daily totals from Health Connect on the phone (the owner's permission): kept on this server, 90 days."""
+    from . import health_data  # noqa: PLC0415
+    return {"ok": True, "days": await asyncio.to_thread(health_data.ingest, memory, body)}
+
+
 @app.get("/admin/connections", dependencies=[Depends(require_admin)])
 async def admin_connections() -> dict:
     """Buddy Connect: every outside service, set up or not, its last result, calls and cost this month."""
