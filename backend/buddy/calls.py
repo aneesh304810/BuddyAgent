@@ -49,6 +49,7 @@ SCREENS_PER_DAY = 30              # a flood of robocalls can't run up the bill
 PRIORITIES = ("urgent", "normal", "low", "scam")
 KEEP_DAYS = 180
 DEFAULT_VOICE = "21m00Tcm4TlvDq8ikWAM"  # ElevenLabs' "Rachel" (female); BUDDY_CALL_VOICE changes it
+VOICE_SPEED = 0.95                # ElevenLabs: 1.0 is normal; a little slower is clearer on a phone line
 TTS_MODEL = "eleven_flash_v2_5"  # the fallback voice model; voice_model() normally picks a newer real-time one
 STT_MODEL = "nova-3-general"
 KINDS = ("appointment", "question", "hold_connect")
@@ -609,12 +610,19 @@ def parse(text: str) -> dict:
     return got
 
 
+_CLIENT = None
+
+
 async def think(memory: Memory, call: dict, history: list[dict], env=None) -> dict:
     """Claude's next move on the call (the quick model: answers must come fast)."""
     from . import usage  # noqa: PLC0415
     from .config import claude_client  # noqa: PLC0415
-    response = await claude_client().messages.create(model=settings.fast_model, max_tokens=300,
-                                                     system=system_prompt(memory, call, env), messages=history)
+    global _CLIENT
+    if _CLIENT is None:  # one client for every call and turn: no new connection to Claude each time
+        _CLIENT = claude_client()
+    system = call.get("_system") or await asyncio.to_thread(system_prompt, memory, call, env)
+    response = await _CLIENT.messages.create(model=settings.fast_model, max_tokens=300, system=system,
+                                             messages=history)
     if hasattr(response, "usage"):
         cost = usage.record(memory, response.model, response.usage, purpose="phone_call", response=response)
     else:
@@ -784,6 +792,9 @@ async def run_stream(memory: Memory, websocket, call: dict, deliver=None, env=No
     # The owner approved this call: it's their own request, not background work, so a paused background budget
     # (waiting for their approval of the month's pace) doesn't stop Claude mid-call.
     usage.current_turn.set(f"phone_call:{call['id']}")
+    # The call's script (calendar, routine, free times...) is built once, off the audio loop: built on every turn
+    # it held up the audio (a broken, late voice).
+    call = {**call, "_system": await asyncio.to_thread(system_prompt, memory, call, env)}
     from pipecat.audio.vad.silero import SileroVADAnalyzer  # noqa: PLC0415
     from pipecat.audio.vad.vad_analyzer import VADParams  # noqa: PLC0415
     from pipecat.frames.frames import (  # noqa: PLC0415
@@ -827,8 +838,12 @@ async def run_stream(memory: Memory, websocket, call: dict, deliver=None, env=No
             if self.user_talking or not self.words:
                 return
             said, self.words = " ".join(self.words), []
+            started = asyncio.get_running_loop().time()
             try:
                 await mind.heard(said)
+                if _env("BUDDY_CALL_DEBUG", env) == "1":
+                    log.warning("call %s: reply ready %.1f s after they stopped talking", call["id"],
+                                asyncio.get_running_loop().time() - started + 0.85)
             except Exception as e:  # Claude unreachable mid-call: don't leave them hanging
                 log.warning("call %s: no reply (%s: %s)", call["id"], type(e).__name__, str(e)[:300], exc_info=True)
                 await speak("Sorry, I'm having trouble on my end. I'll call back shortly. Thank you!")
@@ -850,14 +865,14 @@ async def run_stream(memory: Memory, websocket, call: dict, deliver=None, env=No
             if isinstance(frame, VADUserStoppedSpeakingFrame):
                 if direction == FrameDirection.DOWNSTREAM:
                     self.user_talking = False
-                    self._later(0.7)  # Deepgram's last words arrive just after
+                    self._later(0.35)  # Deepgram's last words arrive just after (it's asked to finish now)
                 await self.push_frame(frame, direction)
                 return
             if isinstance(frame, TranscriptionFrame):
                 if frame.text.strip():
                     self.words.append(frame.text.strip())
                     if not self.user_talking:
-                        self._later(0.3)
+                        self._later(0.15)
                 return  # their words never go to the voice
             if isinstance(frame, InterimTranscriptionFrame):
                 return
@@ -886,8 +901,9 @@ async def run_stream(memory: Memory, websocket, call: dict, deliver=None, env=No
     choices = list(dict.fromkeys([(voice, model), (voice, TTS_MODEL), (DEFAULT_VOICE, TTS_MODEL)]))
 
     def voice_service(v: str, m: str):
-        return ElevenLabsTTSService(api_key=env_get("BUDDY_ELEVENLABS_KEY"),
-                                    settings=ElevenLabsTTSService.Settings(voice=v, model=m))
+        # Tuned for phone lines: a touch slower and steadier, so it stays clear on a narrow 8 kHz line.
+        return ElevenLabsTTSService(api_key=env_get("BUDDY_ELEVENLABS_KEY"), settings=ElevenLabsTTSService.Settings(
+            voice=v, model=m, speed=VOICE_SPEED, stability=0.6, similarity_boost=0.8))
     voices = [voice_service(v, m) for v, m in choices]
     # If ElevenLabs refuses the chosen model or voice, the next one takes over within the same call.
     tts = ServiceSwitcher(voices, strategy_type=ServiceSwitcherStrategyFailover) if len(voices) > 1 else voices[0]
@@ -936,7 +952,7 @@ async def run_stream(memory: Memory, websocket, call: dict, deliver=None, env=No
     mind = Mind(memory, call, say=speak, press_keys=press_keys, finish=finish, env=env)
     gate = Gate()
     pipeline = Pipeline([transport.input(),
-                         VADProcessor(vad_analyzer=SileroVADAnalyzer(params=VADParams(stop_secs=0.6))),
+                         VADProcessor(vad_analyzer=SileroVADAnalyzer(params=VADParams(stop_secs=0.5))),
                          gate, stt, talk, tts, transport.output()])
     worker = PipelineWorker(pipeline, params=PipelineParams(audio_in_sample_rate=8000, audio_out_sample_rate=8000),
                             idle_timeout_secs=None)
