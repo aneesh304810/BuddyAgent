@@ -579,7 +579,7 @@ async def run_stream(memory: Memory, websocket, call: dict, deliver=None, env=No
             try:
                 await mind.heard(said)
             except Exception as e:  # Claude unreachable mid-call: don't leave them hanging
-                log.warning("call %s: no reply (%s)", call["id"], type(e).__name__)
+                log.warning("call %s: no reply (%s: %s)", call["id"], type(e).__name__, str(e)[:300], exc_info=True)
                 await speak("Sorry, I'm having trouble on my end. I'll call back shortly. Thank you!")
                 mind.ended = True
                 await finish({"action": "end", "say": "", "digits": "",
