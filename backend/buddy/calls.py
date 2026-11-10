@@ -156,10 +156,18 @@ def plivo_health(memory=None, env=None, fetch=None) -> None:
     _plivo(memory, "/", env=env, fetch=fetch)
 
 
+def caller_id(env=None) -> str:
+    """The number the other side sees: the owner's own mobile when they chose it (BUDDY_CALL_SHOW_MY_NUMBER=1, after
+    verifying it as a caller ID in Plivo's console), else Buddy's Plivo number."""
+    if _env("BUDDY_CALL_SHOW_MY_NUMBER", env) == "1" and owner(env)["phone"]:
+        return normalise(owner(env)["phone"])
+    return _env("BUDDY_PLIVO_NUMBER", env)
+
+
 def dial(memory: Memory, call: dict, env=None, fetch=None) -> str:
     """Ask Plivo to place the call. Plivo then asks /calls/answer for what to do when they pick up."""
     got = _plivo(memory, "/Call/", {
-        "from": _env("BUDDY_PLIVO_NUMBER", env).lstrip("+"), "to": call["number"].lstrip("+"),
+        "from": caller_id(env).lstrip("+"), "to": call["number"].lstrip("+"),
         "answer_url": url_for(call, "answer", env), "answer_method": "POST",
         "hangup_url": url_for(call, "hangup", env), "hangup_method": "POST",
         "time_limit": LIMIT_S[call["kind"]], "ring_timeout": 45}, env=env, fetch=fetch)
@@ -396,8 +404,8 @@ class Mind:
 
 def outcome_message(call: dict, move: dict, env=None) -> str:
     if move["action"] == "connect":
-        return (f"{call['who']}: a person is on the line. I'm ringing you now from Buddy's number; pick up to take "
-                "the call.")
+        return (f"{call['who']}: a person is on the line. I'm ringing you now from Buddy's Plivo number; pick up "
+                "to take the call.")
     return f"Call to {call['who']} done. {move.get('outcome') or ''}".strip()
 
 
@@ -603,7 +611,7 @@ async def run_stream(memory: Memory, websocket, call: dict, deliver=None, env=No
 # --- the tool --------------------------------------------------------------------------------------------------
 TOOL = {
     "name": "phone_call",
-    "description": "Call a business for the user, as their assistant, from Buddy's phone number (Buddy Connect: "
+    "description": "Call a business for the user, as their assistant (Buddy Connect: "
     "Plivo, with a natural voice). kind: appointment (book or move one, e.g. with their doctor, inside `windows`, "
     "checking their calendar; may give their name, callback number, date of birth and insurance), question (ask "
     "and report back), hold_connect (banks, card companies: get through the menu, wait on hold, and ring the user "
@@ -650,6 +658,8 @@ async def run_tool(memory: Memory, thrift, args: dict) -> str:
         await asyncio.to_thread(dial, memory, call)
         return (f"Calling {call['who']} now. I'll tell you how it goes"
                 + (", and ring you when a person answers." if call["kind"] == "hold_connect" else "."))
+    mine = caller_id() != _env("BUDDY_PLIVO_NUMBER")
     return thrift.ask_action(
-        f"Call {call['who']} at {call['number']} as {first}'s assistant to {what[call['kind']]}? "
+        f"Call {call['who']} at {call['number']}{' from your number' if mine else ''} as {first}'s assistant to "
+        f"{what[call['kind']]}? "
         f"I may share {', '.join(shares)}; nothing else, no payments, and the call isn't recorded.", go)

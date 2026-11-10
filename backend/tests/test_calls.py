@@ -78,6 +78,15 @@ def test_dial_goes_through_buddy_connect_with_basic_auth(tmp_path, env):
     assert "MAID" not in logged and c["token"] not in logged
 
 
+def test_can_show_the_owners_own_number(tmp_path, env, monkeypatch):
+    m, p = Memory(tmp_path / "b.db"), Plivo()
+    monkeypatch.setenv("BUDDY_CALL_SHOW_MY_NUMBER", "1")
+    hold = calls.plan(m, "Chase", "8005550100", "hold_connect", "dispute")
+    calls.dial(m, hold, fetch=p)
+    assert p.calls[0][1]["from"] == "12015550199"
+    assert 'callerId="+12015550100"' in calls.connect_xml(hold)  # ringing the owner in: from Buddy's number
+
+
 def test_hold_connect_calls_may_last_90_minutes(tmp_path, env):
     m, p = Memory(tmp_path / "b.db"), Plivo()
     calls.dial(m, calls.plan(m, "Chase", "8005550100", "hold_connect", "dispute a charge"), fetch=p)

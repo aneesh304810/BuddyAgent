@@ -57,6 +57,21 @@ ask BUDDY_OWNER_DOB "  Date of birth, e.g. January 2, 1990"
 ask BUDDY_OWNER_INSURANCE "  Health insurance, e.g. Aetna PPO, member ID W123456789"
 
 echo
+echo "Caller ID: the businesses can see your own mobile number instead of Buddy's Plivo number, once you've"
+echo "verified it in Plivo's console (Verified Caller IDs: Plivo calls or texts you a code)."
+read -rp "  Show your own number? Only say y after verifying it [y/N]: " MINE
+MINE_VALUE=0; [[ ${MINE,,} == y* ]] && MINE_VALUE=1
+python3 - "$ENV_FILE" "$MINE_VALUE" <<'PY'
+import re, sys
+path, value = sys.argv[1], sys.argv[2]
+text = open(path).read()
+line = f"BUDDY_CALL_SHOW_MY_NUMBER={value}"
+text = re.sub(r"(?m)^BUDDY_CALL_SHOW_MY_NUMBER=.*$", lambda m: line, text) if "BUDDY_CALL_SHOW_MY_NUMBER=" in text \
+    else text.rstrip("\n") + "\n" + line + "\n"
+open(path, "w").write(text)
+PY
+
+echo
 echo "Publishing /calls (only) to the internet with Tailscale Funnel on port 8443..."
 HOST=$(tailscale status --json | python3 -c 'import json,sys; print(json.load(sys.stdin)["Self"]["DNSName"].rstrip("."))')
 if ! tailscale funnel --bg --https=8443 --set-path=/calls http://127.0.0.1:8000/calls; then
