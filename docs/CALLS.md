@@ -36,8 +36,10 @@ Never paste a key in chat. The setup scripts ask for each one with hidden typing
 4. Copy the key (it's shown once).
 5. *Optional, a different voice:* Voices → Voice Library → filter female, English (American),
    "Conversational" → **Add to my voices** → **Copy voice ID**.
-6. *Optional, the cheaper real-time model:* in ElevenLabs' docs, the **Models** page lists each model's ID.
-   Copy the one for **v4 Turbo** ($0.04 per 1,000 characters, made for live conversation).
+6. The voice model is chosen automatically: at the first call each day, Buddy asks ElevenLabs which models your
+   account has and uses the newest **Turbo** model, the cheapest one made for live conversation (v4 Turbo,
+   $0.04 per 1,000 characters), falling back to Flash. If the key's permissions list **Models**, give it
+   **Read**, so Buddy can ask.
 
 ## 4. Tailscale: let Plivo reach Buddy (about 2 minutes)
 
@@ -78,7 +80,7 @@ Optional settings (each asks for its value, hidden, and restarts Buddy):
 
 ```
 sudo bash /opt/buddy/deploy/set.sh BUDDY_CALL_VOICE          # voice ID from step 3.5
-sudo bash /opt/buddy/deploy/set.sh BUDDY_CALL_VOICE_MODEL    # model ID from step 3.6
+sudo bash /opt/buddy/deploy/set.sh BUDDY_CALL_VOICE_MODEL    # only to force one model; Enter clears it
 ```
 
 ## 6. Check it

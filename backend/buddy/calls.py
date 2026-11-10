@@ -46,7 +46,7 @@ CALLS_PER_DAY = 5
 LIMIT_S = {"appointment": 15 * 60, "question": 15 * 60, "hold_connect": 90 * 60}
 KEEP_DAYS = 180
 DEFAULT_VOICE = "21m00Tcm4TlvDq8ikWAM"  # ElevenLabs' "Rachel" (female); BUDDY_CALL_VOICE changes it
-TTS_MODEL = "eleven_flash_v2_5"  # ElevenLabs' fast, cheap voice model; BUDDY_CALL_VOICE_MODEL picks another (e.g. a newer Turbo)
+TTS_MODEL = "eleven_flash_v2_5"  # the fallback voice model; voice_model() normally picks a newer real-time one
 STT_MODEL = "nova-3-general"
 KINDS = ("appointment", "question", "hold_connect")
 QUIET_START_S = 4.0  # nobody speaks this long after the pick-up: Buddy speaks first
@@ -259,6 +259,44 @@ def hung_up(memory: Memory, call: dict, form: dict) -> str:
     why = {"busy": "busy", "no-answer": "no answer", "timeout": "no answer", "cancel": "cancelled"}.get(
         status, cause.replace("_", " ").lower() or status or "it didn't connect")
     return f"The call to {call['who']} didn't go through ({why}). Want me to try again later?"
+
+
+# --- the voice model -------------------------------------------------------------------------------------------
+def _model_rank(m: dict) -> tuple:
+    """How well an ElevenLabs model suits a live phone call, cheapest real-time first: Turbo (made for agents,
+    half the price of the full models), then Flash; a newer version beats an older one."""
+    name = f"{m.get('name', '')} {m.get('model_id', '')}".lower()
+    kind = 2 if "turbo" in name else 1 if "flash" in name else 0
+    version = max((float(v) for v in re.findall(r"v(\d+(?:\.\d+)?)", name)), default=0.0)
+    return kind, version
+
+
+def voice_model(memory, env=None, fetch=None) -> str:
+    """The voice model for calls: BUDDY_CALL_VOICE_MODEL when set; else the best real-time model this ElevenLabs
+    account offers (asked once a day), so newer cheaper models are picked up without anyone looking up IDs."""
+    chosen = _env("BUDDY_CALL_VOICE_MODEL", env)
+    if chosen:
+        return chosen
+    key = "calls:voice_model"
+    try:
+        saved = json.loads(memory.get(key) or "{}") if memory is not None else {}
+    except ValueError:
+        saved = {}
+    if saved.get("model") and saved.get("day") == local_now().date().isoformat():
+        return saved["model"]
+    model = TTS_MODEL
+    try:
+        got = gateway.call(memory, "elevenlabs", "/v1/models", env=env, fetch=fetch, purpose="phone call")
+        usable = [m for m in got or [] if isinstance(m, dict) and m.get("can_do_text_to_speech", True)
+                  and m.get("model_id") and _model_rank(m)[0] > 0]
+        if usable:
+            model = max(usable, key=_model_rank)["model_id"]
+    except Exception as e:  # can't ask (or the key may not read models): the known-good default
+        log.info("voice model list unavailable (%s); using %s", type(e).__name__, TTS_MODEL)
+        return TTS_MODEL
+    if memory is not None:
+        memory.set(key, json.dumps({"model": model, "day": local_now().date().isoformat()}))
+    return model
 
 
 # --- the conversation ------------------------------------------------------------------------------------------
@@ -546,8 +584,9 @@ async def run_stream(memory: Memory, websocket, call: dict, deliver=None, env=No
         settings=DeepgramSTTService.Settings(model=STT_MODEL, language=Language.EN_US, smart_format=True,
                                              numerals=True, punctuate=True,
                                              keyterm=[w for w in o["name"].split() if len(w) > 2] or None))
+    model = await asyncio.to_thread(voice_model, memory, env)
     tts = ElevenLabsTTSService(api_key=env_get("BUDDY_ELEVENLABS_KEY"), settings=ElevenLabsTTSService.Settings(
-        voice=env_get("BUDDY_CALL_VOICE") or DEFAULT_VOICE, model=env_get("BUDDY_CALL_VOICE_MODEL") or TTS_MODEL))
+        voice=env_get("BUDDY_CALL_VOICE") or DEFAULT_VOICE, model=model))
     talk = Talk()
     done_speaking = asyncio.Event()
     call_uuid = data.get("call_id") or call["call_sid"]

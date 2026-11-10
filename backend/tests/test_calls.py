@@ -343,6 +343,7 @@ def test_a_whole_call_over_plivos_stream(monkeypatch, env):
     monkeypatch.setattr(dg, "DeepgramSTTService", FakeSTT)
     monkeypatch.setattr(el, "ElevenLabsTTSService", FakeTTS)
     monkeypatch.setattr(calls, "QUIET_START_S", 0.2)
+    monkeypatch.setattr(calls, "voice_model", lambda memory, env=None, fetch=None: "eleven_test_turbo")
     monkeypatch.setattr(calls, "think", Moves({"say": "Hi, this is Sam Rivera's assistant.", "action": "end",
                                                "outcome": "They're open 9 to 5."}))
     monkeypatch.setattr(calls, "hangup", lambda mem, uuid, env=None, fetch=None: hung.append(uuid))
@@ -395,3 +396,31 @@ def test_plivo_requests_need_token_and_signature(monkeypatch, env):
         bad = client.post(f"/calls/answer/{c['id']}/{c['token']}", data={**form, "To": "x"}, headers=headers)
         assert bad.status_code == 403
         assert client.post(f"/calls/answer/{c['id']}/wrong", data=form, headers=headers).status_code == 403
+
+
+def test_picks_the_cheapest_real_time_voice_model(tmp_path, env, monkeypatch):
+    m = Memory(tmp_path / "b.db")
+    models = [{"model_id": "eleven_v4", "name": "Eleven v4", "can_do_text_to_speech": True},
+              {"model_id": "eleven_flash_v2_5", "name": "Eleven Flash v2.5", "can_do_text_to_speech": True},
+              {"model_id": "eleven_turbo_v2_5", "name": "Eleven Turbo v2.5", "can_do_text_to_speech": True},
+              {"model_id": "eleven_v4_turbo", "name": "Eleven v4 Turbo", "can_do_text_to_speech": True},
+              {"model_id": "eleven_v5_turbo_sts", "name": "Eleven v5 Turbo", "can_do_text_to_speech": False}]
+    asked = []
+
+    def fetch(url, data=None, headers=None):
+        asked.append(url)
+        assert headers["xi-api-key"] == "el"
+        return json.dumps(models).encode()
+    assert calls.voice_model(m, fetch=fetch) == "eleven_v4_turbo"
+    assert calls.voice_model(m, fetch=fetch) == "eleven_v4_turbo" and len(asked) == 1  # asked once a day
+    monkeypatch.setenv("BUDDY_CALL_VOICE_MODEL", "eleven_flash_v2_5")
+    assert calls.voice_model(m, fetch=fetch) == "eleven_flash_v2_5"  # the owner's choice wins
+
+
+def test_voice_model_falls_back_when_elevenlabs_wont_say(tmp_path, env):
+    import urllib.error
+    m = Memory(tmp_path / "b.db")
+
+    def refuse(url, data=None, headers=None):
+        raise urllib.error.HTTPError(url, 401, "no", {}, None)
+    assert calls.voice_model(m, fetch=refuse) == calls.TTS_MODEL
