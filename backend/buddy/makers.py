@@ -37,7 +37,7 @@ FILES_DIR = Path(os.getenv("BUDDY_FILES_DIR", str(Path(settings.db_path).parent 
 LINK_DAYS = 30
 MAX_FILE_BYTES = 25_000_000
 MIME = {"png": "image/png", "jpg": "image/jpeg", "pdf": "application/pdf", "csv": "text/csv",
-        "txt": "text/plain", "md": "text/markdown", "json": "application/json", "zip": "application/zip",
+        "txt": "text/plain", "md": "text/markdown", "html": "text/html", "json": "application/json", "zip": "application/zip",
         "xlsx": "application/vnd.openxmlformats-officedocument.spreadsheetml.sheet",
         "docx": "application/vnd.openxmlformats-officedocument.wordprocessingml.document",
         "pptx": "application/vnd.openxmlformats-officedocument.presentationml.presentation"}

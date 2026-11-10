@@ -925,7 +925,7 @@ class Conversation:
                 from . import codejob, selfdeploy  # noqa: PLC0415
                 return selfdeploy.ship(self.memory, self.jobs, self.thrift, codejob.push, job_id)
             on = self.jobs and sandbox.available()
-            return await selfcode.run_tool(args, start_task if on else None, deploy if on else None)
+            return await selfcode.run_tool(args, start_task if on else None, deploy if on else None, self.memory)
         if name == "fill_form":
             return await formfill.run_form_tool(self.phone_request, self.thrift, self.form_state, args)
         if name == "trends":
