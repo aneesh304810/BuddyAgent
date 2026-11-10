@@ -75,7 +75,7 @@ This guide explains how it is built, how Buddy uses it, and how another app conn
 <tr><td><code>group</code></td><td>The area it belongs to (see <a href="#groups">Groups</a>).</td></tr>
 <tr><td><code>title</code>, <code>used_for</code></td><td>A name and what Buddy uses it for, shown to the owner.</td></tr>
 <tr><td><code>hosts</code></td><td>Its https addresses, in order. Later ones are backups, tried only when the first can't be reached (unless <code>no_backup</code>).</td></tr>
-<tr><td><code>auth</code></td><td>How it signs in: <code>none</code>; <code>header</code> (a key in a header); <code>param</code> (a key in the address); <code>token</code> (a username and password exchanged for a token that is reused); <code>phone</code> (data read on the owner's phone).</td></tr>
+<tr><td><code>auth</code></td><td>How it signs in: <code>none</code>; <code>header</code> (a key in a header); <code>param</code> (a key in the address); <code>oauth</code> (a saved sign-in renewed automatically, such as Google's); <code>token</code> (a username and password exchanged for a token that is reused); <code>phone</code> (data read on the owner's phone).</td></tr>
 <tr><td><code>secret</code> / <code>fields</code></td><td>The names of the settings that hold the key, or the username and password. The values never appear in code, logs or this API.</td></tr>
 <tr><td><code>privacy</code></td><td><code>public</code> or <code>personal</code> (see <a href="#privacy">Privacy rules</a>).</td></tr>
 <tr><td><code>cost</code>, <code>per_minute</code></td><td>Cost per call in USD, and the most calls allowed per minute.</td></tr>
@@ -88,6 +88,7 @@ This guide explains how it is built, how Buddy uses it, and how another app conn
 <tr><td>Finance &amp; markets</td><td>Plaid (banks, read-only); Alpaca; Yahoo Finance; Stooq; Coinbase; StockTwits</td></tr>
 <tr><td>Shopping</td><td>Google Shopping (via Serper); Keepa (Amazon price history)</td></tr>
 <tr><td>Health</td><td>Phone health data (Google Health Connect); openFDA; MedlinePlus; Open Food Facts</td></tr>
+<tr><td>Home</td><td>Google Nest (thermostat; changes only after the owner's yes)</td></tr>
 <tr><td>Search</td><td>Serper (Google search, news, places)</td></tr>
 <tr><td>News &amp; trends</td><td>Reddit; Hacker News; arXiv; GitHub; SerpApi (Google Trends)</td></tr>
 <tr><td>Weather</td><td>Open-Meteo</td></tr>
@@ -97,7 +98,8 @@ This guide explains how it is built, how Buddy uses it, and how another app conn
 <h2 id="privacy">Privacy rules</h2>
 <ul class="ticks">
 <li><strong>public</strong> services only ever receive general requests: a search, a line name, a product, a medicine name. Never the owner's data.</li>
-<li><strong>personal</strong> services may handle the owner's data: Claude (the only AI that sees personal data), Plaid (the owner's own banks, read-only) and the phone's health data (which stays on the owner's server).</li>
+<li><strong>personal</strong> services may handle the owner's data: Claude (the only AI that sees personal data), Plaid (the owner's own banks, read-only), Google Nest (the owner's own thermostat) and the phone's health data (which stays on the owner's server).</li>
+<li>Anything that changes the owner's world (a thermostat setting, a form, a payment) happens only after the owner's yes.</li>
 <li>A call that carries personal data must say so (<code>personal=True</code>); the gateway refuses it for a public service.</li>
 <li>Keys and passwords are read from the server's settings at call time, never logged, never returned. When a key travels in the address, only the path is logged.</li>
 <li>Logs keep the time, service, path, result, cost and the service's own error text, for the owner's cost and status views.</li>

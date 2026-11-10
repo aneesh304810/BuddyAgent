@@ -1,6 +1,6 @@
 # Buddy Privacy and Data Retention Policy
 
-Source: https://claude.ai/artifact/MJVGZ7pWQvi26tg1MS914P, revision 63
+Source: https://claude.ai/artifact/MJVGZ7pWQvi26tg1MS914P, revision 64
 
 Nov 1, 2026 · @Aneesh
 
@@ -24,6 +24,7 @@ Buddy collects only the owner's own data, and only what its features need.
 | Voice clips and speech transcripts | The owner's phone microphone while Buddy is listening | Processed, not kept as audio |
 | Voiceprint (for voice match) | Five sentences the owner reads once | Stored as numbers, no audio |
 | The owner's own lines in conversations (conversation coaching) | Listen-in, only when the owner turns coaching on; voice match picks out the owner's own voice | Only the owner's words, for their English review; other people's words are never kept |
+| The owner's thermostat: room temperature and humidity, mode, target, eco, heating or cooling | Google Nest, after the owner links it once and picks which thermostat to share | Read when asked or for a heads-up, not stored; changes only after the owner's yes; only Claude sees the readings |
 | Daily health totals: steps, sleep, resting and average heart rate, active minutes, calories | Google Health Connect on the owner's phone, read by the Buddy app only after the owner allows each type | Kept on Buddy's server; only Claude sees them, never a free model; never sent anywhere else |
 | The chat with Buddy (text of what the owner said and what Buddy replied or sent on its own) | The owner's conversation with Buddy | Kept on Buddy's server and searched there; only the few lines a search finds are sent, to Claude only (never a free model) |
 | Documents, photos, PDFs, spreadsheets, CSV and JSON files | Files the owner chooses to upload (Share to Buddy, or the paperclip in the app) | Stored encrypted; text, summaries, facts and search index kept |
@@ -96,6 +97,7 @@ Buddy uses a few service providers to work. Each sees only what its job needs, u
 | Groq | Turns the owner's speech into text | Short voice clips, not stored by Buddy afterwards |
 | Google Gemini (free tier) | General tasks with no personal data, such as summarising public web pages | General text only; personal or financial data is never sent. This includes public market notes (chart numbers, Reddit posts and headlines about a stock) and a card issuer's public pages with the card's name, to look up its published benefits; Buddy's own program code, for small fixes to itself (it holds none of the owner's data); and general factual claims overheard in Listen-in, rewritten without names or personal details, to check whether they are true |
 | Other free AI models (GitHub Models, OpenRouter, Mistral, Groq, Cerebras), when the owner sets them up | The same general tasks as Gemini, so Buddy can use the best free model for each | The same rule: general text only, never personal or financial data |
+| Google (Nest Smart Device Management API) | Reading and, after the owner's yes, changing the owner's Nest thermostat | Requests for the thermostat Google already manages for the owner; the sign-in tokens stay on Buddy's server |
 | openFDA (api.fda.gov), MedlinePlus (wsearch.nlm.nih.gov), Open Food Facts | Public health information the owner asks for: medicine labels and recalls, health topics, food nutrition | Only the medicine, topic or product name; never the owner's health data |
 | Google Shopping (through Serper) and Keepa (optional), for Amazon prices | Checking an Amazon price the owner asks about or watches | Only the product's name or Amazon ID; never personal data. Amazon's own pages are never scraped |
 | GitHub, and Claude Code running there (Anthropic's GitHub Action, on the owner's Claude subscription) | Fixing Buddy's own code: after the owner's yes, Buddy opens an issue in its private repository and Claude Code pushes a fix to a branch | Code instructions only (what to fix, where); never the owner's personal data, which Buddy refuses to put in an issue |

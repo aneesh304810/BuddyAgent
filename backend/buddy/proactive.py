@@ -69,6 +69,8 @@ async def morning_briefing(memory: Memory) -> str:
     reminders = [
         f"{r['text']} at {format_local(r['due_at'])}" for r in memory.upcoming_reminders()
     ]
+    from . import nest  # noqa: PLC0415
+    home = await asyncio.to_thread(nest.status_line, memory)  # '' without a Nest
     return await compose(
         system,
         f"It's {local_now().strftime('%A %d %B, %I:%M %p')}. Give the user a short, upbeat "
@@ -79,6 +81,7 @@ async def morning_briefing(memory: Memory) -> str:
         f"Today's calendar: {'; '.join(e['when'] + ' ' + e['title'] for e in agenda(memory, 1)) or 'nothing or not connected'}. "
         f"Tasks: {Organiser(memory).morning_line()}. "
         f"Bills: {Money(memory).morning_line()}. "
+        f"{('Home thermostat (mention only if notable): ' + home + '. ') if home else ''}"
         f"Email: {MailManager(memory, None).briefing_line()}. "
         f"Spending: {Thrift(memory).summary()}. "
         f"Buddy's own health check (mention in a few words only if there's something): "
@@ -415,6 +418,8 @@ async def run(memory: Memory, deliver: Deliver, connected=None) -> None:
                 moments = Moments(memory)
                 from . import commute  # noqa: PLC0415
                 heads = await asyncio.to_thread(commute.nudges, memory)  # before the usual leave: trains, alerts
+                from . import nest  # noqa: PLC0415  after leaving: the house still heating? offer eco
+                heads += await asyncio.to_thread(nest.nudges, memory)
                 for m in await asyncio.to_thread(moments.now) + await asyncio.to_thread(atlas.nudges) + heads + extra:
                     if (m["urgent"] or (not in_quiet_hours() and not hold)) and not moments._said(m["key"]) \
                             and await deliver("travel", m["text"]):

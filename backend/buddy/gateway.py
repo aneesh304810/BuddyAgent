@@ -129,6 +129,17 @@ CATALOG: dict[str, dict] = {
                       "hosts": ["https://world.openfoodfacts.org"], "auth": {"type": "none"}, "cost": 0.0,
                       "per_minute": 30, "privacy": "public", "used_for": "nutrition and allergens of food products",
                       "health": {"path": "/api/v2/product/3017624010701.json"}, "moved": True},
+    # Home (nest.py): the owner's own thermostat, through Google's Smart Device Management API. Personal: commands
+    # and readings about the owner's home, between Buddy and Google (which already holds them).
+    "nest": {"group": "Home", "title": "Google Nest (thermostat)",
+             "hosts": ["https://smartdevicemanagement.googleapis.com"],
+             "auth": {"type": "oauth", "token_url": "https://oauth2.googleapis.com/token",
+                      "fields": {"client_id": "BUDDY_NEST_CLIENT_ID", "client_secret": "BUDDY_NEST_CLIENT_SECRET",
+                                 "refresh_token": "BUDDY_NEST_REFRESH_TOKEN", "project": "BUDDY_NEST_PROJECT_ID"}},
+             "cost": 0.0, "per_minute": 10, "privacy": "personal",
+             "used_for": "your thermostat: temperature, humidity, mode; changes only after your yes",
+             "setup_command": "sudo bash /opt/buddy/deploy/nest.sh", "health": {"custom": "nest.devices"},
+             "moved": True},
     # The free AI models keep their own failover (rests, model swaps) and report each result here.
     "groq": {"group": "AI models", "title": "Groq (free AI)", "auth": {"type": "header", "secret": "BUDDY_GROQ_KEY"},
              "privacy": "public", "used_for": "free models for general work", "reports": True},
@@ -151,8 +162,8 @@ CATALOG: dict[str, dict] = {
 }
 
 
-GROUPS = ["Travel & transit", "Finance & markets", "Shopping", "Health", "Search", "News & trends", "Weather",
-          "AI models"]  # app order
+GROUPS = ["Travel & transit", "Finance & markets", "Shopping", "Health", "Home", "Search", "News & trends",
+          "Weather", "AI models"]  # app order
 
 
 def group_of(name: str) -> str:
@@ -200,7 +211,7 @@ def _secret(env, name: str) -> str:
 
 def configured(name: str, env=None) -> bool:
     auth = CATALOG[name].get("auth") or {}
-    if auth.get("type") == "token":
+    if auth.get("type") in ("token", "oauth"):
         return all(_secret(env, s) for s in auth["fields"].values())
     return not auth.get("secret") or bool(_secret(env, auth["secret"]))
 
@@ -379,10 +390,45 @@ def token(memory, name: str, *, fresh: bool = False, env=None, fetch=None) -> st
 
 def setup_hint(name: str) -> str:
     """The command that saves this service's secret(s) on the server ('' when it needs none)."""
+    if CATALOG[name].get("setup_command"):
+        return CATALOG[name]["setup_command"]
     auth = CATALOG[name].get("auth") or {}
     names = list(auth["fields"].values()) if auth.get("type") == "token" else [auth["secret"]] \
         if auth.get("secret") else []
     return "; ".join(f"sudo bash /opt/buddy/deploy/set.sh {n}" for n in names)
+
+
+def oauth_token(memory, name: str, *, env=None, fetch=None, fresh: bool = False) -> str:
+    """An access token from a saved OAuth refresh token (Google's sign-in): kept until a minute before it expires,
+    then renewed. The refresh token itself never leaves the server's settings."""
+    entry = CATALOG[name]
+    auth = entry["auth"]
+    f = {k: _secret(env, v) for k, v in auth["fields"].items()}
+    if not all(f.values()):
+        raise ConnectError(name, f"{entry['title']} isn't linked yet: {setup_hint(name)}")
+    key = f"connect:oauth:{name}"
+    try:
+        saved = json.loads(memory.get(key) or "{}") if memory is not None else {}
+    except ValueError:
+        saved = {}
+    if saved.get("token") and saved.get("until", 0) > time.time() + 60 and not fresh:
+        return saved["token"]
+    body = urllib.parse.urlencode({"client_id": f["client_id"], "client_secret": f["client_secret"],
+                                   "refresh_token": f["refresh_token"], "grant_type": "refresh_token"}).encode()
+    try:
+        got = call_url(memory, name, [auth["token_url"]], data=body, endpoint="/token", fetch=fetch,
+                       headers={"Content-Type": "application/x-www-form-urlencoded"})
+    except ConnectError as e:
+        if e.status in (400, 401):
+            raise ConnectError(name, f"Google no longer accepts Buddy's link to {entry['title']} ({e.reason}): "
+                                     f"link it again with {setup_hint(name)}", e.status, e.reason) from e
+        raise
+    value = (got or {}).get("access_token", "")
+    if not value:
+        raise ConnectError(name, f"Google didn't give an access token for {entry['title']}.")
+    if memory is not None:
+        memory.set(key, json.dumps({"token": value, "until": time.time() + int(got.get("expires_in", 3600))}))
+    return value
 
 
 def health(name: str, memory=None, env=None, fetch=None) -> tuple[bool, str]:
@@ -394,7 +440,11 @@ def health(name: str, memory=None, env=None, fetch=None) -> tuple[bool, str]:
     if not configured(name, env):
         return False, "not set up"
     try:
-        if check.get("login"):
+        if check.get("custom"):
+            import importlib  # noqa: PLC0415
+            mod, fn = check["custom"].rsplit(".", 1)
+            getattr(importlib.import_module(f"buddy.{mod}"), fn)(memory, env=env, fetch=fetch)
+        elif check.get("login"):
             token(None, name, fresh=True, env=env, fetch=fetch)
         else:
             extra = {h: _secret(env, v) for h, v in (check.get("headers_from") or {}).items()}
