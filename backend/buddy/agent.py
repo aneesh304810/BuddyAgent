@@ -50,6 +50,7 @@ from .budgets import BUDGET_TOOL
 from .costwatch import COSTWATCH_TOOL
 from .claudefix import TOOL as CLAUDE_FIX_TOOL
 from .commute import TOOL as COMMUTE_TOOL
+from .gateway import TOOL as CONNECTIONS_TOOL
 from .convolog import TOOL as RECALL_CONVO_TOOL
 from .model_advisor import ADVICE_TOOL
 from .docedit import EDIT_TOOL
@@ -784,7 +785,8 @@ class Conversation:
                      compliance.COMPLIANCE_TOOL, MERCHANTS_TOOL, CUSTOMIZE_TOOL, CREDIT_TOOL, MARKETS_TOOL, ROUTING_TOOL, TRENDS_TOOL,
                      TRANSIT_TOOL, FLIGHT_TOOL, DECISION_TOOL, MAPS_TOOL,
                      WEATHER_TOOL, PACKAGES_TOOL, MESSAGE_TOOL, BUDGET_TOOL, COSTWATCH_TOOL, ADVICE_TOOL, EDIT_TOOL,
-                     RECALL_CONVO_TOOL, CLAUDE_FIX_TOOL, COMMUTE_TOOL]
+                     RECALL_CONVO_TOOL, CLAUDE_FIX_TOOL, COMMUTE_TOOL,
+                     CONNECTIONS_TOOL]
         spending += [BROWSE_TOOL] if self.jobs else []  # listed even when the sandbox is down: it says what to fix
         if self.memory.get("forms:phone") != "1":  # the owner's choice: forms always in Buddy's own browser
             spending = [t for t in spending if t.get("name") != "fill_form"]
@@ -945,6 +947,9 @@ class Conversation:
         if name == "edit_document":
             from . import docedit  # noqa: PLC0415
             return await docedit.run_edit_tool(self.memory, args)
+        if name == "connections":
+            from . import gateway  # noqa: PLC0415
+            return await asyncio.to_thread(gateway.run_tool, self.memory, args)
         if name == "commute":
             from . import commute  # noqa: PLC0415
             return commute.run_tool(self.memory, args)

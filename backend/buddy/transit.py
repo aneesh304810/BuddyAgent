@@ -249,21 +249,16 @@ class Transit:
         return (self.env.get(key) or "").strip()
 
     def _get(self, provider: str, url: str, data: bytes | None = None, headers: dict | None = None,
-             raw_bytes: bool = False, cache: str = ""):
+             raw_bytes: bool = False, cache: str = "", urls: list[str] | None = None):
+        """Every feed goes through Buddy Connect (gateway.py): backup hosts, retries, logging, clear errors.
+        A short cache here keeps the five-minute checks from asking twice."""
+        from . import gateway  # noqa: PLC0415
         key = cache or url
         hit = self._cache.get(key)
         if hit and time.monotonic() - hit[0] < CACHE_SECONDS:
             return hit[1]
-        from .travel import log_call  # noqa: PLC0415
-        started = time.monotonic()
-        try:
-            raw = self.fetch(url, data, headers)
-            got = raw if raw_bytes or isinstance(raw, (dict, list)) else json.loads(raw or b"null")
-            log_call(self.memory, provider, url.split("?")[0][-60:], True, time.monotonic() - started, "transit", cost=0.0)
-        except Exception as e:
-            log_call(self.memory, provider, url.split("?")[0][-60:], False, time.monotonic() - started, "transit",
-                     type(e).__name__, cost=0.0)
-            raise
+        got = gateway.call_url(self.memory, gateway.name_for(url), urls or [url], data=data, headers=headers,
+                               raw=raw_bytes, fetch=self.fetch, purpose="transit")
         if data is None or cache:  # POSTs are cached only when the caller names what they are
             self._cache[key] = (time.monotonic(), got)
         return got
@@ -372,53 +367,19 @@ class Transit:
                 for d in res.get("destinations") or [] for m in d.get("messages") or []]
 
     def njt_token(self, fresh: bool = False, api: str = "rail") -> str:
-        """A token for one NJ Transit API (rail or gtfs_bus). Tokens last 24 hours and minting them is rate-limited,
-        so each is kept and reused for TOKEN_HOURS, and a failed mint isn't retried within the hour."""
-        user, pw = self.setting("BUDDY_NJT_USERNAME"), self.setting("BUDDY_NJT_PASSWORD")
-        if not user or not pw:
+        """A token for one NJ Transit API (rail or gtfs_bus), from Buddy Connect: kept and reused for 23 hours,
+        and a failed sign-in isn't retried within the hour."""
+        from . import gateway  # noqa: PLC0415
+        if not (self.setting("BUDDY_NJT_USERNAME") and self.setting("BUDDY_NJT_PASSWORD")):
             raise ToolError("NJ Transit needs its free developer account: register at developer.njtransit.com, then "
                             "run sudo bash /opt/buddy/deploy/set.sh BUDDY_NJT_USERNAME and BUDDY_NJT_PASSWORD.")
-        try:
-            saved = json.loads(self.memory.get(f"transit:njt_token:{api}") or "{}")
-        except ValueError:
-            saved = {}
-        fresh_enough = saved.get("at") and datetime.fromisoformat(saved["at"]) > \
-            datetime.now(timezone.utc) - timedelta(hours=TOKEN_HOURS)
-        if saved.get("token") and fresh_enough and not fresh:
-            return saved["token"]
-        hour = local_now().strftime("%Y-%m-%dT%H")
-        if self.memory.get(f"transit:njt_token_tried:{api}") == hour:
-            if saved.get("token") and not fresh:
-                return saved["token"]
-            raise ToolError("NJ Transit didn't give a token this hour; I'll try again later.")
-        self.memory.set(f"transit:njt_token_tried:{api}", hour)
-        body, ctype = _multipart({"username": user, "password": pw})
-        if api == "gtfs_bus":
-            got = self._get("njt", NJT_GTFS_BUS + "authenticateUser", body, {"Content-Type": ctype})
-        else:
-            got = self._njt_rail("getToken", body, ctype)
-        token = (got or {}).get("UserToken") if (got or {}).get("Authenticated") in (True, "True", "true") else ""
-        if not token:
-            said = njt_reason(got)  # NJ Transit's own words (e.g. the account isn't approved for this API)
-            raise ToolError("NJ Transit didn't accept the developer username and password" +
-                            (" for the bus and light rail data (GTFS-BUS)" if api == "gtfs_bus" else "") +
-                            (f"; it said: {said}" if said else "") + ".")
-        self.memory.set(f"transit:njt_token:{api}", json.dumps({"token": token,
-                                                                  "at": datetime.now(timezone.utc).isoformat()}))
-        return token
+        return gateway.token(self.memory, "njt_bus" if api == "gtfs_bus" else "njt_rail", fresh=fresh,
+                             env=self.env, fetch=self.fetch)
 
     def _njt_rail(self, endpoint: str, body: bytes, ctype: str, cache: str = ""):
-        """RailData on its current host, falling back to the earlier one when the new one can't be reached."""
-        import urllib.error  # noqa: PLC0415
-        last = None
-        for base in NJT_BASES:
-            try:
-                return self._get("njt", base + endpoint, body, {"Content-Type": ctype}, cache=cache)
-            except urllib.error.HTTPError:
-                raise  # the host answered: its answer stands
-            except (urllib.error.URLError, OSError) as e:
-                last = e
-        raise last or ToolError("NJ Transit can't be reached.")
+        """RailData, on its hosts in order (the next only when one can't be reached)."""
+        return self._get("njt", NJT_BASES[0] + endpoint, body, {"Content-Type": ctype}, cache=cache,
+                         urls=[b + endpoint for b in NJT_BASES])
 
     def njt_messages(self) -> list[dict]:
         for attempt in (0, 1):

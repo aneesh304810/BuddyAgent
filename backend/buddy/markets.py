@@ -377,9 +377,10 @@ class Data:
         sub = SUBREDDITS[market].split("+")[0]
         body = json.dumps({"q": f"site:reddit.com/r/{sub} {base}", "tbs": "qdr:w", "num": 10}).encode()
         try:
-            raw = self.fetch("https://google.serper.dev/search", {"X-API-KEY": key, "Content-Type": "application/json"},
-                             body)
-            got = raw if isinstance(raw, dict) else json.loads(raw or b"{}")
+            from . import gateway  # noqa: PLC0415  (Buddy Connect)
+            got = gateway.call(self.memory, "serper", "/search", data=body,
+                               headers={"Content-Type": "application/json"},
+                               fetch=lambda u, d, h: self.fetch(u, h or {}, d), env=self.env, purpose="markets")
         except Exception:
             return None
         top = [{"title": str(r.get("title", ""))[:160], "sub": sub, "score": 0, "comments": 0, "url": r.get("link", "")}

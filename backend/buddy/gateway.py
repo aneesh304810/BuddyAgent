@@ -1,0 +1,368 @@
+"""Buddy Connect: every outside API Buddy uses, in one catalog, called one way.
+
+The catalog (CATALOG) says for each service: where it lives (with backup hosts), how it signs in (a key in a
+header, or a username and password exchanged for a token), which settings hold its secrets, what a call costs,
+how often it may be called, whether it may ever see the owner's personal data, and a small health check.
+
+call() does the rest the same way for every service: adds the key or token (minting and reusing tokens), tries
+the backup host when one can't be reached, retries once on a server hiccup, keeps to the rate limit, refuses
+personal data for services that may not see it, logs every call (time, cost, error) for Insights, remembers the
+last result for the Connections status, and turns failures into ConnectError with the service's own reason.
+
+Adding an API later: one CATALOG entry; then call(memory, "name", "/path", ...). Stage 1 moved NJ Transit, MTA,
+PATH and Serper here; the rest are listed (so the status shows them) and move over in later stages.
+"""
+
+import json
+import logging
+import os
+import threading
+import time
+import urllib.error
+import urllib.parse
+import urllib.request
+import uuid
+from datetime import datetime, timedelta, timezone
+
+from .tools import ToolError
+
+log = logging.getLogger("buddy.connect")
+UA = "Buddy/1.0 (personal assistant; read-only)"
+
+# privacy: "public" services only ever get general requests (search words, a line name); "personal" ones may see
+# the owner's data (and only with personal=True does a call say it carries any).
+CATALOG: dict[str, dict] = {
+    "serper": {
+        "title": "Serper (Google search, news, places)", "hosts": ["https://google.serper.dev"],
+        "auth": {"type": "header", "header": "X-API-KEY", "secret": "BUDDY_SERPER_KEY"},
+        "cost": 0.001, "per_minute": 60, "privacy": "public", "used_for": "web, news and places search",
+        "health": {"path": "/search", "json": {"q": "weather", "num": 1}}, "moved": True},
+    "njt_rail": {
+        "title": "NJ Transit trains (RailData)",
+        "hosts": ["https://raildata.njtransit.com/api/TrainData", "https://raildata.njt.gov/api/TrainData"],
+        "auth": {"type": "token", "login": "/getToken", "fields": {"username": "BUDDY_NJT_USERNAME",
+                                                                   "password": "BUDDY_NJT_PASSWORD"},
+                 "hours": 23, "memory_key": "transit:njt_token:rail"},
+        "cost": 0.0, "per_minute": 30, "privacy": "public", "used_for": "NJ Transit train service messages",
+        "health": {"login": True}, "moved": True},
+    "njt_bus": {
+        "title": "NJ Transit buses and light rail (GTFS-BUS)", "hosts": ["https://pcsdata.njtransit.com/api/GTFSG2"],
+        "auth": {"type": "token", "login": "/authenticateUser",
+                 "fields": {"username": "BUDDY_NJT_USERNAME", "password": "BUDDY_NJT_PASSWORD"},
+                 "hours": 23, "memory_key": "transit:njt_token:gtfs_bus"},
+        "cost": 0.0, "per_minute": 30, "privacy": "public", "used_for": "bus and light rail alerts",
+        "health": {"login": True}, "moved": True},
+    "mta": {
+        "title": "MTA (subway, buses, LIRR, Metro-North)", "hosts": ["https://api-endpoint.mta.info"],
+        "auth": {"type": "none"}, "cost": 0.0, "per_minute": 30, "privacy": "public",
+        "used_for": "New York transit alerts",
+        "health": {"path": "/Dataservice/mtagtfsfeeds/camsys%2Fall-alerts.json"}, "moved": True},
+    "path": {
+        "title": "PATH (Port Authority)", "hosts": ["https://www.panynj.gov"], "auth": {"type": "none"},
+        "cost": 0.0, "per_minute": 30, "privacy": "public", "used_for": "PATH next trains and incidents",
+        "health": {"path": "/bin/portauthority/ridepath.json"}, "moved": True},
+    # Listed for the status; they move here in later stages (still called from their own modules today).
+    "claude": {"title": "Claude (Anthropic)", "auth": {"type": "header", "secret": "ANTHROPIC_API_KEY"},
+               "privacy": "personal", "used_for": "Buddy's thinking: everything personal goes only here"},
+    "alpaca": {"title": "Alpaca (market data)", "auth": {"type": "header", "secret": "BUDDY_ALPACA_KEY_ID"},
+               "privacy": "public", "used_for": "prices and trade ideas (read-only)"},
+    "plaid": {"title": "Plaid (banks)", "auth": {"type": "header", "secret": "BUDDY_PLAID_CLIENT_ID"},
+              "privacy": "personal", "used_for": "bank and card transactions (read-only)"},
+    "airlabs": {"title": "AirLabs (flights)", "auth": {"type": "param", "secret": "BUDDY_AIRLABS_KEY"},
+                "privacy": "public", "used_for": "flight status"},
+    "reddit": {"title": "Reddit", "auth": {"type": "none"}, "privacy": "public", "used_for": "trends and opinions"},
+    "groq": {"title": "Groq (free AI)", "auth": {"type": "header", "secret": "BUDDY_GROQ_KEY"},
+             "privacy": "public", "used_for": "free models for general work"},
+    "cerebras": {"title": "Cerebras (free AI)", "auth": {"type": "header", "secret": "BUDDY_CEREBRAS_KEY"},
+                 "privacy": "public", "used_for": "free models for general work"},
+    "gemini": {"title": "Gemini (free AI)", "auth": {"type": "header", "secret": "BUDDY_GEMINI_KEY"},
+               "privacy": "public", "used_for": "free models for general work"},
+    "openrouter": {"title": "OpenRouter (free AI)", "auth": {"type": "header", "secret": "BUDDY_OPENROUTER_KEY"},
+                   "privacy": "public", "used_for": "free models for general work"},
+    "mistral": {"title": "Mistral (free AI)", "auth": {"type": "header", "secret": "BUDDY_MISTRAL_KEY"},
+                "privacy": "public", "used_for": "free models for general work"},
+    "github_models": {"title": "GitHub Models (free AI)", "auth": {"type": "header",
+                                                                   "secret": "BUDDY_GITHUB_MODELS_KEY"},
+                      "privacy": "public", "used_for": "free models for general work"},
+}
+
+
+class ConnectError(ToolError):
+    """A call that failed: the service, the HTTP status (0 when it couldn't be reached) and its own reason."""
+
+    def __init__(self, provider: str, message: str, status: int = 0, reason: str = ""):
+        super().__init__(message)
+        self.provider, self.status, self.reason = provider, status, reason
+        self.code = status  # like urllib's HTTPError, for callers that check e.code
+
+
+def _transport(url: str, data: bytes | None = None, headers: dict | None = None, timeout: int = 30) -> bytes:
+    from .tools import require_https  # noqa: PLC0415
+    req = urllib.request.Request(require_https(url), data=data, headers={"User-Agent": UA, **(headers or {})})
+    with urllib.request.urlopen(req, timeout=timeout) as r:  # https only  # nosec B310
+        return r.read(20_000_000)
+
+
+def multipart(fields: dict) -> tuple[bytes, str]:
+    boundary = uuid.uuid4().hex
+    body = b"".join(f"--{boundary}\r\nContent-Disposition: form-data; name=\"{k}\"\r\n\r\n{v}\r\n".encode()
+                    for k, v in fields.items()) + f"--{boundary}--\r\n".encode()
+    return body, f"multipart/form-data; boundary={boundary}"
+
+
+def name_for(url: str) -> str:
+    """The catalog service a full address belongs to."""
+    for name, entry in CATALOG.items():
+        if any(url.startswith(h) for h in entry.get("hosts") or []):
+            return name
+    host = urllib.parse.urlparse(url).netloc
+    for name, entry in CATALOG.items():
+        if any(urllib.parse.urlparse(h).netloc == host for h in entry.get("hosts") or []):
+            return name
+    raise ConnectError(host, f"{host} isn't in Buddy Connect's catalog.")
+
+
+def _secret(env, name: str) -> str:
+    return ((env if env is not None else os.environ).get(name) or "").strip()
+
+
+def configured(name: str, env=None) -> bool:
+    auth = CATALOG[name].get("auth") or {}
+    if auth.get("type") == "token":
+        return all(_secret(env, s) for s in auth["fields"].values())
+    return not auth.get("secret") or bool(_secret(env, auth["secret"]))
+
+
+_lock = threading.Lock()
+_recent: dict[str, list[float]] = {}
+
+
+def _rate_ok(name: str) -> bool:
+    limit = CATALOG[name].get("per_minute")
+    if not limit:
+        return True
+    now = time.monotonic()
+    with _lock:
+        calls = [t for t in _recent.get(name, []) if now - t < 60]
+        if len(calls) >= limit:
+            _recent[name] = calls
+            return False
+        calls.append(now)
+        _recent[name] = calls
+    return True
+
+
+def _note(memory, name: str, ok: bool, endpoint: str, seconds: float, error: str = "", purpose: str = "") -> None:
+    if memory is None:
+        return
+    from .travel import log_call  # noqa: PLC0415  (the api_calls table Insights reads)
+    _table(memory)
+    log_call(memory, name, endpoint, ok, seconds, purpose or "connect", error[:200],
+             cost=CATALOG[name].get("cost", 0.0) if ok else 0.0)
+    try:
+        memory.set(f"connect:last:{name}", json.dumps({"ok": ok, "at": datetime.now(timezone.utc).isoformat(),
+                                                       "error": error[:200]}))
+    except Exception:
+        pass
+
+
+def _table(memory) -> None:
+    from .markets import API_CALLS_SQL  # noqa: PLC0415
+    memory.db.executescript(API_CALLS_SQL)
+
+
+def reason_of(got) -> str:
+    """What a service said when it refused, short and without tokens."""
+    if isinstance(got, (bytes, bytearray)):
+        got = got[:400].decode("utf-8", "replace")
+    if isinstance(got, str):
+        try:
+            got = json.loads(got)
+        except ValueError:
+            return " ".join(got.split())[:200]
+    if isinstance(got, dict):
+        got = {k: v for k, v in got.items() if "token" not in k.lower()}
+        text = " ".join(str(v) for k, v in got.items() if k.lower() in ("errormessage", "message", "error", "detail"))
+        return " ".join((text or json.dumps(got)).split())[:200]
+    return " ".join(str(got or "").split())[:200]
+
+
+def call_url(memory, name: str, urls: list[str], *, data: bytes | None = None, headers: dict | None = None,
+             raw: bool = False, fetch=None, purpose: str = "", personal: bool = False, endpoint: str = ""):
+    """The one place outside calls go through: tries each url (a backup host only when one can't be reached),
+    retries once on a 5xx or timeout, logs it, and returns JSON (or bytes with raw=True)."""
+    entry = CATALOG.get(name)
+    if entry is None:
+        raise ConnectError(name, f"{name} isn't in Buddy Connect's catalog.")
+    if personal and entry.get("privacy") != "personal":
+        raise ConnectError(name, f"{entry['title']} may not see personal data, so I didn't send this there.")
+    if not _rate_ok(name):
+        raise ConnectError(name, f"{entry['title']}: too many calls this minute; try again shortly.", 429)
+    fetch = fetch or _transport
+    endpoint = endpoint or urllib.parse.urlparse(urls[0]).path[-60:]
+    started = time.monotonic()
+    last: Exception | None = None
+    for url in urls:
+        for attempt in (0, 1):
+            try:
+                body = fetch(url, data, headers)
+            except urllib.error.HTTPError as e:
+                said = reason_of(e.read(400) if hasattr(e, "read") else "")
+                if e.code >= 500 and attempt == 0 and data is None:  # reads only: never re-send a login or a post
+                    last = e
+                    continue
+                _note(memory, name, False, endpoint, time.monotonic() - started, f"HTTP {e.code}: {said}", purpose)
+                raise ConnectError(name, f"{entry['title']} said HTTP {e.code}" + (f": {said}" if said else ""),
+                                   e.code, said) from e
+            except (urllib.error.URLError, OSError, TimeoutError) as e:
+                last = e
+                if attempt == 0 and isinstance(e, TimeoutError) and data is None:
+                    continue
+                break  # can't reach this host: the next one, if any
+            else:
+                _note(memory, name, True, endpoint, time.monotonic() - started, purpose=purpose)
+                if raw or isinstance(body, (dict, list)):
+                    return body
+                try:
+                    return json.loads(body or b"null")
+                except ValueError as e:
+                    _note(memory, name, False, endpoint, 0, "not JSON", purpose)
+                    raise ConnectError(name, f"{entry['title']} answered with something that isn't data.",
+                                       200, reason_of(body)) from e
+    _note(memory, name, False, endpoint, time.monotonic() - started, f"unreachable: {last}", purpose)
+    raise ConnectError(name, f"{entry['title']} can't be reached right now.", 0, str(last)[:200])
+
+
+def call(memory, name: str, path: str = "", *, data: bytes | None = None, json_body=None, headers: dict | None = None,
+         raw: bool = False, fetch=None, env=None, purpose: str = "", personal: bool = False):
+    """Call a catalog service by name and path: its hosts in order, with its key added."""
+    entry = CATALOG[name]
+    auth = entry.get("auth") or {}
+    headers = dict(headers or {})
+    if json_body is not None:
+        data = json.dumps(json_body).encode()
+        headers.setdefault("Content-Type", "application/json")
+    if auth.get("type") == "header":
+        key = _secret(env, auth["secret"])
+        if not key:
+            raise ConnectError(name, f"{entry['title']} isn't set up: sudo bash /opt/buddy/deploy/set.sh "
+                                     f"{auth['secret']}")
+        headers[auth.get("header", "Authorization")] = key
+    urls = [h + path for h in entry["hosts"]]
+    return call_url(memory, name, urls, data=data, headers=headers, raw=raw, fetch=fetch, purpose=purpose,
+                    personal=personal, endpoint=path[:60])
+
+
+def token(memory, name: str, *, fresh: bool = False, env=None, fetch=None) -> str:
+    """A sign-in token for a username-and-password service: kept and reused for its lifetime, and a failed
+    sign-in isn't retried within the hour (services limit how often tokens may be minted)."""
+    entry = CATALOG[name]
+    auth = entry["auth"]
+    values = {field: _secret(env, setting) for field, setting in auth["fields"].items()}
+    if not all(values.values()):
+        settings = " and ".join(auth["fields"].values())
+        raise ConnectError(name, f"{entry['title']} needs its login: sudo bash /opt/buddy/deploy/set.sh {settings}")
+    key = auth.get("memory_key") or f"connect:token:{name}"
+    try:
+        saved = json.loads(memory.get(key) or "{}") if memory is not None else {}
+    except ValueError:
+        saved = {}
+    young = saved.get("at") and datetime.fromisoformat(saved["at"]) > \
+        datetime.now(timezone.utc) - timedelta(hours=auth.get("hours", 23))
+    if saved.get("token") and young and not fresh:
+        return saved["token"]
+    if memory is not None:
+        from .tools import local_now  # noqa: PLC0415
+        hour = local_now().strftime("%Y-%m-%dT%H")
+        tried = f"{key.replace('token', 'token_tried', 1)}"
+        if memory.get(tried) == hour:
+            if saved.get("token") and not fresh:
+                return saved["token"]
+            raise ConnectError(name, f"{entry['title']} didn't give a token this hour; I'll try again later.")
+        memory.set(tried, hour)
+    body, ctype = multipart(values)
+    got = call_url(memory, name, [h + auth["login"] for h in entry["hosts"]], data=body,
+                   headers={"Content-Type": ctype}, fetch=fetch, endpoint=auth["login"])
+    value = (got or {}).get("UserToken") if isinstance(got, dict) and \
+        got.get("Authenticated") in (True, "True", "true") else ""
+    if not value:
+        said = reason_of(got)
+        raise ConnectError(name, f"{entry['title']} didn't accept the username and password"
+                                 + (f"; it said: {said}" if said else "") + ".", 200, said)
+    if memory is not None:
+        memory.set(key, json.dumps({"token": value, "at": datetime.now(timezone.utc).isoformat()}))
+    return value
+
+
+def health(name: str, memory=None, env=None, fetch=None) -> tuple[bool, str]:
+    """One small real request (sign-in, or a cheap read) and what came back."""
+    entry = CATALOG[name]
+    check = entry.get("health")
+    if not check:
+        return False, "no health check yet (moves to Buddy Connect in a later stage)"
+    if not configured(name, env):
+        return False, "not set up"
+    try:
+        if check.get("login"):
+            token(None, name, fresh=True, env=env, fetch=fetch)
+        else:
+            call(memory, name, check["path"], json_body=check.get("json"), env=env, fetch=fetch, purpose="health")
+        return True, "ok"
+    except ConnectError as e:
+        return False, str(e)
+
+
+def status(memory, env=None) -> list[dict]:
+    """Every service: set up or not, last result, calls and cost this month."""
+    since = datetime.now(timezone.utc).replace(day=1, hour=0, minute=0, second=0, microsecond=0).isoformat()
+    usage = {}
+    try:
+        _table(memory)
+        for r in memory.db.execute("SELECT provider, COUNT(*) AS n, SUM(1 - ok) AS bad, SUM(cost_usd) AS usd "
+                                   "FROM api_calls WHERE at >= ? GROUP BY provider", (since,)):
+            usage[r["provider"]] = (r["n"], r["bad"] or 0, r["usd"] or 0.0)
+    except Exception:
+        pass
+    out = []
+    for name, entry in CATALOG.items():
+        try:
+            last = json.loads(memory.get(f"connect:last:{name}") or "{}")
+        except ValueError:
+            last = {}
+        n, bad, usd = usage.get(name, (0, 0, 0.0))
+        out.append({"name": name, "title": entry["title"], "used_for": entry.get("used_for", ""),
+                    "privacy": entry.get("privacy", "public"), "set_up": configured(name, env),
+                    "in_connect": bool(entry.get("moved")), "last_ok": last.get("ok"), "last_at": last.get("at", ""),
+                    "last_error": last.get("error", ""), "calls_this_month": n, "failed_this_month": bad,
+                    "cost_this_month": round(usd, 4)})
+    return out
+
+
+TOOL = {
+    "name": "connections",
+    "description": "Buddy Connect: every outside service Buddy uses (search, transit feeds, markets, banks, free AI "
+    "models...), whether it's set up, whether its last call worked and why not, and calls and cost this month. "
+    "list: all of them; test: one small real request to one service (name) and its answer.",
+    "input_schema": {"type": "object", "properties": {
+        "action": {"type": "string", "enum": ["list", "test"]},
+        "name": {"type": "string", "description": "test: the service, e.g. njt_rail, njt_bus, serper, mta, path"}},
+        "required": ["action"], "additionalProperties": False},
+}
+
+
+def run_tool(memory, args: dict) -> str:
+    if args.get("action") == "test":
+        name = (args.get("name") or "").strip()
+        if name not in CATALOG:
+            return f"No service called {name!r}. Known: {', '.join(CATALOG)}."
+        ok, said = health(name, memory)
+        return f"{CATALOG[name]['title']}: {'working' if ok else 'not working'} ({said})."
+    rows = []
+    for s in status(memory):
+        state = "not set up" if not s["set_up"] else ("working" if s["last_ok"] else
+                                                      f"failing: {s['last_error']}" if s["last_ok"] is False
+                                                      else "set up, not used yet")
+        rows.append(f"- {s['title']}: {state}; {s['calls_this_month']} calls this month"
+                    + (f", ${s['cost_this_month']:.2f}" if s["cost_this_month"] else "")
+                    + ("" if s["in_connect"] else " (moves to Buddy Connect later)"))
+    return "Buddy Connect, every outside service:\n" + "\n".join(rows)

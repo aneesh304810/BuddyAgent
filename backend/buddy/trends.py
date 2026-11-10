@@ -120,6 +120,12 @@ class Trends:
                      "trends", str(e)[:200], cost=0.0)
             raise
 
+    def _serper(self, path: str, body: bytes):
+        """Google news and search through Buddy Connect (gateway.py): the key, retries, logging, clear errors."""
+        from . import gateway  # noqa: PLC0415
+        return gateway.call(self.memory, "serper", path, data=body, headers={"Content-Type": "application/json"},
+                            fetch=lambda u, d, h: self.fetch(u, h or {}, d), env=self.env, purpose="trends")
+
     # --- topics -----------------------------------------------------------------------------------------
     def topics(self) -> list[dict]:
         rows = [dict(r) for r in self.memory.db.execute("SELECT name, kind, query FROM trend_topics ORDER BY added_at")]
@@ -175,9 +181,7 @@ class Trends:
         if not self.setting("BUDDY_SERPER_KEY"):
             return []
         body = json.dumps({"q": query, "gl": "in" if kind == "india" else "us", "tbs": "qdr:d", "num": 20}).encode()
-        got = self._json("serper", "https://google.serper.dev/news",
-                         {"X-API-KEY": self.setting("BUDDY_SERPER_KEY"), "Content-Type": "application/json"}, body,
-                         paid=True)
+        got = self._serper("/news", body)
         return [{"source": f"News: {n.get('source', '')}".strip(), "title": n.get("title") or "", "url": n.get("link") or "",
                  "score": 0, "comments": 0, "ts": time.time() - 6 * 3600, "when": n.get("date", "")}
                 for n in got.get("news", []) if n.get("title")]
@@ -296,9 +300,7 @@ class Trends:
         body = json.dumps({"q": f"site:reddit.com{'/r/' + sub if sub else ''} {re.sub(chr(34), '', query)}",
                            "tbs": "qdr:w", "num": 10}).encode()
         try:
-            got = self._json("serper", "https://google.serper.dev/search",
-                             {"X-API-KEY": self.setting("BUDDY_SERPER_KEY"), "Content-Type": "application/json"}, body,
-                             paid=True)
+            got = self._serper("/search", body)
         except Exception:
             return []
         return [{"source": "Reddit (via Google)", "title": r.get("title", "").replace(" : r/", " · r/")[:200],

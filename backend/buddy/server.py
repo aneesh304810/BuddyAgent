@@ -773,6 +773,24 @@ def admin_trace(on: bool) -> dict:
     return {"tracing": on}
 
 
+@app.get("/admin/connections", dependencies=[Depends(require_admin)])
+async def admin_connections() -> dict:
+    """Buddy Connect: every outside service, set up or not, its last result, calls and cost this month."""
+    from . import gateway  # noqa: PLC0415
+    return {"services": await asyncio.to_thread(gateway.status, memory)}
+
+
+@app.post("/admin/connections/test", dependencies=[Depends(require_admin)])
+async def admin_connection_test(body: dict) -> dict:
+    """One small real request to one service, for the app's Test button."""
+    from . import gateway  # noqa: PLC0415
+    name = str(body.get("name") or "")
+    if name not in gateway.CATALOG:
+        raise HTTPException(404, "unknown service")
+    ok, said = await asyncio.to_thread(gateway.health, name, memory)
+    return {"name": name, "ok": ok, "said": said}
+
+
 @app.get("/admin/budgets", dependencies=[Depends(require_admin)])
 async def admin_budgets() -> dict:
     """The Claude cutoff and the overall monthly budget, with this month's spend and forecast."""

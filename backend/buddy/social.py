@@ -142,9 +142,9 @@ class Social:
             raise ToolError("What should I search Google for?")
         endpoint = "news" if news else "search"
         body = json.dumps({"q": query, "gl": _country(country).lower(), "num": max(1, min(int(num or 10), 20))})
-        data = json.loads(self.http(f"https://google.serper.dev/{endpoint}", body.encode(),
-                                    {"X-API-KEY": self.setting("BUDDY_SERPER_KEY"),
-                                     "Content-Type": "application/json"}))
+        from . import gateway  # noqa: PLC0415  (Buddy Connect: key, retries, clear errors)
+        data = gateway.call(None, "serper", f"/{endpoint}", data=body.encode(),
+                            headers={"Content-Type": "application/json"}, fetch=self.http, env=self.env)
         _metered("serper", endpoint)
         if news:
             return {"news": [{k: n.get(k) for k in ("title", "source", "date", "snippet", "link", "imageUrl")}
@@ -162,9 +162,9 @@ class Social:
     # --- Google Maps places (Serper) ----------------------------------------------
     def places(self, query: str, country: str = "US", num: int = 12) -> list[dict]:
         body = json.dumps({"q": query, "gl": _country(country).lower()})
-        data = json.loads(self.http("https://google.serper.dev/places", body.encode(),
-                                    {"X-API-KEY": self.setting("BUDDY_SERPER_KEY"),
-                                     "Content-Type": "application/json"}))
+        from . import gateway  # noqa: PLC0415
+        data = gateway.call(None, "serper", "/places", data=body.encode(),
+                            headers={"Content-Type": "application/json"}, fetch=self.http, env=self.env)
         _metered("serper", "places")
         keep = ("title", "category", "rating", "ratingCount", "priceLevel", "address", "openingHours",
                 "website", "phoneNumber", "description",
