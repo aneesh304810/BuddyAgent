@@ -304,7 +304,8 @@ def test_gate_sends_audio_to_deepgram_only_while_someone_talks():
         asyncio.run(go())
 
 
-def test_a_whole_call_over_plivos_stream(monkeypatch, env):
+@pytest.mark.parametrize("refuse_first", [False, True])
+def test_a_whole_call_over_plivos_stream(monkeypatch, env, refuse_first):
     """Plivo connects, nobody speaks, Buddy greets (Claude stood in for), its words are played to the call, and
     once they've been heard the call is hung up and the owner told."""
     pytest.importorskip("pipecat")
@@ -330,8 +331,22 @@ def test_a_whole_call_over_plivos_stream(monkeypatch, env):
             await super().process_frame(frame, direction)
             await self.push_frame(frame, direction)
 
+    made = []
+
     class FakeTTS(FakeSTT):
+        def __init__(self, **kw):
+            super().__init__(**kw)
+            made.append(kw["settings"].kw)
+            self.refuse = refuse_first and len(made) == 1  # ElevenLabs says HTTP 400 to the first voice
+
         async def process_frame(self, frame, direction):
+            from pipecat.frames.frames import StartFrame
+            if self.refuse and isinstance(frame, StartFrame):
+                await FrameProcessor.process_frame(self, frame, direction)
+                await self.push_frame(frame, direction)
+                await self.push_error(error_msg="server rejected WebSocket connection: HTTP 400",
+                                      force_treat_as_permanent=True)
+                return
             await FrameProcessor.process_frame(self, frame, direction)
             if isinstance(frame, TTSSpeakFrame):
                 spoken.append(frame.text)
@@ -344,8 +359,14 @@ def test_a_whole_call_over_plivos_stream(monkeypatch, env):
     monkeypatch.setattr(el, "ElevenLabsTTSService", FakeTTS)
     monkeypatch.setattr(calls, "QUIET_START_S", 0.2)
     monkeypatch.setattr(calls, "voice_model", lambda memory, env=None, fetch=None: "eleven_test_turbo")
-    monkeypatch.setattr(calls, "think", Moves({"say": "Hi, this is Sam Rivera's assistant.", "action": "end",
-                                               "outcome": "They're open 9 to 5."}))
+    moves = Moves({"say": "Hi, this is Sam Rivera's assistant.", "action": "end", "outcome": "They're open 9 to 5."})
+    turns = []
+
+    async def think(memory, call, history, env=None):
+        from buddy import usage
+        turns.append(usage.current_turn.get())  # an approved call is the owner's own request, not background work
+        return await moves(memory, call, history, env)
+    monkeypatch.setattr(calls, "think", think)
     monkeypatch.setattr(calls, "hangup", lambda mem, uuid, env=None, fetch=None: hung.append(uuid))
 
     async def deliver(kind, text, **extra):
@@ -375,6 +396,10 @@ def test_a_whole_call_over_plivos_stream(monkeypatch, env):
                 pass  # Buddy ended the call: the stream closes
     assert spoken == ["Hi, this is Sam Rivera's assistant."] and played and played[0]["streamId"] == "st-1"
     assert hung == ["cu-7"]
+    assert made[0]["model"] == "eleven_test_turbo" and made[1]["model"] == calls.TTS_MODEL  # the backup voice
+    if refuse_first:
+        assert "eleven_test_turbo" in calls._bad_models(server.memory)
+    assert turns and turns[0].startswith("phone_call:")
     got = calls.get(server.memory, c["id"])
     assert got["status"] == "done" and got["outcome"] == "They're open 9 to 5."
     greeting = "Hi, this is Sam Rivera's assistant."
@@ -473,3 +498,15 @@ def test_me_calls_the_owners_saved_mobile(tmp_path, env):
     asyncio.run(calls.run_tool(m, t, {"action": "call", "who": "my mobile", "number": "me", "kind": "question",
                                       "goal": "a test call"}))
     assert "+12015550199" in t.asked[0][0]
+
+
+def test_a_refused_voice_model_isnt_picked_again(tmp_path, env):
+    m = Memory(tmp_path / "b.db")
+    models = [{"model_id": "eleven_v4_turbo", "name": "Eleven v4 Turbo"},
+              {"model_id": "eleven_flash_v2_5", "name": "Eleven Flash v2.5"}]
+    fetch = lambda url, data=None, headers=None: json.dumps(models).encode()
+    assert calls.voice_model(m, fetch=fetch) == "eleven_v4_turbo"
+    calls.model_refused(m, "eleven_v4_turbo")
+    assert calls.voice_model(m, fetch=fetch) == "eleven_flash_v2_5"
+    calls.model_refused(m, calls.TTS_MODEL)  # the fallback itself is never written off
+    assert calls.TTS_MODEL not in calls._bad_models(m)

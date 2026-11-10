@@ -302,6 +302,25 @@ def _model_rank(m: dict) -> tuple:
     return kind, version
 
 
+BAD_MODELS_KEY = "calls:voice_models_refused"
+
+
+def _bad_models(memory) -> list[str]:
+    try:
+        return json.loads(memory.get(BAD_MODELS_KEY) or "[]") if memory is not None else []
+    except ValueError:
+        return []
+
+
+def model_refused(memory, model: str) -> None:
+    """ElevenLabs refused this model for live calls: don't pick it again, and choose afresh next call."""
+    if memory is None or not model or model == TTS_MODEL:
+        return
+    memory.set(BAD_MODELS_KEY, json.dumps(sorted(set(_bad_models(memory)) | {model})))
+    memory.set("calls:voice_model", "{}")
+    log.warning("ElevenLabs refused voice model %s on a call; using %s from now on", model, TTS_MODEL)
+
+
 def voice_model(memory, env=None, fetch=None) -> str:
     """The voice model for calls: BUDDY_CALL_VOICE_MODEL when set; else the best real-time model this ElevenLabs
     account offers (asked once a day), so newer cheaper models are picked up without anyone looking up IDs."""
@@ -318,8 +337,9 @@ def voice_model(memory, env=None, fetch=None) -> str:
     model = TTS_MODEL
     try:
         got = gateway.call(memory, "elevenlabs", "/v1/models", env=env, fetch=fetch, purpose="phone call")
+        bad = set(_bad_models(memory))
         usable = [m for m in got or [] if isinstance(m, dict) and m.get("can_do_text_to_speech", True)
-                  and m.get("model_id") and _model_rank(m)[0] > 0]
+                  and m.get("model_id") and m["model_id"] not in bad and _model_rank(m)[0] > 0]
         if usable:
             model = max(usable, key=_model_rank)["model_id"]
     except Exception as e:  # can't ask (or the key may not read models): the known-good default
@@ -533,6 +553,10 @@ def gate_class():
 async def run_stream(memory: Memory, websocket, call: dict, deliver=None, env=None) -> None:
     """One call's audio, both ways, until it ends: Plivo's stream -> Silero (who is speaking) -> the cost gate ->
     Deepgram (words) -> Mind (Claude) -> ElevenLabs (voice) -> Plivo."""
+    from . import usage  # noqa: PLC0415
+    # The owner approved this call: it's their own request, not background work, so a paused background budget
+    # (waiting for their approval of the month's pace) doesn't stop Claude mid-call.
+    usage.current_turn.set(f"phone_call:{call['id']}")
     from pipecat.audio.vad.silero import SileroVADAnalyzer  # noqa: PLC0415
     from pipecat.audio.vad.vad_analyzer import VADParams  # noqa: PLC0415
     from pipecat.frames.frames import (  # noqa: PLC0415
@@ -630,8 +654,24 @@ async def run_stream(memory: Memory, websocket, call: dict, deliver=None, env=No
                                              numerals=True, punctuate=True,
                                              keyterm=[w for w in o["name"].split() if len(w) > 2] or None))
     model = await asyncio.to_thread(voice_model, memory, env)
-    tts = ElevenLabsTTSService(api_key=env_get("BUDDY_ELEVENLABS_KEY"), settings=ElevenLabsTTSService.Settings(
-        voice=env_get("BUDDY_CALL_VOICE") or DEFAULT_VOICE, model=model))
+    from pipecat.pipeline.service_switcher import ServiceSwitcher, ServiceSwitcherStrategyFailover  # noqa: PLC0415
+    voice = env_get("BUDDY_CALL_VOICE") or DEFAULT_VOICE
+    choices = list(dict.fromkeys([(voice, model), (voice, TTS_MODEL), (DEFAULT_VOICE, TTS_MODEL)]))
+
+    def voice_service(v: str, m: str):
+        return ElevenLabsTTSService(api_key=env_get("BUDDY_ELEVENLABS_KEY"),
+                                    settings=ElevenLabsTTSService.Settings(voice=v, model=m))
+    voices = [voice_service(v, m) for v, m in choices]
+    # If ElevenLabs refuses the chosen model or voice, the next one takes over within the same call.
+    tts = ServiceSwitcher(voices, strategy_type=ServiceSwitcherStrategyFailover) if len(voices) > 1 else voices[0]
+    if len(voices) > 1:
+        @tts.strategy.event_handler("on_service_switched")
+        async def _voice_switched(_strategy, service):
+            failed = choices[0]
+            log.warning("call %s: ElevenLabs refused voice %s / model %s; switched to a backup", call["id"],
+                        failed[0], failed[1])
+            if failed[1] != TTS_MODEL:
+                await asyncio.to_thread(model_refused, memory, failed[1])
     talk = Talk()
     done_speaking = asyncio.Event()
     call_uuid = data.get("call_id") or call["call_sid"]
