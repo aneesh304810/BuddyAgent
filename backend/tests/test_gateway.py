@@ -197,3 +197,47 @@ def test_every_service_has_a_group_and_the_list_is_grouped(tmp_path):
     said = gateway.run_tool(m, {"action": "list"})
     assert said.index("Travel & transit:") < said.index("Finance & markets:") < said.index("AI models:")
     assert gateway.find("finance", m, env={})[0]["group"] == "Finance & markets"
+
+
+def _row(name, group, title, set_up=True, last_ok=None, missing=()):
+    return {"name": name, "group": group, "title": title, "set_up": set_up, "last_ok": last_ok,
+            "missing_keys": list(missing)}
+
+
+def test_half_set_up_services_report_their_missing_keys(tmp_path):
+    st = {s["name"]: s for s in gateway.status(Memory(tmp_path / "b.db"), env={"BUDDY_NJT_USERNAME": "u"})}
+    assert st["njt_rail"]["missing_keys"] == ["BUDDY_NJT_PASSWORD"] and st["njt_rail"]["state"] == "missing_keys"
+    assert st["serper"]["missing_keys"] == [] and st["serper"]["state"] == "not_set_up"  # none set: just not set up
+    full = {s["name"]: s for s in gateway.status(Memory(tmp_path / "c.db"),
+                                                  env={"BUDDY_NJT_USERNAME": "u", "BUDDY_NJT_PASSWORD": "p"})}
+    assert full["njt_rail"]["missing_keys"] == [] and full["njt_rail"]["state"] == "unused"
+
+
+def test_connections_screen_puts_what_needs_attention_on_top():
+    rows = [
+        _row("mta", "Travel & transit", "MTA", last_ok=True),
+        _row("serper", "Search", "Serper", last_ok=False),
+        _row("path", "Travel & transit", "PATH"),
+        _row("airlabs", "Travel & transit", "AirLabs", set_up=False),
+        _row("njt_rail", "Travel & transit", "NJ Transit trains", set_up=False, missing=["BUDDY_NJT_PASSWORD"]),
+        _row("alpaca", "Finance & markets", "Alpaca", last_ok=True),
+        _row("yahoo", "Finance & markets", "Yahoo", set_up=False),
+    ]
+    sections = gateway.arrange(rows)
+    assert [(s["title"], s["names"]) for s in sections] == [
+        ("Needs attention", ["serper", "njt_rail"]),  # failing before missing keys
+        ("Travel & transit", ["mta", "path"]),  # working before unused
+        ("Finance & markets", ["alpaca"]),  # areas in the app's order
+        ("Not set up", ["airlabs", "yahoo"]),  # by area, then title
+    ]
+    shown = [n for s in sections for n in s["names"]]
+    assert sorted(shown) == sorted(r["name"] for r in rows)  # every service exactly once
+
+
+def test_arrange_covers_the_real_catalog_and_leaves_out_empty_sections(tmp_path):
+    rows = gateway.status(Memory(tmp_path / "b.db"), env={})
+    sections = gateway.arrange(rows)
+    shown = [n for s in sections for n in s["names"]]
+    assert sorted(shown) == sorted(r["name"] for r in rows) and len(shown) == len(set(shown))
+    assert all(s["names"] for s in sections) and sections[0]["title"] != "Needs attention"
+    assert gateway.arrange([]) == []
