@@ -45,6 +45,9 @@ sealed interface ServerEvent {
     data class Form(val action: String, val id: String, val fills: String?) : ServerEvent
     /** Send a chat reply through the notification's Reply action (messaging.py). */
     data class Reply(val id: String, val app: String, val chat: String, val text: String) : ServerEvent
+    /** Add an event to the phone's calendar (scheduling.py; the owner already said yes). */
+    data class CalendarAdd(val id: String, val title: String, val startMs: Long, val endMs: Long, val notes: String) :
+        ServerEvent
     /** You paused mid-sentence: Buddy is waiting for the rest. */
     data object Waiting : ServerEvent
     data class DiagPong(val t: Long) : ServerEvent  // diagnostics: the round trip to the server
@@ -79,6 +82,8 @@ sealed interface ServerEvent {
                 "diag_pong" -> DiagPong(msg.optLong("t"))
                 "diag_off" -> DiagOff
                 "reply" -> Reply(msg.optString("id"), msg.optString("app"), msg.optString("chat"), msg.optString("text"))
+                "calendar_add" -> CalendarAdd(msg.optString("id"), msg.optString("title"), msg.optLong("start_ms"),
+                    msg.optLong("end_ms"), msg.optString("notes"))
                 "form" -> Form(msg.optString("action"), msg.optString("id"), msg.optJSONArray("fills")?.toString())
                 "open" -> msg.getJSONArray("links").let { a ->
                     OpenLinks((0 until a.length()).map { a.getJSONObject(it) }.map {

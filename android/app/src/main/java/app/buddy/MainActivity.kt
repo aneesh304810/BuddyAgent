@@ -764,7 +764,9 @@ private fun SettingsPanel(
         prefs.shareLocation = granted
         if (granted) LocationShare.maybeSend(context, force = true)
     }
-    val askCalendar = rememberLauncherForActivityResult(ActivityResultContracts.RequestPermission()) { granted ->
+    // Reading lets Buddy see the calendar; writing lets it add an event after your yes (scheduling).
+    val askCalendar = rememberLauncherForActivityResult(ActivityResultContracts.RequestMultiplePermissions()) { got ->
+        val granted = got[Manifest.permission.READ_CALENDAR] == true
         shareCalendar = granted
         prefs.shareCalendar = granted
         if (granted) BuddyService.instance?.syncCalendar()
@@ -974,7 +976,7 @@ private fun SettingsPanel(
                 )
             }
             Switch(checked = shareCalendar, onCheckedChange = { on ->
-                if (on) askCalendar.launch(Manifest.permission.READ_CALENDAR)
+                if (on) askCalendar.launch(arrayOf(Manifest.permission.READ_CALENDAR, Manifest.permission.WRITE_CALENDAR))
                 else { shareCalendar = false; prefs.shareCalendar = false }
             })
         }

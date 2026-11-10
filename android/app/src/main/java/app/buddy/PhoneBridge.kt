@@ -44,6 +44,44 @@ object PhoneBridge {
 
     // --- calendar --------------------------------------------------------
 
+    /** Add one event to the owner's main calendar (the server asks only after their yes). null when it worked,
+     * else why not ("permission" when Buddy may not write to the calendar). */
+    fun addEvent(context: Context, title: String, startMs: Long, endMs: Long, notes: String): String? {
+        if (context.checkSelfPermission(Manifest.permission.WRITE_CALENDAR) != PackageManager.PERMISSION_GRANTED) {
+            return "permission"
+        }
+        if (title.isBlank() || endMs <= startMs) return "bad event"
+        val calendarId = writableCalendar(context) ?: return "no calendar on this phone that Buddy can add to"
+        val values = android.content.ContentValues().apply {
+            put(CalendarContract.Events.CALENDAR_ID, calendarId)
+            put(CalendarContract.Events.TITLE, title)
+            put(CalendarContract.Events.DESCRIPTION, notes)
+            put(CalendarContract.Events.DTSTART, startMs)
+            put(CalendarContract.Events.DTEND, endMs)
+            put(CalendarContract.Events.EVENT_TIMEZONE, java.util.TimeZone.getDefault().id)
+        }
+        return try {
+            if (context.contentResolver.insert(CalendarContract.Events.CONTENT_URI, values) == null) "not saved" else null
+        } catch (e: Exception) {
+            e.message ?: "error"
+        }
+    }
+
+    /** The main calendar the owner can write to: their primary one first. */
+    private fun writableCalendar(context: Context): Long? {
+        val columns = arrayOf(CalendarContract.Calendars._ID, CalendarContract.Calendars.IS_PRIMARY)
+        val where = "${CalendarContract.Calendars.CALENDAR_ACCESS_LEVEL} >= ${CalendarContract.Calendars.CAL_ACCESS_CONTRIBUTOR}" +
+            " AND ${CalendarContract.Calendars.VISIBLE} = 1"
+        var best: Long? = null
+        context.contentResolver.query(CalendarContract.Calendars.CONTENT_URI, columns, where, null, null)?.use { c ->
+            while (c.moveToNext()) {
+                if (best == null) best = c.getLong(0)
+                if (c.getInt(1) == 1) return c.getLong(0)
+            }
+        }
+        return best
+    }
+
     /** The next week of this phone's calendars, as one message for the server. */
     fun calendar(context: Context, days: Int = 7): JSONObject? {
         if (context.checkSelfPermission(Manifest.permission.READ_CALENDAR) != PackageManager.PERMISSION_GRANTED) {

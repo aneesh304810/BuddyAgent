@@ -569,6 +569,12 @@ class BuddyService : Service() {
                 pendingMode = if (event.mode == "listen") Mode.LISTEN_IN else Mode.TALK
                 if (!mouth.speaking && !replyOpen) applyPendingMode()
             }
+            is ServerEvent.CalendarAdd -> {
+                val error = PhoneBridge.addEvent(this, event.title, event.startMs, event.endMs, event.notes)
+                PhoneBridge.send(JSONObject().put("type", "calendar_result").put("id", event.id).put("ok", error == null)
+                    .apply { if (error != null) put("error", error) })
+                if (error == null) syncCalendar()  // the server sees the new event straight away
+            }
             is ServerEvent.Reply -> {
                 val error = ReplyStore.send(this, event.app, event.chat, event.text)
                 PhoneBridge.send(JSONObject().put("type", "reply_result").put("id", event.id).put("ok", error == null)

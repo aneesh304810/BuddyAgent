@@ -1972,7 +1972,7 @@ async def talk(ws: WebSocket) -> None:
                     said = mask(str(msg.get("text", "")).strip())[:200]
                     app_name = str(msg.get("app_name") or "a notification")
                     await deliver("notification", f"{app_name}{', ' + who if who else ''}: {said}")
-            elif msg.get("type") in ("form_screen", "form_result", "reply_result"):  # the phone answering phone_request
+            elif msg.get("type") in ("form_screen", "form_result", "reply_result", "calendar_result"):  # phone_request
                 waiting = replies.get(str(msg.get("id", "")))
                 if waiting is not None and not waiting.done():
                     waiting.set_result(msg)

@@ -446,6 +446,14 @@ def _schedule(memory: Memory) -> str:
     return "\n".join(lines) or "- nothing on the calendar"
 
 
+def _free(memory: Memory) -> str:
+    try:
+        from . import scheduling  # noqa: PLC0415
+        return scheduling.describe(scheduling.free_slots(memory, limit=6))
+    except Exception:
+        return "unknown: take their preferred times and say you'll confirm"
+
+
 def screen_prompt(memory: Memory, call: dict, env=None) -> str:
     o = owner(env)
     first = (o["name"].split() or ["the owner"])[0]
@@ -476,6 +484,11 @@ Ask their name early ("Sorry, who am I speaking with?") and use it.
 - Never say where {first} is, that {first} is travelling or away from home, the home address, or anything about \
 accounts, health or family. Never confirm personal details, agree to anything, pay, or verify codes.
 
+If they want to meet, talk, or get a call back at a set time: offer two of {first}'s free times below (just two, \
+spoken naturally: "Would Thursday at two or Friday at ten work?"). When they pick one, say you'll pencil it in and \
+confirm with {first} ("Perfect, I'll pencil you in for Thursday at two and {first} will confirm"). Never promise it's \
+booked. Free times (working hours, next week): {_free(memory)}
+
 Your job: find out who's calling and why, take a clear message, and judge how much it matters.
 - A real caller: get their name, the reason, any date, time or reference number, and the best number to call back \
 (read it back). Tell them when {first} will likely get back to them, then wrap up warmly and end.
@@ -490,6 +503,8 @@ Reply ONLY with one line of JSON: {{"say": "what to say now ('' to stay silent)"
 "priority": "urgent" (family, a doctor or pharmacy, a real fraud alert from the bank, school, emergencies, \
 "call back today") | "normal" (a real caller with a message) | "low" (sales, surveys, no message) | "scam", \
 "caller": "who they said they are, or ''", "callback": "the number they gave, or ''", \
+"meeting": null, or once they've picked a time: {{"title": "what it's about, a few words", "start": "YYYY-MM-DD \
+HH:MM", "minutes": 30}}, \
 "outcome": "when ending: the message for {first} in one or two sentences (who, why, dates and times, what they \
 want {first} to do, what you told them about when {first} would call back)"}}."""
 
@@ -589,6 +604,8 @@ def parse(text: str) -> dict:
     got["priority"] = got.get("priority") if got.get("priority") in PRIORITIES else "normal"
     got["caller"] = str(got.get("caller") or "").strip()[:80]
     got["callback"] = re.sub(r"[^0-9+() -]", "", str(got.get("callback") or ""))[:20]
+    from .scheduling import clean_meeting  # noqa: PLC0415
+    got["meeting"] = clean_meeting(got.get("meeting"))
     return got
 
 
@@ -679,7 +696,13 @@ def screen_message(call: dict, move: dict) -> str:
     head = {"urgent": "📞 Urgent: missed call", "low": "📞 Missed call (low priority)"}.get(move.get("priority"),
                                                                                            "📞 Missed call")
     msg = move.get("outcome") or "They didn't leave a message."
-    return f"{head} from {who} ({back}). {msg}"
+    out = f"{head} from {who} ({back}). {msg}"
+    if move.get("meeting"):
+        from .scheduling import when  # noqa: PLC0415
+        m = move["meeting"]
+        out += (f" 📅 They'd like {when(m)} ({m['title']}); I said you'd confirm. Say \"add it to my calendar\" to "
+                "put it in your phone calendar.")
+    return out
 
 
 def outcome_message(call: dict, move: dict, env=None) -> str:
@@ -1042,6 +1065,11 @@ def screened(memory: Memory, call: dict, move: dict) -> None:
     if move.get("priority") == "scam":
         key = f"calls:scams:{local_now().date().isoformat()}"
         memory.set(key, str(int(memory.get(key) or 0) + 1))
+    if move.get("meeting") and move.get("priority") != "scam":
+        from . import scheduling  # noqa: PLC0415
+        scheduling.propose(memory, move["meeting"], move.get("caller") or call["who"], call["number"])
+    if move.get("priority") == "scam":
+        pass
     elif move.get("priority") in ("urgent", "normal") and move.get("caller") and _caller(call)[1] not in (
             "contact", "saved"):
         from . import contacts  # noqa: PLC0415

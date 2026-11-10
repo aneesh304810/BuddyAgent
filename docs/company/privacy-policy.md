@@ -1,6 +1,6 @@
 # Buddy Privacy and Data Retention Policy
 
-Source: https://claude.ai/artifact/MJVGZ7pWQvi26tg1MS914P, revision 68
+Source: https://claude.ai/artifact/MJVGZ7pWQvi26tg1MS914P, revision 69
 
 Nov 1, 2026 · @Aneesh
 
@@ -30,6 +30,7 @@ Buddy collects only the owner's own data, and only what its features need.
 | Calls to the owner that they don't pick up, answered by Buddy: the caller's number, the name and message they leave, and whether it looked like a scam | The caller, once the owner has set their phone to forward unanswered calls to Buddy's number; Buddy also checks the number against what it already knows (saved facts, emails, calendar) | To take a message and tell the owner what matters. No recording and no transcript; only the message is kept. Buddy never tells a caller where the owner is or anything personal; unknown callers hear only general timing. Scam calls are only counted |
 | The owner's phone contacts: names and phone numbers only (no emails, addresses, notes or photos); and callers Buddy saved after an important call from a number not in the contacts (name, number, a short note) | The Buddy app reads the contacts only after the owner allows it, and syncs them to the owner's server; saved callers come from the calls Buddy answered | To greet a caller by name and judge who's calling. Kept only on Buddy's server; never sent to free models or anywhere else. Scam and sales callers are never saved |
 | The owner's learned daily routine: for weekdays, Saturdays and Sundays, when they're usually at home, commuting, at the office or at a regular place | Learned on Buddy's server each night from the location history the app shares, plus what the owner says about their routine | To know what the owner is doing now (calendar, location, routine). On a call Buddy answers, only callers in the contacts or saved by Buddy hear what the owner is doing and until when, never where; unknown callers hear only that they're busy |
+| Meeting requests from calls Buddy answered (who, the time they picked, what it's about), and events Buddy adds to the phone's calendar | The caller picks one of the owner's free times; the owner says yes before anything is added (the app writes it, with the Calendar permission) | To set up meetings and call-backs. Callers hear only free times, and that the owner will confirm; nothing goes into the calendar without the owner's yes |
 | The chat with Buddy (text of what the owner said and what Buddy replied or sent on its own) | The owner's conversation with Buddy | Kept on Buddy's server and searched there; only the few lines a search finds are sent, to Claude only (never a free model) |
 | Documents, photos, PDFs, spreadsheets, CSV and JSON files | Files the owner chooses to upload (Share to Buddy, or the paperclip in the app) | Stored encrypted; text, summaries, facts and search index kept |
 | People and things mentioned in those files and in conversations | Pulled out of the owner's own data | Names, relationships and short notes |
@@ -162,6 +163,7 @@ Data is kept only as long as it is useful, then deleted automatically.
 | Messages from calls Buddy answered for the owner (caller's number, name, message) | 180 days, then deleted automatically; no recordings or transcripts are ever kept |
 | Phone contacts (names and numbers) | Replaced by each sync from the phone (a contact deleted on the phone is deleted here too); turning the permission off stops new syncs |
 | Callers Buddy saved, and the learned routine | Saved callers until the owner asks Buddy to forget them; the routine is relearned nightly from the last 6 weeks of location history (which is kept 60 days) and is deleted with it |
+| Meeting requests from calls | 14 days after the requested time, then deleted; an event the owner added stays in their calendar until they remove it |
 | The chat with Buddy (the owner's words and Buddy's replies, as text; no audio, no tool results, no Listen-in whispers or room talk) | 30 days, then deleted automatically; kept on the server so Buddy can look up earlier parts of the chat instead of resending all of it |
 | Browser task reports (steps, pages used, screenshots) | 90 days, then deleted automatically; the browser itself keeps nothing once the task ends |
 | Location | The latest is treated as expired after 3 hours; the history is kept 60 days (see below) |
