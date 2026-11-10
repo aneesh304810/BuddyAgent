@@ -46,7 +46,7 @@ CALLS_PER_DAY = 5
 LIMIT_S = {"appointment": 15 * 60, "question": 15 * 60, "hold_connect": 90 * 60}
 KEEP_DAYS = 180
 DEFAULT_VOICE = "21m00Tcm4TlvDq8ikWAM"  # ElevenLabs' "Rachel" (female); BUDDY_CALL_VOICE changes it
-TTS_MODEL = "eleven_flash_v2_5"  # ElevenLabs' fastest, cheapest voice model
+TTS_MODEL = "eleven_flash_v2_5"  # ElevenLabs' fast, cheap voice model; BUDDY_CALL_VOICE_MODEL picks another (e.g. a newer Turbo)
 STT_MODEL = "nova-3-general"
 KINDS = ("appointment", "question", "hold_connect")
 QUIET_START_S = 4.0  # nobody speaks this long after the pick-up: Buddy speaks first
@@ -547,7 +547,7 @@ async def run_stream(memory: Memory, websocket, call: dict, deliver=None, env=No
                                              numerals=True, punctuate=True,
                                              keyterm=[w for w in o["name"].split() if len(w) > 2] or None))
     tts = ElevenLabsTTSService(api_key=env_get("BUDDY_ELEVENLABS_KEY"), settings=ElevenLabsTTSService.Settings(
-        voice=env_get("BUDDY_CALL_VOICE") or DEFAULT_VOICE, model=TTS_MODEL))
+        voice=env_get("BUDDY_CALL_VOICE") or DEFAULT_VOICE, model=env_get("BUDDY_CALL_VOICE_MODEL") or TTS_MODEL))
     talk = Talk()
     done_speaking = asyncio.Event()
     call_uuid = data.get("call_id") or call["call_sid"]
