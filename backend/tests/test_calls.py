@@ -377,6 +377,9 @@ def test_a_whole_call_over_plivos_stream(monkeypatch, env):
     assert hung == ["cu-7"]
     got = calls.get(server.memory, c["id"])
     assert got["status"] == "done" and got["outcome"] == "They're open 9 to 5."
+    greeting = "Hi, this is Sam Rivera's assistant."
+    assert got["voice_chars"] == len(greeting) and got["listen_seconds"] == 0  # silence never reached Deepgram
+    assert got["cost_usd"] == round(len(greeting) / 1000 * 0.04, 5)
     assert any(t == "Call to Dr. Mehta done. They're open 9 to 5." for t in told)
 
 
@@ -424,3 +427,33 @@ def test_voice_model_falls_back_when_elevenlabs_wont_say(tmp_path, env):
     def refuse(url, data=None, headers=None):
         raise urllib.error.HTTPError(url, 401, "no", {}, None)
     assert calls.voice_model(m, fetch=refuse) == calls.TTS_MODEL
+
+
+def test_insights_show_what_calls_cost(tmp_path, env):
+    m = Memory(tmp_path / "b.db")
+    c = calls.plan(m, "Dr. Mehta", "2015550123", "appointment", "checkup")
+    calls.update(m, c["id"], status="done", outcome="Booked.")
+    calls.add_cost(m, c["id"], "deepgram", "listening", 0.01, 78)
+    calls.add_cost(m, c["id"], "elevenlabs", "voice", 0.08)
+    m.db.execute("UPDATE phone_calls SET cost_usd = cost_usd + 0.02 WHERE id = ?", (c["id"],))  # Claude
+    calls.hung_up(m, calls.get(m, c["id"]), {"CallStatus": "completed", "BillDuration": "300"})
+    failed = calls.plan(m, "Shop", "2015550124", "question", "hours?")
+    calls.update(m, failed["id"], status="calling")
+    calls.hung_up(m, calls.get(m, failed["id"]), {"CallStatus": "busy", "Duration": "0"})
+    out = calls.overview(m, "2000-01-01")
+    assert out["calls"] == 2 and out["done"] == 1 and out["failed"] == 1 and out["minutes"] == 5.0
+    assert out["parts"] == {"plivo": 0.065, "deepgram": 0.01, "elevenlabs": 0.08, "claude": 0.02}
+    assert out["cost_usd"] == 0.175 and out["per_call_usd"] == 0.0875
+    assert "outcome" not in out["recent"][0]  # what was said stays out of Insights
+    from buddy import insights
+    assert insights._phone_calls(m, "2000-01-01")["calls"] == 2
+    assert insights._phone_calls(Memory(tmp_path / "empty.db"), "2000-01-01") is None
+    assert insights.purpose_name("phone_call") == "Phone calls"
+
+
+def test_prices_can_be_changed(monkeypatch):
+    assert calls.price("BUDDY_CALL_PRICE_LINE_MIN") == 0.013
+    monkeypatch.setenv("BUDDY_CALL_PRICE_LINE_MIN", "0.02")
+    assert calls.price("BUDDY_CALL_PRICE_LINE_MIN") == 0.02
+    monkeypatch.setenv("BUDDY_CALL_PRICE_LINE_MIN", "lots")
+    assert calls.price("BUDDY_CALL_PRICE_LINE_MIN") == 0.013

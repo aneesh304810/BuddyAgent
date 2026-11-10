@@ -111,6 +111,11 @@ Built-in rules:
 - it never pays, cancels or agrees to fees;
 - no recording.
 
+What each call costs (estimated, part by part: line, listening, voice, Claude) is in the app's **Insights →
+Phone calls**, and the monthly totals per service are under **Connections → Calls**. The prices are estimates set
+from the providers' price pages; if yours differ, set `BUDDY_CALL_PRICE_LINE_MIN`, `BUDDY_CALL_PRICE_LISTEN_MIN`
+or `BUDDY_CALL_PRICE_VOICE_1K` with `set.sh`.
+
 Rough cost:
 - a 5-minute appointment call: about $0.15–0.30, with the voice about $0.06–0.10 of that;
 - a 45-minute hold: about $0.30–0.60, because nothing goes to Deepgram or Claude while nobody is talking.

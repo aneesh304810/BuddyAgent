@@ -534,6 +534,41 @@ fun InsightsScreen(link: ServerLink?) {
             }
         }
 
+        val phone = d.optJSONObject("phone_calls")
+        if (phone != null) {
+            item { Heading("Phone calls") }
+            item {
+                Text("${phone.optInt("calls")} calls · ${phone.optInt("done")} done" +
+                    (if (phone.optInt("failed") > 0) " · ${phone.optInt("failed")} didn't go through" else "") +
+                    " · ${phone.optDouble("minutes")} min on the line · ${usd(phone.optDouble("cost_usd"))} " +
+                    "(${usd(phone.optDouble("per_call_usd"))} a call, estimated)", color = Dim, fontSize = 12.sp)
+            }
+            val parts = phone.optJSONObject("parts")
+            val partRows = listOf(
+                Triple("plivo", "Phone line (Plivo)", "${phone.optDouble("minutes")} min"),
+                Triple("deepgram", "Listening (Deepgram)", "${phone.optDouble("listen_minutes")} min of speech; hold and silence skipped"),
+                Triple("elevenlabs", "Voice (ElevenLabs)", "${phone.optInt("voice_chars")} characters spoken"),
+                Triple("claude", "Thinking (Claude)", "replies during calls"),
+            )
+            val top = partRows.maxOfOrNull { parts?.optDouble(it.first) ?: 0.0 }?.takeIf { it > 0 } ?: 1.0
+            items(partRows) { (key, title, detail) ->
+                val cost = parts?.optDouble(key) ?: 0.0
+                BreakdownRow(title = title, value = usd(cost), share = (cost / top).toFloat(), detail = detail,
+                    selected = false) { }
+            }
+            val calls = phone.optJSONArray("recent")?.objects().orEmpty()
+            items(calls) { c ->
+                BreakdownRow(
+                    title = c.optString("who"),
+                    value = usd(c.optDouble("cost_usd")),
+                    share = 0f,
+                    detail = c.optString("kind").replace("_", " ") + " · " + c.optString("status") + " · " +
+                        "${c.optDouble("minutes")} min · " + c.optString("created_at").take(10),
+                    selected = false,
+                ) { }
+            }
+        }
+
         item {
             val filter = listOf(purpose, model).filter { it.isNotEmpty() }.joinToString(" · ")
             Heading(if (filter.isEmpty()) "Latest requests" else "Latest requests: $filter (tap again to clear)")

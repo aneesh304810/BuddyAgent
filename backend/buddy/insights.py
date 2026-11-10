@@ -36,6 +36,7 @@ PURPOSE_NAMES = {
     "finance:statement": "Reading card statements",
     "tutor": "English review",
     "code": "Code tasks",
+    "phone_call": "Phone calls",
 }
 
 
@@ -125,6 +126,17 @@ def _apis(memory: Memory, since: str) -> dict:
         return out
     except Exception:
         return {"providers": [], "cost_usd": 0, "month_cost_usd": 0}
+
+
+def _phone_calls(memory: Memory, since: str) -> dict | None:
+    """Calls Buddy made for the owner: minutes and cost (calls.py); None before the first one."""
+    from . import calls  # noqa: PLC0415
+
+    try:
+        out = calls.overview(memory, since)
+    except Exception:
+        return None
+    return out if out["calls"] else None
 
 
 def turn_rows(memory: Memory, since: str, until: str = "9999") -> list[dict]:
@@ -445,6 +457,7 @@ def report(memory: Memory, days: int = 7, recent: int = 60, model: str = "", pur
         "free_models": free_models_overview(memory, by_model),
         "tools": tools_overview(memory, since, rows),
         "apis": _apis(memory, since),
+        "phone_calls": _phone_calls(memory, since),
         "web": webread.web_overview(memory),
         "speech": speech_overview(memory),
         "voice": voice_overview(memory, since),

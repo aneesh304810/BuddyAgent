@@ -63,16 +63,46 @@ CREATE TABLE IF NOT EXISTS phone_calls (
     minutes REAL NOT NULL DEFAULT 0
 );
 """
+COST_COLUMNS = {"listen_seconds": "REAL NOT NULL DEFAULT 0",  # audio sent to Deepgram (only while someone talked)
+                "voice_chars": "INTEGER NOT NULL DEFAULT 0",  # characters ElevenLabs spoke
+                "cost_usd": "REAL NOT NULL DEFAULT 0"}        # the whole call: line, listening, voice, Claude
+# Estimated prices (USD), from the providers' price pages in 2026-11; the settings override them.
+PRICES = {"BUDDY_CALL_PRICE_LINE_MIN": 0.013,       # Plivo: US outbound minute plus audio streaming
+          "BUDDY_CALL_PRICE_LISTEN_MIN": 0.0077,    # Deepgram streaming speech-to-text, per minute of audio
+          "BUDDY_CALL_PRICE_VOICE_1K": 0.04,        # ElevenLabs Turbo/Flash, per 1,000 characters
+          "BUDDY_CALL_PRICE_VOICE_1K_FULL": 0.08}   # ElevenLabs' full models (v3, v4)
 
 
 def _ready(memory: Memory) -> None:
     memory.db.executescript(SCHEMA)
+    have = {r[1] for r in memory.db.execute("PRAGMA table_info(phone_calls)")}
+    for col, kind in COST_COLUMNS.items():
+        if col not in have:
+            memory.db.execute(f"ALTER TABLE phone_calls ADD COLUMN {col} {kind}")
     cutoff = (datetime.now(timezone.utc) - timedelta(days=KEEP_DAYS)).isoformat()
     memory.db.execute("DELETE FROM phone_calls WHERE created_at < ?", (cutoff,))
 
 
 def _env(name: str, env=None) -> str:
     return gateway._secret(env, name)
+
+
+def price(name: str, env=None) -> float:
+    try:
+        return float(_env(name, env) or PRICES[name])
+    except ValueError:
+        return PRICES[name]
+
+
+def add_cost(memory: Memory, call_id: int, provider: str, what: str, usd: float, seconds: float = 0.0) -> None:
+    """One part of a call's cost: added to the call, and to Insights and Buddy Connect (the api_calls log)."""
+    if usd <= 0:
+        return
+    from .travel import log_call  # noqa: PLC0415
+    gateway._table(memory)
+    log_call(memory, provider, what, True, seconds, "phone call", cost=round(usd, 5))
+    memory.db.execute("UPDATE phone_calls SET cost_usd = cost_usd + ? WHERE id = ?", (round(usd, 5), call_id))
+    memory.db.commit()
 
 
 def owner(env=None) -> dict:
@@ -250,6 +280,7 @@ def hung_up(memory: Memory, call: dict, form: dict) -> str:
     done = call["status"] in ("done", "connected")
     answered = call["status"] == "answered"
     update(memory, call["id"], status="done" if done or answered else "failed", minutes=minutes)
+    add_cost(memory, call["id"], "plivo", "call minutes", minutes * price("BUDDY_CALL_PRICE_LINE_MIN"), minutes * 60)
     if done:
         return ""
     if answered:
@@ -379,8 +410,12 @@ async def think(memory: Memory, call: dict, history: list[dict], env=None) -> di
     response = await claude_client().messages.create(model=settings.fast_model, max_tokens=300,
                                                      system=system_prompt(memory, call, env), messages=history)
     if hasattr(response, "usage"):
-        usage.record(memory, response.model, response.usage, purpose="phone_call", response=response)
-    return parse(" ".join(b.text for b in response.content if getattr(b, "type", "") == "text"))
+        cost = usage.record(memory, response.model, response.usage, purpose="phone_call", response=response)
+    else:
+        cost = 0.0
+    move = parse(" ".join(b.text for b in response.content if getattr(b, "type", "") == "text"))
+    move["cost_usd"] = float(cost or 0.0)
+    return move
 
 
 class Mind:
@@ -395,6 +430,7 @@ class Mind:
         self.recordings: set[str] = set()  # things heard that needed no answer (hold messages): not re-sent
         self.ended = False
         self.heard_any = self.spoke_any = False
+        self.claude_usd = 0.0
 
     @staticmethod
     def _key(text: str) -> str:
@@ -411,6 +447,7 @@ class Mind:
             return  # the same hold message again: nothing to decide
         self.history.append({"role": "user", "content": f"[They said] {said}"})
         move = await self.brain(self.memory, self.call, self._history(), self.env)
+        self.claude_usd += float(move.pop("cost_usd", 0.0) or 0.0)
         if self.ended:
             return
         if move["action"] == "connect" and self.call["kind"] != "hold_connect":
@@ -462,11 +499,17 @@ def gate_class():
         def __init__(self):
             super().__init__()
             self.open, self.held, self.held_s = False, [], 0.0
+            self.sent_s = 0.0  # audio passed on to Deepgram: what it bills
+
+        @staticmethod
+        def _secs(frame) -> float:
+            return len(frame.audio) / (2 * frame.sample_rate * max(frame.num_channels, 1))
 
         async def process_frame(self, frame, direction):
             await super().process_frame(frame, direction)
             if isinstance(frame, InputAudioRawFrame) and direction == FrameDirection.DOWNSTREAM:
                 if self.open:
+                    self.sent_s += self._secs(frame)
                     await self.push_frame(frame, direction)
                     return
                 self.held.append(frame)
@@ -478,6 +521,7 @@ def gate_class():
             if isinstance(frame, VADUserStartedSpeakingFrame) and direction == FrameDirection.DOWNSTREAM:
                 self.open = True
                 for old in self.held:
+                    self.sent_s += self._secs(old)
                     await self.push_frame(old, direction)
                 self.held, self.held_s = [], 0.0
             await self.push_frame(frame, direction)
@@ -508,6 +552,7 @@ async def run_stream(memory: Memory, websocket, call: dict, deliver=None, env=No
     from pipecat.workers.runner import WorkerRunner  # noqa: PLC0415
 
     Gate = gate_class()
+    spoken_chars = [0]
 
     class Talk(FrameProcessor):
         """Between Deepgram and ElevenLabs: gathers what they said, asks Mind when they've finished, speaks,
@@ -592,6 +637,7 @@ async def run_stream(memory: Memory, websocket, call: dict, deliver=None, env=No
     call_uuid = data.get("call_id") or call["call_sid"]
 
     async def speak(text: str) -> None:
+        spoken_chars[0] += len(text)
         done_speaking.clear()
         await talk.push_frame(TTSSpeakFrame(text), FrameDirection.DOWNSTREAM)
 
@@ -619,9 +665,10 @@ async def run_stream(memory: Memory, websocket, call: dict, deliver=None, env=No
             await worker.queue_frame(EndFrame())
 
     mind = Mind(memory, call, say=speak, press_keys=press_keys, finish=finish, env=env)
+    gate = Gate()
     pipeline = Pipeline([transport.input(),
                          VADProcessor(vad_analyzer=SileroVADAnalyzer(params=VADParams(stop_secs=0.6))),
-                         Gate(), stt, talk, tts, transport.output()])
+                         gate, stt, talk, tts, transport.output()])
     worker = PipelineWorker(pipeline, params=PipelineParams(audio_in_sample_rate=8000, audio_out_sample_rate=8000),
                             idle_timeout_secs=None)
 
@@ -645,6 +692,44 @@ async def run_stream(memory: Memory, websocket, call: dict, deliver=None, env=No
             gateway.report(memory, "deepgram", True)
         if mind.spoke_any:
             gateway.report(memory, "elevenlabs", True)
+        full = not any(w in model.lower() for w in ("turbo", "flash"))
+        voice_rate = price("BUDDY_CALL_PRICE_VOICE_1K_FULL" if full else "BUDDY_CALL_PRICE_VOICE_1K", env)
+        update(memory, call["id"], listen_seconds=round(gate.sent_s, 1), voice_chars=spoken_chars[0])
+        add_cost(memory, call["id"], "deepgram", "listening", gate.sent_s / 60 * price("BUDDY_CALL_PRICE_LISTEN_MIN", env),
+                 gate.sent_s)
+        add_cost(memory, call["id"], "elevenlabs", "voice", spoken_chars[0] / 1000 * voice_rate)
+        if mind.claude_usd:  # already in Claude's own log: only the call's total gets it
+            memory.db.execute("UPDATE phone_calls SET cost_usd = cost_usd + ? WHERE id = ?",
+                              (round(mind.claude_usd, 5), call["id"]))
+            memory.db.commit()
+
+
+# --- Insights ---------------------------------------------------------------------------------------------------
+def overview(memory: Memory, since: str) -> dict:
+    """For Insights: the calls made since `since`, their minutes and what they cost, part by part."""
+    _ready(memory)
+    rows = [dict(r) for r in memory.db.execute(
+        "SELECT id, created_at, who, kind, status, minutes, listen_seconds, voice_chars, cost_usd FROM phone_calls "
+        "WHERE status != 'planned' AND created_at >= ? ORDER BY id DESC", (since,))]
+    parts = {p: 0.0 for p in ("plivo", "deepgram", "elevenlabs")}
+    try:
+        for r in memory.db.execute("SELECT provider, COALESCE(SUM(cost_usd), 0) FROM api_calls WHERE at >= ? AND "
+                                   "purpose = 'phone call' GROUP BY provider", (since,)):
+            if r[0] in parts:
+                parts[r[0]] = round(r[1], 4)
+    except Exception:  # no api_calls table yet
+        pass
+    total = round(sum(r["cost_usd"] for r in rows), 4)
+    parts["claude"] = round(max(total - sum(parts.values()), 0.0), 4)
+    return {"calls": len(rows), "done": sum(1 for r in rows if r["status"] in ("done", "connected")),
+            "failed": sum(1 for r in rows if r["status"] == "failed"),
+            "minutes": round(sum(r["minutes"] for r in rows), 1),
+            "listen_minutes": round(sum(r["listen_seconds"] for r in rows) / 60, 1),
+            "voice_chars": sum(r["voice_chars"] for r in rows), "cost_usd": total,
+            "per_call_usd": round(total / len(rows), 4) if rows else 0.0, "parts": parts,
+            "recent": [{k: r[k] for k in ("created_at", "who", "kind", "status", "minutes", "cost_usd")}
+                       for r in rows[:8]],
+            "estimated": True}
 
 
 # --- the tool --------------------------------------------------------------------------------------------------
