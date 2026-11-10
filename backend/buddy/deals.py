@@ -59,8 +59,13 @@ or {{"found": false, "price": 0, "where": "", "url": "", "note": "why not"}}"""
 JSON_LINE = re.compile(r'\{[^{}]*"found"[^{}]*\}', re.S)
 
 
-def monthly_cost(every_hours: int) -> float:
-    return round(CHECK_COST_USD * 24 / every_hours * 30, 2)
+AMAZON_CHECK_USD = 0.001        # an Amazon watch: Keepa or Google Shopping through Buddy Connect first
+
+
+def monthly_cost(every_hours: int, what: str = "") -> float:
+    from . import amazon  # noqa: PLC0415
+    each = AMAZON_CHECK_USD if amazon.is_amazon(what) else CHECK_COST_USD
+    return round(each * 24 / every_hours * 30, 3 if each < 0.01 else 2)
 
 
 class PriceWatcher:
@@ -163,6 +168,11 @@ class PriceWatcher:
         return text
 
     async def _look_up(self, watch: dict) -> dict | None:
+        from . import amazon  # noqa: PLC0415
+        if amazon.is_amazon(watch["what"]):  # Buddy Connect's Shopping services: a tenth of a cent, not a search
+            found = await asyncio.to_thread(amazon.lookup, self.memory, watch["what"])
+            if found:
+                return found
         from .agent import fallback_kwargs  # here: agent imports this module
 
         model = settings.chat_model
@@ -239,7 +249,7 @@ async def run_watch_tool(watcher: PriceWatcher, name: str, args: dict, thrift=No
         every = max(6, min(int(args.get("every_hours") or 24), 168))
         target = args.get("target")
         currency = args.get("currency", "USD")
-        cost = monthly_cost(every)
+        cost = monthly_cost(every, args.get("what", ""))
         how_often = "once a day" if every == 24 else f"every {every} hours"
 
         async def start() -> str:
@@ -248,6 +258,8 @@ async def run_watch_tool(watcher: PriceWatcher, name: str, args: dict, thrift=No
 
         if thrift is not None:
             return thrift.ask_action(
-                f"Watching \"{args['what']}\" {how_often} costs about {cost:.2f} dollars a month. Start it?", start)
+                f"Watching \"{args['what']}\" {how_often} costs about {cost:.2f} dollars a month"
+                + (" (Amazon: checked through Buddy Connect's Shopping services)" if cost < 0.5 else "")
+                + ". Start it?", start)
         return await start()
     raise ToolError(f"Unknown tool {name}")

@@ -9,7 +9,7 @@ the backup host when one can't be reached, retries once on a server hiccup, keep
 personal data for services that may not see it, logs every call (time, cost, error) for Insights, remembers the
 last result for the Connections status, and turns failures into ConnectError with the service's own reason.
 
-Services are grouped by area (GROUPS: travel and transit, finance and markets, search, news and trends, weather,
+Services are grouped by area (GROUPS: travel and transit, finance and markets, shopping, search, news and trends, weather,
 AI models) for the app and for find. Adding an API later: one CATALOG entry with its group; then call(memory, "name", "/path", ...). Stage 1 moved NJ Transit, MTA,
 PATH and Serper here; stage 2 markets, trends and news, flights and weather. The free AI models keep their own
 failover and report each result; Claude and Plaid keep their own clients and are listed for the status.
@@ -100,6 +100,17 @@ CATALOG: dict[str, dict] = {
                   "auth": {"type": "none"}, "cost": 0.0, "per_minute": 60, "privacy": "public",
                   "used_for": "forecasts", "moved": True, "no_backup": True,
                   "health": {"path": "/v1/forecast?latitude=40.7&longitude=-74.0&current=temperature_2m"}},
+    # Shopping: Amazon prices without scraping Amazon (amazon.py).
+    "serper_shopping": {"group": "Shopping", "title": "Google Shopping (via Serper)",
+                        "hosts": ["https://google.serper.dev"],
+                        "auth": {"type": "header", "header": "X-API-KEY", "secret": "BUDDY_SERPER_KEY"},
+                        "cost": 0.001, "per_minute": 60, "privacy": "public",
+                        "used_for": "Amazon and store prices for price watches",
+                        "health": {"path": "/shopping", "json": {"q": "usb c cable", "num": 1}}, "moved": True},
+    "keepa": {"group": "Shopping", "title": "Keepa (Amazon price history)", "hosts": ["https://api.keepa.com"],
+              "auth": {"type": "param", "secret": "BUDDY_KEEPA_KEY"}, "cost": 0.0, "per_minute": 20,
+              "privacy": "public", "used_for": "Amazon's exact price and 90-day average (optional, paid plan)",
+              "moved": True},
     # The free AI models keep their own failover (rests, model swaps) and report each result here.
     "groq": {"group": "AI models", "title": "Groq (free AI)", "auth": {"type": "header", "secret": "BUDDY_GROQ_KEY"},
              "privacy": "public", "used_for": "free models for general work", "reports": True},
@@ -122,7 +133,7 @@ CATALOG: dict[str, dict] = {
 }
 
 
-GROUPS = ["Travel & transit", "Finance & markets", "Search", "News & trends", "Weather", "AI models"]  # app order
+GROUPS = ["Travel & transit", "Finance & markets", "Shopping", "Search", "News & trends", "Weather", "AI models"]  # app order
 
 
 def group_of(name: str) -> str:

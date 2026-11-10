@@ -123,7 +123,7 @@ object ConnectionsApi {
 }
 
 /** The areas services are grouped in, in the order the screen shows them (gateway.GROUPS). */
-val ConnectGroups = listOf("Travel & transit", "Finance & markets", "Search", "News & trends", "Weather", "AI models")
+val ConnectGroups = listOf("Travel & transit", "Finance & markets", "Shopping", "Search", "News & trends", "Weather", "AI models")
 
 fun groupOrder(group: String): Int = ConnectGroups.indexOf(group).let { if (it < 0) ConnectGroups.size else it }
 
