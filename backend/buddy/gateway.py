@@ -10,7 +10,8 @@ personal data for services that may not see it, logs every call (time, cost, err
 last result for the Connections status, and turns failures into ConnectError with the service's own reason.
 
 Adding an API later: one CATALOG entry; then call(memory, "name", "/path", ...). Stage 1 moved NJ Transit, MTA,
-PATH and Serper here; the rest are listed (so the status shows them) and move over in later stages.
+PATH and Serper here; stage 2 markets, trends and news, flights and weather. The free AI models keep their own
+failover and report each result; Claude and Plaid keep their own clients and are listed for the status.
 """
 
 import json
@@ -61,29 +62,62 @@ CATALOG: dict[str, dict] = {
         "title": "PATH (Port Authority)", "hosts": ["https://www.panynj.gov"], "auth": {"type": "none"},
         "cost": 0.0, "per_minute": 30, "privacy": "public", "used_for": "PATH next trains and incidents",
         "health": {"path": "/bin/portauthority/ridepath.json"}, "moved": True},
-    # Listed for the status; they move here in later stages (still called from their own modules today).
-    "claude": {"title": "Claude (Anthropic)", "auth": {"type": "header", "secret": "ANTHROPIC_API_KEY"},
-               "privacy": "personal", "used_for": "Buddy's thinking: everything personal goes only here"},
-    "alpaca": {"title": "Alpaca (market data)", "auth": {"type": "header", "secret": "BUDDY_ALPACA_KEY_ID"},
-               "privacy": "public", "used_for": "prices and trade ideas (read-only)"},
-    "plaid": {"title": "Plaid (banks)", "auth": {"type": "header", "secret": "BUDDY_PLAID_CLIENT_ID"},
-              "privacy": "personal", "used_for": "bank and card transactions (read-only)"},
-    "airlabs": {"title": "AirLabs (flights)", "auth": {"type": "param", "secret": "BUDDY_AIRLABS_KEY"},
-                "privacy": "public", "used_for": "flight status"},
-    "reddit": {"title": "Reddit", "auth": {"type": "none"}, "privacy": "public", "used_for": "trends and opinions"},
+    # Markets, trends and news (stage 2): the modules pass their own headers; Buddy Connect sends, logs, explains.
+    "alpaca": {"title": "Alpaca (market data)", "hosts": ["https://data.alpaca.markets"],
+               "auth": {"type": "header", "header": "APCA-API-KEY-ID", "secret": "BUDDY_ALPACA_KEY_ID"},
+               "cost": 0.0, "per_minute": 180, "privacy": "public", "used_for": "prices, news and trade ideas",
+               "health": {"path": "/v2/stocks/snapshots?symbols=SPY", "headers_from": {
+                   "APCA-API-KEY-ID": "BUDDY_ALPACA_KEY_ID", "APCA-API-SECRET-KEY": "BUDDY_ALPACA_SECRET"}},
+               "moved": True},
+    "reddit": {"title": "Reddit", "hosts": ["https://www.reddit.com", "https://oauth.reddit.com"],
+               "auth": {"type": "none"}, "cost": 0.0, "per_minute": 60, "privacy": "public",
+               "used_for": "what people say about stocks and topics", "moved": True, "no_backup": True},
+    "stocktwits": {"title": "StockTwits", "hosts": ["https://api.stocktwits.com"], "auth": {"type": "none"},
+                   "cost": 0.0, "per_minute": 60, "privacy": "public", "used_for": "trader sentiment", "moved": True},
+    "yahoo": {"title": "Yahoo Finance", "hosts": ["https://query1.finance.yahoo.com"], "auth": {"type": "none"},
+              "cost": 0.0, "per_minute": 60, "privacy": "public", "used_for": "India market prices", "moved": True},
+    "stooq": {"title": "Stooq", "hosts": ["https://stooq.com"], "auth": {"type": "none"}, "cost": 0.0,
+              "per_minute": 60, "privacy": "public", "used_for": "backup price history", "moved": True},
+    "coinbase": {"title": "Coinbase (crypto prices)", "hosts": ["https://api.exchange.coinbase.com"],
+                 "auth": {"type": "none"}, "cost": 0.0, "per_minute": 60, "privacy": "public",
+                 "used_for": "crypto prices", "moved": True},
+    "github": {"title": "GitHub (trending projects)", "hosts": ["https://api.github.com"], "auth": {"type": "none"},
+               "cost": 0.0, "per_minute": 30, "privacy": "public", "used_for": "new projects on watched topics",
+               "moved": True},
+    "hackernews": {"title": "Hacker News", "hosts": ["https://hn.algolia.com"], "auth": {"type": "none"},
+                   "cost": 0.0, "per_minute": 60, "privacy": "public", "used_for": "tech discussions", "moved": True},
+    "arxiv": {"title": "arXiv (papers)", "hosts": ["https://export.arxiv.org"], "auth": {"type": "none"},
+              "cost": 0.0, "per_minute": 20, "privacy": "public", "used_for": "new research papers", "moved": True},
+    "serpapi": {"title": "SerpApi (Google Trends)", "hosts": ["https://serpapi.com"],
+                "auth": {"type": "param", "secret": "BUDDY_SERPAPI_KEY"}, "cost": 0.01, "per_minute": 30,
+                "privacy": "public", "used_for": "rising searches", "moved": True},
+    "airlabs": {"title": "AirLabs (flights)", "hosts": ["https://airlabs.co"],
+                "auth": {"type": "param", "secret": "BUDDY_AIRLABS_KEY"}, "cost": 0.0, "per_minute": 30,
+                "privacy": "public", "used_for": "flight status", "moved": True},
+    "openmeteo": {"title": "Open-Meteo (weather)",
+                  "hosts": ["https://api.open-meteo.com", "https://geocoding-api.open-meteo.com"],
+                  "auth": {"type": "none"}, "cost": 0.0, "per_minute": 60, "privacy": "public",
+                  "used_for": "forecasts", "moved": True, "no_backup": True,
+                  "health": {"path": "/v1/forecast?latitude=40.7&longitude=-74.0&current=temperature_2m"}},
+    # The free AI models keep their own failover (rests, model swaps) and report each result here.
     "groq": {"title": "Groq (free AI)", "auth": {"type": "header", "secret": "BUDDY_GROQ_KEY"},
-             "privacy": "public", "used_for": "free models for general work"},
+             "privacy": "public", "used_for": "free models for general work", "reports": True},
     "cerebras": {"title": "Cerebras (free AI)", "auth": {"type": "header", "secret": "BUDDY_CEREBRAS_KEY"},
-                 "privacy": "public", "used_for": "free models for general work"},
+                 "privacy": "public", "used_for": "free models for general work", "reports": True},
     "gemini": {"title": "Gemini (free AI)", "auth": {"type": "header", "secret": "BUDDY_GEMINI_KEY"},
-               "privacy": "public", "used_for": "free models for general work"},
+               "privacy": "public", "used_for": "free models for general work", "reports": True},
     "openrouter": {"title": "OpenRouter (free AI)", "auth": {"type": "header", "secret": "BUDDY_OPENROUTER_KEY"},
-                   "privacy": "public", "used_for": "free models for general work"},
+                   "privacy": "public", "used_for": "free models for general work", "reports": True},
     "mistral": {"title": "Mistral (free AI)", "auth": {"type": "header", "secret": "BUDDY_MISTRAL_KEY"},
-                "privacy": "public", "used_for": "free models for general work"},
+                "privacy": "public", "used_for": "free models for general work", "reports": True},
     "github_models": {"title": "GitHub Models (free AI)", "auth": {"type": "header",
                                                                    "secret": "BUDDY_GITHUB_MODELS_KEY"},
-                      "privacy": "public", "used_for": "free models for general work"},
+                      "privacy": "public", "used_for": "free models for general work", "reports": True},
+    # Listed for the status; they keep their own clients.
+    "claude": {"title": "Claude (Anthropic)", "auth": {"type": "header", "secret": "ANTHROPIC_API_KEY"},
+               "privacy": "personal", "used_for": "Buddy's thinking: everything personal goes only here"},
+    "plaid": {"title": "Plaid (banks)", "auth": {"type": "header", "secret": "BUDDY_PLAID_CLIENT_ID"},
+              "privacy": "personal", "used_for": "bank and card transactions (read-only)"},
 }
 
 
@@ -171,6 +205,17 @@ def _table(memory) -> None:
     memory.db.executescript(API_CALLS_SQL)
 
 
+def report(memory, name: str, ok: bool, error: str = "") -> None:
+    """A service that sends on its own (the free models) says how its last call went, for the status."""
+    if memory is None or name not in CATALOG:
+        return
+    try:
+        memory.set(f"connect:last:{name}", json.dumps({"ok": ok, "at": datetime.now(timezone.utc).isoformat(),
+                                                       "error": error[:200]}))
+    except Exception:
+        pass
+
+
 def reason_of(got) -> str:
     """What a service said when it refused, short and without tokens."""
     if isinstance(got, (bytes, bytearray)):
@@ -248,7 +293,7 @@ def call(memory, name: str, path: str = "", *, data: bytes | None = None, json_b
             raise ConnectError(name, f"{entry['title']} isn't set up: sudo bash /opt/buddy/deploy/set.sh "
                                      f"{auth['secret']}")
         headers[auth.get("header", "Authorization")] = key
-    urls = [h + path for h in entry["hosts"]]
+    urls = [h + path for h in (entry["hosts"][:1] if entry.get("no_backup") else entry["hosts"])]
     return call_url(memory, name, urls, data=data, headers=headers, raw=raw, fetch=fetch, purpose=purpose,
                     personal=personal, endpoint=path[:60])
 
@@ -306,7 +351,13 @@ def health(name: str, memory=None, env=None, fetch=None) -> tuple[bool, str]:
         if check.get("login"):
             token(None, name, fresh=True, env=env, fetch=fetch)
         else:
-            call(memory, name, check["path"], json_body=check.get("json"), env=env, fetch=fetch, purpose="health")
+            extra = {h: _secret(env, v) for h, v in (check.get("headers_from") or {}).items()}
+            if extra:  # services whose key is more than one header: sent as given, not added by call()
+                call_url(memory, name, [entry["hosts"][0] + check["path"]], headers=extra, fetch=fetch,
+                         purpose="health")
+            else:
+                call(memory, name, check["path"], json_body=check.get("json"), env=env, fetch=fetch,
+                     purpose="health")
         return True, "ok"
     except ConnectError as e:
         return False, str(e)
@@ -332,7 +383,7 @@ def status(memory, env=None) -> list[dict]:
         n, bad, usd = usage.get(name, (0, 0, 0.0))
         out.append({"name": name, "title": entry["title"], "used_for": entry.get("used_for", ""),
                     "privacy": entry.get("privacy", "public"), "set_up": configured(name, env),
-                    "in_connect": bool(entry.get("moved")), "last_ok": last.get("ok"), "last_at": last.get("at", ""),
+                    "in_connect": bool(entry.get("moved") or entry.get("reports")), "last_ok": last.get("ok"), "last_at": last.get("at", ""),
                     "last_error": last.get("error", ""), "calls_this_month": n, "failed_this_month": bad,
                     "cost_this_month": round(usd, 4)})
     return out

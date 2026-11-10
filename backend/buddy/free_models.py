@@ -427,6 +427,7 @@ class FreeModels:
                                input_tokens=tokens.get("prompt_tokens") or 0,
                                output_tokens=tokens.get("completion_tokens") or 0,
                                seconds=time.monotonic() - started, stop="free", request=prompt, reply=answer)
+                _report(self.memory, name, True)
                 return {"answer": answer, "model": f"{name}/{self._last_model or self.model_of(name)}", "free": True, "call_id": call_id,
                         "seconds": round(time.monotonic() - started, 1)}
             except NeedsClaude:
@@ -442,6 +443,7 @@ class FreeModels:
                         self.memory.set(f"free:rest:{name}", str(time.time() + 3600))
                         self.memory.set(f"free:limits:{name}", "0")
                 tried.append(f"{name}: at its free limit")
+                _report(self.memory, name, False, "at its free limit")
                 usage.log_call(self.memory, provider=name, model=self._last_model or self.model_of(name), purpose=purpose,
                                seconds=time.monotonic() - started, ok=False, stop="at its free limit",
                                request=prompt)
@@ -454,6 +456,7 @@ class FreeModels:
             except Exception as e:
                 self._learn(name, None)
                 reason = self._broken(name, e)
+                _report(self.memory, name, False, reason)
                 self.cooldown[name] = time.time() + 120
                 tried.append(f"{name}: {reason}")
                 usage.log_call(self.memory, provider=name, model=self._last_model or self.model_of(name), purpose=purpose,
@@ -537,6 +540,18 @@ class FreeModels:
                 "busy": [n for n, t in self.cooldown.items() if t > time.time()],
                 "average_seconds": {n: round(v, 1) for n, v in self.speed.items()},
                 "reliability": {n: round(v, 2) for n, v in self.success.items()}}
+
+
+CONNECT_NAMES = {"github": "github_models", "deepseek": "openrouter"}  # this module's names -> Buddy Connect's
+
+
+def _report(memory, name: str, ok: bool, error: str = "") -> None:
+    """Each free model's last result goes into Buddy Connect's status (it keeps its own failover here)."""
+    try:
+        from . import gateway  # noqa: PLC0415
+        gateway.report(memory, CONNECT_NAMES.get(name, name), ok, error)
+    except Exception:
+        pass
 
 
 def _post(url: str, body: dict, headers: dict, timeout: float = 30) -> dict:

@@ -51,15 +51,11 @@ class Weather:
         hit = _cache.get(url)
         if hit and time.monotonic() - hit[0] < CACHE_SECONDS:
             return hit[1]
-        from .travel import log_call  # noqa: PLC0415
-        started = time.monotonic()
+        from . import gateway  # noqa: PLC0415  (Buddy Connect: one retry on a hiccup, logging, status)
         try:
-            got = json.loads(self.fetch(url) or b"{}")
-            log_call(self.memory, "openmeteo", url.split("?")[0][-30:], True, time.monotonic() - started, "weather",
-                     cost=0.0)
+            got = gateway.call_url(self.memory, "openmeteo", [url], purpose="weather",
+                                   fetch=lambda u, d, h: self.fetch(u)) or {}
         except Exception as e:
-            log_call(self.memory, "openmeteo", url.split("?")[0][-30:], False, time.monotonic() - started, "weather",
-                     type(e).__name__, cost=0.0)
             raise ToolError("The weather service didn't answer; try again in a minute.") from e
         _cache[url] = (time.monotonic(), got)
         return got

@@ -37,6 +37,15 @@ def _no_lockouts():
 
 
 @pytest.fixture(autouse=True)
+def _fresh_rate_limits():
+    """Buddy Connect counts calls per minute in the process: each test starts clean."""
+    from buddy import gateway
+
+    gateway._recent.clear()
+    yield
+
+
+@pytest.fixture(autouse=True)
 def _no_claude_cutoff(monkeypatch):
     """The monthly Claude cutoff (budgets.py) is off unless a test sets one."""
     monkeypatch.setenv("BUDDY_CLAUDE_KILL_USD", "0")

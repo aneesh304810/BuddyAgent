@@ -108,17 +108,13 @@ class Trends:
         return (self.env.get(key) or "").strip()
 
     def _json(self, provider: str, url: str, headers: dict | None = None, data: bytes | None = None, paid=False):
-        from .travel import log_call  # noqa: PLC0415
-        started = time.monotonic()
-        try:
-            raw = self.fetch(url, headers or {}, data) if data is not None else self.fetch(url, headers or {})
-            log_call(self.memory, provider, urllib.parse.urlparse(url).path[:60], True, time.monotonic() - started,
-                     "trends", cost=None if paid else 0.0)
-            return raw if isinstance(raw, (dict, list)) else (json.loads(raw or b"{}") if provider != "arxiv" else raw)
-        except Exception as e:
-            log_call(self.memory, provider, urllib.parse.urlparse(url).path[:60], False, time.monotonic() - started,
-                     "trends", str(e)[:200], cost=0.0)
-            raise
+        """Through Buddy Connect (gateway.py): rate limits, one retry on a hiccup, logging with the catalog's cost,
+        clear errors. arXiv answers in XML: returned as it came."""
+        from . import gateway  # noqa: PLC0415
+        name = provider if provider in gateway.CATALOG else gateway.name_for(url)
+        return gateway.call_url(self.memory, name, [url], data=data, headers=headers or {}, raw=provider == "arxiv",
+                                purpose="trends", fetch=lambda u, d, h: self.fetch(u, h or {}, d)
+                                if d is not None else self.fetch(u, h or {}))
 
     def _serper(self, path: str, body: bytes):
         """Google news and search through Buddy Connect (gateway.py): the key, retries, logging, clear errors."""

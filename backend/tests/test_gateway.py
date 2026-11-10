@@ -114,3 +114,47 @@ def test_every_service_is_listed_and_the_tool_reads_them(tmp_path):
     said = gateway.run_tool(m, {"action": "list"})
     assert "NJ Transit trains" in said and "not set up" in said
     assert gateway.name_for("https://raildata.njtransit.com/api/TrainData/getToken") == "njt_rail"
+
+
+def test_flights_go_through_connect_and_the_key_is_never_logged(tmp_path):
+    from buddy.flights import Flights
+    m = Memory(tmp_path / "b.db")
+
+    def fetch(url):
+        return b'{"error": {"code": "wrong_api_key"}}'
+    f = Flights(m, env={"BUDDY_AIRLABS_KEY": "secret-key"}, fetch=fetch)
+    with pytest.raises(Exception):
+        f._get("schedules", flight_iata="AA1")
+    rows = [dict(r) for r in m.db.execute("SELECT provider, endpoint FROM api_calls")]
+    assert rows and rows[0]["provider"] == "airlabs" and "secret-key" not in str(rows)
+    s = next(x for x in gateway.status(m, env={"BUDDY_AIRLABS_KEY": "k"}) if x["name"] == "airlabs")
+    assert s["last_ok"] is False and "wrong_api_key" in s["last_error"]
+
+
+def test_weather_goes_through_connect(tmp_path):
+    from buddy import weather
+    m = Memory(tmp_path / "b.db")
+    weather._cache.clear()
+    w = weather.Weather(m, fetch=lambda url: b'{"current": {"temperature_2m": 12}}')
+    assert w._get(weather.FORECAST + "latitude=1&longitude=2")["current"]["temperature_2m"] == 12
+    assert m.db.execute("SELECT provider FROM api_calls").fetchone()["provider"] == "openmeteo"
+
+
+def test_markets_reddit_and_alpaca_are_logged_under_their_own_names(tmp_path):
+    from buddy.markets import Data
+    m = Memory(tmp_path / "b.db")
+    d = Data(m, env={}, fetch=lambda url, headers=None, data=None: b'{"ok": 1}')
+    assert d._json("alpaca", "https://data.alpaca.markets/v2/stocks/snapshots?symbols=SPY") == {"ok": 1}
+    assert d._json("reddit", "https://www.reddit.com/r/stocks/search.json?q=x") == {"ok": 1}
+    names = [r["provider"] for r in m.db.execute("SELECT provider FROM api_calls ORDER BY id")]
+    assert names == ["alpaca", "reddit"]
+
+
+def test_free_models_report_into_the_status(tmp_path):
+    from buddy import free_models
+    m = Memory(tmp_path / "b.db")
+    free_models._report(m, "github", False, "HTTP 200: OK")
+    free_models._report(m, "groq", True)
+    st = {s["name"]: s for s in gateway.status(m, env={})}
+    assert st["github_models"]["last_ok"] is False and "HTTP 200" in st["github_models"]["last_error"]
+    assert st["groq"]["last_ok"] is True and st["groq"]["in_connect"]

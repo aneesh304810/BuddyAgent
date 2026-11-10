@@ -146,17 +146,11 @@ class Data:
         return {"APCA-API-KEY-ID": key, "APCA-API-SECRET-KEY": secret} if key and secret else None
 
     def _get(self, provider: str, url: str, headers: dict | None = None, purpose: str = "markets"):
-        from .travel import log_call  # noqa: PLC0415
-        started = time.monotonic()
-        try:
-            raw = self.fetch(url, headers or {})
-            log_call(self.memory, provider, urllib.parse.urlparse(url).path[:60], True, time.monotonic() - started,
-                     purpose, cost=0.0)
-            return raw
-        except Exception as e:
-            log_call(self.memory, provider, urllib.parse.urlparse(url).path[:60], False, time.monotonic() - started,
-                     purpose, str(e)[:200], cost=0.0)
-            raise
+        """Through Buddy Connect (gateway.py): rate limits, one retry on a hiccup, logging, clear errors."""
+        from . import gateway  # noqa: PLC0415
+        name = provider if provider in gateway.CATALOG else gateway.name_for(url)
+        return gateway.call_url(self.memory, name, [url], headers=headers or {}, raw=True, purpose=purpose,
+                                fetch=lambda u, d, h: self.fetch(u, h or {}))
 
     def _json(self, provider: str, url: str, headers: dict | None = None, purpose: str = "markets"):
         raw = self._get(provider, url, headers, purpose)
@@ -333,10 +327,12 @@ class Data:
         if saved.get("until", 0) > time.time() + 60:
             return saved["token"]
         auth = base64.b64encode(f"{cid}:{secret}".encode()).decode()
-        raw = self.fetch("https://www.reddit.com/api/v1/access_token",
-                         {"Authorization": f"Basic {auth}", "Content-Type": "application/x-www-form-urlencoded"},
-                         b"grant_type=client_credentials")
-        got = raw if isinstance(raw, dict) else json.loads(raw or b"{}")
+        from . import gateway  # noqa: PLC0415
+        got = gateway.call_url(self.memory, "reddit", ["https://www.reddit.com/api/v1/access_token"],
+                               data=b"grant_type=client_credentials", purpose="markets",
+                               headers={"Authorization": f"Basic {auth}",
+                                        "Content-Type": "application/x-www-form-urlencoded"},
+                               fetch=lambda u, d, h: self.fetch(u, h or {}, d))
         token = got.get("access_token", "")
         if token:
             self.memory.set("markets:reddit_token", json.dumps({"token": token,

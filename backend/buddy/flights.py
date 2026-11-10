@@ -187,18 +187,13 @@ class Flights:
         if not self.key:
             raise ToolError("Flight status needs a free AirLabs key: sign up at airlabs.co, then run "
                             "sudo bash /opt/buddy/deploy/set.sh BUDDY_AIRLABS_KEY.")
-        from .travel import log_call  # noqa: PLC0415
+        from . import gateway  # noqa: PLC0415  (Buddy Connect: logs the path only, never the key in the address)
         url = BASE + endpoint + "?" + urllib.parse.urlencode({**params, "api_key": self.key})
-        started = time.monotonic()
-        try:
-            got = json.loads(self.fetch(url) or b"{}")
-        except Exception as e:
-            log_call(self.memory, "airlabs", endpoint, False, time.monotonic() - started, "flight status",
-                     type(e).__name__, cost=0.0)
-            raise
+        got = gateway.call_url(self.memory, "airlabs", [url], purpose="flight status", endpoint=endpoint,
+                               fetch=lambda u, d, h: self.fetch(u))
         error = (got or {}).get("error") if isinstance(got, dict) else None
-        log_call(self.memory, "airlabs", endpoint, not error, time.monotonic() - started, "flight status",
-                 (error or {}).get("code", "") if error else "", cost=0.0)
+        if error:  # AirLabs answers 200 with an error inside: the status shows it as failing
+            gateway.report(self.memory, "airlabs", False, str(error.get("code", "") or error)[:200])
         if error:
             code = error.get("code", "")
             raise ToolError("AirLabs didn't accept the key." if "key" in code else
