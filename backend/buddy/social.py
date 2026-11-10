@@ -256,13 +256,29 @@ def social_tools(social: Social) -> list[dict]:
 SOCIAL_TOOL_NAMES = {"trending", "reddit", "google_search"}
 
 
+# Back off tools that keep failing: after FAIL_LIMIT failures in a row, skip real calls for PAUSE_SECONDS.
+FAIL_LIMIT, PAUSE_SECONDS = 3, 30 * 60
+_fails: dict[str, int] = {}
+_paused_until: dict[str, float] = {}
+
+
 async def run_social_tool(social: Social, name: str, args: dict) -> str:
+    if _paused_until.get(name, 0) > time.time() and not _cache.get(name + json.dumps(args, sort_keys=True)):
+        raise ToolError(f"{name} keeps failing, so I'm pausing it for a while. Try web_search instead.")
     key = name + json.dumps(args, sort_keys=True)
     hit = _cache.get(key)
     if hit and hit[0] > time.time():
         result = hit[1]
     else:
-        result = await _run(social, name, args)
+        try:
+            result = await _run(social, name, args)
+        except ToolError:
+            _fails[name] = _fails.get(name, 0) + 1
+            if _fails[name] >= FAIL_LIMIT:
+                _paused_until[name] = time.time() + PAUSE_SECONDS
+                _fails[name] = 0
+            raise
+        _fails[name] = 0
         _cache[key] = (time.time() + CACHE_SECONDS.get(name, 600), result)
         if len(_cache) > 500:  # keep memory small: drop the oldest half
             for old in sorted(_cache, key=lambda k: _cache[k][0])[:250]:

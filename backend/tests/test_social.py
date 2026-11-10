@@ -103,3 +103,22 @@ def test_not_connected_and_failures_are_clear():
         raise OSError("down")
     with pytest.raises(ToolError, match="Try web_search"):
         asyncio.run(run_social_tool(Social(env={}, http=broken), "trending", {"country": "MX"}))
+
+
+def test_failing_tool_backs_off():
+    from buddy import social as soc
+    soc._cache.clear(); soc._fails.clear(); soc._paused_until.clear()
+    calls = []
+
+    def broken(*a, **k):
+        calls.append(1)
+        raise OSError("down")
+    s = Social(env={}, http=broken)
+    for _ in range(soc.FAIL_LIMIT):
+        with pytest.raises(ToolError):
+            asyncio.run(run_social_tool(s, "trending", {"country": "MX"}))
+    n = len(calls)
+    with pytest.raises(ToolError, match="pausing"):
+        asyncio.run(run_social_tool(s, "trending", {"country": "MX"}))
+    assert len(calls) == n
+    soc._fails.clear(); soc._paused_until.clear()

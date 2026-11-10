@@ -213,8 +213,8 @@ class Conversation:
 
     def _system(self) -> str:
         from .customize import prompt_lines  # noqa: PLC0415
-        return build_system_prompt(self.memory.recall(""), self.memory.open_goals(),
-                                   [f"{p['topic']}: {p['text']}" for p in self.brain.preferences()[:25]],
+        return build_system_prompt(self.memory.recall("", limit=12), self.memory.open_goals(),
+                                   [f"{p['topic']}: {p['text']}" for p in self.brain.preferences()[:15]],
                                    prompt_lines(self.memory))
 
     async def reply(self, user_text: str, say: Say, via: str = "user") -> None:
