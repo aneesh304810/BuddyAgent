@@ -81,6 +81,7 @@ if ! tailscale funnel --bg --https=8443 --set-path=/calls http://127.0.0.1:8000/
   exit 1
 fi
 PUBLIC="https://$HOST:8443"
+PLIVO_DIGITS=$(grep -E '^BUDDY_PLIVO_NUMBER=' "$ENV_FILE" | cut -d= -f2- | tr -cd '0-9')
 python3 - "$ENV_FILE" "$PUBLIC" <<'PY'
 import re, sys
 path, value = sys.argv[1], sys.argv[2]
@@ -95,5 +96,12 @@ systemctl restart buddy
 echo
 echo "Done. Public address for Plivo: $PUBLIC/calls (only that path; every request needs the call's token and"
 echo "Plivo's signature)."
+echo
+echo "Buddy answers the calls you miss: on your phone, dial each of these and press Call (T-Mobile and most US"
+echo "carriers; each replaces your voicemail for that case):"
+echo "  **61*${PLIVO_DIGITS}**20#   you don't answer within 20 seconds"
+echo "  **67*${PLIVO_DIGITS}#       you're on another call"
+echo "  **62*${PLIVO_DIGITS}#       your phone is off or has no signal"
+echo "  To stop and go back to voicemail: ##004#"
 echo "Check: in the app, Menu > Connections > Calls > Test on each. Then ask Buddy, e.g. \"call Dr. Mehta's office"
 echo "to book a checkup next week\". It always asks you first."

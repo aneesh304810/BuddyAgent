@@ -173,7 +173,8 @@ def test_prompt_shares_dob_and_insurance_only_for_appointments(tmp_path, env):
 
 def test_parse_keeps_only_safe_moves():
     got = calls.parse('ok {"say": "Hi", "digits": "1a2#", "action": "transfer_money"}')
-    assert got == {"say": "Hi", "digits": "12#", "action": "continue", "outcome": ""}
+    assert got == {"say": "Hi", "digits": "12#", "action": "continue", "outcome": "", "priority": "normal",
+                   "caller": "", "callback": ""}
     assert calls.parse("Hello there")["say"] == "Hello there"
 
 
@@ -587,3 +588,84 @@ def test_calling_the_owner_never_shows_their_own_number(tmp_path, env, monkeypat
     assert p.calls[0][1]["from"] == "12015550100"  # Buddy's Plivo number: the carrier would ask for a voicemail PIN
     calls.dial(m, calls.plan(m, "Dr", "2015550123", "question", "hours?"), fetch=p)
     assert p.calls[1][1]["from"] == "12015550199"  # others still see the owner's number, as chosen
+
+
+# --- calls Buddy answers for the owner (forwarded when they don't pick up) ------------------------------------------
+def test_buddys_number_is_linked_to_answer_forwarded_calls(tmp_path, env):
+    m, p = Memory(tmp_path / "b.db"), Plivo({"app_id": "A1"})
+    assert calls.link_inbound(m, fetch=p) == "A1"
+    (u1, b1, _, _), (u2, b2, _, _) = p.calls
+    key = calls.inbound_key()
+    assert u1.endswith("/Account/MAID/Application/")
+    assert b1["answer_url"] == f"https://box.ts.net:8443/calls/inbound/0/{key}" and b1["hangup_url"].endswith(
+        f"/calls/missed/0/{key}")
+    assert u2.endswith("/Number/12015550100/") and b2 == {"app_id": "A1"}
+    assert calls.link_inbound(m, fetch=p) == "A1" and len(p.calls) == 2  # nothing changed: nothing sent
+
+
+def test_forwarded_call_is_answered_with_what_buddy_knows(tmp_path, env):
+    m = Memory(tmp_path / "b.db")
+    m.remember("Dr. Mehta's office phone is (201) 555-0123")
+    call = calls.screen_call(m, {"From": "12015550123", "CallUUID": "in-1", "STIRVerification": "Verified"})
+    assert call["kind"] == "screen" and call["number"] == "+12015550123" and "Dr. Mehta" in call["who"]
+    prompt = calls.system_prompt(m, call)
+    assert "couldn't pick up" in prompt and "Dr. Mehta" in prompt and "Verified" in prompt
+    assert "Never say where Sam is" in prompt and '"scam"' in prompt and "never like a bot" in prompt
+    assert "Never deny it" in prompt and "you may be specific about timing" in prompt
+    assert "AI" not in calls.screen_greeting() and "Sam's phone" in calls.screen_greeting()
+    unknown = calls.screen_call(m, {"From": "anonymous", "CallUUID": "in-2"})
+    assert unknown["number"] == "unknown" and unknown["goal"] == ""
+
+
+def test_screened_calls_have_a_daily_limit(tmp_path, env, monkeypatch):
+    m = Memory(tmp_path / "b.db")
+    monkeypatch.setattr(calls, "SCREENS_PER_DAY", 2)
+    assert calls.screen_call(m, {"From": "12015550001"}) and calls.screen_call(m, {"From": "12015550002"})
+    assert calls.screen_call(m, {"From": "12015550003"}) is None
+    calls.plan(m, "Dr", "2015550123", "question", "hours?")  # outgoing calls aren't held back by screened ones
+
+
+def test_what_the_owner_is_told_depends_on_the_caller(tmp_path, env):
+    m = Memory(tmp_path / "b.db")
+    call = calls.screen_call(m, {"From": "12015550123", "CallUUID": "in-1"})
+    urgent = calls.parse('{"say": "Thanks", "action": "end", "priority": "urgent", "caller": "Mom", '
+                         '"callback": "201-555-0123", "outcome": "Call back today about dinner."}')
+    assert calls.outcome_message(call, urgent) == ("📞 Urgent: missed call from Mom (201-555-0123). Call back "
+                                                    "today about dinner.")
+    scam = calls.parse('{"say": "Goodbye", "action": "end", "priority": "scam", "outcome": "IRS threat"}')
+    assert calls.outcome_message(call, scam) == ""
+    calls.screened(m, call, scam)
+    calls.screened(m, call, scam)
+    assert calls.scams_today(m) == 2
+    assert calls.parse('{"say": "x", "priority": "whatever"}')["priority"] == "normal"
+
+
+def test_caller_hung_up_early(tmp_path, env):
+    m = Memory(tmp_path / "b.db")
+    m.remember("Mom's mobile is 201-555-0777")
+    stranger = calls.screen_call(m, {"From": "12015550999", "CallUUID": "s-1"})
+    mom = calls.screen_call(m, {"From": "12015550777", "CallUUID": "s-2"})
+    calls.update(m, stranger["id"], status="answered")
+    calls.update(m, mom["id"], status="answered")
+    assert calls.screen_hung_up(m, {"CallUUID": "s-1", "BillDuration": "12"}) == ""  # unknown and silent: nothing
+    told = calls.screen_hung_up(m, {"CallUUID": "s-2", "BillDuration": "8"})
+    assert "Missed call from Mom" in told and "without leaving a message" in told
+    assert calls.get(m, stranger["id"])["status"] == "done"
+    assert calls.screen_hung_up(m, {"CallUUID": "nope"}) == ""
+
+
+def test_forwarded_calls_need_the_key_and_plivos_signature(monkeypatch, env):
+    from fastapi.testclient import TestClient
+
+    from buddy import server
+    key = calls.inbound_key()
+    url = f"https://box.ts.net:8443/calls/inbound/0/{key}"
+    form = {"From": "12015550123", "To": "12015550100", "CallUUID": "in-9"}
+    nonce, sig = _signed(url, form)
+    headers = {"X-Plivo-Signature-V3-Nonce": nonce, "X-Plivo-Signature-V3": sig}
+    monkeypatch.setattr(calls, "link_inbound", lambda memory, env=None, fetch=None: "")
+    with TestClient(server.app) as client:
+        ok = client.post(f"/calls/inbound/0/{key}", data=form, headers=headers)
+        assert ok.status_code == 200 and "<Stream" in ok.text and "/calls/stream/" in ok.text
+        assert client.post("/calls/inbound/0/wrong", data=form, headers=headers).status_code == 403
+        assert client.post(f"/calls/inbound/0/{key}", data={**form, "From": "1"}, headers=headers).status_code == 403

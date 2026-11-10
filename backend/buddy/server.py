@@ -42,6 +42,7 @@ Protocol (JSON messages):
 import asyncio
 import base64
 import contextlib
+import hmac
 import json
 import logging
 import os
@@ -493,6 +494,7 @@ async def lifespan(app: FastAPI):
     health_loop = asyncio.create_task(healthcheck.run(memory, finops, deliver))
     tutor_loop = asyncio.create_task(tutor.run(memory, jobs))
     brain_loop = asyncio.create_task(_index_brain())
+    asyncio.create_task(_link_inbound_calls())
     budget_loop = asyncio.create_task(_budget_alerts())
     try:  # the copies of a repeating market scan (one report per day stays, the newest)
         from .finance import purge_reports
@@ -781,6 +783,47 @@ async def health_sync(body: dict) -> dict:
 
 
 # --- phone calls (calls.py): /calls/* is all Tailscale Funnel makes public -----------------------------------------
+async def _link_inbound_calls() -> None:
+    """At start: point Buddy's Plivo number at /calls/inbound, so calls forwarded from the owner's phone reach it."""
+    from . import calls  # noqa: PLC0415
+    try:
+        await asyncio.to_thread(calls.link_inbound, memory)
+    except Exception as e:
+        log.warning("couldn't link Buddy's number for incoming calls: %s", e)
+
+
+async def _plivo_inbound(request: Request, key: str, what: str) -> dict:
+    """A request about a call forwarded to Buddy's number: the address's key and Plivo's signature, or 403."""
+    from . import calls  # noqa: PLC0415
+    want = calls.inbound_key()
+    form = {k: str(v) for k, v in (await request.form()).items()}
+    if not want or not hmac.compare_digest(want, key or "") or not calls.signature_ok(
+            calls.inbound_url(what), form, request.headers.get("x-plivo-signature-v3-nonce", ""),
+            request.headers.get("x-plivo-signature-v3", "")):
+        raise HTTPException(403, "no")
+    return form
+
+
+@app.post("/calls/inbound/0/{key}")
+async def call_inbound(key: str, request: Request):
+    """Someone called the owner, who didn't pick up; the carrier forwarded the call here. Buddy answers it."""
+    from . import calls  # noqa: PLC0415
+    form = await _plivo_inbound(request, key, "inbound")
+    call = await asyncio.to_thread(calls.screen_call, memory, form)
+    if call is None:  # today's limit of answered calls reached: let it go
+        return _xml('<?xml version="1.0" encoding="UTF-8"?><Response><Hangup reason="busy"/></Response>')
+    return _xml(calls.answer_xml(memory, call, form))
+
+
+@app.post("/calls/missed/0/{key}")
+async def call_inbound_ended(key: str, request: Request):
+    from . import calls  # noqa: PLC0415
+    form = await _plivo_inbound(request, key, "missed")
+    message = await asyncio.to_thread(calls.screen_hung_up, memory, form)
+    if message:
+        await deliver("call", message)
+    return {"ok": True}
+
 _call_streams: set[int] = set()
 
 

@@ -43,7 +43,10 @@ from .tools import ToolError, local_now
 
 log = logging.getLogger("buddy.calls")
 CALLS_PER_DAY = 5
-LIMIT_S = {"appointment": 15 * 60, "question": 15 * 60, "hold_connect": 90 * 60}
+LIMIT_S = {"appointment": 15 * 60, "question": 15 * 60, "hold_connect": 90 * 60, "screen": 5 * 60}
+SCREEN = "screen"                 # a call to the owner that they didn't pick up, answered by Buddy
+SCREENS_PER_DAY = 30              # a flood of robocalls can't run up the bill
+PRIORITIES = ("urgent", "normal", "low", "scam")
 KEEP_DAYS = 180
 DEFAULT_VOICE = "21m00Tcm4TlvDq8ikWAM"  # ElevenLabs' "Rachel" (female); BUDDY_CALL_VOICE changes it
 TTS_MODEL = "eleven_flash_v2_5"  # the fallback voice model; voice_model() normally picks a newer real-time one
@@ -157,7 +160,7 @@ def plan(memory: Memory, who: str, number: str, kind: str, goal: str, windows: s
         pass
     # Only calls that got through count, and test calls to the owner's own mobile don't.
     n = memory.db.execute("SELECT COUNT(*) FROM phone_calls WHERE created_at >= ? AND status IN "
-                          "('calling', 'answered', 'connected', 'done') AND number != ?", (today, mine)).fetchone()[0]
+                          "('calling', 'answered', 'connected', 'done') AND number != ? AND kind != 'screen'", (today, mine)).fetchone()[0]
     if n >= limit and normalise(number) != mine:
         raise ToolError(f"I've made {limit} calls today already (BUDDY_CALLS_PER_DAY); let's continue tomorrow.")
     cur = memory.db.execute(
@@ -398,7 +401,77 @@ def _busy(memory: Memory) -> str:
         return "calendar unknown: offer times and say you'll confirm"
 
 
+def screen_greeting(env=None) -> str:
+    first = (owner(env)["name"].split() or ["the owner"])[0]
+    return (f"Hi, you've reached {first}'s phone, I'm the assistant. {first} can't come to the phone right now. "
+            "Who's calling, please?")
+
+
+def _schedule(memory: Memory) -> str:
+    """Today's and tomorrow's calendar and the usual routine, for the assistant's own judgment on a screened call."""
+    lines = []
+    try:
+        from .connectors.hub import agenda  # noqa: PLC0415
+        events = agenda(memory, 2)
+        lines += [f"- {e['when']}: {e['title']}" for e in events[:12]]
+    except Exception:
+        pass
+    try:
+        from . import commute  # noqa: PLC0415
+        r = commute.routine(memory)
+        if r:
+            lines.append("- usual weekday routine: " + commute.describe(r))
+    except Exception:
+        pass
+    return "\n".join(lines) or "- nothing on the calendar"
+
+
+def screen_prompt(memory: Memory, call: dict, env=None) -> str:
+    o = owner(env)
+    first = (o["name"].split() or ["the owner"])[0]
+    known = call.get("goal", "").removeprefix("known: ")
+    who = f"someone Buddy knows: {known}" if known else "an unknown number"
+    return f"""You're {first}'s personal assistant (a secretary), answering a call to {first}'s phone because {first} \
+couldn't pick up. You already said: "{screen_greeting(env)}". It's {local_now().strftime("%A %d %B %Y, %I:%M %p")}.
+Caller's number: {call['number']} ({who}). Carrier check of the caller ID: {call.get('windows') or 'unknown'}.
+{first}'s schedule (for your judgment only):
+{_schedule(memory)}
+
+Sound like a real, experienced human secretary, never like a bot or a phone menu: warm, relaxed and brief. Use \
+contractions and everyday words ("Oh, sure", "Got it", "Of course", "No problem"), one or two short sentences at a \
+time, and react to what they actually said. Don't repeat their words back word for word, don't list options, don't \
+say "as an assistant" or "I understand your concern". Read numbers back naturally in groups ("two oh one, five five \
+five..."). Refer to {first} by name, not as he or she. If they ask whether you're a real person, a bot or an AI, be \
+honest and easy about it: "I'm actually an AI assistant, but I'll make sure {first} gets this." Never deny it.
+
+Availability, from the schedule above:
+- Someone Buddy knows: you may be specific about timing ("{first}'s in a meeting until three, I'll have {first} call \
+you right after", "{first}'s out for the evening, so first thing tomorrow"). Not the meeting's topic or who with.
+- An unknown caller: only general timing ("{first}'s tied up this afternoon, but I'll pass your message on today").
+- Never say where {first} is, that {first} is travelling or away from home, the home address, or anything about \
+accounts, health or family. Never confirm personal details, agree to anything, pay, or verify codes.
+
+Your job: find out who's calling and why, take a clear message, and judge how much it matters.
+- A real caller: get their name, the reason, any date, time or reference number, and the best number to call back \
+(read it back). Tell them when {first} will likely get back to them, then wrap up warmly and end.
+- Scam or robocall: threats (IRS, police, Social Security, arrest), gift cards, crypto or wire payments, "your car's \
+warranty", prizes, "your account is locked", asking for codes, passwords, card or account numbers, pressure to act \
+now, or a recording. Don't argue: "Not interested, thanks. Bye now." and end.
+- Sales or surveys: a quick polite "I'll pass that on", then end.
+"[No one has spoken yet]" means silence after your greeting: say "Hello?" once; if still silent or only a \
+recording plays, end (probably a robocall).
+
+Reply ONLY with one line of JSON: {{"say": "what to say now ('' to stay silent)", "action": "continue" | "end", \
+"priority": "urgent" (family, a doctor or pharmacy, a real fraud alert from the bank, school, emergencies, \
+"call back today") | "normal" (a real caller with a message) | "low" (sales, surveys, no message) | "scam", \
+"caller": "who they said they are, or ''", "callback": "the number they gave, or ''", \
+"outcome": "when ending: the message for {first} in one or two sentences (who, why, dates and times, what they \
+want {first} to do, what you told them about when {first} would call back)"}}."""
+
+
 def system_prompt(memory: Memory, call: dict, env=None) -> str:
+    if call["kind"] == SCREEN:
+        return screen_prompt(memory, call, env)
     o = owner(env)
     first = o["name"].split()[0] if o["name"] else "them"
     may = [f"full name: {o['name']}"]
@@ -480,13 +553,17 @@ def parse(text: str) -> dict:
     except json.JSONDecodeError:
         got = {}
     if (not isinstance(got, dict) or not got) and '"say"' in (text or ""):
-        got = {k: _field(text, k) for k in ("say", "digits", "action", "outcome")}  # cut off or broken JSON
+        got = {k: _field(text, k) for k in ("say", "digits", "action", "outcome", "priority", "caller",
+                                            "callback")}  # cut off or broken JSON
     if not isinstance(got, dict) or not got:
         got = {"say": (text or "").strip()[:400], "action": "continue"}
     got["say"] = _speakable(str(got.get("say") or ""))[:600]
     got["digits"] = re.sub(r"[^0-9*#]", "", str(got.get("digits") or ""))[:20]
     got["action"] = got.get("action") if got.get("action") in ("continue", "connect", "end") else "continue"
     got["outcome"] = str(got.get("outcome") or "").strip()[:600]
+    got["priority"] = got.get("priority") if got.get("priority") in PRIORITIES else "normal"
+    got["caller"] = str(got.get("caller") or "").strip()[:80]
+    got["callback"] = re.sub(r"[^0-9+() -]", "", str(got.get("callback") or ""))[:20]
     return got
 
 
@@ -568,7 +645,21 @@ class Mind:
         return merged
 
 
+def screen_message(call: dict, move: dict) -> str:
+    """What the owner is told about a call Buddy answered for them ('' for scams: those are only counted)."""
+    if move.get("priority") == "scam":
+        return ""
+    who = move.get("caller") or call.get("who") or call["number"]
+    back = move.get("callback") or call["number"]
+    head = {"urgent": "📞 Urgent: missed call", "low": "📞 Missed call (low priority)"}.get(move.get("priority"),
+                                                                                           "📞 Missed call")
+    msg = move.get("outcome") or "They didn't leave a message."
+    return f"{head} from {who} ({back}). {msg}"
+
+
 def outcome_message(call: dict, move: dict, env=None) -> str:
+    if call.get("kind") == SCREEN:
+        return screen_message(call, move)
     if move["action"] == "connect":
         return (f"{call['who']}: a person is on the line. I'm ringing you now from Buddy's Plivo number; pick up "
                 "to take the call.")
@@ -779,7 +870,9 @@ async def run_stream(memory: Memory, websocket, call: dict, deliver=None, env=No
         connect = move["action"] == "connect" and call["kind"] == "hold_connect" and bool(o["phone"])
         update(memory, call["id"], status="connected" if connect else "done",
                outcome=move.get("outcome") or ("A person answered; you were rung in." if connect else ""))
-        if deliver:
+        if call["kind"] == SCREEN:
+            screened(memory, call, move)
+        if deliver and (call["kind"] != SCREEN or screen_message(call, move)):
             try:
                 await deliver("call", outcome_message(call, {**move, "action": "connect" if connect else "end"}))
             except Exception:
@@ -805,7 +898,13 @@ async def run_stream(memory: Memory, websocket, call: dict, deliver=None, env=No
         await worker.cancel()
 
     async def nobody_speaks():
-        await asyncio.sleep(QUIET_START_S)
+        if call["kind"] == SCREEN:  # they called: Buddy speaks first
+            await asyncio.sleep(0.6)
+            mind.spoke_any = True
+            await speak(screen_greeting(env))
+            await asyncio.sleep(QUIET_START_S + 4)
+        else:
+            await asyncio.sleep(QUIET_START_S)
         if not mind.heard_any and not talk.words and not talk.user_talking:
             await mind.heard("[No one has spoken yet]")
 
@@ -830,6 +929,113 @@ async def run_stream(memory: Memory, websocket, call: dict, deliver=None, env=No
             memory.db.execute("UPDATE phone_calls SET cost_usd = cost_usd + ? WHERE id = ?",
                               (round(mind.claude_usd, 5), call["id"]))
             memory.db.commit()
+
+
+# --- calls to the owner that they didn't pick up (carrier forwarding to Buddy's number) ---------------------------
+def inbound_key(env=None) -> str:
+    """The secret part of the address Plivo uses for calls to Buddy's number (stable; from the auth token)."""
+    token = _env("BUDDY_PLIVO_AUTH_TOKEN", env)
+    return hmac.new(token.encode(), b"buddy-inbound-calls", hashlib.sha256).hexdigest()[:32] if token else ""
+
+
+def inbound_url(what: str, env=None) -> str:
+    return f"{_public(env)}/calls/{what}/0/{inbound_key(env)}"
+
+
+def link_inbound(memory, env=None, fetch=None) -> str:
+    """Point Buddy's Plivo number at Buddy: an application whose answer address is /calls/inbound (made once,
+    kept up to date when the public address changes)."""
+    if ready(env):
+        return ""
+    body = {"app_name": "Buddy call screening", "answer_url": inbound_url("inbound", env), "answer_method": "POST",
+            "hangup_url": inbound_url("missed", env), "hangup_method": "POST"}
+    saved = {}
+    with contextlib.suppress(ValueError, TypeError):
+        saved = json.loads(memory.get("calls:inbound_app") or "{}")
+    if saved.get("app_id") and saved.get("answer_url") == body["answer_url"]:
+        return saved["app_id"]
+    if saved.get("app_id"):
+        _plivo(memory, f"/Application/{saved['app_id']}/", body, env=env, fetch=fetch)
+        app_id = saved["app_id"]
+    else:
+        app_id = str((_plivo(memory, "/Application/", body, env=env, fetch=fetch) or {}).get("app_id", ""))
+    if app_id:
+        _plivo(memory, f"/Number/{_env('BUDDY_PLIVO_NUMBER', env).lstrip('+')}/", {"app_id": app_id}, env=env,
+               fetch=fetch)
+        memory.set("calls:inbound_app", json.dumps({"app_id": app_id, "answer_url": body["answer_url"]}))
+    return app_id
+
+
+def known_caller(memory, number: str) -> str:
+    """Who Buddy knows this number as, from what the owner told it and their emails and calendar ('' if no one)."""
+    digits = re.sub(r"\D", "", number or "")[-10:]
+    if len(digits) < 7:
+        return ""
+    tail = digits[-7:]
+    patterns = [f"%{tail[:3]}%{tail[3:]}%", f"%{digits[-4:]}%"]
+    for table, cols in (("facts", "text"), ("records", "title || ' ' || body")):
+        with contextlib.suppress(Exception):
+            for row in memory.db.execute(f"SELECT {cols} AS t FROM {table} WHERE {cols} LIKE ? LIMIT 20",
+                                         (patterns[0],)):
+                text = row["t"] or ""
+                if tail in re.sub(r"\D", "", text):
+                    return " ".join(text.split())[:160]
+    return ""
+
+
+def screen_call(memory: Memory, form: dict, env=None) -> dict | None:
+    """A call forwarded to Buddy's number: a row for it (None when today's limit is reached)."""
+    _ready(memory)
+    today = local_now().date().isoformat()
+    n = memory.db.execute("SELECT COUNT(*) FROM phone_calls WHERE created_at >= ? AND kind = ?",
+                          (today, SCREEN)).fetchone()[0]
+    if n >= SCREENS_PER_DAY:
+        return None
+    raw = str(form.get("From") or "")
+    try:
+        number = normalise(raw)
+    except ToolError:
+        number = "unknown"
+    known = known_caller(memory, number)
+    stir = str(form.get("STIRVerification") or form.get("STIRAttestation") or "")
+    cur = memory.db.execute(
+        "INSERT INTO phone_calls (created_at, who, number, kind, goal, windows, token, call_sid, status) "
+        "VALUES (?, ?, ?, ?, ?, ?, ?, ?, 'calling')",
+        (datetime.now(timezone.utc).isoformat(), (known or number)[:80], number, SCREEN,
+         f"known: {known}" if known else "", stir[:60], secrets.token_urlsafe(24), str(form.get("CallUUID") or "")))
+    memory.db.commit()
+    return get(memory, cur.lastrowid)
+
+
+def screened(memory: Memory, call: dict, move: dict) -> None:
+    """Remember how a screened call was judged (scams are only counted, for the day's tally)."""
+    update(memory, call["id"], who=(move.get("caller") or call["who"])[:80],
+           windows=f"{move.get('priority', 'normal')}")
+    if move.get("priority") == "scam":
+        key = f"calls:scams:{local_now().date().isoformat()}"
+        memory.set(key, str(int(memory.get(key) or 0) + 1))
+
+
+def screen_hung_up(memory: Memory, form: dict) -> str:
+    """Plivo's report when a forwarded call ends. If the caller hung up before Buddy finished, the owner hears
+    about it only when Buddy knows the number."""
+    uuid = str(form.get("CallUUID") or "")
+    row = memory.db.execute("SELECT * FROM phone_calls WHERE call_sid = ? AND kind = ?", (uuid, SCREEN)).fetchone()
+    if not row:
+        return ""
+    call = dict(row)
+    minutes = round(int(form.get("BillDuration") or form.get("Duration") or 0) / 60, 1)
+    finished = call["status"] == "done"
+    update(memory, call["id"], status="done", minutes=minutes,
+           outcome=call["outcome"] or "They hung up without leaving a message.")
+    add_cost(memory, call["id"], "plivo", "call minutes", minutes * price("BUDDY_CALL_PRICE_LINE_MIN"), minutes * 60)
+    if finished or not call["goal"].startswith("known: "):
+        return ""
+    return f"📞 Missed call from {call['who']} ({call['number']}); they hung up without leaving a message."
+
+
+def scams_today(memory: Memory) -> int:
+    return int(memory.get(f"calls:scams:{local_now().date().isoformat()}") or 0)
 
 
 # --- Insights ---------------------------------------------------------------------------------------------------
@@ -869,7 +1075,8 @@ TOOL = {
     "and report back), hold_connect (banks, card companies: get through the menu, wait on hold, and ring the user "
     "when a person answers; only the user verifies). Find the number first (memory, library, contacts, places "
     "search) and confirm it. The user approves every call before it's made. status: the latest calls and their "
-    "outcomes.",
+    "outcomes, including calls Buddy answered for the user when they didn't pick up (kind screen: who called, the "
+    "message, scams hung up on today).",
     "input_schema": {"type": "object", "properties": {
         "action": {"type": "string", "enum": ["call", "status"]},
         "who": {"type": "string", "description": "who is being called, e.g. Dr. Mehta's office"},
@@ -884,10 +1091,12 @@ TOOL = {
 
 def status_text(memory: Memory) -> str:
     _ready(memory)
+    scams = scams_today(memory)
     rows = [dict(r) for r in memory.db.execute(
         "SELECT id, created_at, who, kind, status, outcome, minutes FROM phone_calls WHERE status != 'planned' "
         "ORDER BY id DESC LIMIT 5")]
-    return json.dumps(rows) if rows else "No calls yet."
+    out = json.dumps(rows) if rows else "No calls yet."
+    return out + (f"\nScam or robocalls Buddy answered and hung up on today: {scams}." if scams else "")
 
 
 async def run_tool(memory: Memory, thrift, args: dict) -> str:

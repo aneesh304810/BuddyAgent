@@ -130,3 +130,24 @@ Rough cost:
 | The call doesn't go through | Plivo console → Logs → Calls shows why (credit, number, or a blocked destination) |
 | The phone rings but Buddy is silent | A wrong voice or model ID: clear `BUDDY_CALL_VOICE` / `BUDDY_CALL_VOICE_MODEL` (run `set.sh` and press Enter). Still silent: run `journalctl -u buddy -f` during a test call and send the lines that mention `call` |
 | The other side sees "Spam Likely" with your own number | Run `calls.sh` again and answer **N** to use the Plivo number |
+
+## 9. Buddy answers the calls you miss
+
+Once set up, a call you don't pick up goes to Buddy instead of your voicemail. Buddy answers like a secretary
+("Hi, you've reached Aneesh's phone, I'm the assistant..."), finds out who's calling and why, and:
+- **a real caller:** takes the message (name, reason, dates, callback number) and tells you in the app; family,
+  doctors, real fraud alerts and "call back today" are marked **urgent**. Callers Buddy knows (from what you've told
+  it, your emails and calendar) hear specific timing from your calendar ("in a meeting until three"); unknown callers
+  hear only general timing. Nobody hears where you are or anything personal;
+- **a scam or robocall:** "Not interested, thanks", hangs up, and only counts it ("how did my calls go?" shows today's);
+- **sales:** a short note, low priority.
+
+If someone asks, Buddy says honestly that it's an AI assistant. At most 30 answered calls a day, 5 minutes each.
+
+**Turn it on:** `calls.sh` prints the codes with your Plivo number. On your phone, dial each and press Call:
+- `**61*1PLIVONUMBER**20#`: when you don't answer within 20 seconds
+- `**67*1PLIVONUMBER#`: when you're on another call
+- `**62*1PLIVONUMBER#`: when your phone is off or has no signal
+
+**Turn it off** (back to voicemail): `##004#`. Buddy links its Plivo number to itself when it starts; nothing else to
+set up. On a Plivo trial account, only calls from numbers you've verified in Plivo get through.
