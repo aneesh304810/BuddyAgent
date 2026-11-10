@@ -339,6 +339,14 @@ def token(memory, name: str, *, fresh: bool = False, env=None, fetch=None) -> st
     return value
 
 
+def setup_hint(name: str) -> str:
+    """The command that saves this service's secret(s) on the server ('' when it needs none)."""
+    auth = CATALOG[name].get("auth") or {}
+    names = list(auth["fields"].values()) if auth.get("type") == "token" else [auth["secret"]] \
+        if auth.get("secret") else []
+    return "; ".join(f"sudo bash /opt/buddy/deploy/set.sh {n}" for n in names)
+
+
 def health(name: str, memory=None, env=None, fetch=None) -> tuple[bool, str]:
     """One small real request (sign-in, or a cheap read) and what came back."""
     entry = CATALOG[name]
@@ -385,7 +393,8 @@ def status(memory, env=None) -> list[dict]:
                     "privacy": entry.get("privacy", "public"), "set_up": configured(name, env),
                     "in_connect": bool(entry.get("moved") or entry.get("reports")), "last_ok": last.get("ok"), "last_at": last.get("at", ""),
                     "last_error": last.get("error", ""), "calls_this_month": n, "failed_this_month": bad,
-                    "cost_this_month": round(usd, 4)})
+                    "cost_this_month": round(usd, 4), "can_test": bool(entry.get("health")),
+                    "setup": setup_hint(name)})
     return out
 
 

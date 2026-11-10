@@ -158,3 +158,10 @@ def test_free_models_report_into_the_status(tmp_path):
     st = {s["name"]: s for s in gateway.status(m, env={})}
     assert st["github_models"]["last_ok"] is False and "HTTP 200" in st["github_models"]["last_error"]
     assert st["groq"]["last_ok"] is True and st["groq"]["in_connect"]
+
+
+def test_status_says_how_to_set_up_and_what_can_be_tested(tmp_path):
+    st = {s["name"]: s for s in gateway.status(Memory(tmp_path / "b.db"), env={})}
+    assert st["njt_rail"]["setup"] == ("sudo bash /opt/buddy/deploy/set.sh BUDDY_NJT_USERNAME; "
+                                       "sudo bash /opt/buddy/deploy/set.sh BUDDY_NJT_PASSWORD")
+    assert st["mta"]["setup"] == "" and st["mta"]["can_test"] and not st["reddit"]["can_test"]
