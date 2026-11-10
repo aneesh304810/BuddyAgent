@@ -11,6 +11,7 @@ One self-contained HTML file (inline SVG, CSS and a few lines of script; no outs
 phone and opens offline in the browser. Every piece of text from the code is escaped.
 """
 
+import re
 from html import escape
 from pathlib import Path
 
@@ -53,8 +54,8 @@ def architecture(stats: dict) -> str:
     s.append(f'<text x="380" y="300" class="s">{stats["tools"]} tools · {stats["endpoints"]} endpoints</text>')
     s.append(f'<text x="225" y="200" class="s">Tailscale</text>')
     s.append(_box(600, 40, 140, 60, "Claude", "the main brain"))
-    s.append(_box(600, 140, 140, 60, "Free models", "no personal data"))
-    s.append(_box(600, 240, 140, 60, "Buddy Connect", f"{stats['services']} services"))
+    s.append(_box(600, 140, 140, 60, "Free models", "Groq, Gemini, OpenRouter…"))
+    s.append(_box(600, 240, 140, 60, "Buddy Connect", f"{stats['services']} outside services"))
     s.append(_box(600, 335, 140, 60, "Database", f"{stats['tables']} tables, encrypted"))
     s.append("</svg>")
     return "".join(s)
@@ -62,7 +63,7 @@ def architecture(stats: dict) -> str:
 
 def steps(name: str, items: list[tuple[str, str]], seconds: float = 1.1) -> str:
     """Boxes in a row (wrapping), lit up one after another, with dots running between them."""
-    per_row, bw, bh, gap = 4, 150, 64, 40
+    per_row, bw, bh, gap = 3, 210, 64, 45
     rows = (len(items) + per_row - 1) // per_row
     h = rows * (bh + 60) + 20
     total = seconds * len(items)
@@ -85,6 +86,14 @@ def steps(name: str, items: list[tuple[str, str]], seconds: float = 1.1) -> str:
     out.append("</svg>")
     return "".join(out)
 
+
+CONNECT_STEPS = [("A tool needs data", "e.g. train alerts, prices"), ("Find the service", "in the catalog"),
+                 ("Privacy check", "personal data? only allowed services"), ("Rate limit", "calls per minute"),
+                 ("Key added", "or a sign-in token, reused"), ("Main host", "then a backup if it's down"),
+                 ("Retry once", "reads only, on a hiccup"), ("Logged", "time, cost, error → Insights")]
+FREE_STEPS = [("General request", "translate, summarise, explain…"), ("Personal-data check", "emails, numbers, secrets, "
+              "memory"), ("Best free model", "by what each is good at"), ("At its limit?", "the next one is tried"),
+              ("Last resort", "Claude's quick model"), ("Logged", "speed and result → Insights")]
 
 CHAT = [("You speak or type", "the phone app"), ("Over Tailscale", "WebSocket to the server"),
         ("Memory and context", "facts, recent chat, calendar"), ("Claude decides", "answer or use a tool"),
@@ -162,6 +171,7 @@ text-anchor:middle}.diagram .s{font-size:12.5px;fill:var(--dim);text-anchor:midd
 @keyframes lit{0%{fill:var(--acc);fill-opacity:.28}12%{fill:var(--card);fill-opacity:1}100%{fill:var(--card)}}
 .group rect{fill:var(--card);stroke:var(--line)}.gt{font-weight:600;font-size:13.5px;fill:var(--ink)}
 .svc{font-size:12px;fill:var(--ink)}.personal{fill:var(--per)}.public{fill:var(--pub)}
+pre.doc{font:14px/1.5 system-ui,sans-serif}h3{font-size:15px;margin:14px 0 4px}ul{padding-left:20px;margin:4px 0}li{margin:3px 0}
 .legend span{display:inline-block;width:10px;height:10px;border-radius:5px;margin:0 6px 0 12px}
 @media (prefers-reduced-motion:reduce){.diagram .dot{display:none}.diagram .step rect{animation:none}}
 """
@@ -171,6 +181,42 @@ const q=document.getElementById('q');q.addEventListener('input',()=>{const w=q.v
 document.querySelectorAll('[data-find]').forEach(el=>{const hit=!w||el.dataset.find.includes(w);
 el.style.display=hit?'':'none';if(w&&hit&&el.tagName==='DETAILS')el.open=true;});});
 """
+
+
+def _free_models_line() -> str:
+    names = {"github": "GitHub Models", "openrouter": "OpenRouter", "deepseek": "DeepSeek (via OpenRouter)"}
+    try:
+        from . import free_models  # noqa: PLC0415
+        return "; ".join(f"{names.get(n, n.title())}: {p.get('good_at', '')}" for n, p in free_models.PROVIDERS.items())
+    except Exception:
+        return ""
+
+
+def _para(text: str) -> str:
+    """A paragraph of a module's description: lists and tables written with indents keep their lines."""
+    lines = text.splitlines()
+    if len(lines) > 1 and any(ln.startswith(("  ", "-", "1.", "  -")) or re.match(r"^\s*\w[\w ]{0,18}\s{2,}\S", ln)
+                              for ln in lines[1:]):
+        return f"<pre class='doc'>{_e(text)}</pre>"
+    return f"<p>{_e(' '.join(text.split()))}</p>"
+
+
+def components_html(modules: dict) -> str:
+    diagrams = {"Buddy Connect": steps("Buddy Connect", CONNECT_STEPS, 0.9),
+                "Free AI models": steps("Free models", FREE_STEPS, 1.0)}
+    out = []
+    for c in codedocs.components(modules):
+        key = c["name"].split(" (")[0]
+        extra = (f"<p class='muted'>Providers: {_e(_free_models_line())}</p>" if key == "Free AI models" else "")
+        paras = "".join(_para(p) for p in c["explanation"].split("\n\n") if p.strip())
+        others = "".join(f"<li>{_e(o)}</li>" for o in c["others"])
+        find = _e((c["name"] + " " + c["role"] + " " + c["explanation"] + " " + " ".join(c["others"])).lower())
+        out.append(f"<details class='card' data-find='{find}'{' open' if key in diagrams else ''}><summary>"
+                   f"{_e(c['name'])}<br><span class='muted'>{_e(c['role'])}</span></summary>"
+                   f"{diagrams.get(key, '')}{extra}<h3>How it works</h3>{paras}"
+                   + (f"<h3>Its parts</h3><ul>{others}</ul>" if others else "")
+                   + f"<p class='muted'>Code: {_e(', '.join(c['modules']))}</p></details>")
+    return "".join(out)
 
 
 def html() -> str:
@@ -187,6 +233,11 @@ def html() -> str:
              f"memory, Plivo, convolog…' aria-label='Search'>"]
     parts.append(f"<h2>Architecture</h2><div class='card'>{architecture(stats)}<p class='muted'>Orange dots: "
                  f"requests going out. Green: answers coming back.</p></div>")
+    raw = {}
+    for r, p in codedocs.build_modules().items():
+        raw[r] = p
+    parts.append(f"<h2>Components</h2><p class='muted'>The big parts of Buddy, explained from the descriptions "
+                 f"in their own code. Tap one to open it.</p>{components_html(raw)}")
     parts.append(f"<h2>A chat message, step by step</h2><div class='card'>{steps('Chat message', CHAT)}</div>")
     parts.append(f"<h2>A phone call, step by step</h2><div class='card'>{steps('Phone call', CALL)}</div>")
     parts.append("<h2>Buddy Connect</h2><div class='card'><p class='legend muted'><span class='per' "

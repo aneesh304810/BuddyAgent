@@ -67,7 +67,7 @@ def repo(tmp_path, monkeypatch):
     (tmp_path / "deploy/calls.sh").write_text(SHELL)
     (tmp_path / "docs/CALLS.md").write_text(GUIDE)
     monkeypatch.setattr(selfcode, "ROOT", tmp_path)
-    monkeypatch.setattr(codedocs, "_cache", {"sig": None, "db": None, "pages": {}})
+    monkeypatch.setattr(codedocs, "_cache", {"sig": None, "db": None, "pages": {}, "modules": {}})
     return tmp_path
 
 
@@ -110,6 +110,25 @@ def test_rebuilt_when_the_code_changes(repo):
     later = time.time() + 5
     os.utime(repo / "backend/buddy/calls.py", (later, later))
     assert "ring(" in codedocs.page("calls.py") and "dial(" not in codedocs.page("calls.py")
+
+
+def test_components_are_explained_from_their_code(repo):
+    (repo / "backend/buddy/gateway.py").write_text('''"""Buddy Connect: every outside API Buddy uses, in one catalog.
+
+call() adds the key, tries the backup host and logs every call."""''')
+    (repo / "backend/buddy/free_models.py").write_text('''"""Free-tier AI models for general tasks.
+
+OpenRouter: many free models, a general fallback."""''')
+    pages = codedocs.build()
+    connect = pages["component:buddy connect"]["text"]
+    assert "How it works (from gateway.py):" in connect and "tries the backup host" in connect
+    assert "OpenRouter" in pages["component:free ai models"]["text"]
+    assert "Phone calls" in pages["component:phone calls"]["text"]
+    assert "- Buddy Connect: One catalog" in pages["design"]["text"]
+    assert "component:buddy connect" in codedocs.search("buddy connect backup host")
+    page = codedocs_visual.html()
+    assert "<h2>Components</h2>" in page and "Buddy Connect" in page and "OpenRouter" in page
+    assert "Privacy check" in page and "Personal-data check" in page  # their animated diagrams
 
 
 def test_visual_page_has_diagrams_and_escapes_the_code(repo):

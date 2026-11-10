@@ -23,7 +23,8 @@ from . import selfcode
 
 MAX_PAGE = 7000
 _lock = threading.Lock()
-_cache: dict = {"sig": None, "db": None, "pages": {}}
+_cache: dict = {"sig": None, "db": None, "pages": {}, "modules": {}}
+_built: dict = {"modules": {}}
 
 SETTING = re.compile(r"\b(BUDDY_[A-Z0-9_]{3,})\b")
 TABLE = re.compile(r"CREATE TABLE IF NOT EXISTS (\w+)", re.I)
@@ -157,6 +158,67 @@ def guide_sections(rel: str, text: str) -> list[dict]:
     return [s for s in out if s["body"]]
 
 
+# --- components: the big parts, each explained from its own modules' descriptions --------------------------------
+# (name, what it is in one line, its modules: the first one's whole description explains it)
+COMPONENTS = [
+    ("Claude: the brain", "Understands you, decides what to do, picks the cheapest Claude model that does the job well, "
+     "and asks before spending more", ["agent.py", "router.py", "reasoning.py", "expert.py", "persona.py", "thrift.py",
+                                       "budgets.py", "usage.py"]),
+    ("Free AI models (Groq, Gemini, Mistral, Cerebras, GitHub Models, OpenRouter)", "Do general work for free, never "
+     "with your personal data: translating, summarising public text, brainstorming, general code questions",
+     ["free_models.py", "openrouter_catalog.py", "model_advisor.py"]),
+    ("Buddy Connect", "One catalog and one way of calling every outside service: keys, backup hosts, rate limits, the "
+     "personal-data check, logging and costs", ["gateway.py", "keytest.py"]),
+    ("Memory", "What Buddy knows and remembers: facts, the conversation log and its search, the documents library, and "
+     "connecting what it knows", ["memory.py", "convolog.py", "brain.py", "connect.py", "library.py", "lifelog.py"]),
+    ("Voice: Talk mode and Listen-in", "Hearing you (Whisper on your server or Groq), knowing when you talk to Buddy, "
+     "your voice match, and Listen-in's whispers", ["whisper.py", "ambient.py", "addressee.py", "voiceprint.py",
+                                                     "tutor.py"]),
+    ("Phone calls", "Calls businesses for you after your yes: Plivo, Pipecat on your server, Deepgram, Claude and "
+     "ElevenLabs", ["calls.py"]),
+    ("Speaking up on its own", "The morning briefing, reminders, commute alerts, and nudges when something matters",
+     ["proactive.py", "commute.py", "organiser.py", "health.py"]),
+    ("Money", "Bank and card feeds (read-only), bills, the money advisor and card choices; never moves money",
+     ["money.py", "bankfeed.py", "plaid.py", "finance.py", "advisor.py", "credit.py", "card_optimizer.py", "finops.py"]),
+    ("Travel and getting around", "Flights, hotels, transit alerts, maps and rides", ["travel.py", "flights.py",
+                                                                                      "transit.py", "maps.py",
+                                                                                      "routing.py", "rides.py"]),
+    ("Email, messages and apps", "Gmail, other accounts, messages and the connected apps", ["mailbrain.py",
+                                                                                           "email_accounts.py",
+                                                                                           "messaging.py"]),
+    ("Home and health", "Your Nest thermostat, and your phone's health data with public medical sources",
+     ["nest.py", "health_data.py"]),
+    ("Security and privacy", "Who can reach Buddy, lockouts, secrets kept out of logs and prompts, the encrypted "
+     "database", ["guard.py", "privacy.py", "db.py", "compliance.py"]),
+    ("Fixing and explaining itself", "Reads its own code and these docs, and fixes itself on a branch you review",
+     ["selfcode.py", "codedocs.py", "codejob.py", "sandbox.py", "selfdeploy.py", "claudefix.py"]),
+    ("Insights and costs", "What Buddy spends and how well it does, model by model and service by service",
+     ["insights.py", "trace.py", "costwatch.py"]),
+]
+
+
+def components(modules: dict[str, dict]) -> list[dict]:
+    """Each component with its explanation (the lead module's whole description, then a line from each of the
+    others) and only the modules that exist."""
+    by_name = {Path(r).name: (r, m) for r, m in modules.items() if r.startswith("backend/buddy/")
+               and "/" not in r.removeprefix("backend/buddy/")}
+    out = []
+    for name, role, files in COMPONENTS:
+        have = [f for f in files if f in by_name]
+        if not have:
+            continue
+        lead = by_name[have[0]][1]["about"].strip()
+        others = [f"{f}: {_first(by_name[f][1]['about'])}" for f in have[1:] if by_name[f][1]["about"]]
+        out.append({"name": name, "role": role, "modules": have, "explanation": lead, "others": others})
+    return out
+
+
+def _component_text(c: dict) -> str:
+    return (f"{c['role']}.\n\nModules: {', '.join(c['modules'])}\n\nHow it works (from {c['modules'][0]}):\n"
+            f"{c['explanation']}" + ("\n\nThe other parts:\n" + "\n".join(f"- {o}" for o in c["others"])
+                                     if c["others"] else ""))
+
+
 # --- the whole code ----------------------------------------------------------------------------------------------
 def _signature() -> tuple:
     newest, count = 0.0, 0
@@ -195,6 +257,7 @@ def build() -> dict[str, dict]:
             used_by.setdefault(u, []).append(Path(r).stem)
     for r, m in modules.items():
         pages[r] = {"title": r, "kind": "server", "text": _module_text(m, used_by.get(Path(r).stem, []))}
+    _built["modules"] = modules
     pages.update(_index_pages(modules, pages))
     return pages
 
@@ -233,11 +296,17 @@ def _module_text(m: dict, used_by: list[str]) -> str:
 def _index_pages(modules: dict[str, dict], pages: dict[str, dict]) -> dict[str, dict]:
     out = {}
     server = sorted((r, m) for r, m in modules.items() if r.startswith("backend/buddy/"))
+    comps = components(modules)
+    for c in comps:
+        out["component:" + c["name"].split(":")[0].split(" (")[0].lower()] = {
+            "title": f"Component: {c['name']}", "kind": "component", "text": _component_text(c)}
     out["design"] = {"title": "Design overview", "kind": "index", "text": (
         "Buddy is a personal assistant: an Android app (android/, Kotlin) talks over a WebSocket to a server "
         "(backend/buddy, Python, FastAPI) on the owner's own server, reached only through Tailscale. Claude is the "
         "main brain; free models do general work without personal data; outside services go through Buddy Connect "
-        "(gateway.py). deploy/ holds the server's setup and update scripts.\n\nServer modules:\n" + "\n".join(
+        "(gateway.py). deploy/ holds the server's setup and update scripts.\n\nComponents:\n" + "\n".join(
+            f"- {c['name']}: {c['role']} ({', '.join(c['modules'])})" for c in comps)
+        + "\n\nServer modules:\n" + "\n".join(
             f"- {Path(r).name}: {_first(m['about'])[:220]}" for r, m in server)
         + "\n\nApp files:\n" + "\n".join(f"- {Path(k).name}: {v['text'].split(chr(10))[0][:160]}"
                                          for k, v in sorted(pages.items()) if v["kind"] == "app")
@@ -287,8 +356,14 @@ def _index() -> tuple[sqlite3.Connection, dict]:
             db.execute("CREATE VIRTUAL TABLE docs USING fts5(key UNINDEXED, title, text, tokenize='porter')")
             db.executemany("INSERT INTO docs (key, title, text) VALUES (?, ?, ?)",
                            [(k, p["title"], p["text"]) for k, p in pages.items()])
-            _cache.update(sig=sig, db=db, pages=pages)
+            _cache.update(sig=sig, db=db, pages=pages, modules=_built["modules"])
         return _cache["db"], _cache["pages"]
+
+
+def build_modules() -> dict[str, dict]:
+    """The parsed Python modules behind the pages (for the visual page's components)."""
+    _index()
+    return _cache["modules"]
 
 
 def _fts_query(query: str) -> str:
@@ -318,7 +393,7 @@ def page(key: str) -> str:
     hit = pages.get(key)
     if hit is None:
         matches = [k for k in pages if k.endswith("/" + key) or k.endswith(key) or Path(k).stem == key]
-        order = {"server": 0, "index": 1, "app": 2, "deploy": 3, "guide": 4}  # "calls": the module before the script
+        order = {"server": 0, "component": 1, "index": 2, "app": 3, "deploy": 4, "guide": 5}  # "calls": the module before the script
         hit = pages.get(min(matches, key=lambda k: (order.get(pages[k]["kind"], 9), len(k)))) if matches else None
     if hit is None:
         raise selfcode.ToolError(f"No documentation page '{key}'. Use docs to search, or design for the overview.")
