@@ -9,7 +9,8 @@ the backup host when one can't be reached, retries once on a server hiccup, keep
 personal data for services that may not see it, logs every call (time, cost, error) for Insights, remembers the
 last result for the Connections status, and turns failures into ConnectError with the service's own reason.
 
-Adding an API later: one CATALOG entry; then call(memory, "name", "/path", ...). Stage 1 moved NJ Transit, MTA,
+Services are grouped by area (GROUPS: travel and transit, finance and markets, search, news and trends, weather,
+AI models) for the app and for find. Adding an API later: one CATALOG entry with its group; then call(memory, "name", "/path", ...). Stage 1 moved NJ Transit, MTA,
 PATH and Serper here; stage 2 markets, trends and news, flights and weather. The free AI models keep their own
 failover and report each result; Claude and Plaid keep their own clients and are listed for the status.
 """
@@ -33,12 +34,12 @@ UA = "Buddy/1.0 (personal assistant; read-only)"
 # privacy: "public" services only ever get general requests (search words, a line name); "personal" ones may see
 # the owner's data (and only with personal=True does a call say it carries any).
 CATALOG: dict[str, dict] = {
-    "serper": {
+    "serper": {"group": "Search", 
         "title": "Serper (Google search, news, places)", "hosts": ["https://google.serper.dev"],
         "auth": {"type": "header", "header": "X-API-KEY", "secret": "BUDDY_SERPER_KEY"},
         "cost": 0.001, "per_minute": 60, "privacy": "public", "used_for": "web, news and places search",
         "health": {"path": "/search", "json": {"q": "weather", "num": 1}}, "moved": True},
-    "njt_rail": {
+    "njt_rail": {"group": "Travel & transit", 
         "title": "NJ Transit trains (RailData)",
         "hosts": ["https://raildata.njtransit.com/api/TrainData", "https://raildata.njt.gov/api/TrainData"],
         "auth": {"type": "token", "login": "/getToken", "fields": {"username": "BUDDY_NJT_USERNAME",
@@ -46,79 +47,86 @@ CATALOG: dict[str, dict] = {
                  "hours": 23, "memory_key": "transit:njt_token:rail"},
         "cost": 0.0, "per_minute": 30, "privacy": "public", "used_for": "NJ Transit train service messages",
         "health": {"login": True}, "moved": True},
-    "njt_bus": {
+    "njt_bus": {"group": "Travel & transit", 
         "title": "NJ Transit buses and light rail (GTFS-BUS)", "hosts": ["https://pcsdata.njtransit.com/api/GTFSG2"],
         "auth": {"type": "token", "login": "/authenticateUser",
                  "fields": {"username": "BUDDY_NJT_USERNAME", "password": "BUDDY_NJT_PASSWORD"},
                  "hours": 23, "memory_key": "transit:njt_token:gtfs_bus"},
         "cost": 0.0, "per_minute": 30, "privacy": "public", "used_for": "bus and light rail alerts",
         "health": {"login": True}, "moved": True},
-    "mta": {
+    "mta": {"group": "Travel & transit", 
         "title": "MTA (subway, buses, LIRR, Metro-North)", "hosts": ["https://api-endpoint.mta.info"],
         "auth": {"type": "none"}, "cost": 0.0, "per_minute": 30, "privacy": "public",
         "used_for": "New York transit alerts",
         "health": {"path": "/Dataservice/mtagtfsfeeds/camsys%2Fall-alerts.json"}, "moved": True},
-    "path": {
+    "path": {"group": "Travel & transit", 
         "title": "PATH (Port Authority)", "hosts": ["https://www.panynj.gov"], "auth": {"type": "none"},
         "cost": 0.0, "per_minute": 30, "privacy": "public", "used_for": "PATH next trains and incidents",
         "health": {"path": "/bin/portauthority/ridepath.json"}, "moved": True},
     # Markets, trends and news (stage 2): the modules pass their own headers; Buddy Connect sends, logs, explains.
-    "alpaca": {"title": "Alpaca (market data)", "hosts": ["https://data.alpaca.markets"],
+    "alpaca": {"group": "Finance & markets", "title": "Alpaca (market data)", "hosts": ["https://data.alpaca.markets"],
                "auth": {"type": "header", "header": "APCA-API-KEY-ID", "secret": "BUDDY_ALPACA_KEY_ID"},
                "cost": 0.0, "per_minute": 180, "privacy": "public", "used_for": "prices, news and trade ideas",
                "health": {"path": "/v2/stocks/snapshots?symbols=SPY", "headers_from": {
                    "APCA-API-KEY-ID": "BUDDY_ALPACA_KEY_ID", "APCA-API-SECRET-KEY": "BUDDY_ALPACA_SECRET"}},
                "moved": True},
-    "reddit": {"title": "Reddit", "hosts": ["https://www.reddit.com", "https://oauth.reddit.com"],
+    "reddit": {"group": "News & trends", "title": "Reddit", "hosts": ["https://www.reddit.com", "https://oauth.reddit.com"],
                "auth": {"type": "none"}, "cost": 0.0, "per_minute": 60, "privacy": "public",
                "used_for": "what people say about stocks and topics", "moved": True, "no_backup": True},
-    "stocktwits": {"title": "StockTwits", "hosts": ["https://api.stocktwits.com"], "auth": {"type": "none"},
+    "stocktwits": {"group": "Finance & markets", "title": "StockTwits", "hosts": ["https://api.stocktwits.com"], "auth": {"type": "none"},
                    "cost": 0.0, "per_minute": 60, "privacy": "public", "used_for": "trader sentiment", "moved": True},
-    "yahoo": {"title": "Yahoo Finance", "hosts": ["https://query1.finance.yahoo.com"], "auth": {"type": "none"},
+    "yahoo": {"group": "Finance & markets", "title": "Yahoo Finance", "hosts": ["https://query1.finance.yahoo.com"], "auth": {"type": "none"},
               "cost": 0.0, "per_minute": 60, "privacy": "public", "used_for": "India market prices", "moved": True},
-    "stooq": {"title": "Stooq", "hosts": ["https://stooq.com"], "auth": {"type": "none"}, "cost": 0.0,
+    "stooq": {"group": "Finance & markets", "title": "Stooq", "hosts": ["https://stooq.com"], "auth": {"type": "none"}, "cost": 0.0,
               "per_minute": 60, "privacy": "public", "used_for": "backup price history", "moved": True},
-    "coinbase": {"title": "Coinbase (crypto prices)", "hosts": ["https://api.exchange.coinbase.com"],
+    "coinbase": {"group": "Finance & markets", "title": "Coinbase (crypto prices)", "hosts": ["https://api.exchange.coinbase.com"],
                  "auth": {"type": "none"}, "cost": 0.0, "per_minute": 60, "privacy": "public",
                  "used_for": "crypto prices", "moved": True},
-    "github": {"title": "GitHub (trending projects)", "hosts": ["https://api.github.com"], "auth": {"type": "none"},
+    "github": {"group": "News & trends", "title": "GitHub (trending projects)", "hosts": ["https://api.github.com"], "auth": {"type": "none"},
                "cost": 0.0, "per_minute": 30, "privacy": "public", "used_for": "new projects on watched topics",
                "moved": True},
-    "hackernews": {"title": "Hacker News", "hosts": ["https://hn.algolia.com"], "auth": {"type": "none"},
+    "hackernews": {"group": "News & trends", "title": "Hacker News", "hosts": ["https://hn.algolia.com"], "auth": {"type": "none"},
                    "cost": 0.0, "per_minute": 60, "privacy": "public", "used_for": "tech discussions", "moved": True},
-    "arxiv": {"title": "arXiv (papers)", "hosts": ["https://export.arxiv.org"], "auth": {"type": "none"},
+    "arxiv": {"group": "News & trends", "title": "arXiv (papers)", "hosts": ["https://export.arxiv.org"], "auth": {"type": "none"},
               "cost": 0.0, "per_minute": 20, "privacy": "public", "used_for": "new research papers", "moved": True},
-    "serpapi": {"title": "SerpApi (Google Trends)", "hosts": ["https://serpapi.com"],
+    "serpapi": {"group": "News & trends", "title": "SerpApi (Google Trends)", "hosts": ["https://serpapi.com"],
                 "auth": {"type": "param", "secret": "BUDDY_SERPAPI_KEY"}, "cost": 0.01, "per_minute": 30,
                 "privacy": "public", "used_for": "rising searches", "moved": True},
-    "airlabs": {"title": "AirLabs (flights)", "hosts": ["https://airlabs.co"],
+    "airlabs": {"group": "Travel & transit", "title": "AirLabs (flights)", "hosts": ["https://airlabs.co"],
                 "auth": {"type": "param", "secret": "BUDDY_AIRLABS_KEY"}, "cost": 0.0, "per_minute": 30,
                 "privacy": "public", "used_for": "flight status", "moved": True},
-    "openmeteo": {"title": "Open-Meteo (weather)",
+    "openmeteo": {"group": "Weather", "title": "Open-Meteo (weather)",
                   "hosts": ["https://api.open-meteo.com", "https://geocoding-api.open-meteo.com"],
                   "auth": {"type": "none"}, "cost": 0.0, "per_minute": 60, "privacy": "public",
                   "used_for": "forecasts", "moved": True, "no_backup": True,
                   "health": {"path": "/v1/forecast?latitude=40.7&longitude=-74.0&current=temperature_2m"}},
     # The free AI models keep their own failover (rests, model swaps) and report each result here.
-    "groq": {"title": "Groq (free AI)", "auth": {"type": "header", "secret": "BUDDY_GROQ_KEY"},
+    "groq": {"group": "AI models", "title": "Groq (free AI)", "auth": {"type": "header", "secret": "BUDDY_GROQ_KEY"},
              "privacy": "public", "used_for": "free models for general work", "reports": True},
-    "cerebras": {"title": "Cerebras (free AI)", "auth": {"type": "header", "secret": "BUDDY_CEREBRAS_KEY"},
+    "cerebras": {"group": "AI models", "title": "Cerebras (free AI)", "auth": {"type": "header", "secret": "BUDDY_CEREBRAS_KEY"},
                  "privacy": "public", "used_for": "free models for general work", "reports": True},
-    "gemini": {"title": "Gemini (free AI)", "auth": {"type": "header", "secret": "BUDDY_GEMINI_KEY"},
+    "gemini": {"group": "AI models", "title": "Gemini (free AI)", "auth": {"type": "header", "secret": "BUDDY_GEMINI_KEY"},
                "privacy": "public", "used_for": "free models for general work", "reports": True},
-    "openrouter": {"title": "OpenRouter (free AI)", "auth": {"type": "header", "secret": "BUDDY_OPENROUTER_KEY"},
+    "openrouter": {"group": "AI models", "title": "OpenRouter (free AI)", "auth": {"type": "header", "secret": "BUDDY_OPENROUTER_KEY"},
                    "privacy": "public", "used_for": "free models for general work", "reports": True},
-    "mistral": {"title": "Mistral (free AI)", "auth": {"type": "header", "secret": "BUDDY_MISTRAL_KEY"},
+    "mistral": {"group": "AI models", "title": "Mistral (free AI)", "auth": {"type": "header", "secret": "BUDDY_MISTRAL_KEY"},
                 "privacy": "public", "used_for": "free models for general work", "reports": True},
-    "github_models": {"title": "GitHub Models (free AI)", "auth": {"type": "header",
+    "github_models": {"group": "AI models", "title": "GitHub Models (free AI)", "auth": {"type": "header",
                                                                    "secret": "BUDDY_GITHUB_MODELS_KEY"},
                       "privacy": "public", "used_for": "free models for general work", "reports": True},
     # Listed for the status; they keep their own clients.
-    "claude": {"title": "Claude (Anthropic)", "auth": {"type": "header", "secret": "ANTHROPIC_API_KEY"},
+    "claude": {"group": "AI models", "title": "Claude (Anthropic)", "auth": {"type": "header", "secret": "ANTHROPIC_API_KEY"},
                "privacy": "personal", "used_for": "Buddy's thinking: everything personal goes only here"},
-    "plaid": {"title": "Plaid (banks)", "auth": {"type": "header", "secret": "BUDDY_PLAID_CLIENT_ID"},
+    "plaid": {"group": "Finance & markets", "title": "Plaid (banks)", "auth": {"type": "header", "secret": "BUDDY_PLAID_CLIENT_ID"},
               "privacy": "personal", "used_for": "bank and card transactions (read-only)"},
 }
+
+
+GROUPS = ["Travel & transit", "Finance & markets", "Search", "News & trends", "Weather", "AI models"]  # app order
+
+
+def group_of(name: str) -> str:
+    return CATALOG[name].get("group") or "Other"
 
 
 class ConnectError(ToolError):
@@ -417,7 +425,8 @@ def status(memory, env=None) -> list[dict]:
         for alias in aliases:
             a, b, c = src_usage.get(alias, (0, 0, 0.0))
             n, bad, usd = n + a, bad + b, usd + c
-        out.append({"name": name, "title": entry["title"], "used_for": entry.get("used_for", ""),
+        out.append({"name": name, "group": group_of(name), "title": entry["title"],
+                    "used_for": entry.get("used_for", ""),
                     "privacy": entry.get("privacy", "public"), "set_up": configured(name, env),
                     "in_connect": bool(entry.get("moved") or entry.get("reports")), "last_ok": last.get("ok"),
                     "last_at": last.get("at", ""), "last_error": last.get("error", ""), "calls_this_month": n,
@@ -448,10 +457,11 @@ def find(query: str, memory=None, env=None) -> list[dict]:
     words = [w for w in re.findall(r"[a-z0-9]+", (query or "").lower()) if len(w) > 2]
     rows = status(memory, env) if memory is not None else [
         {"name": n, "title": e["title"], "used_for": e.get("used_for", ""), "set_up": configured(n, env),
-         "last_ok": None, "last_error": "", "setup": setup_hint(n)} for n, e in CATALOG.items()]
+         "last_ok": None, "last_error": "", "setup": setup_hint(n), "group": group_of(n)}
+        for n, e in CATALOG.items()]
     scored = []
     for r in rows:
-        hay = f"{r['name']} {r['title']} {r['used_for']}".lower().replace("_", " ")
+        hay = f"{r['name']} {r['title']} {r['used_for']} {r['group']}".lower().replace("_", " ")
         score = sum(2 if re.search(rf"\b{re.escape(w)}", hay) else 0 for w in words)
         if score:
             scored.append((score, r))
@@ -481,11 +491,17 @@ def run_tool(memory, args: dict) -> str:
         ok, said = health(name, memory)
         return f"{CATALOG[name]['title']}: {'working' if ok else 'not working'} ({said})."
     rows = []
-    for s in status(memory):
+    every = status(memory)
+    order = {g: i for i, g in enumerate(GROUPS)}
+    group = ""
+    for s in sorted(every, key=lambda x: (order.get(x["group"], len(GROUPS)), x["title"])):
+        if s["group"] != group:
+            group = s["group"]
+            rows.append(f"{group}:")
         state = "not set up" if not s["set_up"] else ("working" if s["last_ok"] else
                                                       f"failing: {s['last_error']}" if s["last_ok"] is False
                                                       else "set up, not used yet")
-        rows.append(f"- {s['title']}: {state}; {s['calls_this_month']} calls this month"
+        rows.append(f"  - {s['title']}: {state}; {s['calls_this_month']} calls this month"
                     + (f", ${s['cost_this_month']:.2f}" if s["cost_this_month"] else "")
                     + ("" if s["in_connect"] else " (moves to Buddy Connect later)"))
     return "Buddy Connect, every outside service:\n" + "\n".join(rows)

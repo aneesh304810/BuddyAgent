@@ -1,6 +1,9 @@
 package app.buddy
 
 import androidx.compose.foundation.background
+import androidx.compose.foundation.rememberScrollState
+import androidx.compose.foundation.horizontalScroll
+import androidx.compose.foundation.clickable
 import androidx.compose.foundation.layout.Arrangement
 import androidx.compose.foundation.layout.Column
 import androidx.compose.foundation.layout.Row
@@ -45,6 +48,7 @@ import java.util.concurrent.TimeUnit
 /** One outside service, as Buddy Connect (backend/buddy/gateway.py) reports it. */
 data class Service(
     val name: String,
+    val group: String,
     val title: String,
     val usedFor: String,
     val personal: Boolean,
@@ -86,6 +90,7 @@ object ConnectionsApi {
                 val o = array!!.getJSONObject(i)
                 Service(
                     name = o.optString("name"),
+                    group = o.optString("group").ifEmpty { "Other" },
                     title = o.optString("title"),
                     usedFor = o.optString("used_for"),
                     personal = o.optString("privacy") == "personal",
@@ -99,7 +104,7 @@ object ConnectionsApi {
                     canTest = o.optBoolean("can_test"),
                     setup = o.optString("setup"),
                 )
-            }.sortedWith(compareBy<Service>({ it.rank }, { it.title }))
+            }.sortedWith(compareBy<Service>({ groupOrder(it.group) }, { it.rank }, { it.title }))
         }
     }
 
@@ -117,6 +122,11 @@ object ConnectionsApi {
     }
 }
 
+/** The areas services are grouped in, in the order the screen shows them (gateway.GROUPS). */
+val ConnectGroups = listOf("Travel & transit", "Finance & markets", "Search", "News & trends", "Weather", "AI models")
+
+fun groupOrder(group: String): Int = ConnectGroups.indexOf(group).let { if (it < 0) ConnectGroups.size else it }
+
 private fun stateOf(s: Service): Pair<String, Color> = when {
     !s.setUp -> "Not set up" to Pal.dim
     s.lastOk == false -> "Failing" to Pal.bad
@@ -133,6 +143,7 @@ fun ConnectionsScreen(link: ServerLink?) {
     var reload by remember { mutableStateOf(0) }
     val tests = remember { mutableStateMapOf<String, String>() }
     var query by remember { mutableStateOf("") }
+    var group by remember { mutableStateOf("All") }
     val scope = rememberCoroutineScope()
 
     LaunchedEffect(link, reload) {
@@ -175,9 +186,19 @@ fun ConnectionsScreen(link: ServerLink?) {
             placeholder = { Text("Search: \"train\", \"stocks\", \"weather\", \"not set up\"…") },
             modifier = Modifier.fillMaxWidth().padding(bottom = 8.dp),
         )
+        Row(Modifier.fillMaxWidth().horizontalScroll(rememberScrollState()).padding(bottom = 8.dp),
+            horizontalArrangement = Arrangement.spacedBy(8.dp)) {
+            (listOf("All") + ConnectGroups.filter { g -> services.any { it.group == g } }).forEach { g ->
+                val on = g == group
+                Text(g, color = if (on) Pal.bg else Pal.soft, fontSize = 13.sp,
+                    modifier = Modifier.background(if (on) Pal.accent else Pal.track, RoundedCornerShape(16.dp))
+                        .clickable { group = g }.padding(horizontal = 12.dp, vertical = 6.dp))
+            }
+        }
         val words = query.lowercase().split(" ").filter { it.length > 1 }
-        val shown = if (words.isEmpty()) services else services.filter { s ->
-            val hay = (s.title + " " + s.usedFor + " " + s.name.replace("_", " ") + " " +
+        val inGroup = if (group == "All") services else services.filter { it.group == group }
+        val shown = if (words.isEmpty()) inGroup else inGroup.filter { s ->
+            val hay = (s.title + " " + s.usedFor + " " + s.group + " " + s.name.replace("_", " ") + " " +
                 stateOf(s).first).lowercase()
             words.all { hay.contains(it) }
         }
@@ -186,7 +207,12 @@ fun ConnectionsScreen(link: ServerLink?) {
                 color = Pal.dim, fontSize = 14.sp, modifier = Modifier.padding(vertical = 8.dp))
         }
         LazyColumn(verticalArrangement = Arrangement.spacedBy(10.dp)) {
-            items(shown, key = { it.name }) { s ->
+            shown.groupBy { it.group }.forEach { (header, members) ->
+              item(key = "group:$header") {
+                Text(header, color = Pal.bright, fontSize = 15.sp, fontWeight = FontWeight.SemiBold,
+                    modifier = Modifier.padding(top = 6.dp))
+              }
+              items(members, key = { it.name }) { s ->
                 val (label, color) = stateOf(s)
                 Column(
                     Modifier.fillMaxWidth()
@@ -242,6 +268,7 @@ fun ConnectionsScreen(link: ServerLink?) {
                         }) { Text("Test", color = Pal.link) }
                     }
                 }
+              }
             }
             item { Spacer(Modifier.size(24.dp)) }
         }

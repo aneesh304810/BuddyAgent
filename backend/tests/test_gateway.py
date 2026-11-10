@@ -189,3 +189,11 @@ def test_find_a_service_for_a_job_and_how_to_attach_it(tmp_path):
     said = gateway.run_tool(m, {"action": "find", "query": "flight status"})
     assert "AirLabs" in said and "not attached" in said and "set.sh BUDDY_AIRLABS_KEY" in said
     assert "No service" in gateway.run_tool(m, {"action": "find", "query": "zzzz qqqq"})
+
+
+def test_every_service_has_a_group_and_the_list_is_grouped(tmp_path):
+    assert all(gateway.group_of(n) in gateway.GROUPS for n in gateway.CATALOG)
+    m = Memory(tmp_path / "b.db")
+    said = gateway.run_tool(m, {"action": "list"})
+    assert said.index("Travel & transit:") < said.index("Finance & markets:") < said.index("AI models:")
+    assert gateway.find("finance", m, env={})[0]["group"] == "Finance & markets"
