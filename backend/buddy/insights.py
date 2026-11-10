@@ -37,6 +37,7 @@ PURPOSE_NAMES = {
     "tutor": "English review",
     "code": "Code tasks",
     "phone_call": "Phone calls",
+    "codedocs_qa": "Documentation questions and answers",
 }
 
 

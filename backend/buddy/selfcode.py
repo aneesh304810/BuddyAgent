@@ -115,9 +115,11 @@ CODE_TOOL = {
     "design (the overview: every module and app file and what it's for), docs (search the documentation by "
     "meaning words: modules, tools, endpoints, settings, tables, Buddy Connect services, the guides), doc (one page "
     "by its key, e.g. backend/buddy/calls.py, tools, endpoints, settings, tables, connect), export_docs (all of it "
-    "as one visual page in the chat: animated architecture, a chat message and a phone call step by step, the "
-    "Buddy Connect map, and a diagram per module; when the owner wants to see or keep it). For one diagram in "
-    "the chat, read the docs, then draw it with make_diagram. To explain how "
+    "as one visual page in the chat: the components explained, questions and answers each with an animated "
+    "diagram, animated architecture, a chat message and a phone call step by step, the Buddy Connect map, and a "
+    "diagram per module; the first time takes a minute or two while the questions and answers are written). When "
+    "the owner asks how something of yours works, answer question-and-answer style: the answer in a few "
+    "sentences, then its steps drawn with make_diagram. To explain how "
     "something works or is designed, start with design or docs, then read the code for the exact details. "
     "overview (folders), search (text or regex, "
     "optional path), read (a file, start line, up to 200 lines), recent (latest changes), fix (start a code task on "
@@ -144,8 +146,9 @@ async def _export_docs(memory) -> str:
     from . import codedocs, makers  # noqa: PLC0415
     if memory is None:
         raise ToolError("I can't make files right now.")
-    from . import codedocs_visual  # noqa: PLC0415
-    page = await asyncio.to_thread(codedocs_visual.html)
+    from . import codedocs_qa, codedocs_visual  # noqa: PLC0415
+    qa = await codedocs_qa.generate(memory)  # kept answers reused; only changed components are rewritten
+    page = await asyncio.to_thread(codedocs_visual.html, qa)
     file = makers.save(memory, page.encode(), "Buddy - how it works", "html", "document")
     card = makers._show(makers._card(file, "Buddy: how it works (diagrams and documentation)"))
     return json.dumps({"made": file["name"], "card": card, "note": "It's in the chat already; say a few words."})
@@ -183,7 +186,10 @@ async def run_tool(args: dict, start_task=None, deploy=None, memory=None) -> str
     if action in ("docs", "doc", "design"):
         from . import codedocs  # noqa: PLC0415
         if action == "docs":
-            return UNTRUSTED + codedocs.search(str(args.get("query", "")))
+            from . import codedocs_qa  # noqa: PLC0415
+            answered = codedocs_qa.search(memory, str(args.get("query", ""))) if memory is not None else ""
+            return UNTRUSTED + codedocs.search(str(args.get("query", ""))) + (
+                f"\n\nAnswered before (questions and answers page):\n{answered}" if answered else "")
         return UNTRUSTED + codedocs.page("design" if action == "design" else str(args.get("path") or ""))
     if action == "search":
         return UNTRUSTED + search(str(args.get("query", "")), str(args.get("path") or ""))

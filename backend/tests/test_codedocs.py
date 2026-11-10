@@ -147,8 +147,68 @@ def test_buddy_code_tool_reads_and_exports_docs(repo, tmp_path, monkeypatch):
     assert "[backend/buddy/calls.py]" in asyncio.run(selfcode.run_tool({"action": "docs", "query": "phone call"}))
     assert "phone_calls" in asyncio.run(selfcode.run_tool({"action": "doc", "path": "calls.py"}))
     m = Memory(tmp_path / "b.db")
+
+    async def no_qa(memory, free=None):
+        return [{"component": "Phone calls", "question": "How is a call placed?", "answer": "Plivo dials.",
+                 "steps": [["Your yes", "Buddy asks"], ["Plivo dials", "Buddy's number"]]}]
+    from buddy import codedocs_qa
+    monkeypatch.setattr(codedocs_qa, "generate", no_qa)
     got = json.loads(asyncio.run(selfcode.run_tool({"action": "export_docs"}, memory=m)))
     assert got["made"] == "Buddy - how it works.html"
     saved = list((tmp_path / "files").glob("*.html"))
-    assert saved and "<svg" in saved[0].read_text()
+    assert saved and "<svg" in saved[0].read_text() and "Q: How is a call placed?" in saved[0].read_text()
     assert makers.MIME["html"] == "text/html"
+
+
+class Writer:
+    """Stands in for the free models: writes Q&A for each component, counts how often it's asked."""
+
+    def __init__(self, reply=None, fail=False):
+        self.asked, self.fail = [], fail
+        self.reply = reply or json.dumps([
+            {"question": "How does it work? <b>", "answer": "It reads the catalog.",
+             "steps": [["Find the service", "in the catalog"], ["Privacy check", "personal data?"],
+                       ["Logged", "for Insights"]]},
+            {"question": "", "answer": "dropped: no question"}])
+
+    async def run(self, kind, text, instruction="", **kw):
+        self.asked.append(instruction)
+        if self.fail:
+            raise RuntimeError("all busy")
+        return {"answer": "Sure! " + self.reply}
+
+    async def _claude(self, system, prompt, kind=""):
+        self.asked.append("claude")
+        return self.reply
+
+
+def test_questions_and_answers_are_written_once_and_drawn(repo, tmp_path):
+    from buddy import codedocs_qa
+    (repo / "backend/buddy/gateway.py").write_text('''"""Buddy Connect: every outside API in one catalog."""''')
+    m, w = Memory(tmp_path / "b.db"), Writer()
+    qa = asyncio.run(codedocs_qa.generate(m, w))
+    names = {q["component"] for q in qa}
+    assert {"Buddy Connect", "Phone calls"} <= names and len(qa) == len(names)  # the empty question was dropped
+    assert "Buddy Connect: every outside API" in next(a for a in w.asked if "Component: Buddy Connect" in a)
+    first = len(w.asked)
+    asyncio.run(codedocs_qa.generate(m, w))
+    assert len(w.asked) == first  # nothing changed: nothing rewritten
+    (repo / "backend/buddy/gateway.py").write_text('''"""Buddy Connect: changed."""''')
+    import os
+    import time
+    os.utime(repo / "backend/buddy/gateway.py", (time.time() + 5, time.time() + 5))
+    asyncio.run(codedocs_qa.generate(m, w))
+    assert len(w.asked) == first + 1  # only Buddy Connect again
+    page = codedocs_visual.html(codedocs_qa.saved(m))
+    assert "<h2>Questions and answers</h2>" in page and "Q: How does it work? &lt;b&gt;" in page
+    assert "Privacy check" in page
+    assert "Q (Buddy Connect): How does it work?" in codedocs_qa.search(m, "how does buddy connect work")
+
+
+def test_claude_writes_them_when_free_models_cant(repo, tmp_path):
+    from buddy import codedocs_qa
+    m, w = Memory(tmp_path / "b.db"), Writer(fail=True)
+    qa = asyncio.run(codedocs_qa.generate(m, w))
+    assert qa and "claude" in w.asked
+    assert codedocs_qa.parse("no json here") == [] and codedocs_qa.parse('[{"question": "q", "answer": "a", '
+                                                                          '"steps": [["only one", "x"]]}]')[0]["steps"] == []

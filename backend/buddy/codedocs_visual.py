@@ -219,7 +219,24 @@ def components_html(modules: dict) -> str:
     return "".join(out)
 
 
-def html() -> str:
+def qa_html(qa: list[dict]) -> str:
+    """Questions and answers, grouped by component; each answer with its steps drawn and animated."""
+    if not qa:
+        return ""
+    out, last = ["<h2>Questions and answers</h2><p class='muted'>Written from the documentation; tap a question."
+                 "</p>"], None
+    for i, item in enumerate(qa):
+        if item["component"] != last:
+            out.append(f"<h3>{_e(item['component'])}</h3>")
+            last = item["component"]
+        diagram = steps(f"qa{i}", [tuple(s) for s in item["steps"]], 1.0) if item.get("steps") else ""
+        find = _e((item["component"] + " " + item["question"] + " " + item["answer"]).lower())
+        out.append(f"<details class='card' data-find='{find}'><summary>Q: {_e(item['question'])}</summary>"
+                   f"<p><b>A:</b> {_e(item['answer'])}</p>{diagram}</details>")
+    return "".join(out)
+
+
+def html(qa: list[dict] | None = None) -> str:
     _db, pages = codedocs._index()
     modules = {k: p for k, p in pages.items() if p["kind"] == "server"}
     stats = {"modules": len(modules), "tools": pages["tools"]["text"].count("\n- ") + 1,
@@ -238,6 +255,7 @@ def html() -> str:
         raw[r] = p
     parts.append(f"<h2>Components</h2><p class='muted'>The big parts of Buddy, explained from the descriptions "
                  f"in their own code. Tap one to open it.</p>{components_html(raw)}")
+    parts.append(qa_html(qa or []))
     parts.append(f"<h2>A chat message, step by step</h2><div class='card'>{steps('Chat message', CHAT)}</div>")
     parts.append(f"<h2>A phone call, step by step</h2><div class='card'>{steps('Phone call', CALL)}</div>")
     parts.append("<h2>Buddy Connect</h2><div class='card'><p class='legend muted'><span class='per' "
