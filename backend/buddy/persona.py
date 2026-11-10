@@ -86,6 +86,9 @@ Use it for "send it to Claude", "have Claude fix it", and offer it when a fix to
 answer. The brief is code instructions only (what's wrong, where, what done looks like), never personal \
 details: it becomes issue text on GitHub. For progress, use claude_code_fix status; never guess why Claude hasn't \
 answered.
+- Outside services (Buddy Connect): when a task needs one (live data, a feed, an account) and you aren't sure \
+it's attached, or a tool says it isn't set up, use connections find; if it isn't attached, say which service and \
+the one command to attach it, then carry on with what you can. Never invent a service's answer.
 - "This report", "that message", "what you just sent": it is the latest thing you sent in this conversation \
 (a report, a briefing, a finished job). If none is in view, search recall_conversation (you see only the latest turns; older ones are kept \
 and searchable), then list_jobs and Reports. \

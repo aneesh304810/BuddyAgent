@@ -14,6 +14,7 @@ import androidx.compose.foundation.lazy.items
 import androidx.compose.foundation.shape.CircleShape
 import androidx.compose.foundation.shape.RoundedCornerShape
 import androidx.compose.foundation.text.selection.SelectionContainer
+import androidx.compose.material3.OutlinedTextField
 import androidx.compose.material3.Text
 import androidx.compose.material3.TextButton
 import androidx.compose.runtime.Composable
@@ -131,6 +132,7 @@ fun ConnectionsScreen(link: ServerLink?) {
     var loading by remember { mutableStateOf(true) }
     var reload by remember { mutableStateOf(0) }
     val tests = remember { mutableStateMapOf<String, String>() }
+    var query by remember { mutableStateOf("") }
     val scope = rememberCoroutineScope()
 
     LaunchedEffect(link, reload) {
@@ -168,8 +170,23 @@ fun ConnectionsScreen(link: ServerLink?) {
                 color = Pal.soft, fontSize = 14.sp, modifier = Modifier.padding(bottom = 8.dp),
             )
         }
+        OutlinedTextField(
+            value = query, onValueChange = { query = it }, singleLine = true,
+            placeholder = { Text("Search: \"train\", \"stocks\", \"weather\", \"not set up\"…") },
+            modifier = Modifier.fillMaxWidth().padding(bottom = 8.dp),
+        )
+        val words = query.lowercase().split(" ").filter { it.length > 1 }
+        val shown = if (words.isEmpty()) services else services.filter { s ->
+            val hay = (s.title + " " + s.usedFor + " " + s.name.replace("_", " ") + " " +
+                stateOf(s).first).lowercase()
+            words.all { hay.contains(it) }
+        }
+        if (query.isNotBlank() && shown.isEmpty()) {
+            Text("No service in Buddy Connect matches that. Ask Buddy: it can tell you what would need adding.",
+                color = Pal.dim, fontSize = 14.sp, modifier = Modifier.padding(vertical = 8.dp))
+        }
         LazyColumn(verticalArrangement = Arrangement.spacedBy(10.dp)) {
-            items(services, key = { it.name }) { s ->
+            items(shown, key = { it.name }) { s ->
                 val (label, color) = stateOf(s)
                 Column(
                     Modifier.fillMaxWidth()
@@ -198,10 +215,10 @@ fun ConnectionsScreen(link: ServerLink?) {
                         )
                     }
                     if (!s.setUp && s.setup.isNotEmpty()) {
-                        Text("To set it up, on the server:", color = Pal.dim, fontSize = 12.sp,
+                        Text("To attach it, on the server:", color = Pal.dim, fontSize = 12.sp,
                             modifier = Modifier.padding(top = 6.dp))
                         SelectionContainer {
-                            Text(s.setup.replace("; ", "\n"), color = Pal.bright, fontSize = 12.sp,
+                            Text(s.setup.replace("; ", "\n") + "\nsudo systemctl restart buddy", color = Pal.bright, fontSize = 12.sp,
                                 fontFamily = FontFamily.Monospace)
                         }
                     }

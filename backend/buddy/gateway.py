@@ -428,17 +428,52 @@ def status(memory, env=None) -> list[dict]:
 
 TOOL = {
     "name": "connections",
-    "description": "Buddy Connect: every outside service Buddy uses (search, transit feeds, markets, banks, free AI "
-    "models...), whether it's set up, whether its last call worked and why not, and calls and cost this month. "
-    "list: all of them; test: one small real request to one service (name) and its answer.",
+    "description": "Buddy Connect: every outside service Buddy uses (search, transit feeds, markets, banks, flights, "
+    "weather, free AI models...), whether it's set up, whether its last call worked and why not, and calls and cost "
+    "this month. find: the services that can do a job (query, e.g. 'train delays', 'stock prices', 'flight status') "
+    "with their state, and how to attach (set up) one that isn't; use it when a task needs an outside service you "
+    "aren't sure is available, or a tool says a service isn't set up. list: all of them; test: one small real "
+    "request to one service (name).",
     "input_schema": {"type": "object", "properties": {
-        "action": {"type": "string", "enum": ["list", "test"]},
+        "action": {"type": "string", "enum": ["find", "list", "test"]},
+        "query": {"type": "string", "description": "find: the job or the service, in a few words"},
         "name": {"type": "string", "description": "test: the service, e.g. njt_rail, njt_bus, serper, mta, path"}},
         "required": ["action"], "additionalProperties": False},
 }
 
 
+def find(query: str, memory=None, env=None) -> list[dict]:
+    """The catalog services that match a job or a name, best first (words in the title and what it's used for)."""
+    import re  # noqa: PLC0415
+    words = [w for w in re.findall(r"[a-z0-9]+", (query or "").lower()) if len(w) > 2]
+    rows = status(memory, env) if memory is not None else [
+        {"name": n, "title": e["title"], "used_for": e.get("used_for", ""), "set_up": configured(n, env),
+         "last_ok": None, "last_error": "", "setup": setup_hint(n)} for n, e in CATALOG.items()]
+    scored = []
+    for r in rows:
+        hay = f"{r['name']} {r['title']} {r['used_for']}".lower().replace("_", " ")
+        score = sum(2 if re.search(rf"\b{re.escape(w)}", hay) else 0 for w in words)
+        if score:
+            scored.append((score, r))
+    return [r for _, r in sorted(scored, key=lambda x: -x[0])]
+
+
 def run_tool(memory, args: dict) -> str:
+    if args.get("action") == "find":
+        found = find(args.get("query", ""), memory)
+        if not found:
+            return ("No service in Buddy Connect does that yet. A new one can be added to its catalog (a code change: "
+                    "offer to send it to Claude Code).")
+        lines = []
+        for r in found[:5]:
+            if not r["set_up"]:
+                lines.append(f"- {r['title']} ({r['used_for']}): not attached. To attach it, on the server: "
+                             f"{r['setup'] or 'nothing to set'}; then sudo systemctl restart buddy")
+            else:
+                state = "working" if r["last_ok"] else (f"failing: {r['last_error']}" if r["last_ok"] is False
+                                                        else "attached, not used yet")
+                lines.append(f"- {r['title']} ({r['used_for']}): {state}")
+        return "Services for that:\n" + "\n".join(lines)
     if args.get("action") == "test":
         name = (args.get("name") or "").strip()
         if name not in CATALOG:

@@ -180,3 +180,12 @@ def test_status_uses_the_real_last_call_from_the_logs(tmp_path):
     assert st["github"]["last_ok"] is True and st["github"]["calls_this_month"] == 1
     assert st["claude"]["last_ok"] is True and st["claude"]["calls_this_month"] == 1
     assert st["github_models"]["last_ok"] is False and "HTTP 200" in st["github_models"]["last_error"]
+
+
+def test_find_a_service_for_a_job_and_how_to_attach_it(tmp_path):
+    m = Memory(tmp_path / "b.db")
+    names = [r["name"] for r in gateway.find("NJ Transit train messages", m, env={})]
+    assert names[0] == "njt_rail"
+    said = gateway.run_tool(m, {"action": "find", "query": "flight status"})
+    assert "AirLabs" in said and "not attached" in said and "set.sh BUDDY_AIRLABS_KEY" in said
+    assert "No service" in gateway.run_tool(m, {"action": "find", "query": "zzzz qqqq"})
