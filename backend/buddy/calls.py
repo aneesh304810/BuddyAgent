@@ -208,10 +208,22 @@ def caller_id(env=None) -> str:
     return _env("BUDDY_PLIVO_NUMBER", env)
 
 
+def _from_for(call: dict, env=None) -> str:
+    """Calling the owner's own mobile: always from Buddy's number. Shown their own number, the carrier treats the
+    call as the owner checking voicemail and asks for its password instead of ringing."""
+    mine = owner(env)["phone"]
+    try:
+        if mine and normalise(mine) == call["number"]:
+            return _env("BUDDY_PLIVO_NUMBER", env)
+    except ToolError:
+        pass
+    return caller_id(env)
+
+
 def dial(memory: Memory, call: dict, env=None, fetch=None) -> str:
     """Ask Plivo to place the call. Plivo then asks /calls/answer for what to do when they pick up."""
     got = _plivo(memory, "/Call/", {
-        "from": caller_id(env).lstrip("+"), "to": call["number"].lstrip("+"),
+        "from": _from_for(call, env).lstrip("+"), "to": call["number"].lstrip("+"),
         "answer_url": url_for(call, "answer", env), "answer_method": "POST",
         "hangup_url": url_for(call, "hangup", env), "hangup_method": "POST",
         "time_limit": LIMIT_S[call["kind"]], "ring_timeout": 45}, env=env, fetch=fetch)
@@ -433,6 +445,32 @@ sentences for {first} (what was agreed, date and time, what to bring, reference 
 Use "connect" only when a real person has answered on a hold_connect call."""
 
 
+_FIELD = r'"%s"\s*:\s*"((?:[^"\\]|\\.)*)'
+
+
+def _field(text: str, name: str) -> str:
+    """One field from a reply whose JSON is broken or cut off."""
+    m = re.search(_FIELD % name, text or "", re.S)
+    if not m:
+        return ""
+    try:
+        return json.loads('"' + m.group(1) + '"')
+    except json.JSONDecodeError:
+        return m.group(1).replace('\\"', '"')
+
+
+def _speakable(say: str) -> str:
+    """Only words go to the voice: a reply that wraps its JSON inside "say" is unwrapped, and anything still
+    looking like code is dropped rather than read out."""
+    for _ in range(3):
+        inner = say.strip()
+        if not inner.startswith("{") and '"say"' not in inner:
+            break
+        say = _field(inner, "say") or ""
+    say = say.strip()
+    return "" if re.search(r'[{}]|"\w+"\s*:', say) else say
+
+
 def parse(text: str) -> dict:
     m = None
     for m in re.finditer(r"\{.*\}", text or "", re.S):
@@ -441,9 +479,11 @@ def parse(text: str) -> dict:
         got = json.loads(m.group(0)) if m else {}
     except json.JSONDecodeError:
         got = {}
+    if (not isinstance(got, dict) or not got) and '"say"' in (text or ""):
+        got = {k: _field(text, k) for k in ("say", "digits", "action", "outcome")}  # cut off or broken JSON
     if not isinstance(got, dict) or not got:
         got = {"say": (text or "").strip()[:400], "action": "continue"}
-    got["say"] = str(got.get("say") or "").strip()[:600]
+    got["say"] = _speakable(str(got.get("say") or ""))[:600]
     got["digits"] = re.sub(r"[^0-9*#]", "", str(got.get("digits") or ""))[:20]
     got["action"] = got.get("action") if got.get("action") in ("continue", "connect", "end") else "continue"
     got["outcome"] = str(got.get("outcome") or "").strip()[:600]

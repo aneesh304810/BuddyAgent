@@ -568,3 +568,22 @@ def test_daily_limit_skips_test_calls_and_calls_that_never_connected(tmp_path, e
     with pytest.raises(ToolError, match="2 calls today"):
         calls.plan(m, "Shop", "2015550124", "question", "hours?")
     assert calls.plan(m, "me", "2015550199", "question", "one more test")  # still allowed
+
+
+def test_replies_never_read_code_aloud():
+    nested = '{"say": "{\\"say\\": \\"Sorry, I can\'t share a password. I\'ll check with Aneesh.\\"}", "action": "continue"}'
+    assert calls.parse(nested)["say"] == "Sorry, I can't share a password. I'll check with Aneesh."
+    cut = '{"say": "Sorry, I can\'t share a password. Thank you.", "digits": "", "action": "end", "outcome": "No pass'
+    got = calls.parse(cut)
+    assert got["say"] == "Sorry, I can't share a password. Thank you." and got["action"] == "end"
+    assert calls.parse('{"say": "{\\"oops\\": 1}"}')["say"] == ""
+    assert calls.parse("Hello there")["say"] == "Hello there"
+
+
+def test_calling_the_owner_never_shows_their_own_number(tmp_path, env, monkeypatch):
+    m, p = Memory(tmp_path / "b.db"), Plivo()
+    monkeypatch.setenv("BUDDY_CALL_SHOW_MY_NUMBER", "1")
+    calls.dial(m, calls.plan(m, "me", "201-555-0199", "question", "test"), fetch=p)
+    assert p.calls[0][1]["from"] == "12015550100"  # Buddy's Plivo number: the carrier would ask for a voicemail PIN
+    calls.dial(m, calls.plan(m, "Dr", "2015550123", "question", "hours?"), fetch=p)
+    assert p.calls[1][1]["from"] == "12015550199"  # others still see the owner's number, as chosen
