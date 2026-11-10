@@ -542,3 +542,15 @@ def test_call_audio_libraries_keep_no_transcript_in_the_logs(monkeypatch):
     logger.warning("websocket closed")
     logger.remove(sink)
     assert len(seen) == 1 and "websocket closed" in seen[0]
+
+
+def test_debug_switch_logs_what_was_heard_only_when_on(tmp_path, monkeypatch, caplog):
+    m = Memory(tmp_path / "b.db")
+    call = calls.plan(m, "Dr", "2015550123", "question", "hours?")
+    mind, _out = _mind(m, call, Moves({"say": "Hi"}, {"say": "Thanks"}))
+    with caplog.at_level("WARNING", logger="buddy.calls"):
+        asyncio.run(mind.heard("Hello, Dr. Mehta's office"))
+        assert "heard" not in caplog.text
+        monkeypatch.setenv("BUDDY_CALL_DEBUG", "1")
+        asyncio.run(mind.heard("We open at nine"))
+    assert "heard: We open at nine" in caplog.text and "decided:" in caplog.text

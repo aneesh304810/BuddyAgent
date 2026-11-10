@@ -479,6 +479,8 @@ class Mind:
         if len(key) > 25 and key in self.recordings:
             return  # the same hold message again: nothing to decide
         self.history.append({"role": "user", "content": f"[They said] {said}"})
+        if _env("BUDDY_CALL_DEBUG", self.env) == "1":  # testing only: calls keep no transcript otherwise
+            log.warning("call %s heard: %s", self.call["id"], said[:300])
         move = await self.brain(self.memory, self.call, self._history(), self.env)
         self.claude_usd += float(move.pop("cost_usd", 0.0) or 0.0)
         if self.ended:
@@ -486,6 +488,8 @@ class Mind:
         if move["action"] == "connect" and self.call["kind"] != "hold_connect":
             move["action"] = "continue"  # only hold_connect calls may ring the owner in
         self.history.append({"role": "assistant", "content": json.dumps(move)})
+        if _env("BUDDY_CALL_DEBUG", self.env) == "1":
+            log.warning("call %s decided: %s", self.call["id"], json.dumps(move)[:400])
         if not move["say"] and not move["digits"] and move["action"] == "continue":
             self.recordings.add(key)
         if move["digits"]:
