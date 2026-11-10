@@ -1,0 +1,125 @@
+# Buddy's phone agent: full setup
+
+Buddy calls businesses for you (doctors' offices, shops, card companies), as your assistant, after your yes.
+Plivo carries the call, Deepgram hears the other side, Claude decides what to say, ElevenLabs speaks it.
+Nothing is recorded; only a short outcome summary is kept (180 days).
+
+Never paste a key in chat. The setup scripts ask for each one with hidden typing.
+
+## 1. Plivo: the phone line (about 10 minutes)
+
+1. Sign up at **plivo.com**.
+2. **Add credit**: about $20 is plenty. A trial account can only call numbers you've verified, so it can't call
+   your doctor.
+3. **Buy a number**: Phone Numbers → Buy Numbers → United States → Voice enabled → pick one (a local area code
+   is best). It costs about $0.50 a month.
+4. **Note** the **Auth ID** (starts with MA) and **Auth Token** from the console's Overview page.
+5. *Optional: show your own mobile as caller ID.* Look for **Verified Caller IDs** (under Voice or Phone
+   Numbers), add your mobile, and enter the code Plivo sends.
+
+## 2. Deepgram: hears the other side (about 3 minutes)
+
+1. Sign up at **console.deepgram.com**. New accounts get free credit.
+2. **API Keys → Create a New API Key** → role **Member** → copy the key.
+
+## 3. ElevenLabs: Buddy's voice (about 5 minutes)
+
+1. Sign up at **elevenlabs.io**. The **Free** plan includes 20,000 v4 Turbo characters a month (about 8–12
+   test calls); **Starter** (about $5 a month) gives 150,000.
+2. Ignore the **Agents** settings (webhooks, secrets, auth connections): Buddy doesn't use them.
+3. Left menu → **Developers → API Keys → Create API Key**, named `Buddy`. Permissions:
+   - Text to Speech: **Access**
+   - User: **Read**
+   - Voices: **Read**
+   - everything else (Speech to Text, Agents, Music, Dubbing, …): **No access**
+   - credit limit, if offered: for example 20,000 a month
+4. Copy the key (it's shown once).
+5. *Optional, a different voice:* Voices → Voice Library → filter female, English (American),
+   "Conversational" → **Add to my voices** → **Copy voice ID**.
+6. *Optional, the cheaper real-time model:* in ElevenLabs' docs, the **Models** page lists each model's ID.
+   Copy the one for **v4 Turbo** ($0.04 per 1,000 characters, made for live conversation).
+
+## 4. Tailscale: let Plivo reach Buddy (about 2 minutes)
+
+Tailscale admin console → **Access controls** → add this line to the policy and save (it's also in
+`deploy/tailscale-policy.hujson`):
+
+```
+"nodeAttrs": [{"target": ["tag:buddy-server"], "attr": ["funnel"]}],
+```
+
+Only `/calls` on port 8443 becomes reachable from the internet. Every request there needs that call's random
+code and Plivo's signature. Buddy's app stays private on 443.
+
+## 5. On the server (about 5 minutes)
+
+```
+cd /opt/buddy && sudo git pull && sudo bash deploy/update.sh
+sudo bash /opt/buddy/deploy/calls.sh
+```
+
+`calls.sh` installs the call engine (about 550 MB, a few minutes the first time), then asks, with hidden typing:
+
+| It asks for | You enter |
+|---|---|
+| Plivo Auth ID, Auth Token | from step 1 |
+| Plivo phone number | for example `+12015550100` |
+| Deepgram API key | from step 2 |
+| ElevenLabs API key | from step 3 |
+| Your full name | as businesses should hear it |
+| Your mobile number | the callback number, and where hold calls ring you |
+| Date of birth | for example `January 2, 1990` (shared on appointment calls only) |
+| Health insurance | for example `Aetna PPO, member ID W123456789` (appointment calls only) |
+| Show your own number? | **y** only if you verified it in step 1.5; otherwise **N** |
+
+Press Enter to keep any value that's already saved. At the end it prints the public address and restarts Buddy.
+
+Optional settings (each asks for its value, hidden, and restarts Buddy):
+
+```
+sudo bash /opt/buddy/deploy/set.sh BUDDY_CALL_VOICE          # voice ID from step 3.5
+sudo bash /opt/buddy/deploy/set.sh BUDDY_CALL_VOICE_MODEL    # model ID from step 3.6
+```
+
+## 6. Check it
+
+1. Buddy app → **Menu → Connections → Calls** → **Test** on Plivo, Deepgram and ElevenLabs. All three should say ok.
+2. **Call yourself first:** "Call my mobile 201-… and ask what time it is." Approve it, answer, and talk to it.
+   Listen to the voice and how quickly it replies.
+3. Save the Plivo number in your contacts as **Buddy**. Hold-and-connect calls ring you from it.
+
+## 7. Using it
+
+Ask in plain words. Buddy always says what it will share and **waits for your yes**.
+
+- **Appointment:** "Call Dr. Mehta's office at 201-555-0123 and book my annual checkup, weekday mornings next
+  week." It checks your calendar, may share your name, callback number, date of birth and insurance, and
+  confirms the date and time back to them.
+- **Question:** "Call Trader Joe's in Hoboken and ask if they're open on Thanksgiving."
+- **Hold and connect:** "Call Chase card services and get me a person about a disputed charge." It goes through
+  the menu and waits on hold. When a person answers, it says "one moment, connecting you," notifies the app
+  and rings your mobile. You take over and do the account verification.
+- **Results:** Buddy messages you when a call ends. Ask "how did my calls go?" for the last five.
+
+Built-in rules:
+- at most 5 calls a day;
+- 15 minutes a call (90 for hold calls);
+- it says it's an AI assistant if asked;
+- it never gives card or account numbers, SSN or passwords;
+- it never pays, cancels or agrees to fees;
+- no recording.
+
+Rough cost:
+- a 5-minute appointment call: about $0.15–0.30, with the voice about $0.06–0.10 of that;
+- a 45-minute hold: about $0.30–0.60, because nothing goes to Deepgram or Claude while nobody is talking.
+
+## 8. If something's wrong
+
+| Problem | Fix |
+|---|---|
+| `calls.sh`: Tailscale refused Funnel | Add the policy line from step 4, then run `calls.sh` again |
+| A Test says 401 or 403 | That key is wrong. Run `calls.sh` again, paste the right one, press Enter for the rest |
+| Buddy says "Calls aren't set up yet" | Run `calls.sh` again; the message names what's missing |
+| The call doesn't go through | Plivo console → Logs → Calls shows why (credit, number, or a blocked destination) |
+| The phone rings but Buddy is silent | A wrong voice or model ID: clear `BUDDY_CALL_VOICE` / `BUDDY_CALL_VOICE_MODEL` (run `set.sh` and press Enter). Still silent: run `journalctl -u buddy -f` during a test call and send the lines that mention `call` |
+| The other side sees "Spam Likely" with your own number | Run `calls.sh` again and answer **N** to use the Plivo number |
