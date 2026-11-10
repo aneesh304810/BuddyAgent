@@ -563,10 +563,27 @@ def gate_class():
     return Gate
 
 
+_QUIET = {"done": False}
+
+
+def _quiet_pipecat() -> None:
+    """Pipecat logs every sentence it speaks and hears at debug level: calls keep no transcript, so on the server it
+    logs warnings and errors only (BUDDY_CALL_DEBUG=1 brings the detail back while testing)."""
+    if _QUIET["done"] or _env("BUDDY_CALL_DEBUG") == "1":
+        return
+    import sys  # noqa: PLC0415
+
+    from loguru import logger  # noqa: PLC0415
+    logger.remove()
+    logger.add(sys.stderr, level="WARNING")
+    _QUIET["done"] = True
+
+
 async def run_stream(memory: Memory, websocket, call: dict, deliver=None, env=None) -> None:
     """One call's audio, both ways, until it ends: Plivo's stream -> Silero (who is speaking) -> the cost gate ->
     Deepgram (words) -> Mind (Claude) -> ElevenLabs (voice) -> Plivo."""
     from . import usage  # noqa: PLC0415
+    _quiet_pipecat()
     # The owner approved this call: it's their own request, not background work, so a paused background budget
     # (waiting for their approval of the month's pace) doesn't stop Claude mid-call.
     usage.current_turn.set(f"phone_call:{call['id']}")

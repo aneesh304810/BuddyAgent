@@ -529,3 +529,16 @@ def test_elevenlabs_test_speaks_with_the_call_voice_and_shows_why_it_fails(tmp_p
             b'{"detail": {"message": "model eleven_v4_turbo is not available on your plan"}}'))
     ok_, said = gateway.health("elevenlabs", m, fetch=refuse)
     assert not ok_ and "not available on your plan" in said and "model eleven_v4_turbo" in said
+
+
+def test_call_audio_libraries_keep_no_transcript_in_the_logs(monkeypatch):
+    pytest.importorskip("pipecat")
+    from loguru import logger
+    monkeypatch.setattr(calls, "_QUIET", {"done": False})
+    seen = []
+    calls._quiet_pipecat()
+    sink = logger.add(lambda m: seen.append(m), level="WARNING")
+    logger.debug("Generating TTS [date of birth 1990-01-02]")
+    logger.warning("websocket closed")
+    logger.remove(sink)
+    assert len(seen) == 1 and "websocket closed" in seen[0]
