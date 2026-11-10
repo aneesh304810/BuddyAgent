@@ -510,3 +510,22 @@ def test_a_refused_voice_model_isnt_picked_again(tmp_path, env):
     assert calls.voice_model(m, fetch=fetch) == "eleven_flash_v2_5"
     calls.model_refused(m, calls.TTS_MODEL)  # the fallback itself is never written off
     assert calls.TTS_MODEL not in calls._bad_models(m)
+
+
+def test_elevenlabs_test_speaks_with_the_call_voice_and_shows_why_it_fails(tmp_path, env):
+    import urllib.error
+    m, seen = Memory(tmp_path / "b.db"), []
+    m.set("calls:voice_model", json.dumps({"model": "eleven_v4_turbo", "day": calls.local_now().date().isoformat()}))
+
+    def ok(url, data=None, headers=None):
+        seen.append((url, json.loads(data)))
+        return b"\0\0"
+    assert gateway.health("elevenlabs", m, fetch=ok) == (True, "ok")
+    assert "/v1/text-to-speech/21m00Tcm4TlvDq8ikWAM?model_id=eleven_v4_turbo" in seen[0][0]
+    assert seen[0][1] == {"text": "Hi", "model_id": "eleven_v4_turbo"}
+
+    def refuse(url, data=None, headers=None):
+        raise urllib.error.HTTPError(url, 400, "bad", {}, __import__("io").BytesIO(
+            b'{"detail": {"message": "model eleven_v4_turbo is not available on your plan"}}'))
+    ok_, said = gateway.health("elevenlabs", m, fetch=refuse)
+    assert not ok_ and "not available on your plan" in said and "model eleven_v4_turbo" in said

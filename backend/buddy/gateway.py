@@ -176,7 +176,7 @@ CATALOG: dict[str, dict] = {
                    "auth": {"type": "header", "header": "xi-api-key", "secret": "BUDDY_ELEVENLABS_KEY"},
                    "cost": 0.0, "per_minute": 30, "privacy": "personal", "reports": True,
                    "used_for": "the natural voice Buddy speaks with on calls",
-                   "setup_command": "sudo bash /opt/buddy/deploy/calls.sh", "health": {"path": "/v1/user"}},
+                   "setup_command": "sudo bash /opt/buddy/deploy/calls.sh", "health": {"custom": "calls.voice_health"}},
     "plaid": {"group": "Finance & markets", "title": "Plaid (banks)", "auth": {"type": "header", "secret": "BUDDY_PLAID_CLIENT_ID"},
               "privacy": "personal", "used_for": "bank and card transactions (read-only)"},
 }

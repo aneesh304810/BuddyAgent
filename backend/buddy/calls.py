@@ -321,6 +321,19 @@ def model_refused(memory, model: str) -> None:
     log.warning("ElevenLabs refused voice model %s on a call; using %s from now on", model, TTS_MODEL)
 
 
+def voice_health(memory=None, env=None, fetch=None) -> None:
+    """Buddy Connect's Test for ElevenLabs: say "Hi" (2 characters) with the exact voice and model calls use, so a
+    refusal shows ElevenLabs' own reason (a live call only sees 'HTTP 400')."""
+    voice = _env("BUDDY_CALL_VOICE", env) or DEFAULT_VOICE
+    model = voice_model(memory, env, fetch)
+    try:
+        gateway.call(memory, "elevenlabs", f"/v1/text-to-speech/{voice}?model_id={urllib.parse.quote(model)}"
+                     f"&output_format=pcm_16000", json_body={"text": "Hi", "model_id": model}, raw=True, env=env,
+                     fetch=fetch, purpose="health")
+    except gateway.ConnectError as e:
+        raise gateway.ConnectError("elevenlabs", f"{e} (voice {voice}, model {model})", e.status, e.reason) from e
+
+
 def voice_model(memory, env=None, fetch=None) -> str:
     """The voice model for calls: BUDDY_CALL_VOICE_MODEL when set; else the best real-time model this ElevenLabs
     account offers (asked once a day), so newer cheaper models are picked up without anyone looking up IDs."""
