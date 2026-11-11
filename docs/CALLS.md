@@ -102,6 +102,10 @@ Ask in plain words. Buddy always says what it will share and **waits for your ye
   the menu and waits on hold. When a person answers, it says "one moment, connecting you," notifies the app
   and rings your mobile. You take over and do the account verification.
 - **Results:** Buddy messages you when a call ends. Ask "how did my calls go?" for the last five.
+- **Who's calling:** turn on **Settings → Share contacts** in the app (opt-in; names and phone numbers only,
+  sent to your server every 6 hours). Calls Buddy answers for you then greet a contact by name and treat them as
+  known, "what's Priya's number?" looks them up, and "reply to Priya" finds her chat even when it shows only a
+  number. Contacts never go to free models or the logs. Turning the switch off deletes them from the server.
 
 Built-in rules:
 - at most 5 calls a day;

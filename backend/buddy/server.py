@@ -900,6 +900,22 @@ async def contacts_sync(body: dict) -> dict:
     return {"ok": True, "numbers": n}
 
 
+@app.post("/api/contacts/lookup", dependencies=[Depends(require_admin)])
+async def contacts_lookup(body: dict) -> dict:
+    """Find a contact by name or number, {"q": ...} (the synced phone contacts and Buddy's saved callers). A POST, so
+    the name or number never lands in a URL or an access log."""
+    from . import contacts  # noqa: PLC0415
+    return {"contacts": await asyncio.to_thread(contacts.find, memory, str((body or {}).get("q") or ""))}
+
+
+@app.delete("/api/contacts", dependencies=[Depends(require_admin)])
+async def contacts_delete(saved: bool = False) -> dict:
+    """"Share contacts" turned off in the app: delete the synced list (and saved callers too with ?saved=true)."""
+    from . import contacts  # noqa: PLC0415
+    n = await asyncio.to_thread(contacts.forget_all, memory, saved)
+    return {"ok": True, "deleted": n}
+
+
 @app.get("/admin/connections", dependencies=[Depends(require_admin)])
 async def admin_connections() -> dict:
     """Buddy Connect: every outside service, set up or not, its last result, calls and cost this month."""
