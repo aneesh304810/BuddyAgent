@@ -73,7 +73,7 @@ from .bankfeed import BankFeed
 from .builder import AgentBuilder
 from .deals import PriceWatcher
 from .finops import FinOps
-from . import budgets
+from . import budgets, pausehabit
 from . import lifelog
 from .lifelog import LifeLog
 from .library import Library, report as library_report
@@ -1712,7 +1712,7 @@ async def talk(ws: WebSocket) -> None:
 
     convo.speech_hint = speech_hint
 
-    pending: dict = {"text": "", "task": None}  # a sentence cut off by a pause, waiting for its end
+    pending: dict = {"text": "", "task": None, "at": 0.0}  # a sentence cut off by a pause, waiting for its end
     last_heard = [-1e9]  # when Whisper last sent text back
     last_user: list = ["", -1e9]  # the last thing said to Buddy, and when
     unsure_heard: dict[str, float] = {}  # room lines Whisper wasn't sure of (text -> when)
@@ -1725,7 +1725,7 @@ async def talk(ws: WebSocket) -> None:
 
     async def answer_unfinished(via: str) -> None:
         """No rest of the sentence came: answer what there is."""
-        await asyncio.sleep(FRAGMENT_WAIT_SECONDS)
+        await asyncio.sleep(pausehabit.wait_seconds(memory, FRAGMENT_WAIT_SECONDS))  # learned per owner
         text = pending["text"]
         pending.update(text="", task=None)
         if text:
@@ -1917,6 +1917,9 @@ async def talk(ws: WebSocket) -> None:
                                              ("turn_on" if msg.get("on") else "turn_off")})
                 await send_voice_status()
             elif msg.get("type") == "interrupt":
+                if current and not current.done():
+                    with contextlib.suppress(Exception):
+                        pausehabit.record_interrupt(memory)
                 await stop_current()
             elif msg.get("type") == "user" and msg.get("text", "").strip():
                 via = "room" if msg.get("via") == "room" else "user"  # "Hey Buddy" heard in Listen-in
@@ -1926,6 +1929,8 @@ async def talk(ws: WebSocket) -> None:
                 last_user[:] = [text, time.monotonic()]
                 if pending["task"]:  # the rest of a sentence cut off by a pause: put it back together
                     pending["task"].cancel()
+                    with contextlib.suppress(Exception):  # learn how long this owner pauses mid-thought
+                        pausehabit.record_gap(memory, time.monotonic() - pending["at"])
                     text = f"{pending['text']} {text}"
                     pending.update(text="", task=None)
                 if switch := mode_command(text):  # "Listen-in mode", "go to sleep", "wake up"
@@ -1935,6 +1940,7 @@ async def talk(ws: WebSocket) -> None:
                 if via == "user" and spoken and unfinished(text) and len(text) < 400:
                     # "Why can't we use..." then a pause to think: wait a moment for the rest.
                     pending["text"] = UNFINISHED.sub("", text).strip().rstrip(".")
+                    pending["at"] = time.monotonic()
                     pending["task"] = asyncio.create_task(answer_unfinished(via))
                     await send({"type": "waiting"})  # the app shows "Go on…"
                     continue
