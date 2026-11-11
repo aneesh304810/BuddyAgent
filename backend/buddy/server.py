@@ -920,7 +920,8 @@ async def contacts_delete(saved: bool = False) -> dict:
 async def admin_connections() -> dict:
     """Buddy Connect: every outside service, set up or not, its last result, calls and cost this month."""
     from . import gateway  # noqa: PLC0415
-    return {"services": await asyncio.to_thread(gateway.status, memory)}
+    services = await asyncio.to_thread(gateway.status, memory)
+    return {"services": services, "sections": gateway.arrange(services)}
 
 
 @app.post("/admin/connections/test", dependencies=[Depends(require_admin)])

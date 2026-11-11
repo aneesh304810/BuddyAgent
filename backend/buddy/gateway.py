@@ -234,6 +234,21 @@ def _secret(env, name: str) -> str:
     return ((env if env is not None else os.environ).get(name) or "").strip()
 
 
+def _secret_names(name: str) -> list[str]:
+    auth = CATALOG[name].get("auth") or {}
+    if auth.get("type") in ("token", "oauth", "basic"):
+        return list(auth["fields"].values())
+    return [auth["secret"]] if auth.get("secret") else []
+
+
+def missing_keys(name: str, env=None) -> list[str]:
+    """The settings still empty for a service that has some of its secrets but not all (half set up): those need
+    the owner. A service with none of its secrets is simply not set up, and gives []."""
+    names = _secret_names(name)
+    empty = [n for n in names if not _secret(env, n)]
+    return empty if 0 < len(empty) < len(names) else []
+
+
 def configured(name: str, env=None) -> bool:
     auth = CATALOG[name].get("auth") or {}
     if auth.get("type") in ("token", "oauth", "basic"):
@@ -547,8 +562,56 @@ def status(memory, env=None) -> list[dict]:
                     "in_connect": bool(entry.get("moved") or entry.get("reports")), "last_ok": last.get("ok"),
                     "last_at": last.get("at", ""), "last_error": last.get("error", ""), "calls_this_month": n,
                     "failed_this_month": bad, "cost_this_month": round(usd, 4), "can_test": bool(entry.get("health")),
-                    "setup": setup_hint(name)})
+                    "setup": setup_hint(name), "missing_keys": missing_keys(name, env)})
+    for row in out:
+        row["state"] = state_of(row)
     return out
+
+
+# How the Connections screen orders a service: what needs the owner first, then what works, then what's idle.
+STATES = ["failing", "missing_keys", "working", "unused", "not_set_up"]
+ATTENTION = ("failing", "missing_keys")
+
+
+def state_of(row: dict) -> str:
+    """One word for a status row: failing (set up, last call failed), missing_keys (half set up), working,
+    unused (set up, never called) or not_set_up."""
+    if row.get("missing_keys"):
+        return "missing_keys"
+    if not row.get("set_up"):
+        return "not_set_up"
+    if row.get("last_ok") is False:
+        return "failing"
+    return "working" if row.get("last_ok") else "unused"
+
+
+def arrange(rows: list[dict]) -> list[dict]:
+    """The status rows as the app shows them: "Needs attention" (failing or missing keys) on top, then each area in
+    GROUPS order with the set-up services (working, then unused), then "Not set up" at the bottom. Every row is in
+    exactly one section; within a section by state, then area, then title. Sections with nothing are left out."""
+    order = {g: i for i, g in enumerate(GROUPS)}
+
+    def key(r):
+        st = r.get("state") or state_of(r)
+        return (STATES.index(st), order.get(r.get("group"), len(GROUPS)), (r.get("title") or "").lower())
+
+    attention, by_group, idle = [], {}, []
+    for r in sorted(rows, key=key):
+        st = r.get("state") or state_of(r)
+        if st in ATTENTION:
+            attention.append(r)
+        elif st == "not_set_up":
+            idle.append(r)
+        else:
+            by_group.setdefault(r.get("group") or "Other", []).append(r)
+    sections = []
+    if attention:
+        sections.append({"title": "Needs attention", "kind": "attention", "names": [r["name"] for r in attention]})
+    for g in sorted(by_group, key=lambda g: (order.get(g, len(GROUPS)), g)):
+        sections.append({"title": g, "kind": "group", "names": [r["name"] for r in by_group[g]]})
+    if idle:
+        sections.append({"title": "Not set up", "kind": "not_set_up", "names": [r["name"] for r in idle]})
+    return sections
 
 
 TOOL = {
