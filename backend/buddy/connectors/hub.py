@@ -197,33 +197,65 @@ class ConnectorHub:
     def agenda(self, days: int = 1) -> list[dict]:
         return agenda(self.memory, days)
 
+    def calendar_connected(self) -> bool:
+        return calendar_connected(self.memory, self.env)
 
-def agenda(memory: Memory, days: int = 1) -> list[dict]:
-    """Events from now until the end of the day `days` from today (local time)."""
-    now = datetime.now(user_tz())
-    end = (now + timedelta(days=days - 1)).replace(hour=23, minute=59, second=59)
+
+NOT_CONNECTED = ("The calendar isn't connected yet. Add the calendar's private iCal address "
+                 "(BUDDY_CALENDAR_ICS_URLS), or turn on calendar sharing in the Buddy app on your phone.")
+
+
+def ics_configured(env: Mapping[str, str] | None = None) -> bool:
+    """Is the iCal-link calendar connector set up (BUDDY_CALENDAR_ICS_URLS)?"""
+    return CalendarConnector(env).configured()
+
+
+def _has_phone_calendar(memory: Memory) -> bool:
     try:
-        rows = memory.db.execute(
-            "SELECT source, kind, title, body, start_at FROM records WHERE kind = 'event' "
-            "AND start_at >= ? AND start_at <= ? ORDER BY start_at",
-            (_utc(now - timedelta(hours=1)), _utc(end)),
-        )
-    except Exception:  # no connectors table yet
-        return []
-    return [_view(r) for r in rows]
-
-
-def calendar_connected(memory: Memory) -> bool:
-    """True when any calendar source exists: the ICS link(s) or events synced from a phone's shared calendar."""
-    if CalendarConnector().configured():
-        return True
-    try:
-        row = memory.db.execute(
-            "SELECT COUNT(*) AS n FROM records WHERE kind = 'event' AND source IN ('calendar', 'phone_calendar')"
-        ).fetchone()
+        return memory.db.execute(
+            "SELECT 1 FROM records WHERE source = 'phone_calendar' LIMIT 1").fetchone() is not None
     except Exception:  # no connectors table yet
         return False
-    return bool(row and row["n"])
+
+
+def calendar_connected(memory: Memory, env: Mapping[str, str] | None = None) -> bool:
+    """Is there any calendar source: an iCal link, or events a phone shared?"""
+    return ics_configured(env) or _has_phone_calendar(memory)
+
+
+def agenda(memory: Memory, days: int = 1) -> list[dict]:
+    """Events from now until the end of the day `days` from today (local time).
+
+    Reads every synced event source: the iCal-link calendar when it is set up, and the calendars the phones
+    shared either way, so the agenda falls back to the phone calendar when there is no iCal link. All-day
+    events (holidays) dated today are kept even though they began at midnight.
+    """
+    now = datetime.now(user_tz())
+    end = (now + timedelta(days=days - 1)).replace(hour=23, minute=59, second=59)
+    since = now - timedelta(hours=1)
+    # All-day events are stored at midnight UTC of their date, which can be hours before local midnight.
+    wide = now.replace(hour=0, minute=0, second=0, microsecond=0) - timedelta(days=1)
+    sql = ("SELECT source, kind, title, body, start_at, data FROM records WHERE kind = 'event' "
+           "AND start_at >= ? AND start_at <= ?")
+    try:
+        rows = memory.db.execute(sql + " ORDER BY start_at", (_utc(wide), _utc(end)))
+    except Exception:  # no connectors table yet
+        return []
+    since_utc, today = _utc(since), now.date()
+    out = []
+    for r in rows:
+        if r["start_at"] >= since_utc:
+            out.append(_view(r))
+        elif _all_day(r) and datetime.fromisoformat(r["start_at"]).astimezone(timezone.utc).date() >= today:
+            out.append(_view(r))
+    return out
+
+
+def _all_day(row) -> bool:
+    try:
+        return bool(json.loads(row["data"] or "{}").get("all_day"))
+    except (ValueError, AttributeError):
+        return False
 
 
 def _view(row) -> dict:
@@ -289,7 +321,7 @@ async def run_connector_tool(hub: ConnectorHub, name: str, args: dict) -> str:
     if name == "agenda":
         events = hub.agenda(int(args.get("days") or 1))
         if not events:
-            return "No events." if calendar_connected(hub.memory) else "The calendar isn't connected yet."
+            return "No events." if hub.calendar_connected() else NOT_CONNECTED
         return UNTRUSTED + json.dumps(events)
     if name == "app_connections":
         note = ""

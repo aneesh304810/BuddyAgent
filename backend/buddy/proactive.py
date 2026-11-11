@@ -64,10 +64,6 @@ def _spoken_system(memory: Memory) -> str:
             + (f"Their goals: {goals}." if goals else ""))
 
 
-def _no_events(memory: Memory) -> str:
-    return "nothing" if calendar_connected(memory) else "not connected"
-
-
 async def morning_briefing(memory: Memory) -> str:
     system = _spoken_system(memory)
     reminders = [
@@ -95,6 +91,11 @@ async def morning_briefing(memory: Memory) -> str:
            else ""),
         memory, label="briefing", model=settings.fast_model,  # quick model: a few spoken sentences from given facts
     )
+
+
+def _no_events(memory: Memory) -> str:
+    """What to tell the model when the calendar has nothing: empty, or no calendar source at all."""
+    return "nothing" if calendar_connected(memory) else "not connected (no iCal link and no phone calendar shared)"
 
 
 async def evening_wrap(memory: Memory) -> str:
