@@ -30,7 +30,7 @@ people talk about you, and corrects technical nonsense in the room.
 | **Privacy** | Cards, accounts, US SSN, South American IDs (CPF, RUT, CUIT, DNI, cédula), Aadhaar/PAN, passports, one-time codes and passwords are masked before anything reaches Claude. Database encrypted with SQLCipher. |
 | **Travels with you** | Buddy follows your phone's time zone across the US, South America and India. |
 | **Thrifty, with your approval** | Takes the cheapest good route (memory, then web search only for current facts, quick before deep research). Daily, Listen-in and monthly allowances; when one runs out, or an action costs over $0.50, Buddy asks first. Your yes is read in code, so the AI can't approve its own spending. Hard cap on top. Yesterday's cost in the morning briefing; "how much have you cost me?" works. |
-| **Connectors** | One systematic way to plug in apps (`docs/CONNECTORS.md`): Calendar (private iCal link) and Email (read-only) today; bank, Airbnb, Takeout, Oura and more planned. Read-only, masked, encrypted, with health and a kill switch; app content is treated as information, never instructions. |
+| **Connectors** | One systematic way to plug in apps (`docs/CONNECTORS.md`): Calendar (private iCal link) and Email (read-only) today; Oura Ring with a health plan (`docs/HEALTH.md`), bank, Airbnb, Takeout and more. Read-only, masked, encrypted, with health and a kill switch; app content is treated as information, never instructions. |
 | **Organiser** | To-do lists by voice (shopping, work, home), due dates and priorities; the morning briefing says what's due, the evening wrap-up (9 pm) celebrates what got done and previews tomorrow. |
 | **Money agent** | Bank feed through SimpleFIN Bridge (every US bank and card transaction and balance, read-only; `docs/MONEY.md`), or charges, bills, payments and refunds from your bank and card emails; spending by category and currency, cash expenses by voice, bill reminders before the due date, monthly limits with warnings at 80% and 100%. |
 | **Deals finder** | Background deal hunts for flights, hotels and shopping: many sellers compared on total price (fees, shipping, baggage), coupons, reviews and return rules, and whether to buy now or wait. Price watches keep checking and tell you when it drops to your target. |
@@ -120,7 +120,7 @@ Tests: `cd backend && pytest`
 | ✅ Done | Organiser (tasks, evening wrap-up) and money agent (spending, bills, limits) |
 | ✅ Done | Approve/Decline buttons, in the app, the browser and on the notification |
 | ✅ Done | Deals finder and price watches, life log, agent builder, Whisper speech recognition on your server |
-| Later | English tutor, Oura Ring, call co-pilot, Outlook/Microsoft 365, learns your style, Galaxy Watch |
+| Later | English tutor, call co-pilot, Outlook/Microsoft 365, learns your style, Galaxy Watch |
 
 The Android app's install guide is in [`android/README.md`](android/README.md).
 

@@ -172,7 +172,9 @@ MY_HEALTH_TOOL = {
     "name": "my_health",
     "description": "The user's own health data from their phone (Google Health Connect, read by the Buddy app with "
     "their permission): daily steps, sleep, resting and average heart rate, active minutes, calories and workouts, "
-    "and the averages over the last days. Personal: answer from it plainly, never as medical advice.",
+    "and the averages over the last days; and, when their Oura Ring is linked, its Readiness, Sleep and Activity "
+    "scores, sleep stages, HRV, lowest heart rate, temperature deviation, stress, resilience and blood oxygen. "
+    "Personal: answer from it plainly, never as medical advice.",
     "input_schema": {"type": "object", "properties": {
         "days": {"type": "integer", "description": "How many days back (1-90, default 7)"}},
         "additionalProperties": False},
@@ -194,6 +196,11 @@ HEALTH_INFO_TOOL = {
 def run_my_health(memory: Memory, args: dict) -> str:
     n = max(1, min(int(args.get("days") or 7), KEEP_DAYS))
     s = summary(memory, n)
+    from . import oura  # noqa: PLC0415  the ring's scores, sleep detail, HRV and temperature, when it's linked
+    oura.sync_if_due(memory)
+    ring = oura.summary(memory, n)
+    if ring:
+        return json.dumps({"phone": s if s["days"] else None, "oura_ring": ring})
     if not s["days"]:
         return ("No health data from the phone yet. In the Buddy app: Menu > Connections > Health > Phone health "
                 "data > Connect, and allow steps, sleep and heart rate in Health Connect.")

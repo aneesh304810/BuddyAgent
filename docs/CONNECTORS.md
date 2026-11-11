@@ -170,7 +170,7 @@ a few cents at most.
 | Gmail drafting and sending | Gmail API with your own Google Cloud OAuth app | Acts, with your yes | Phase 3 |
 | Google Calendar booking | Calendar API OAuth | Acts, with your yes | Phase 3 |
 | Contacts | Google People API, or a vCard export | Reads | Phase 3 |
-| Oura Ring 4 | Oura API v2 (OAuth) | Reads | Phase 7 |
+| Oura Ring | Oura API v2 (OAuth, `deploy/oura.sh`), with a health plan on top (`docs/HEALTH.md`) | Reads | ✅ Now |
 | WhatsApp (tutor lessons to you) | WhatsApp Business API | Sends only to you | Phase 5 |
 | Booking sites, forms, subscriptions | Browser agent in a sandbox | Acts, with your yes | Phase 6 |
 | Teams, Zoom, Meet | Laptop helper or meeting bot | Reads (Call Co-pilot) | Later |

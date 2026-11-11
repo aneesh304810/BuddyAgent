@@ -118,6 +118,17 @@ CATALOG: dict[str, dict] = {
     "health_connect": {"group": "Health", "title": "Phone health data (Health Connect)", "auth": {"type": "phone"},
                        "privacy": "personal", "used_for": "your steps, sleep, heart rate and workouts, from the phone",
                        "reports": True},
+    # The owner's Oura Ring (oura.py): read only, linked with Oura's sign-in; its refresh tokens work once, so
+    # oura.py renews them itself and keeps the newest.
+    "oura": {"group": "Health", "title": "Oura Ring", "hosts": ["https://api.ouraring.com"],
+             "auth": {"type": "oauth", "token_url": "https://api.ouraring.com/oauth/token",
+                      "fields": {"client_id": "BUDDY_OURA_CLIENT_ID", "client_secret": "BUDDY_OURA_CLIENT_SECRET",
+                                 "refresh_token": "BUDDY_OURA_REFRESH_TOKEN"}},
+             "cost": 0.0, "per_minute": 30, "privacy": "personal", "no_backup": True,
+             "used_for": "your readiness, sleep, HRV, temperature, activity and workouts from the ring, for your "
+                         "health plan",
+             "setup_command": "sudo bash /opt/buddy/deploy/oura.sh", "health": {"custom": "oura.check"},
+             "moved": True},
     "phone_contacts": {"group": "Calls", "title": "Phone contacts (who's calling)", "auth": {"type": "phone"},
                        "privacy": "personal", "used_for": "names and numbers from your phone, so Buddy greets callers "
                        "by name; kept only on your server", "reports": True},

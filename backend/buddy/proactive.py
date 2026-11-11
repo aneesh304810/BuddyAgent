@@ -71,6 +71,12 @@ async def morning_briefing(memory: Memory) -> str:
     ]
     from . import nest  # noqa: PLC0415
     home = await asyncio.to_thread(nest.status_line, memory)  # '' without a Nest
+    from . import coach, oura  # noqa: PLC0415
+    await asyncio.to_thread(oura.sync_if_due, memory)  # last night's sleep and readiness
+    try:
+        body = await asyncio.to_thread(coach.morning_line, memory)  # '' without a health plan
+    except Exception:
+        body = ""
     return await compose(
         system,
         f"It's {local_now().strftime('%A %d %B, %I:%M %p')}. Give the user a short, upbeat "
@@ -82,6 +88,7 @@ async def morning_briefing(memory: Memory) -> str:
         f"Tasks: {Organiser(memory).morning_line()}. "
         f"Bills: {Money(memory).morning_line()}. "
         f"{('Home thermostat (mention only if notable): ' + home + '. ') if home else ''}"
+        f"{('Their health plan (one short line on how recovered they are and what that means today): ' + body + '. ') if body else ''}"
         f"Email: {MailManager(memory, None).briefing_line()}. "
         f"Spending: {Thrift(memory).summary()}. "
         f"Buddy's own health check (mention in a few words only if there's something): "
@@ -436,6 +443,25 @@ async def run(memory: Memory, deliver: Deliver, connected=None) -> None:
                         moments.told(m)
             except Exception:
                 log.exception("connecting plans failed")
+            try:  # the health plan: the ring's data every few hours, and its nudges (coach.py), each said once
+                from . import coach, oura  # noqa: PLC0415
+                await asyncio.to_thread(oura.sync_if_due, memory)
+                said_key = "coach:said"
+                said = set(json.loads(memory.get(said_key) or "[]"))
+                busy = None
+                for m in await asyncio.to_thread(coach.nudges, memory):
+                    if m["key"] in said or in_quiet_hours():
+                        continue
+                    if busy is None:  # driving or in a meeting: these wait
+                        from .maps import Maps  # noqa: PLC0415
+                        busy = await asyncio.to_thread(Maps(memory).hold_non_urgent)
+                    if not busy and await deliver("coach", m["text"]):
+                        said.add(m["key"])
+                        memory.set(said_key, json.dumps(sorted(said)[-60:]))
+                if local_now().hour == 3:
+                    await asyncio.to_thread(coach.prune, memory)
+            except Exception:
+                log.exception("health plan nudges failed")
             try:  # flights: the user's tracked flights, every 15 minutes from 4 hours before take-off to landing
                 from .flights import Flights  # noqa: PLC0415
                 fl = Flights(memory)
