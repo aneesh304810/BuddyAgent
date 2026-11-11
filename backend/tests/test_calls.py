@@ -737,7 +737,7 @@ def test_buddy_speaks_each_sentence_as_claude_writes_it(tmp_path, env, monkeypat
     async def say_now(chunk):
         spoken.append(chunk)
     move = asyncio.run(calls.think(m, call, [{"role": "user", "content": "hi"}], say_now=say_now))
-    assert spoken == ["Sure.", "Thursday at two works for us."]
+    assert spoken == ["Sure. Thursday at two works for us."]  # "Sure." alone would be rushed
     assert move["say"] == "Sure. Thursday at two works for us." and move["action"] == "end"
     assert move["spoken"] == "Sure. Thursday at two works for us." and move["outcome"] == "Thursday 2pm"
 
@@ -750,8 +750,50 @@ def test_buddy_speaks_each_sentence_as_claude_writes_it(tmp_path, env, monkeypat
         out["finished"].append(mv)
     mind = calls.Mind(m, call, say=say, press_keys=None, finish=finish)
     asyncio.run(mind.heard("What time works?"))
-    assert out["said"] == ["Sure.", "Thursday at two works for us."]  # each once, never twice
+    assert out["said"] == ["Sure. Thursday at two works for us."]  # once, never twice
     assert "## " in mind.history[-1]["content"]
+
+
+def test_voice_gets_the_opening_sentence_then_the_rest_in_one_piece(tmp_path, env, monkeypatch):
+    m = Memory(tmp_path / "b.db")
+    call = {**calls.plan(m, "Dr", "2015550123", "question", "hours?"), "_system": "x"}
+    pieces = ["Yes, we're open on Monday. ", "We close at six. ", "Anything else? ", "\n## ", '{"action": "continue"}']
+
+    class Client:
+        class messages:
+            @staticmethod
+            def stream(**kw):
+                return _FakeStream(pieces)
+    monkeypatch.setattr(calls, "_CLIENT", Client)
+    spoken = []
+
+    async def say_now(chunk):
+        spoken.append(chunk)
+    move = asyncio.run(calls.think(m, call, [{"role": "user", "content": "hi"}], say_now=say_now))
+    assert spoken == ["Yes, we're open on Monday.", "We close at six. Anything else?"]
+    assert move["spoken"] == move["say"]
+
+
+def test_send_ahead_starts_fresh_after_an_interruption():
+    import time
+
+    class Output:
+        _send_interval = 0.04
+
+        async def _write_audio_sleep(self):
+            pass
+    out = Output()
+    calls._send_ahead(out)
+
+    async def go():
+        for _ in range(30):  # 1.2 s of audio queued ahead
+            await out._write_audio_sleep()
+        out._next_send_time = 0  # Pipecat: interrupted, Plivo's queue cleared
+        start = time.monotonic()
+        for _ in range(10):  # the reserve is rebuilt at once, not after the old one "plays out"
+            await out._write_audio_sleep()
+        return time.monotonic() - start
+    assert asyncio.run(go()) < 0.05
 
 
 def test_old_and_new_reply_forms_are_both_read():

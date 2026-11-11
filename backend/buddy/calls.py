@@ -51,7 +51,9 @@ KEEP_DAYS = 180
 DEFAULT_VOICE = "21m00Tcm4TlvDq8ikWAM"  # ElevenLabs' "Rachel" (female); BUDDY_CALL_VOICE changes it
 ECHO_WINDOW_S = 1.5               # a transcript this soon after Buddy spoke is checked for being its own echo
 BARGE_IN_WORDS = 3                # Buddy stops talking only once the other side has said this many words
-FILLER_AFTER_S = 1.2              # no reply yet after this long: a quick "Mm-hmm" rather than silence
+FILLER_AFTER_S = 1.6              # no reply yet after this long: a quick "Mm-hmm" rather than silence
+FIRST_PIECE_WORDS = 4             # the first words spoken while Claude still writes: at least this many
+VOICE_RATE = 16000                # ElevenLabs renders at 16 kHz; it is brought down to the 8 kHz line cleanly
 FILLERS = ("Mm-hmm.", "Okay,", "Sure,", "Got it,", "Right,")
 AUDIO_LEAD_S = 0.4                # Buddy's voice is sent this far ahead, so network jitter doesn't stutter it
 VOICE_SPEED = 0.95                # ElevenLabs: 1.0 is normal; a little slower is clearer on a phone line
@@ -642,8 +644,16 @@ async def think(memory: Memory, call: dict, history: list[dict], env=None, say_n
             if say_now is None:
                 continue
             words = text.split("##", 1)[0]
-            # Each finished sentence is spoken as soon as it's written, while Claude writes the rest.
-            done = [m.end() for m in re.finditer(r"[.!?](?=\s)", words)] if "##" not in text else [len(words)]
+            # The voice gets at most two pieces per reply: the opening sentence(s) as soon as they're written (at
+            # least FIRST_PIECE_WORDS words, so a lone "Sure." isn't rushed), then all the rest at once. Each
+            # piece is voiced on its own, so fewer, longer pieces keep the speech's rhythm natural and gapless.
+            if "##" in text:
+                done = [len(words)]
+            elif said:
+                done = []
+            else:
+                done = [e for e in (m.end() for m in re.finditer(r"[.!?](?=\s)", words))
+                        if len(words[:e].split()) >= FIRST_PIECE_WORDS][:1]
             if done and done[-1] > spoken:
                 chunk = " ".join(words[spoken:done[-1]].split())
                 spoken = done[-1]
@@ -783,9 +793,13 @@ def _send_ahead(output) -> None:
     if not hasattr(output, "_write_audio_sleep") or not hasattr(output, "_send_interval"):
         return  # a Pipecat without this clock: leave it as it is
     clock = {"next": 0.0}
+    output._next_send_time = -1  # Pipecat sets it to 0 when Buddy is interrupted: the line's reserve was cleared
 
     async def ahead():
         now = time.monotonic()
+        if getattr(output, "_next_send_time", -1) == 0:
+            clock["next"] = 0.0
+        output._next_send_time = -1
         clock["next"] = max(clock["next"], now) + output._send_interval
         wait = clock["next"] - now - AUDIO_LEAD_S
         if wait > 0:
@@ -1003,7 +1017,7 @@ async def run_stream(memory: Memory, websocket, call: dict, deliver=None, env=No
 
     def voice_service(v: str, m: str):
         # Tuned for phone lines: a touch slower and steadier, so it stays clear on a narrow 8 kHz line.
-        return ElevenLabsTTSService(api_key=env_get("BUDDY_ELEVENLABS_KEY"), settings=ElevenLabsTTSService.Settings(
+        return ElevenLabsTTSService(api_key=env_get("BUDDY_ELEVENLABS_KEY"), sample_rate=VOICE_RATE, settings=ElevenLabsTTSService.Settings(
             voice=v, model=m, speed=VOICE_SPEED, stability=0.6, similarity_boost=0.8))
     voices = [voice_service(v, m) for v, m in choices]
     # If ElevenLabs refuses the chosen model or voice, the next one takes over within the same call.
