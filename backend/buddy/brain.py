@@ -292,7 +292,7 @@ class Brain:
         if source == "note":
             row = db.execute("SELECT * FROM brain_notes WHERE id = ? AND (expires IS NULL OR expires > ?)",
                              (ref, datetime.now(timezone.utc).isoformat())).fetchone()
-            return {"source": "note", "kind": row["kind"], "title": row["title"], "text": row["text"][:1500],
+            return {"source": "note", "kind": row["kind"], "title": row["title"], "text": row["text"][:800],
                     "from": row["source"], "saved": row["created_at"][:10]} if row else None
         row = db.execute("SELECT c.item_id, c.n, c.text, i.name, i.title, i.kind, i.vault, i.added_at "
                          "FROM library_chunks c JOIN library_items i ON i.id = c.item_id WHERE c.id = ?",
@@ -304,7 +304,7 @@ class Brain:
         locked = row["vault"] and not Library(self.memory).unlocked(row["item_id"])
         return {"source": "document", "id": row["item_id"], "file": row["name"], "title": row["title"],
                 "kind": row["kind"], "part": row["n"] + 1, "added": row["added_at"][:10],
-                "text": "[vault item: ask the user before opening it]" if locked else row["text"][:1500]}
+                "text": "[vault item: ask the user before opening it]" if locked else row["text"][:800]}
 
     # --- Buddy's own notes: the knowledge that grows ------------------------------------------------
     def add_note(self, kind: str, title: str, text: str, source: str = "", days: int | None = None) -> list[int]:
