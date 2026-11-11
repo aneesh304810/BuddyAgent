@@ -68,3 +68,13 @@ Regenerate the site: `cd <Buddywebsite clone> && python3 <BuddyAgent>/docs/websi
   page. Changing it signs everyone out. Ten tries an hour per visitor. `/docs/` is noindex and in robots.txt.
 - The docs may name services and describe how Buddy Connect works (they're behind the sign-in), but never a server
   address, token, key, password or file path. Keep them in step with `backend/buddy/gateway.py`.
+
+## Architecture and developer pages (added 11 November 2026, at the owner's request)
+
+- `/docs/architecture` (end-to-end architecture, diagrams, security model, threats, gaps) and `/docs/developers`
+  (stack, code map, app protocol, tools, connectors, testing, CI, tech-lead notes): `architecture.py` and
+  `developers.py`, run by `apidocs.py`.
+- **Open for review:** `OPEN_FOR_REVIEW = true` in the site repo's `functions/docs/_middleware.js` lets anyone with the
+  address read `/docs/` without the password while the owner reviews. Set it back to `false` (and push) to require the
+  password again. The pages stay noindex and disallowed in robots.txt either way.
+- Same rule as the API docs: services may be named, but never a server address, port, token, key, password or file path.

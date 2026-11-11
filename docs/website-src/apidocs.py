@@ -3,17 +3,18 @@
 # token, key or password here: the pages are served only after sign-in, but they live in the site's repo.
 import os
 
-DOCS_UPDATED = "November 10, 2026"
+DOCS_UPDATED = "November 11, 2026"
 
 
-def docs_page(file, title, body, nav=True):
+def docs_page(file, title, body, nav=True, side=None):
     os.makedirs("docs", exist_ok=True)
-    side = """
+    side = side or """
 <aside class="docnav"><strong>Buddy Connect API</strong>
 <a href="#overview">Overview</a><a href="#concepts">Concepts</a><a href="#groups">Groups and services</a>
 <a href="#privacy">Privacy rules</a><a href="#reliability">Reliability</a><a href="#auth">Authentication</a>
 <a href="#http">HTTP API</a><a href="#errors">Errors</a><a href="#python">Using it inside Buddy</a>
 <a href="#add">Adding a provider</a><a href="#apps">Connecting another app</a><a href="#limits">Limits and versions</a>
+<a href="architecture.html">Architecture</a><a href="developers.html">Developers</a>
 <a href="/api/docs-login?logout=1">Sign out</a></aside>""" if nav else ""
     html = f"""<!doctype html>
 <html lang="en">
@@ -28,12 +29,12 @@ def docs_page(file, title, body, nav=True):
 <body>
 <header class="site"><div class="wrap">
   <a class="logo" href="../index.html"><span class="mark" aria-hidden="true">B</span><span>{CO}</span></a>
-  <nav class="site" aria-label="Main"><a href="../connect.html">Buddy Connect</a><a href="index.html" aria-current="page">API documentation</a></nav>
+  <nav class="site" aria-label="Main"><a href="../connect.html">Buddy Connect</a><a href="index.html"{' aria-current="page"' if file == "index.html" else ""}>API documentation</a><a href="architecture.html"{' aria-current="page"' if file == "architecture.html" else ""}>Architecture</a><a href="developers.html"{' aria-current="page"' if file == "developers.html" else ""}>Developers</a></nav>
 </div></header>
 <main><div class="wrap {'docs' if nav else ''}">{side}<article class="doc">
 {body}
 </article></div></main>
-<footer class="site"><div class="wrap"><span>© 2026 {CO}. Confidential: for approved partners. Updated {DOCS_UPDATED}.</span></div></footer>
+<footer class="site"><div class="wrap"><span>© 2026 {CO}. Confidential: for review and approved partners. Updated {DOCS_UPDATED}.</span></div></footer>
 </body>
 </html>
 """
@@ -215,3 +216,6 @@ server, under the privacy rules above.</p>
 <li>Questions: <a href="mailto:{EMAIL}?subject=Buddy%20Connect%20API">{EMAIL}</a>.</li>
 </ul>
 """)
+
+exec(open(os.path.join(os.path.dirname(os.path.abspath(sys.argv[1])), "architecture.py")).read())
+exec(open(os.path.join(os.path.dirname(os.path.abspath(sys.argv[1])), "developers.py")).read())
