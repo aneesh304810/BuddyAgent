@@ -79,25 +79,16 @@ def test_lookup_failures_dont_break_location():
     assert now["lat"] == round(HERE[0], 5) and now["current_shop"] == ""
 
 
-def test_nearby_uses_serper_through_gateway_and_skips_without_key(monkeypatch):
+def test_the_position_isnt_sent_to_a_search_service(monkeypatch):
     from buddy import gateway
-    monkeypatch.delenv("BUDDY_SERPER_KEY", raising=False)
-    loc_mod._near.clear()
-    assert loc_mod._nearby(*HERE) == []
-    calls = []
 
-    def fake_call(memory, name, path, **kw):
-        calls.append((name, path, kw["json_body"]))
-        return {"places": [{"title": "Blue Bottle Coffee", "category": "Coffee shop", "latitude": HERE[0],
-                            "longitude": HERE[1], "address": "450 W 15th St"}, {"title": "No coords"}]}
-    monkeypatch.setattr(gateway, "call", fake_call)
+    def no_calls(*a, **k):
+        raise AssertionError("no outside lookup of nearby places")
+    monkeypatch.setattr(gateway, "call", no_calls)
     monkeypatch.setenv("BUDDY_SERPER_KEY", "test-key")
-    got = loc_mod._nearby(*HERE)
-    assert [p["name"] for p in got] == ["Blue Bottle Coffee"]
-    assert calls[0][0] == "serper" and calls[0][1] == "/places" and calls[0][2]["ll"].startswith("@40.742")
-    assert "test-key" not in json.dumps(calls)  # the key is added by the gateway, server-side
-    loc_mod._near.clear()
-
+    memory = Memory(":memory:")
+    now = Location(memory, reverse=lambda la, ln: parse_reverse(OSM_IN_CAFE)).update(*HERE)
+    assert now["nearby"] == [] and now["current_shop"]  # the shop still comes from OpenStreetMap
 
 def test_metres():
     assert abs(metres(HERE, _offset(100)) - 100) < 1

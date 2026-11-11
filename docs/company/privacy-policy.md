@@ -1,6 +1,6 @@
 # Buddy Privacy and Data Retention Policy
 
-Source: https://claude.ai/artifact/MJVGZ7pWQvi26tg1MS914P, revision 71
+Source: https://claude.ai/artifact/MJVGZ7pWQvi26tg1MS914P, revision 73
 
 Nov 1, 2026 · @Aneesh
 
@@ -20,7 +20,7 @@ Buddy collects only the owner's own data, and only what its features need.
 | Emails (bills, receipts, bookings) | The owner's email accounts, using an app password | Read-only |
 | Calendar events | The owner's calendars and phone | Read-only |
 | Phone notifications | The Buddy app on the owner's phone, with Android notification access | Read-only |
-| Location (neighbourhood and city), a 60-day history of where the phone was, and the places learned from it (home, work, places the owner names) with the weekday commute learned from it (usual leave and arrival times each way, and the PATH stations and light rail lines the phone passes) | The owner's phone, only when location sharing is on | The latest, for answers about where the owner is; the history, to learn home, work and usual times, to remind at the right time and place, and to hold non-urgent messages while driving |
+| Location (neighbourhood, city, street address, and the shop or place the owner is in when OpenStreetMap names it, with a list of such places visited, for the routine), a 60-day history of where the phone was, and the places learned from it (home, work, places the owner names) with the weekday commute learned from it (usual leave and arrival times each way, and the PATH stations and light rail lines the phone passes) | The owner's phone, only when location sharing is on | The latest, for answers about where the owner is; the history, to learn home, work and usual times, to remind at the right time and place, and to hold non-urgent messages while driving |
 | Voice clips and speech transcripts | The owner's phone microphone while Buddy is listening | Processed, not kept as audio |
 | Voiceprint (for voice match) | Five sentences the owner reads once | Stored as numbers, no audio |
 | The owner's own lines in conversations (conversation coaching) | Listen-in, only when the owner turns coaching on; voice match picks out the owner's own voice | Only the owner's words, for their English review; other people's words are never kept |
@@ -118,7 +118,7 @@ Buddy uses a few service providers to work. Each sees only what its job needs, u
 | MTA (api-endpoint.mta.info), NJ Transit (raildata.njtransit.com for trains, pcsdata.njtransit.com for buses and light rail), Port Authority PATH (panynj.gov) | Live service alerts and next trains for the lines the owner rides | No personal data: MTA and PATH feeds are downloaded whole and filtered on Buddy's server. NJ Transit receives the owner's NJ Transit developer username and password, to issue an access token |
 | AirLabs (airlabs.co) | Live status of the owner's tracked flights | Flight numbers only (for example AA1234); never the owner's name, booking or ticket details |
 | FlightAware AeroAPI (aeroapi.flightaware.com) | A backup for the owner's tracked flights when other sources lack the gate, delay or status | Flight numbers only (for example AA1234); never the owner's name, booking or ticket details |
-| OpenStreetMap Nominatim (nominatim.openstreetmap.org) | Turning the owner's shared location into a neighbourhood and city name, and finding an airport's position | The phone's shared coordinates (only when location sharing is on), airport codes, and the address of a calendar event with a place (to work out when to leave); never the owner's name or the event's details |
+| OpenStreetMap Nominatim (nominatim.openstreetmap.org) | Turning the owner's shared location into a neighbourhood, city and street address (and the shop or place it's in), and finding an airport's position. The position is never sent to a search service | The phone's shared coordinates (only when location sharing is on), airport codes, and the address of a calendar event with a place (to work out when to leave); never the owner's name or the event's details |
 | Open-Meteo (open-meteo.com) | Weather forecasts where the owner is, for places they ask about, and at a trip's destination | Coordinates rounded to about 1 km, or a place name; never the owner's name or plans |
 | 17TRACK (api.17track.net), optional | Live status of the owner's packages, when its key is set | Tracking numbers only |
 | Hacker News (Algolia search), Google News (Serper), Google Trends (SerpApi), arXiv, GitHub | What people are discussing on the topics the owner watches or asks about: stories, headlines, rising searches, new papers and projects | The topic's search words only; never anything personal |

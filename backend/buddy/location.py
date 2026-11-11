@@ -8,18 +8,16 @@ Miraflores, Lima".
 
 With the GPS fix the phone shares, Buddy also works out:
   street        the street address (house number and road, from the same OpenStreetMap lookup)
-  nearby        shops, cafes and restaurants within about NEARBY_M metres (Google Maps places via Serper,
-                through Buddy Connect so the key stays on the server; skipped when BUDDY_SERPER_KEY isn't set)
-  current_shop  the place the coordinates are inside, if any: the shop/amenity OpenStreetMap puts the point in,
-                else the nearest listed place within INSIDE_M metres. Remembered (name and spot only) so the
-                learned routine (routine.py) can name exact places.
+  current_shop  the place the coordinates are inside, if any: the shop/amenity OpenStreetMap puts the point in.
+                Remembered (name and spot only) so the learned routine (routine.py) can name exact places.
+The coordinates go only to OpenStreetMap's geocoder (as before), never to a search service: a list of nearby places
+could be passed in (nearby=), but none is looked up by default, so the owner's exact position isn't shared.
 When nothing matches, neighbourhood and city are still there, as before.
 """
 
 import json
 import logging
 import math
-import time
 import urllib.parse
 import urllib.request
 from datetime import datetime, timedelta, timezone
@@ -36,7 +34,6 @@ SHOPS_KEY = "location:shops"   # [{"name", "lat", "lng"}]: places the owner has 
 SHOPS_KEEP = 300
 INSIDE_KINDS = {"shop", "amenity", "leisure", "tourism", "craft", "office", "healthcare"}
 _names: dict[tuple, dict] = {}
-_near: dict[tuple, list] = {}
 
 
 def _reverse(lat: float, lng: float) -> dict:
@@ -79,25 +76,6 @@ def metres(a: tuple[float, float], b: tuple[float, float]) -> float:
     return 2 * 6_371_000 * math.asin(math.sqrt(min(1.0, h)))
 
 
-def _nearby(lat: float, lng: float, memory: Memory | None = None, env=None) -> list[dict]:
-    """Shops, cafes and restaurants Google Maps lists around the point (Serper /places, key kept server-side by
-    Buddy Connect). [] when Serper isn't set up. Cached per ~10 m spot."""
-    from . import gateway  # noqa: PLC0415
-    if not gateway.configured("serper", env):
-        return []
-    key = (round(lat, 4), round(lng, 4))
-    if key in _near:
-        return _near[key]
-    data = gateway.call(memory, "serper", "/places", env=env, purpose="location:nearby",
-                        json_body={"q": "shops cafes restaurants", "ll": f"@{lat:.6f},{lng:.6f},19z"})
-    out = [{"name": p["title"], "category": p.get("category") or "", "address": p.get("address") or "",
-            "lat": float(p["latitude"]), "lng": float(p["longitude"])}
-           for p in (data.get("places") or []) if p.get("title") and p.get("latitude") is not None
-           and p.get("longitude") is not None]
-    _near[key] = out
-    return out
-
-
 def around(lat: float, lng: float, place: dict, found: list[dict]) -> tuple[list[dict], dict | None]:
     """The listed places within NEARBY_M metres (closest first) and the one the point is in, if any."""
     near = []
@@ -123,7 +101,7 @@ class Location:
     def __init__(self, memory: Memory, reverse=_reverse, nearby=None):
         self.memory = memory
         self.reverse = reverse
-        self.nearby = nearby or (lambda lat, lng: _nearby(lat, lng, memory))
+        self.nearby = nearby or (lambda lat, lng: [])  # no lookup by default: the position isn't sent anywhere
 
     def update(self, lat: float, lng: float, accuracy: float | None = None) -> dict:
         if not (-90 <= lat <= 90 and -180 <= lng <= 180):
