@@ -118,12 +118,12 @@ CATALOG: dict[str, dict] = {
     "health_connect": {"group": "Health", "title": "Phone health data (Health Connect)", "auth": {"type": "phone"},
                        "privacy": "personal", "used_for": "your steps, sleep, heart rate and workouts, from the phone",
                        "reports": True},
-    # The owner's Oura Ring (oura.py): read only, linked with Oura's sign-in; its refresh tokens work once, so
-    # oura.py renews them itself and keeps the newest.
+    # The owner's Oura Ring (oura.py): read only, linked with Oura's sign-in coming back to this server's own page;
+    # its refresh tokens work once, so oura.py renews them itself and keeps the newest (in the database).
     "oura": {"group": "Health", "title": "Oura Ring", "hosts": ["https://api.ouraring.com"],
              "auth": {"type": "oauth", "token_url": "https://api.ouraring.com/oauth/token",
-                      "fields": {"client_id": "BUDDY_OURA_CLIENT_ID", "client_secret": "BUDDY_OURA_CLIENT_SECRET",
-                                 "refresh_token": "BUDDY_OURA_REFRESH_TOKEN"}},
+                      "fields": {"client_id": "BUDDY_OURA_CLIENT_ID", "client_secret": "BUDDY_OURA_CLIENT_SECRET"}},
+             "link": "oura",  # each user connects in the app (Connect): oura.start_link / finish_link / linked
              "cost": 0.0, "per_minute": 30, "privacy": "personal", "no_backup": True,
              "used_for": "your readiness, sleep, HRV, temperature, activity and workouts from the ring, for your "
                          "health plan",
@@ -574,9 +574,41 @@ def status(memory, env=None) -> list[dict]:
                     "last_at": last.get("at", ""), "last_error": last.get("error", ""), "calls_this_month": n,
                     "failed_this_month": bad, "cost_this_month": round(usd, 4), "can_test": bool(entry.get("health")),
                     "setup": setup_hint(name), "missing_keys": missing_keys(name, env)})
+        if entry.get("link") and configured(name, env):  # set up on the server; each user still signs in (Connect)
+            row = out[-1]
+            row["can_link"] = True
+            row["linked"] = linked(name, memory, env)
+            if not row["linked"]:
+                row.update(set_up=False, setup="")
     for row in out:
         row["state"] = state_of(row)
     return out
+
+
+def _link_module(name: str):
+    import importlib  # noqa: PLC0415
+    return importlib.import_module(f"buddy.{CATALOG[name]['link']}")
+
+
+def linked(name: str, memory, env=None) -> bool:
+    """A service each user signs in to (catalog "link"): has this one?"""
+    try:
+        return bool(_link_module(name).linked(memory, env))
+    except Exception:
+        return False
+
+
+def start_link(name: str, memory, env=None) -> dict:
+    """The sign-in link for a service each user connects themselves: {"url", "minutes"}."""
+    if not CATALOG.get(name, {}).get("link"):
+        raise ConnectError(name, f"{name} isn't connected by signing in.")
+    return _link_module(name).start_link(memory, env)
+
+
+def finish_link(name: str, memory, code: str, state: str, env=None, fetch=None) -> dict:
+    if not CATALOG.get(name, {}).get("link"):
+        raise ConnectError(name, f"{name} isn't connected by signing in.")
+    return _link_module(name).finish_link(memory, code, state, env=env, fetch=fetch)
 
 
 # How the Connections screen orders a service: what needs the owner first, then what works, then what's idle.
@@ -632,9 +664,10 @@ TOOL = {
     "this month. find: the services that can do a job (query, e.g. 'train delays', 'stock prices', 'flight status') "
     "with their state, and how to attach (set up) one that isn't; use it when a task needs an outside service you "
     "aren't sure is available, or a tool says a service isn't set up. list: all of them; test: one small real "
-    "request to one service (name).",
+    "request to one service (name); link: the sign-in link for a service each user connects to their own account "
+    "(name, e.g. oura): give it to them to open, it's valid 15 minutes.",
     "input_schema": {"type": "object", "properties": {
-        "action": {"type": "string", "enum": ["find", "list", "test"]},
+        "action": {"type": "string", "enum": ["find", "list", "test", "link"]},
         "query": {"type": "string", "description": "find: the job or the service, in a few words"},
         "name": {"type": "string", "description": "test: the service, e.g. njt_rail, njt_bus, serper, mta, path"}},
         "required": ["action"], "additionalProperties": False},
@@ -666,7 +699,10 @@ def run_tool(memory, args: dict) -> str:
                     "offer to send it to Claude Code).")
         lines = []
         for r in found[:5]:
-            if not r["set_up"]:
+            if not r["set_up"] and r.get("can_link"):
+                lines.append(f"- {r['title']} ({r['used_for']}): not connected yet. They connect their own account: "
+                             f"Connections > {r['group']} > {r['title']} > Connect (or the link action)")
+            elif not r["set_up"]:
                 lines.append(f"- {r['title']} ({r['used_for']}): not attached. To attach it, on the server: "
                              f"{r['setup'] or 'nothing to set'}; then sudo systemctl restart buddy")
             else:
@@ -674,6 +710,13 @@ def run_tool(memory, args: dict) -> str:
                                                         else "attached, not used yet")
                 lines.append(f"- {r['title']} ({r['used_for']}): {state}")
         return "Services for that:\n" + "\n".join(lines)
+    if args.get("action") == "link":
+        name = (args.get("name") or "").strip()
+        if name not in CATALOG:
+            return f"No service called {name!r}. Known: {', '.join(CATALOG)}."
+        got = start_link(name, memory)
+        return (f"Sign-in link for {CATALOG[name]['title']} (valid {got['minutes']} minutes, open it on a device on "
+                f"the Buddy network): {got['url']}")
     if args.get("action") == "test":
         name = (args.get("name") or "").strip()
         if name not in CATALOG:

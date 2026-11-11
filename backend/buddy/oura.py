@@ -5,14 +5,20 @@ lowest heart rate, bedtime and wake time), temperature deviation, steps and acti
 time, resilience, blood oxygen and workouts. Kept 90 days in the encrypted database, like the phone's Health Connect
 data. Personal: only Claude sees it (never the free models), and nothing about the owner is sent anywhere else.
 
-Linked once with deploy/oura.sh (Oura's sign-in, OAuth). Oura's refresh tokens work once: every renewal returns a new
-one, which is saved here at once (the first comes from the server's settings, BUDDY_OURA_REFRESH_TOKEN). Running
-oura.sh again starts over from the new link.
+Two steps, made for anyone using Buddy:
+  once per server  whoever runs it registers an Oura app and runs deploy/oura.sh (client ID and secret, hidden).
+  each user        Connections > Health > Oura Ring > Connect: Buddy makes a sign-in link (start_link, with a
+                   one-time state valid 15 minutes), the browser goes to Oura, the user allows access, and Oura sends
+                   it back to this server's own page (/connect/oura/linked, on the private tailnet only), which swaps
+                   the code for the tokens (finish_link). Nothing to copy, and the code never passes through anyone
+                   else's site.
+The tokens live in the encrypted database. Oura's refresh tokens work once: every renewal returns a new one, which
+is saved at once. Connecting again replaces them.
 """
 
-import hashlib
 import json
 import re
+import secrets
 import threading
 import time
 import urllib.parse
@@ -24,7 +30,10 @@ from .tools import local_now
 
 API = "/v2/usercollection/"
 TOKEN_URL = "https://api.ouraring.com/oauth/token"
-TOKENS_KEY = "oura:tokens"     # {"seed", "refresh", "access", "until"}: the current (rotated) tokens
+TOKENS_KEY = "oura:tokens"     # {"refresh", "access", "until"}: the current (rotated) tokens
+LINK_KEY = "oura:link"         # {"state", "until"}: the sign-in link in progress
+AUTHORIZE_URL = "https://cloud.ouraring.com/oauth/authorize"
+LINK_MINUTES = 15
 SYNC_KEY = "oura:synced"
 PROFILE_KEY = "oura:profile"   # age, weight, height, sex from Oura (for calorie and protein targets)
 KEEP_DAYS = 90
@@ -49,26 +58,79 @@ def _ready(memory: Memory) -> None:
     memory.db.executescript(SCHEMA)
 
 
-def linked(env=None) -> bool:
-    return gateway.configured("oura", env)
+def _tokens(memory: Memory) -> dict:
+    try:
+        return json.loads(memory.get(TOKENS_KEY) or "{}") if memory is not None else {}
+    except ValueError:
+        return {}
 
 
-def _seed(env) -> str:
-    return hashlib.sha256(gateway._secret(env, "BUDDY_OURA_REFRESH_TOKEN").encode()).hexdigest()[:16]
+def linked(memory: Memory, env=None) -> bool:
+    """The Oura app is set up (oura.sh) and the owner has signed in through the link."""
+    return gateway.configured("oura", env) and bool(_tokens(memory).get("refresh"))
+
+
+NOT_LINKED = "The Oura Ring isn't connected yet: Connections > Health > Oura Ring > Connect"
+
+
+def redirect_uri(memory: Memory, env=None) -> str:
+    """Where Oura sends the browser back: this server's own page (BUDDY_OURA_REDIRECT overrides it)."""
+    base = gateway._secret(env, "BUDDY_OURA_REDIRECT") or \
+        ((memory.get("server:base_url") or "").rstrip("/") + "/connect/oura/linked" if memory is not None else "")
+    return base if base.startswith("https://") else ""
+
+
+def start_link(memory: Memory, env=None) -> dict:
+    """The sign-in link to open (on a device on the tailnet), valid LINK_MINUTES."""
+    if not gateway.configured("oura", env):
+        raise gateway.ConnectError("oura", "Oura isn't available on this Buddy yet: whoever runs the server sets it "
+                                           "up once with sudo bash /opt/buddy/deploy/oura.sh")
+    back = redirect_uri(memory, env)
+    if not back:
+        raise gateway.ConnectError("oura", "Buddy doesn't know its own address yet: open the Buddy app once, then "
+                                           "try again.")
+    state = secrets.token_urlsafe(24)
+    memory.set(LINK_KEY, json.dumps({"state": state, "until": time.time() + LINK_MINUTES * 60, "back": back}))
+    q = {"response_type": "code", "client_id": gateway._secret(env, "BUDDY_OURA_CLIENT_ID"),
+         "redirect_uri": back, "state": state}
+    return {"url": AUTHORIZE_URL + "?" + urllib.parse.urlencode(q), "minutes": LINK_MINUTES}
+
+
+def finish_link(memory: Memory, code: str, state: str, env=None, fetch=None) -> dict:
+    """Oura sent the browser back with a code: check the state, swap the code for tokens, keep them."""
+    try:
+        link = json.loads(memory.get(LINK_KEY) or "{}")
+    except ValueError:
+        link = {}
+    if not (link.get("state") and state and secrets.compare_digest(str(state), link["state"])
+            and link.get("until", 0) > time.time()):
+        raise gateway.ConnectError("oura", "This sign-in link expired or was already used: ask Buddy for a new one.")
+    memory.set(LINK_KEY, "")  # once only
+    if not code:
+        raise gateway.ConnectError("oura", "Oura didn't send a code back (was access allowed?).")
+    body = urllib.parse.urlencode({
+        "grant_type": "authorization_code", "code": code,
+        "client_id": gateway._secret(env, "BUDDY_OURA_CLIENT_ID"),
+        "client_secret": gateway._secret(env, "BUDDY_OURA_CLIENT_SECRET"),
+        "redirect_uri": link.get("back") or redirect_uri(memory, env)}).encode()
+    got = gateway.call_url(memory, "oura", [TOKEN_URL], data=body, endpoint="/oauth/token", fetch=fetch,
+                           headers={"Content-Type": "application/x-www-form-urlencoded"}) or {}
+    if not got.get("refresh_token"):
+        raise gateway.ConnectError("oura", "Oura didn't give Buddy a refresh token.")
+    with _lock:
+        memory.set(TOKENS_KEY, json.dumps({"refresh": got["refresh_token"], "access": got.get("access_token", ""),
+                                           "until": time.time() + int(got.get("expires_in") or 3600)}))
+        memory.set(SYNC_KEY, "")  # sync at the next look
+    return {"linked": True}
 
 
 def access_token(memory: Memory, env=None, fetch=None, fresh: bool = False) -> str:
     """A current access token: kept until a minute before it ends, then renewed with the refresh token, whose
     replacement is saved before anything else happens."""
-    if not linked(env):
-        raise gateway.ConnectError("oura", "The Oura Ring isn't linked yet: sudo bash /opt/buddy/deploy/oura.sh")
+    if not linked(memory, env):
+        raise gateway.ConnectError("oura", NOT_LINKED)
     with _lock:
-        try:
-            saved = json.loads(memory.get(TOKENS_KEY) or "{}")
-        except ValueError:
-            saved = {}
-        if saved.get("seed") != _seed(env):  # oura.sh was run (again): start from the new link
-            saved = {"seed": _seed(env), "refresh": gateway._secret(env, "BUDDY_OURA_REFRESH_TOKEN")}
+        saved = _tokens(memory)
         if saved.get("access") and saved.get("until", 0) > time.time() + 60 and not fresh:
             return saved["access"]
         body = urllib.parse.urlencode({
@@ -81,7 +143,7 @@ def access_token(memory: Memory, env=None, fetch=None, fresh: bool = False) -> s
         except gateway.ConnectError as e:
             if e.status in (400, 401):
                 raise gateway.ConnectError("oura", f"Oura no longer accepts Buddy's link ({e.reason or e.status}): "
-                                                   "link it again with sudo bash /opt/buddy/deploy/oura.sh",
+                                                   "Connections > Health > Oura Ring > Connect again",
                                            e.status, e.reason) from e
             raise
         got = got or {}
@@ -209,7 +271,7 @@ def sync(memory: Memory, n: int = 14, env=None, fetch=None) -> int:
 
 def sync_if_due(memory: Memory, env=None, fetch=None) -> bool:
     """A sync when it's been SYNC_EVERY_S since the last one (and Oura is linked). Never raises."""
-    if not linked(env):
+    if not linked(memory, env):
         return False
     try:
         last = datetime.fromisoformat(memory.get(SYNC_KEY) or "2000-01-01T00:00:00+00:00")

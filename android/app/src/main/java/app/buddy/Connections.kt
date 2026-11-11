@@ -68,6 +68,8 @@ data class Service(
     val canTest: Boolean,
     val setup: String,
     val missingKeys: List<String> = emptyList(),
+    val canLink: Boolean = false,   // each user signs in to their own account (Connect), e.g. the Oura Ring
+    val linked: Boolean = false,
 ) {
     /** gateway.state_of: failing, missing_keys (half set up), working, unused (set up, never called), not_set_up */
     val state: String get() = when {
@@ -158,6 +160,8 @@ object ConnectionsApi {
                     setup = o.optString("setup"),
                     missingKeys = o.optJSONArray("missing_keys")?.let { a -> (0 until a.length()).map { a.optString(it) } }
                         ?: emptyList(),
+                    canLink = o.optBoolean("can_link"),
+                    linked = o.optBoolean("linked"),
                 )
             }.sortedWith(compareBy<Service>({ groupOrder(it.group) }, { it.rank }, { it.title }))
             val sent = body.optJSONArray("sections")
@@ -172,6 +176,20 @@ object ConnectionsApi {
             val placed = sections.flatMap { it.names }.toSet()
             val extra = services.filter { it.name !in placed }
             ConnectList(services, if (extra.isEmpty()) sections else sections + arrangeServices(extra))
+        }
+    }
+
+    /** The sign-in link for a service each user connects to their own account (POST /admin/connections/link). */
+    suspend fun signInLink(link: ServerLink, name: String): String = withContext(Dispatchers.IO) {
+        val request = Request.Builder()
+            .url(link.baseUrl + "/admin/connections/link")
+            .header("Authorization", "Bearer ${link.token}")
+            .post(JSONObject().put("name", name).toString().toRequestBody("application/json".toMediaType()))
+            .build()
+        http.newCall(request).execute().use { response ->
+            val o = runCatching { JSONObject(response.body?.string() ?: "{}") }.getOrDefault(JSONObject())
+            if (!response.isSuccessful) error(o.optString("detail").ifEmpty { "server said ${response.code}" })
+            o.optString("url").ifEmpty { error("no link came back") }
         }
     }
 
@@ -207,7 +225,7 @@ private fun stateOf(s: Service): Pair<String, Color> = when (s.state) {
 private fun glanceOf(s: Service): String = when (s.state) {
     "failing" -> s.lastError.ifEmpty { "Last call failed" }
     "missing_keys" -> "Missing " + s.missingKeys.joinToString(", ")
-    "not_set_up" -> s.usedFor
+    "not_set_up" -> if (s.canLink) "Tap to connect your account" else s.usedFor
     "unused" -> "Set up · not used yet"
     else -> listOfNotNull(
         sinceText(s.lastAt).takeIf { it.isNotEmpty() }?.let { "synced $it" },
@@ -267,6 +285,19 @@ fun ConnectionsScreen(link: ServerLink?) {
     val askContacts = rememberLauncherForActivityResult(
         androidx.activity.result.contract.ActivityResultContracts.RequestPermission()) { ok ->
         if (ok) { ContactsSync.setEnabled(context, true); syncContacts() } else contactsNote = "Not allowed, so nothing was read."
+    }
+
+    // Back from a sign-in page (Connect): show the new state.
+    val lifecycle = androidx.compose.ui.platform.LocalLifecycleOwner.current.lifecycle
+    androidx.compose.runtime.DisposableEffect(lifecycle) {
+        val watcher = androidx.lifecycle.LifecycleEventObserver { _, event ->
+            if (event == androidx.lifecycle.Lifecycle.Event.ON_RESUME && tests.values.any { it == "Opening sign-in…" }) {
+                tests.keys.filter { tests[it] == "Opening sign-in…" }.forEach { tests.remove(it) }
+                reload++
+            }
+        }
+        lifecycle.addObserver(watcher)
+        onDispose { lifecycle.removeObserver(watcher) }
     }
 
     LaunchedEffect(link, reload) {
@@ -396,6 +427,20 @@ fun ConnectionsScreen(link: ServerLink?) {
                                 onContactsAllow = { askContacts.launch(android.Manifest.permission.READ_CONTACTS) },
                                 onContactsShare = { ContactsSync.setEnabled(context, true); syncContacts() },
                                 onContactsSync = { syncContacts() },
+                                onConnect = {
+                                    if (link != null) {
+                                        tests[s.name] = "Getting the sign-in link…"
+                                        scope.launch {
+                                            runCatching { ConnectionsApi.signInLink(link, s.name) }
+                                                .onSuccess { url ->
+                                                    tests[s.name] = "Opening sign-in…"
+                                                    context.startActivity(android.content.Intent(
+                                                        android.content.Intent.ACTION_VIEW, android.net.Uri.parse(url)))
+                                                }
+                                                .onFailure { tests[s.name] = "✗ ${it.message}" }
+                                        }
+                                    }
+                                },
                                 onTest = {
                                     if (link != null) {
                                         tests[s.name] = "Testing…"
@@ -450,6 +495,7 @@ private fun ServiceRow(
     onContactsAllow: () -> Unit,
     onContactsShare: () -> Unit,
     onContactsSync: () -> Unit,
+    onConnect: () -> Unit,
     onTest: () -> Unit,
 ) {
     val context = LocalContext.current
@@ -533,6 +579,9 @@ private fun ServiceRow(
             }
             // actions, together on one line at the bottom
             Row(Modifier.padding(top = 4.dp)) {
+                if (s.canLink && link != null) {
+                    TextButton(onClick = onConnect) { Text(if (s.linked) "Reconnect" else "Connect", color = Pal.link) }
+                }
                 if (s.name == "phone_contacts" && link != null) {
                     when {
                         !ContactsSync.allowed(context) ->

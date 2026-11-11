@@ -467,7 +467,7 @@ def run_tool(memory: Memory, args: dict) -> str:
     if not p.get("habits") and action != "food":
         from . import oura  # noqa: PLC0415
         return json.dumps({"plan": None, "note": "No health plan yet: ask about their goals and set one up.",
-                           "oura_linked": oura.linked(), "recent": _snapshot(memory)})
+                           "oura_linked": oura.linked(memory), "recent": _snapshot(memory)})
     if action == "show":
         return json.dumps({"plan": p, "metrics": METRICS})
     if action == "today":

@@ -4,34 +4,33 @@ Buddy reads your Oura Ring (and the phone's Health Connect data), helps you set 
 few daily habits and food targets, tracks them automatically, and nudges you at the right moments. Everything stays
 on your Buddy server and only Claude sees it. It's coaching, not medical advice.
 
-## 1. Link your Oura Ring (about 10 minutes, once)
+## 1. Connect your Oura Ring
 
-Oura ended personal access tokens in December 2025, so Buddy links the same way other apps do (OAuth).
+Two parts: a one-time setup on the server by whoever runs Buddy, then a tap in the app for each person.
 
-1. Open **cloud.ouraring.com/oauth/applications** (or **developer.ouraring.com**), sign in with your Oura account,
-   and choose **New Application**.
-2. Fill in:
-   - **Display name:** `Buddy (personal)`
-   - **Description:** `My personal assistant, reading my own data`
-   - **Contact email:** yours
-   - **Website / Privacy policy / Terms:** any page of yours (for example your Buddy privacy policy link)
-   - **Redirect URI:** `https://www.google.com`
-   - **Scopes:** tick everything offered (Buddy only reads).
-3. Save, then note the **Client ID** and **Client Secret**.
-4. On the server:
-   ```
-   cd /opt/buddy && sudo git pull && sudo bash deploy/update.sh
-   sudo bash /opt/buddy/deploy/oura.sh
-   ```
-   It asks for the client ID and secret (hidden), then shows a link. Open it, sign in to Oura, **allow**. Oura
-   opens google.com with `?code=...` in the address bar: copy the whole address and paste it into the script
-   (hidden) within 10 minutes.
-5. Buddy app → **Menu → Connections → Health → Oura Ring → Test**. It should say ok.
+**Once per server (about 5 minutes).** Oura ended personal access tokens in December 2025, so Buddy uses Oura's
+sign-in (OAuth), like other apps.
+1. On the server: `cd /opt/buddy && sudo git pull && sudo bash deploy/update.sh`, then
+   `sudo bash /opt/buddy/deploy/oura.sh`. It prints this server's redirect URI, for example
+   `https://buddy.your-tailnet.ts.net/connect/oura/linked`.
+2. Open **cloud.ouraring.com/oauth/applications** (or **developer.ouraring.com**), sign in, **New Application**:
+   - **Display name:** `Buddy`; **Description:** `Personal assistant reading the user's own data`
+   - **Website / Privacy policy / Terms:** your Buddy privacy policy link
+   - **Redirect URI:** the one `oura.sh` printed, exactly
+   - **Scopes:** tick everything offered (Buddy only reads)
+3. Paste the **Client ID** and **Client Secret** into `oura.sh` (hidden). Buddy restarts.
+
+The redirect URI is the server's own page on your private Tailscale network: after sign-in Oura sends the browser
+straight back to Buddy, so there's no code to copy and it never passes through anyone else's site.
+
+**Each person (30 seconds).** Buddy app → **Menu → Connections → Health → Oura Ring → Connect** (or ask Buddy
+"connect my Oura ring"). Sign in to Oura, allow access, and the page says "Oura Ring is connected". Back in the app it
+shows Working. The phone must be on the Tailscale network (it is, if the Buddy app works).
 
 Buddy syncs the ring every 3 hours (and before the morning briefing). Ask "how did I sleep?" to check.
 
-**If Test says "link it again":** run `oura.sh` again. Oura's refresh tokens work once; Buddy keeps the newest
-itself, so this is only needed if you removed Buddy's access in your Oura account or restored an old server backup.
+**If it says "Connect again":** tap **Reconnect**. Oura's refresh tokens work once; Buddy keeps the newest itself,
+so this is only needed if access was removed in the Oura account or an old server backup was restored.
 
 ## 2. Set up your plan (a 5-minute chat)
 
@@ -66,5 +65,5 @@ Habits Buddy tracks by itself: **steps**, **sleep hours**, **bedtime** (lights o
 - Oura data and Health Connect data: 90 days on your server, then deleted. Only Claude sees them, never a free model.
 - The plan stays until you change it; the habit log and meals 90 days.
 - **"Forget my health plan"** deletes the plan, habit log and meals.
-- To stop Oura syncing: remove Buddy in your Oura account (Connected apps), or clear the three `BUDDY_OURA_*`
-  settings with `set.sh` and press Enter.
+- To stop Oura syncing: remove Buddy in your Oura account (Connected apps). To turn Oura off for the whole server,
+  clear the `BUDDY_OURA_*` settings with `set.sh` (press Enter).

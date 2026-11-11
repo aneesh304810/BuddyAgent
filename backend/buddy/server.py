@@ -574,7 +574,7 @@ async def protect(request: Request, call_next):
 class _HideTokens(logging.Filter):
     """The phone connects with ?token=...: keep it out of the server's logs."""
 
-    TOKEN = re.compile(r"(token=|/calls/[a-z]+/\d+/)[^&/\s\"']+")  # phone calls carry theirs in the path
+    TOKEN = re.compile(r"(token=|code=|state=|/calls/[a-z]+/\d+/)[^&/\s\"']+")  # calls: theirs in the path
 
     def filter(self, record: logging.LogRecord) -> bool:
         if isinstance(record.args, tuple):
@@ -933,6 +933,57 @@ async def admin_connection_test(body: dict) -> dict:
         raise HTTPException(404, "unknown service")
     ok, said = await asyncio.to_thread(gateway.health, name, memory)
     return {"name": name, "ok": ok, "said": said}
+
+
+@app.post("/admin/connections/link", dependencies=[Depends(require_admin)])
+async def admin_connection_link(body: dict) -> dict:
+    """The sign-in link for a service each user connects to their own account (the app's Connect button)."""
+    from . import gateway  # noqa: PLC0415
+    name = str(body.get("name") or "")
+    if not gateway.CATALOG.get(name, {}).get("link"):
+        raise HTTPException(404, "not a service you connect by signing in")
+    try:
+        return await asyncio.to_thread(gateway.start_link, name, memory)
+    except gateway.ConnectError as e:
+        raise HTTPException(400, str(e)) from e
+
+
+def _linked_page(title: str, ok: bool, said: str) -> str:
+    import html  # noqa: PLC0415
+    colour = "#1f6f5c" if ok else "#b3261e"
+    return ("<!doctype html><html><head><meta charset='utf-8'><meta name='viewport' content='width=device-width,"
+            "initial-scale=1'><title>Buddy</title></head><body style='font-family:system-ui,sans-serif;margin:0;"
+            "padding:48px 24px;background:#f6f4ef;color:#16181d;text-align:center'>"
+            f"<div style='font-size:56px;color:{colour}'>{'&#10003;' if ok else '&#10007;'}</div>"
+            f"<h1 style='font-size:22px'>{html.escape(title)}</h1><p style='font-size:16px;line-height:1.5'>"
+            f"{html.escape(said)}</p></body></html>")
+
+
+@app.get("/connect/{name}/linked")
+async def connect_linked(name: str, code: str = "", state: str = "", error: str = ""):
+    """Where a service's sign-in sends the browser back (on the private tailnet only): the one-time state is checked,
+    the code swapped for the user's tokens, kept in the encrypted database."""
+    from fastapi.responses import HTMLResponse  # noqa: PLC0415
+
+    from . import gateway  # noqa: PLC0415
+    headers = {"Cache-Control": "no-store", "Referrer-Policy": "no-referrer"}
+    entry = gateway.CATALOG.get(name) or {}
+    if not entry.get("link"):
+        return HTMLResponse(_linked_page("Not found", False, "Buddy doesn't know that service."), 404, headers)
+    title = entry["title"]
+    if error:
+        return HTMLResponse(_linked_page(f"{title} wasn't connected", False,
+                                         "Access wasn't allowed. You can try again from Buddy: Connections, Connect."),
+                            400, headers)
+    try:
+        await asyncio.to_thread(gateway.finish_link, name, memory, code, state)
+    except gateway.ConnectError as e:
+        return HTMLResponse(_linked_page(f"{title} wasn't connected", False, str(e)), 400, headers)
+    mod = gateway._link_module(name)
+    if hasattr(mod, "sync_if_due"):  # the first data now, in the background
+        asyncio.get_running_loop().run_in_executor(None, mod.sync_if_due, memory)
+    return HTMLResponse(_linked_page(f"{title} is connected", True,
+                                     "You can close this page and go back to Buddy."), 200, headers)
 
 
 @app.get("/admin/budgets", dependencies=[Depends(require_admin)])
