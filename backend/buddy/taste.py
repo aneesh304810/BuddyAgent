@@ -206,8 +206,9 @@ def _review_check(social, place: dict, where: str, country: str) -> dict:
 
 WHERE_TOOL = {
     "name": "where_am_i",
-    "description": "The user's current neighbourhood, city and country, if they share their location from the app "
-    "(fresh within the last few hours).",
+    "description": "Where the user is, if they share their location from the app (fresh within the last few hours): "
+    "street address, neighbourhood, city and country, shops/cafes/restaurants within about 50 m (nearby, closest "
+    "first) and current_shop (the place they're in, or empty).",
     "input_schema": {"type": "object", "properties": {}, "additionalProperties": False},
 }
 
