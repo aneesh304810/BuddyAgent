@@ -51,6 +51,7 @@ KEEP_DAYS = 180
 DEFAULT_VOICE = "21m00Tcm4TlvDq8ikWAM"  # ElevenLabs' "Rachel" (female); BUDDY_CALL_VOICE changes it
 ECHO_WINDOW_S = 1.5               # a transcript this soon after Buddy spoke is checked for being its own echo
 BARGE_IN_WORDS = 3                # Buddy stops talking only once the other side has said this many words
+AUDIO_LEAD_S = 0.4                # Buddy's voice is sent this far ahead, so network jitter doesn't stutter it
 VOICE_SPEED = 0.95                # ElevenLabs: 1.0 is normal; a little slower is clearer on a phone line
 TTS_MODEL = "eleven_flash_v2_5"  # the fallback voice model; voice_model() normally picks a newer real-time one
 STT_MODEL = "nova-3-general"
@@ -733,6 +734,26 @@ def looks_like_echo(heard: str, said: str) -> bool:
     return sum(w in mine for w in words) / len(words) >= 0.5
 
 
+def _send_ahead(output) -> None:
+    """Pipecat sends the voice in real time, 40 ms at a time, with nothing in reserve, so any delay on the way to
+    Plivo (the Funnel relay, a busy moment) leaves the line silent for a moment: stutters and half-words. This
+    keeps up to AUDIO_LEAD_S of Buddy's voice queued at Plivo instead. Talking over Buddy still clears it at once
+    (Plivo's clearAudio)."""
+    import time  # noqa: PLC0415
+
+    if not hasattr(output, "_write_audio_sleep") or not hasattr(output, "_send_interval"):
+        return  # a Pipecat without this clock: leave it as it is
+    clock = {"next": 0.0}
+
+    async def ahead():
+        now = time.monotonic()
+        clock["next"] = max(clock["next"], now) + output._send_interval
+        wait = clock["next"] - now - AUDIO_LEAD_S
+        if wait > 0:
+            await asyncio.sleep(wait)
+    output._write_audio_sleep = ahead
+
+
 def gate_class():
     """Pipecat's pieces are imported only when a call starts (they're installed by deploy/calls.sh)."""
     from pipecat.frames.frames import (  # noqa: PLC0415
@@ -963,6 +984,7 @@ async def run_stream(memory: Memory, websocket, call: dict, deliver=None, env=No
         if move.get("say"):  # let Buddy's last words be heard first
             with contextlib.suppress(asyncio.TimeoutError):
                 await asyncio.wait_for(done_speaking.wait(), timeout=4 + 0.08 * len(move["say"]))
+            await asyncio.sleep(AUDIO_LEAD_S + 0.3)  # the audio sent ahead is still playing on the line
         connect = move["action"] == "connect" and call["kind"] == "hold_connect" and bool(o["phone"])
         update(memory, call["id"], status="connected" if connect else "done",
                outcome=move.get("outcome") or ("A person answered; you were rung in." if connect else ""))
@@ -981,6 +1003,7 @@ async def run_stream(memory: Memory, websocket, call: dict, deliver=None, env=No
         finally:
             await worker.queue_frame(EndFrame())
 
+    _send_ahead(transport.output())
     mind = Mind(memory, call, say=speak, press_keys=press_keys, finish=finish, env=env)
     gate = Gate()
     pipeline = Pipeline([transport.input(),

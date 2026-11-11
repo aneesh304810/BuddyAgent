@@ -677,3 +677,26 @@ def test_buddys_own_echo_isnt_taken_for_the_caller():
     assert calls.looks_like_echo("uh", said)  # no real words
     assert not calls.looks_like_echo("It's ten past seven", said)
     assert not calls.looks_like_echo("Sorry, who is this?", said)
+
+
+def test_voice_is_sent_a_little_ahead_to_absorb_network_jitter():
+    import time
+
+    class Output:
+        _send_interval = 0.04
+
+        async def _write_audio_sleep(self):
+            raise AssertionError("replaced")
+    out = Output()
+    calls._send_ahead(out)
+
+    async def go():
+        start = time.monotonic()
+        for _ in range(10):  # 0.4 s of audio: all of it goes at once, as the reserve
+            await out._write_audio_sleep()
+        fast = time.monotonic() - start
+        for _ in range(5):  # then it's sent in real time, keeping the reserve
+            await out._write_audio_sleep()
+        return fast, time.monotonic() - start
+    fast, total = asyncio.run(go())
+    assert fast < 0.05 and 0.15 < total < 0.35
