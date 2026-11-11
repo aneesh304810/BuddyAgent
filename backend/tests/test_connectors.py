@@ -258,3 +258,70 @@ def test_search_puts_the_best_match_first_not_the_newest():
     asyncio.run(hub.sync("fake"))
     found = hub.search("etihad booking")
     assert found[0]["title"] == "Your Etihad booking confirmation"
+
+
+# --- agenda falls back to the phone calendar when no iCal link is set (issue #33) ----------
+
+from buddy.connectors.calendar import CalendarConnector  # noqa: E402
+from buddy.connectors.hub import NOT_CONNECTED, agenda, calendar_connected  # noqa: E402
+from buddy.connectors.phone import PhoneCalendarConnector  # noqa: E402
+
+ICS_ENV = {"BUDDY_CALENDAR_ICS_URLS": "https://example.com/private.ics"}
+
+
+def calendar_hub(env):
+    return ConnectorHub(Memory(":memory:"), env=env,
+                        registry={"calendar": CalendarConnector, "phone_calendar": PhoneCalendarConnector})
+
+
+def phone_events(*events):
+    return PhoneCalendarConnector.to_records({"device": "Fold 8", "events": list(events)})
+
+
+def at(hours):
+    return (datetime.now(timezone.utc) + timedelta(hours=hours)).isoformat()
+
+
+def test_agenda_falls_back_to_phone_calendar_without_ics_link():
+    hub = calendar_hub({})
+    assert asyncio.run(run_connector_tool(hub, "agenda", {})) == NOT_CONNECTED
+    assert not hub.calendar_connected()
+    hub.ingest("phone_calendar", phone_events({"id": "1", "title": "Flight EY3", "start": at(1), "end": at(2)}))
+    out = asyncio.run(run_connector_tool(hub, "agenda", {"days": 1}))
+    assert out.startswith("Synced from") and "Flight EY3" in out
+    assert hub.calendar_connected()
+
+
+def test_agenda_says_no_events_when_phone_calendar_is_empty_today():
+    hub = calendar_hub({})
+    hub.ingest("phone_calendar", phone_events({"id": "1", "title": "Next week", "start": at(24 * 6)}))
+    assert asyncio.run(run_connector_tool(hub, "agenda", {"days": 1})) == "No events."
+
+
+def test_agenda_keeps_todays_all_day_phone_events():
+    from buddy.tools import user_tz  # noqa: PLC0415
+    hub = calendar_hub({})
+    local_today = datetime.now(user_tz()).date()
+    today = datetime(local_today.year, local_today.month, local_today.day, tzinfo=timezone.utc)  # all-day: UTC midnight
+    hub.ingest("phone_calendar", phone_events(
+        {"id": "h", "title": "Holiday", "start": today.isoformat(), "all_day": True},
+        {"id": "y", "title": "Yesterday holiday", "start": (today - timedelta(days=1)).isoformat(), "all_day": True},
+    ))
+    titles = [e["title"] for e in hub.agenda(1)]
+    assert "Holiday" in titles and "Yesterday holiday" not in titles
+
+
+def test_agenda_with_ics_link_is_unchanged():
+    hub = calendar_hub(ICS_ENV)
+    assert hub.calendar_connected()
+    assert asyncio.run(run_connector_tool(hub, "agenda", {})) == "No events."
+    hub._store(hub.connectors["calendar"], [item(7, title="Dentist", body="", hours=1)])
+    hub.ingest("phone_calendar", phone_events({"id": "1", "title": "Gym", "start": at(2)}))
+    titles = [e["title"] for e in agenda(hub.memory, 1)]
+    assert titles == ["Dentist", "Gym"]  # both sources, as before
+
+
+def test_calendar_connected_checks_both_sources():
+    memory = Memory(":memory:")
+    assert not calendar_connected(memory, {})
+    assert calendar_connected(memory, ICS_ENV)

@@ -12,7 +12,7 @@ from . import advisor, benefits, finance, review, health, thinking, travel
 from .agent import compose
 from .config import settings
 from .memory import Memory
-from .connectors import agenda
+from .connectors.hub import agenda, calendar_connected
 from .mailbrain import MailManager
 from .money import Money, bill_reminder_text
 from .lifelog import LifeLog
@@ -78,7 +78,7 @@ async def morning_briefing(memory: Memory) -> str:
         "coming up today (calendar, tasks due, any urgent email), nudge them on one of their goals, and end with yesterday's AI "
         "cost in a few words (say if we're running ahead of budget). "
         f"Upcoming reminders: {'; '.join(reminders) or 'none'}. "
-        f"Today's calendar: {'; '.join(e['when'] + ' ' + e['title'] for e in agenda(memory, 1)) or 'nothing or not connected'}. "
+        f"Today's calendar: {'; '.join(e['when'] + ' ' + e['title'] for e in agenda(memory, 1)) or _no_events(memory)}. "
         f"Tasks: {Organiser(memory).morning_line()}. "
         f"Bills: {Money(memory).morning_line()}. "
         f"{('Home thermostat (mention only if notable): ' + home + '. ') if home else ''}"
@@ -93,6 +93,11 @@ async def morning_briefing(memory: Memory) -> str:
     )
 
 
+def _no_events(memory: Memory) -> str:
+    """What to tell the model when the calendar has nothing: empty, or no calendar source at all."""
+    return "nothing" if calendar_connected(memory) else "not connected (no iCal link and no phone calendar shared)"
+
+
 async def evening_wrap(memory: Memory) -> str:
     system = _spoken_system(memory)
     today = local_now().date()
@@ -104,7 +109,7 @@ async def evening_wrap(memory: Memory) -> str:
         "about three spoken sentences: what they got done (celebrate it), what's still open "
         "(suggest moving or dropping it, don't nag), and the first thing tomorrow. "
         f"{Organiser(memory).wrap_up_facts()} "
-        f"Tomorrow's calendar: {'; '.join(tomorrow) or 'nothing or not connected'}. "
+        f"Tomorrow's calendar: {'; '.join(tomorrow) or _no_events(memory)}. "
         f"Email still worth a look: {MailManager(memory, None).briefing_line()}. "
         f"Spent today: {Money(memory).today_line()} (mention only if notable).",
         memory, label="evening_wrap", model=settings.fast_model,
