@@ -4,13 +4,10 @@ Learning (every night, from the last 6 weeks of the location history the app sha
 Saturdays and Sundays, what the owner is usually doing in each half hour: at home, at the office, commuting, at a
 place they've named (gym, Trader Joe's...), or out (errands). Half hours become blocks ("weekdays: commuting 7:40 to
 8:30, at the office 8:30 to 5:30"). What the owner tells Buddy about their routine ("I go to the gym Tuesdays at 7")
-is kept as facts and shown with it; their word beats the learned pattern. Half hours spent in a shop, cafe or
-restaurant the phone was seen in (location.py's current_shop) are named after it ("Saturdays: at Trader Joe's
-10 to 11"), for the owner's eyes only (describe(exact=True)); everyone else sees "out (errands)".
+is kept as facts and shown with it; their word beats the learned pattern.
 
 Right now (activity): the calendar first (a meeting, a doctor's appointment), then live location (driving, on the
 move, at home, at the office, at a named place, out), then the learned routine. Each with until when, if known.
-The exact place (street, shop) is added as "place" for the owner (my_routine), never in "what".
 Phone calls use it: contacts hear what the owner is doing ("on the train, free around 6:15"); unknown callers only
 that they're busy. Never an address or exact place.
 """
@@ -43,36 +40,29 @@ def _say(minutes: int) -> str:
     return f"{(h % 12) or 12}:{m:02d}{' am' if h < 12 else ' pm'}".replace(":00 ", " ")
 
 
-SHOP = "@"              # label prefix: a shop/cafe the phone was in ("@Blue Bottle Coffee")
-
-
-def _label(maps, points, shops: list[dict] | None = None) -> str:
-    from .location import shop_at  # noqa: PLC0415
+def _label(maps, points) -> str:
     from .maps import _km  # noqa: PLC0415
     coords = [(la, ln) for _t, la, ln in points]
     if len(coords) >= 2 and max(_km(coords[0], c) for c in coords[1:]) > MOVING_KM:
         return "commuting"
-    names = Counter(maps.place_at(la, ln) or (SHOP + s if shops and (s := shop_at(None, la, ln, shops)) else "")
-                    for la, ln in coords)
+    names = Counter(maps.place_at(la, ln) for la, ln in coords)
     name, _n = names.most_common(1)[0]
     return name or "out"
 
 
 def learn(memory: Memory) -> dict:
     """The week's usual blocks from the location history: {"weekdays": [{"from", "to", "what"}], ...}."""
-    from .location import shops_seen  # noqa: PLC0415
     from .maps import Maps  # noqa: PLC0415
     maps = Maps(memory)
     if not maps.places():
         maps.learn_places()
-    shops = shops_seen(memory)
     by_day: dict = {}
     for t, la, ln in maps._history(DAYS):
         by_day.setdefault(t.date(), {}).setdefault((t.hour * 60 + t.minute) // SLOT_MIN, []).append((t, la, ln))
     votes: dict = {k: {} for k in TYPES}
     for day, slots in by_day.items():
         for slot, points in slots.items():
-            votes[_day_type(day)].setdefault(slot, []).append(_label(maps, points, shops))
+            votes[_day_type(day)].setdefault(slot, []).append(_label(maps, points))
     out = {"learned_at": local_now().isoformat(timespec="minutes"), "days": len(by_day)}
     for kind in TYPES:
         blocks: list[dict] = []
@@ -111,31 +101,20 @@ def relearn(memory: Memory) -> str:
     return describe(r)
 
 
-def _what(what: str, exact: bool = False) -> str:
-    if what.startswith(SHOP):
-        return f"at {what[len(SHOP):]}" if exact else "out (errands)"
+def _what(what: str) -> str:
     return {"home": "at home", "work": "at the office", "commuting": "commuting", "out": "out (errands)"}.get(
         what, f"at {what}")
 
 
-def describe(r: dict | None, exact: bool = False) -> str:
-    """The learned week in words. exact=True (the owner only) names the shops and cafes; otherwise they're
-    "out (errands)"."""
+def describe(r: dict | None) -> str:
     if not r or not any(r.get(k) for k in TYPES):
         return ""
     parts = []
     for kind in TYPES:
-        shown: list[list] = []
-        for b in r.get(kind, []):
-            if b["to"] - b["from"] < SLOT_MIN:
-                continue
-            what = _what(b["what"], exact)
-            if shown and shown[-1][0] == what and shown[-1][2] == b["from"]:
-                shown[-1][2] = b["to"]
-            else:
-                shown.append([what, b["from"], b["to"]])
-        if shown:
-            parts.append(f"{kind.capitalize()}: " + ", ".join(f"{w} {_say(a)} to {_say(z)}" for w, a, z in shown))
+        blocks = [b for b in r.get(kind, []) if b["to"] - b["from"] >= SLOT_MIN]
+        if blocks:
+            parts.append(f"{kind.capitalize()}: " + ", ".join(
+                f"{_what(b['what'])} {_say(b['from'])} to {_say(b['to'])}" for b in blocks))
     return "; ".join(parts)
 
 
@@ -183,46 +162,9 @@ def activity_now(memory: Memory, now: datetime | None = None) -> dict:
                 "source": "location"}
     if s.get("place"):
         return {"what": _what(s["place"]), "until": "", "source": "location"}
-    here = _here(memory)
-    if here.get("current_shop") and _fresh(here, now):
-        return {"what": "out (errands)", "until": "", "source": "location", "place": _place_words(here)}
     if block:
         return {"what": _what(block["what"]), "until": _say(block["to"]), "source": "routine"}
     return {"what": "", "until": "", "source": ""}
-
-
-def _here(memory: Memory) -> dict:
-    try:
-        from .location import Location  # noqa: PLC0415
-        return Location(memory).current() or {}
-    except Exception:
-        return {}
-
-
-def _fresh(here: dict, now: datetime, minutes: int = 45) -> bool:
-    try:
-        at = datetime.fromisoformat(here["at"]).astimezone(local_now().tzinfo).replace(tzinfo=None)
-    except (KeyError, ValueError, TypeError):
-        return False
-    return now - at <= timedelta(minutes=minutes)
-
-
-def _place_words(here: dict) -> str:
-    """"Blue Bottle Coffee (cafe), 450 W 15th St" for the owner; '' when nothing is known."""
-    shop = here.get("current_shop") or ""
-    if shop and here.get("current_shop_category"):
-        shop += f" ({here['current_shop_category']})"
-    return ", ".join(p for p in (shop, here.get("street") or "", here.get("area") or "", here.get("city") or "") if p)
-
-
-def here_line(memory: Memory) -> str:
-    """For the owner only: the exact place they're at now (shop, street) and what's around, or ''."""
-    here = _here(memory)
-    if not (where := _place_words(here)):
-        return ""
-    line = (f"at {where}" if here.get("current_shop") else f"near {where}")
-    near = [p["name"] for p in here.get("nearby") or [] if p.get("name") != here.get("current_shop")][:4]
-    return line + (f"; nearby: {', '.join(near)}" if near else "")
 
 
 def _commute(memory: Memory) -> dict:
@@ -264,16 +206,12 @@ def run_tool(memory: Memory, args: dict) -> str:
     action = args.get("action") or "show"
     if action not in ("show", "relearn"):
         raise ToolError("Use show or relearn.")
-    if action == "relearn":
-        relearn(memory)
+    text = relearn(memory) if action == "relearn" else describe(week(memory))
     r = week(memory)
-    text = describe(r, exact=True)
     lines = [f"Learned routine ({r.get('days', 0)} days of location, {r.get('learned_at', 'not yet')}): "
              + (text or "not enough location history yet (the app shares it; give it a week or two).")]
     if (said := told(memory)):
         lines.append("What they told you: " + "; ".join(said))
     if (now := now_line(memory)):
         lines.append(f"Right now: {now}.")
-    if (where := here_line(memory)):
-        lines.append(f"Exact place now: {where}.")
     return "\n".join(lines)
