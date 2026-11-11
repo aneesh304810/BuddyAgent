@@ -174,7 +174,7 @@ fun ConnectionsScreen(link: ServerLink?) {
     }
     val askContacts = rememberLauncherForActivityResult(
         androidx.activity.result.contract.ActivityResultContracts.RequestPermission()) { ok ->
-        if (ok) syncContacts() else contactsNote = "Not allowed, so nothing was read."
+        if (ok) { ContactsSync.setEnabled(context, true); syncContacts() } else contactsNote = "Not allowed, so nothing was read."
     }
 
     LaunchedEffect(link, reload) {
@@ -295,6 +295,10 @@ fun ConnectionsScreen(link: ServerLink?) {
                             if (!ContactsSync.allowed(context)) {
                                 TextButton(onClick = { askContacts.launch(android.Manifest.permission.READ_CONTACTS) }) {
                                     Text("Allow", color = Pal.link)
+                                }
+                            } else if (!ContactsSync.enabled(context)) {
+                                TextButton(onClick = { ContactsSync.setEnabled(context, true); syncContacts() }) {
+                                    Text("Share contacts", color = Pal.link)
                                 }
                             } else {
                                 TextButton(onClick = { syncContacts() }) { Text("Sync now", color = Pal.link) }

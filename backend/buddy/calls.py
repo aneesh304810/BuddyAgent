@@ -1271,9 +1271,10 @@ TOOL = {
     "search) and confirm it. The user approves every call before it's made. status: the latest calls and their "
     "outcomes, including calls Buddy answered for the user when they didn't pick up (kind screen: who called, the "
     "message, scams hung up on today). forget_caller (number): forget a caller Buddy saved after an important "
-    "call.",
+    "call. contact (who: a name, or number): look someone up in the phone's contacts (synced with the user's "
+    "permission) and Buddy's saved callers.",
     "input_schema": {"type": "object", "properties": {
-        "action": {"type": "string", "enum": ["call", "status", "forget_caller"]},
+        "action": {"type": "string", "enum": ["call", "status", "forget_caller", "contact"]},
         "who": {"type": "string", "description": "who is being called, e.g. Dr. Mehta's office"},
         "number": {"type": "string", "description": "the number to call; \"me\" calls the user's own saved "
                    "mobile (e.g. a test call)"},
@@ -1301,6 +1302,14 @@ async def run_tool(memory: Memory, thrift, args: dict) -> str:
         from . import contacts  # noqa: PLC0415
         return ("Forgotten." if contacts.forget_caller(memory, str(args.get("number") or ""))
                 else "No saved caller with that number (phone contacts are managed on the phone).")
+    if args.get("action") == "contact":
+        from . import contacts  # noqa: PLC0415
+        found = contacts.find(memory, str(args.get("who") or args.get("number") or ""))
+        if not found:
+            synced = contacts.count(memory)[0]
+            return "No one like that in the contacts." if synced else (
+                "The phone's contacts aren't shared yet: turn on Settings > Share contacts in the Buddy app.")
+        return json.dumps(found, ensure_ascii=False)
     missing = ready()
     if missing:
         return missing

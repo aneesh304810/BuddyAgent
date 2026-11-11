@@ -1,8 +1,11 @@
 """Who's calling: the owner's phone contacts (names and numbers only, synced by the app with the owner's permission),
 and callers Buddy saved itself after an important call from a number that wasn't in the contacts.
 
-Kept only on this server and never sent to free models. A sync replaces the whole contact list (so a contact the
-owner deleted on the phone goes here too); saved callers stay until forgotten ("forget the caller 201...").
+Kept only on this server and never sent to free models or written to the logs. A sync replaces the whole contact
+list (so a contact the owner deleted on the phone goes here too); saved callers stay until forgotten ("forget the
+caller 201..."). Turning "Share contacts" off in the app deletes the synced list here (forget_all).
+
+Lookups: by number (name_for: who's calling) and by name (find: "reply to Priya", "what's Priya's number").
 """
 
 import re
@@ -81,3 +84,52 @@ def count(memory: Memory) -> tuple[int, int]:
     _ready(memory)
     return (memory.db.execute("SELECT COUNT(*) FROM phone_contacts").fetchone()[0],
             memory.db.execute("SELECT COUNT(*) FROM saved_callers").fetchone()[0])
+
+
+def find(memory: Memory, query: str, limit: int = 5) -> list[dict]:
+    """Contacts matching a name or a number: [{"name", "numbers": [...], "how": "contact" | "saved"}], best first.
+    A name matches exactly, then by first name, then as part of the name (case doesn't matter)."""
+    _ready(memory)
+    query = " ".join(str(query or "").split())[:80]
+    if not query:
+        return []
+    if re.fullmatch(r"[\d\s()+.-]{7,}", query):  # a phone number
+        name, how = name_for(memory, query)
+        return [{"name": name, "numbers": numbers_for(memory, name, how), "how": how}] if name else []
+    q = query.lower()
+    rows = [(r["name"], r["number"], "contact") for r in memory.db.execute(
+        "SELECT name, number FROM phone_contacts ORDER BY name")]
+    rows += [(r["name"], r["number"], "saved") for r in memory.db.execute(
+        "SELECT name, number FROM saved_callers ORDER BY name")]
+    people: dict[tuple, list[str]] = {}
+    for name, number, how in rows:
+        people.setdefault((name, how), []).append(number)
+
+    def rank(name: str) -> int:
+        n = name.lower()
+        if n == q:
+            return 0
+        if n.split()[0] == q or n.startswith(q + " "):
+            return 1
+        if all(w in n.split() for w in q.split()):
+            return 2
+        return 3 if q in n else 9
+    hits = sorted(((rank(name), how != "contact", name, how) for name, how in people), key=lambda t: t[:3])
+    return [{"name": name, "numbers": people[(name, how)], "how": how}
+            for r, _, name, how in hits if r < 9][:limit]
+
+
+def numbers_for(memory: Memory, name: str, how: str = "contact") -> list[str]:
+    _ready(memory)
+    table = "phone_contacts" if how == "contact" else "saved_callers"
+    return [r["number"] for r in memory.db.execute(f"SELECT number FROM {table} WHERE name = ?", (name,))]
+
+
+def forget_all(memory: Memory, saved_too: bool = False) -> int:
+    """Delete the synced phone contacts (and Buddy's saved callers too, if asked). Returns how many numbers went."""
+    _ready(memory)
+    n = memory.db.execute("DELETE FROM phone_contacts").rowcount
+    if saved_too:
+        n += memory.db.execute("DELETE FROM saved_callers").rowcount
+    memory.db.commit()
+    return n

@@ -81,11 +81,36 @@ class Messages:
         chats = [c for c in self.recent_chats(72) if not app or c["app_name"].lower().startswith(app.lower())]
         exact = [c for c in chats if c["chat"].lower() == who_l]
         part = [c for c in chats if who_l and (who_l in c["chat"].lower() or c["chat"].lower().split()[0] == who_l)]
-        found = exact or part
+        found = exact or part or self._via_contacts(who_l, chats)
         if not found:
             raise ToolError(f"No recent {app or 'chat'} notification from {who} to reply to. Replies work through the "
                             "phone's notification, so it needs a message from them in the last few days.")
         return found[0]
+
+    def _via_contacts(self, who_l: str, chats: list[dict]) -> list[dict]:
+        """"Reply to Priya" when the chat shows her full name ("Priya Sharma") or only her number: the phone's
+        contacts (synced with the owner's permission) say who is who."""
+        from . import contacts  # noqa: PLC0415
+        try:
+            people = contacts.find(self.memory, who_l)
+        except Exception:
+            return []
+        names = {p["name"].lower() for p in people}
+        numbers = {n for p in people for n in p["numbers"]}
+        return [c for c in chats if c["chat"].lower() in names or (
+            len(contacts.key(c["chat"])) >= 7 and contacts.key(c["chat"]) in numbers)]
+
+    def _contact_name(self, chat: str) -> str:
+        """The phone contact's name for a chat that shows only a number (or the chat's own name)."""
+        from . import contacts  # noqa: PLC0415
+        if len(contacts.key(chat)) >= 7:
+            try:
+                name, how = contacts.name_for(self.memory, chat)
+                if name and how == "contact":
+                    return name
+            except Exception:
+                pass
+        return chat
 
     # auto-reply rules ---------------------------------------------------------------------------------------
     def add_rule(self, who: str, situation: str, text: str) -> str:
@@ -117,6 +142,15 @@ class Messages:
         return f"Removed {n} auto-repl{'ies' if n != 1 else 'y'}." if n else "No auto-reply like that."
 
     def _known_person(self, chat: str) -> bool:
+        if self._contact_name(chat) != chat:  # a number that's in the phone's contacts
+            return True
+        try:
+            from . import contacts  # noqa: PLC0415
+            if any(p["name"].lower() == chat.lower() and p["how"] == "contact"
+                   for p in contacts.find(self.memory, chat)):
+                return True
+        except Exception:
+            pass
         try:
             first = chat.split()[0].lower()
             return self.memory.db.execute("SELECT 1 FROM entities WHERE kind = 'person' AND (key = ? OR key LIKE ?)",
@@ -136,11 +170,12 @@ class Messages:
             return ""
         state = {"driving": situation.get("driving"), "meeting": bool(situation.get("in_meeting")),
                  "quiet": situation.get("quiet"), "always": True}
+        name = self._contact_name(chat)  # a chat that shows only a number answers to the contact's name
         for r in self.rules():
-            who_ok = r["who"].lower() == chat.lower() or (r["who"].lower() == chat.split()[0].lower()) or \
-                (r["who"] == "*people" and self._known_person(chat))
+            who_ok = any(r["who"].lower() == n.lower() or r["who"].lower() == n.split()[0].lower()
+                         for n in {chat, name}) or (r["who"] == "*people" and self._known_person(chat))
             if who_ok and state.get(r["situation"]):
-                first = chat.split()[0]
+                first = name.split()[0]
                 return r["text"].replace("{name}", first) + " (sent by Buddy, my assistant)"
         return ""
 
@@ -156,7 +191,7 @@ MESSAGE_TOOL = {
     "name": "messages",
     "description": "Reply to WhatsApp, Messages, Telegram or Signal from the user's own account, through the phone's "
     "notification (free; works for chats with a recent notification). chats: recent chats you can reply to. "
-    "reply (to: the contact's name, text, app?): Buddy shows the exact text and sends only after the user's yes. "
+    "reply (to: the contact's name, matched against the phone's contacts too, text, app?): Buddy shows the exact text and sends only after the user's yes. "
     "auto_reply (who: a contact, or empty for anyone in the user's people; when: driving | meeting | quiet | always; "
     "text: the user's own words, {name} for their first name): a standing away-message, only when the user asks for "
     "one; never to groups or unknown numbers. auto_replies (list), stop_auto_reply (who?, when?). Never invent a "

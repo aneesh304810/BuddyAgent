@@ -79,6 +79,7 @@ import androidx.compose.runtime.collectAsState
 import androidx.compose.runtime.getValue
 import androidx.compose.runtime.mutableStateOf
 import androidx.compose.runtime.remember
+import androidx.compose.runtime.rememberCoroutineScope
 import androidx.compose.runtime.setValue
 import androidx.compose.ui.Alignment
 import androidx.compose.ui.Modifier
@@ -757,6 +758,22 @@ private fun SettingsPanel(
     var shareLocation by remember { mutableStateOf(prefs.shareLocation) }
     var workBusyOnly by remember { mutableStateOf(prefs.workBusyOnly) }
     val context = LocalContext.current
+    var shareContacts by remember { mutableStateOf(ContactsSync.enabled(context) && ContactsSync.allowed(context)) }
+    var contactsNote by remember { mutableStateOf("") }
+    val settingsScope = rememberCoroutineScope()
+    fun syncContactsNow() {
+        val link = prefs.link ?: run { contactsNote = "Connect to your server first."; return }
+        contactsNote = "Syncing…"
+        settingsScope.launch {
+            contactsNote = runCatching { "✓ Sent ${ContactsSync.sync(context, link)} contacts to your server" }
+                .getOrElse { "✗ ${it.message}" }
+        }
+    }
+    val askContacts = rememberLauncherForActivityResult(ActivityResultContracts.RequestPermission()) { ok ->
+        shareContacts = ok
+        ContactsSync.setEnabled(context, ok)
+        if (ok) syncContactsNow() else contactsNote = "Not allowed, so nothing was read."
+    }
     val notificationsOn = NotificationManagerCompat.getEnabledListenerPackages(context).contains(context.packageName)
     val askLocation = rememberLauncherForActivityResult(ActivityResultContracts.RequestMultiplePermissions()) { result ->
         val granted = result.values.any { it }
@@ -978,6 +995,33 @@ private fun SettingsPanel(
             Switch(checked = shareCalendar, onCheckedChange = { on ->
                 if (on) askCalendar.launch(arrayOf(Manifest.permission.READ_CALENDAR, Manifest.permission.WRITE_CALENDAR))
                 else { shareCalendar = false; prefs.shareCalendar = false }
+            })
+        }
+        Row(verticalAlignment = Alignment.CenterVertically) {
+            Column(Modifier.weight(1f)) {
+                Text("Share contacts", color = Pal.text)
+                Text(
+                    "Names and phone numbers only, so Buddy knows who's calling and \"reply to Priya\" finds her " +
+                        "chat. Sent only to your server, every 6 hours. Turning this off deletes them there.",
+                    color = Muted, fontSize = 13.sp,
+                )
+                if (contactsNote.isNotEmpty()) Text(contactsNote, color = Muted, fontSize = 13.sp)
+            }
+            Switch(checked = shareContacts, onCheckedChange = { on ->
+                if (on) {
+                    if (ContactsSync.allowed(context)) {
+                        shareContacts = true
+                        ContactsSync.setEnabled(context, true)
+                        syncContactsNow()
+                    } else askContacts.launch(Manifest.permission.READ_CONTACTS)
+                } else {
+                    shareContacts = false
+                    contactsNote = "Deleting…"
+                    settingsScope.launch {
+                        contactsNote = runCatching { "✓ Off. Deleted ${ContactsSync.forget(context, prefs.link)} numbers from your server" }
+                            .getOrElse { "Off. Couldn't reach your server to delete them yet: ${it.message}" }
+                    }
+                }
             })
         }
         if (shareCalendar) {
