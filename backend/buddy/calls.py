@@ -49,6 +49,8 @@ SCREENS_PER_DAY = 30              # a flood of robocalls can't run up the bill
 PRIORITIES = ("urgent", "normal", "low", "scam")
 KEEP_DAYS = 180
 DEFAULT_VOICE = "21m00Tcm4TlvDq8ikWAM"  # ElevenLabs' "Rachel" (female); BUDDY_CALL_VOICE changes it
+ECHO_WINDOW_S = 1.5               # a transcript this soon after Buddy spoke is checked for being its own echo
+BARGE_IN_WORDS = 3                # Buddy stops talking only once the other side has said this many words
 VOICE_SPEED = 0.95                # ElevenLabs: 1.0 is normal; a little slower is clearer on a phone line
 TTS_MODEL = "eleven_flash_v2_5"  # the fallback voice model; voice_model() normally picks a newer real-time one
 STT_MODEL = "nova-3-general"
@@ -722,6 +724,15 @@ def outcome_message(call: dict, move: dict, env=None) -> str:
     return f"Call to {call['who']} done. {move.get('outcome') or ''}".strip()
 
 
+def looks_like_echo(heard: str, said: str) -> bool:
+    """A transcript that is mostly Buddy's own last words (or no real words at all)."""
+    words = re.findall(r"[a-z']{3,}", (heard or "").lower())
+    if not words:
+        return True
+    mine = set(re.findall(r"[a-z']{3,}", (said or "").lower()))
+    return sum(w in mine for w in words) / len(words) >= 0.5
+
+
 def gate_class():
     """Pipecat's pieces are imported only when a call starts (they're installed by deploy/calls.sh)."""
     from pipecat.frames.frames import (  # noqa: PLC0415
@@ -814,6 +825,7 @@ async def run_stream(memory: Memory, websocket, call: dict, deliver=None, env=No
     from pipecat.workers.runner import WorkerRunner  # noqa: PLC0415
 
     Gate = gate_class()
+    last_said = {"text": "", "at": 0.0}  # what Buddy said last and about when it finishes (the echo check)
     spoken_chars = [0]
 
     class Talk(FrameProcessor):
@@ -825,13 +837,24 @@ async def run_stream(memory: Memory, websocket, call: dict, deliver=None, env=No
             self.words: list[str] = []
             self.user_talking = self.bot_talking = False
             self.reply: asyncio.Task | None = None
+            self.thinking = False
             self.quiet_done = asyncio.Event()
             self.started = asyncio.get_running_loop().time()
 
         def _later(self, delay: float) -> None:
+            if self.thinking:  # a reply is on its way: these words wait for the next turn instead of cancelling it
+                return
             if self.reply and not self.reply.done():
                 self.reply.cancel()
             self.reply = asyncio.ensure_future(self._answer(delay))
+
+        def _echo(self, text: str) -> bool:
+            """Buddy's own voice coming back down the line (phone lines leak a little echo): a transcript heard
+            while Buddy speaks, or just after, that mostly repeats what Buddy said."""
+            now = asyncio.get_running_loop().time()
+            if not (self.bot_talking or now - last_said["at"] < ECHO_WINDOW_S):
+                return False
+            return looks_like_echo(text, last_said["text"])
 
         async def _answer(self, delay: float) -> None:
             await asyncio.sleep(delay)
@@ -839,6 +862,7 @@ async def run_stream(memory: Memory, websocket, call: dict, deliver=None, env=No
                 return
             said, self.words = " ".join(self.words), []
             started = asyncio.get_running_loop().time()
+            self.thinking = True
             try:
                 await mind.heard(said)
                 if _env("BUDDY_CALL_DEBUG", env) == "1":
@@ -850,16 +874,20 @@ async def run_stream(memory: Memory, websocket, call: dict, deliver=None, env=No
                 mind.ended = True
                 await finish({"action": "end", "say": "", "digits": "",
                               "outcome": "The call broke off on Buddy's side; nothing was settled."})
+            finally:
+                self.thinking = False
+                if self.words and not self.user_talking:  # they said more while Buddy was thinking
+                    self._later(0.15)
 
         async def process_frame(self, frame, direction):
             await super().process_frame(frame, direction)
             if isinstance(frame, VADUserStartedSpeakingFrame):
                 if direction == FrameDirection.DOWNSTREAM:
                     self.user_talking = True
-                    if self.reply and not self.reply.done():
-                        self.reply.cancel()
-                    if self.bot_talking and not mind.ended:  # they talk over Buddy: Buddy stops
-                        await self.broadcast_interruption()
+                    if self.reply and not self.reply.done() and not self.thinking:
+                        self.reply.cancel()  # still waiting to see if they're done: wait for the rest
+                    # Not stopping Buddy here: a cough, an "okay" or the line's echo would cut it off mid-word.
+                    # Buddy stops only once they've said a few real words (below).
                 await self.push_frame(frame, direction)
                 return
             if isinstance(frame, VADUserStoppedSpeakingFrame):
@@ -868,13 +896,16 @@ async def run_stream(memory: Memory, websocket, call: dict, deliver=None, env=No
                     self._later(0.35)  # Deepgram's last words arrive just after (it's asked to finish now)
                 await self.push_frame(frame, direction)
                 return
-            if isinstance(frame, TranscriptionFrame):
-                if frame.text.strip():
-                    self.words.append(frame.text.strip())
+            if isinstance(frame, (TranscriptionFrame, InterimTranscriptionFrame)):
+                text = frame.text.strip()
+                if not text or self._echo(text):
+                    return  # their words never go to the voice; Buddy's own echo is ignored
+                if self.bot_talking and not mind.ended and len(text.split()) >= BARGE_IN_WORDS:
+                    await self.broadcast_interruption()  # they're really talking over Buddy: Buddy stops
+                if isinstance(frame, TranscriptionFrame):
+                    self.words.append(text)
                     if not self.user_talking:
                         self._later(0.15)
-                return  # their words never go to the voice
-            if isinstance(frame, InterimTranscriptionFrame):
                 return
             if isinstance(frame, BotStartedSpeakingFrame):
                 self.bot_talking = True
@@ -920,6 +951,7 @@ async def run_stream(memory: Memory, websocket, call: dict, deliver=None, env=No
     call_uuid = data.get("call_id") or call["call_sid"]
 
     async def speak(text: str) -> None:
+        last_said["text"], last_said["at"] = text, asyncio.get_running_loop().time() + 0.08 * len(text)
         spoken_chars[0] += len(text)
         done_speaking.clear()
         await talk.push_frame(TTSSpeakFrame(text), FrameDirection.DOWNSTREAM)
@@ -972,11 +1004,25 @@ async def run_stream(memory: Memory, websocket, call: dict, deliver=None, env=No
         if not mind.heard_any and not talk.words and not talk.user_talking:
             await mind.heard("[No one has spoken yet]")
 
+    async def lag_watch():  # testing only: is the server ever too busy to send the audio on time?
+        loop, worst = asyncio.get_running_loop(), 0.0
+        while True:
+            t = loop.time()
+            await asyncio.sleep(0.05)
+            late = loop.time() - t - 0.05
+            if late > 0.15:
+                worst = max(worst, late)
+                log.warning("call %s: audio loop held up %.2f s (the voice stutters when this happens)",
+                            call["id"], late)
+
     starter = asyncio.ensure_future(nobody_speaks())
+    watcher = asyncio.ensure_future(lag_watch()) if _env("BUDDY_CALL_DEBUG", env) == "1" else None
     try:
         await WorkerRunner(handle_sigint=False).run(worker)
     finally:
         starter.cancel()
+        if watcher:
+            watcher.cancel()
         if talk.reply and not talk.reply.done():
             talk.reply.cancel()
         if mind.heard_any:

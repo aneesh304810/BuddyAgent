@@ -669,3 +669,11 @@ def test_forwarded_calls_need_the_key_and_plivos_signature(monkeypatch, env):
         assert ok.status_code == 200 and "<Stream" in ok.text and "/calls/stream/" in ok.text
         assert client.post("/calls/inbound/0/wrong", data=form, headers=headers).status_code == 403
         assert client.post(f"/calls/inbound/0/{key}", data={**form, "From": "1"}, headers=headers).status_code == 403
+
+
+def test_buddys_own_echo_isnt_taken_for_the_caller():
+    said = "Hi, this is Aneesh Nair's assistant, calling on Aneesh's behalf. Could you tell me what time it is?"
+    assert calls.looks_like_echo("calling on Aneesh's behalf could you tell me", said)
+    assert calls.looks_like_echo("uh", said)  # no real words
+    assert not calls.looks_like_echo("It's ten past seven", said)
+    assert not calls.looks_like_echo("Sorry, who is this?", said)
