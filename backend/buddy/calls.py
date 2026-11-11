@@ -51,6 +51,8 @@ KEEP_DAYS = 180
 DEFAULT_VOICE = "21m00Tcm4TlvDq8ikWAM"  # ElevenLabs' "Rachel" (female); BUDDY_CALL_VOICE changes it
 ECHO_WINDOW_S = 1.5               # a transcript this soon after Buddy spoke is checked for being its own echo
 BARGE_IN_WORDS = 3                # Buddy stops talking only once the other side has said this many words
+FILLER_AFTER_S = 1.2              # no reply yet after this long: a quick "Mm-hmm" rather than silence
+FILLERS = ("Mm-hmm.", "Okay,", "Sure,", "Got it,", "Right,")
 AUDIO_LEAD_S = 0.4                # Buddy's voice is sent this far ahead, so network jitter doesn't stutter it
 VOICE_SPEED = 0.95                # ElevenLabs: 1.0 is normal; a little slower is clearer on a phone line
 TTS_MODEL = "eleven_flash_v2_5"  # the fallback voice model; voice_model() normally picks a newer real-time one
@@ -503,7 +505,8 @@ now, or a recording. Don't argue: "Not interested, thanks. Bye now." and end.
 "[No one has spoken yet]" means silence after your greeting: say "Hello?" once; if still silent or only a \
 recording plays, end (probably a robocall).
 
-Reply ONLY with one line of JSON: {{"say": "what to say now ('' to stay silent)", "action": "continue" | "end", \
+Reply in two parts. First, exactly the words to say out loud now, as natural speech (nothing at all if you \
+should stay silent, e.g. on hold). Then, on a new line, ## followed by one line of JSON: {{"action": "continue" | "end", \
 "priority": "urgent" (family, a doctor or pharmacy, a real fraud alert from the bank, school, emergencies, \
 "call back today") | "normal" (a real caller with a message) | "low" (sales, surveys, no message) | "scam", \
 "caller": "who they said they are, or ''", "callback": "the number they gave, or ''", \
@@ -556,7 +559,8 @@ You may share only: {'; '.join(may)}. Never give a Social Security number, card 
 or anything not listed. If they need something else, say you'll check with {first} and call back. Never pay, \
 cancel, or agree to fees or anything outside the goal. The call isn't recorded.
 
-Reply ONLY with one line of JSON: {{"say": "what to say now ('' to stay silent)", "digits": "keys to press, e.g. \
+Reply in two parts. First, exactly the words to say out loud now, as natural speech (nothing at all if you \
+should stay silent, e.g. on hold). Then, on a new line, ## followed by one line of JSON: {{"digits": "keys to press, e.g. \
 '1', or ''", "action": "continue" | "connect" | "end", "outcome": "when ending or connecting: one or two \
 sentences for {first} (what was agreed, date and time, what to bring, reference numbers)"}}. \
 Use "connect" only when a real person has answered on a hold_connect call."""
@@ -589,6 +593,12 @@ def _speakable(say: str) -> str:
 
 
 def parse(text: str) -> dict:
+    """A reply: the words to say, then ## and the JSON (the older all-JSON form is read too)."""
+    spoken, mark, meta = (text or "").partition("##")
+    if mark and "{" in meta:
+        got = parse(meta)
+        got["say"] = _speakable(" ".join(spoken.split()))[:600]
+        return got
     m = None
     for m in re.finditer(r"\{.*\}", text or "", re.S):
         pass
@@ -616,7 +626,7 @@ def parse(text: str) -> dict:
 _CLIENT = None
 
 
-async def think(memory: Memory, call: dict, history: list[dict], env=None) -> dict:
+async def think(memory: Memory, call: dict, history: list[dict], env=None, say_now=None) -> dict:
     """Claude's next move on the call (the quick model: answers must come fast)."""
     from . import usage  # noqa: PLC0415
     from .config import claude_client  # noqa: PLC0415
@@ -624,15 +634,33 @@ async def think(memory: Memory, call: dict, history: list[dict], env=None) -> di
     if _CLIENT is None:  # one client for every call and turn: no new connection to Claude each time
         _CLIENT = claude_client()
     system = call.get("_system") or await asyncio.to_thread(system_prompt, memory, call, env)
-    response = await _CLIENT.messages.create(model=settings.fast_model, max_tokens=300, system=system,
-                                             messages=history)
-    if hasattr(response, "usage"):
-        cost = usage.record(memory, response.model, response.usage, purpose="phone_call", response=response)
-    else:
-        cost = 0.0
-    move = parse(" ".join(b.text for b in response.content if getattr(b, "type", "") == "text"))
+    text, spoken, said = "", 0, []
+    async with _CLIENT.messages.stream(model=settings.fast_model, max_tokens=300, system=system,
+                                       messages=history) as stream:
+        async for piece in stream.text_stream:
+            text += piece
+            if say_now is None:
+                continue
+            words = text.split("##", 1)[0]
+            # Each finished sentence is spoken as soon as it's written, while Claude writes the rest.
+            done = [m.end() for m in re.finditer(r"[.!?](?=\s)", words)] if "##" not in text else [len(words)]
+            if done and done[-1] > spoken:
+                chunk = " ".join(words[spoken:done[-1]].split())
+                spoken = done[-1]
+                if chunk and _speakable(chunk) == chunk and not chunk.startswith("{"):
+                    said.append(chunk)
+                    await say_now(chunk)
+        response = await stream.get_final_message()
+    cost = usage.record(memory, response.model, response.usage, purpose="phone_call", response=response) \
+        if hasattr(response, "usage") else 0.0
+    move = parse(text)
     move["cost_usd"] = float(cost or 0.0)
+    if said:  # already spoken while it was written
+        move["spoken"] = " ".join(said)
     return move
+
+
+think.streams = True  # Mind passes say_now to it
 
 
 class Mind:
@@ -665,22 +693,33 @@ class Mind:
         self.history.append({"role": "user", "content": f"[They said] {said}"})
         if _env("BUDDY_CALL_DEBUG", self.env) == "1":  # testing only: calls keep no transcript otherwise
             log.warning("call %s heard: %s", self.call["id"], said[:300])
-        move = await self.brain(self.memory, self.call, self._history(), self.env)
+        if getattr(self.brain, "streams", False):
+            async def say_now(chunk: str) -> None:
+                self.spoke_any = True
+                await self.say(chunk)
+            move = await self.brain(self.memory, self.call, self._history(), self.env, say_now=say_now)
+        else:
+            move = await self.brain(self.memory, self.call, self._history(), self.env)
         self.claude_usd += float(move.pop("cost_usd", 0.0) or 0.0)
+        already = move.pop("spoken", "")
         if self.ended:
             return
         if move["action"] == "connect" and self.call["kind"] != "hold_connect":
             move["action"] = "continue"  # only hold_connect calls may ring the owner in
-        self.history.append({"role": "assistant", "content": json.dumps(move)})
+        meta = {k: v for k, v in move.items() if k != "say"}
+        self.history.append({"role": "assistant", "content": f"{move['say']}\n## {json.dumps(meta)}"})
         if _env("BUDDY_CALL_DEBUG", self.env) == "1":
             log.warning("call %s decided: %s", self.call["id"], json.dumps(move)[:400])
         if not move["say"] and not move["digits"] and move["action"] == "continue":
             self.recordings.add(key)
         if move["digits"]:
             await self.press_keys(move["digits"])
-        if move["say"]:
+        rest = move["say"]
+        if already:  # spoken while it was written; anything after the last full sentence still to say
+            rest = move["say"][len(already):].strip() if move["say"].startswith(already) else ""
+        if rest:
             self.spoke_any = True
-            await self.say(move["say"])
+            await self.say(rest)
         if move["action"] in ("connect", "end"):
             self.ended = True
             await self.finish(move)
@@ -869,6 +908,14 @@ async def run_stream(memory: Memory, websocket, call: dict, deliver=None, env=No
                 self.reply.cancel()
             self.reply = asyncio.ensure_future(self._answer(delay))
 
+        async def _filler(self, said: str) -> None:
+            """A reply that's slow to come: a short, natural acknowledgement instead of dead air (not on phone
+            menus or hold lines, and not for a word or two like "hello")."""
+            await asyncio.sleep(FILLER_AFTER_S)
+            if (call["kind"] != "hold_connect" and not mind.ended and not self.bot_talking
+                    and len(said.split()) >= 4 and mind.spoke_any):
+                await speak(FILLERS[int(asyncio.get_running_loop().time() * 10) % len(FILLERS)])
+
         def _echo(self, text: str) -> bool:
             """Buddy's own voice coming back down the line (phone lines leak a little echo): a transcript heard
             while Buddy speaks, or just after, that mostly repeats what Buddy said."""
@@ -884,6 +931,7 @@ async def run_stream(memory: Memory, websocket, call: dict, deliver=None, env=No
             said, self.words = " ".join(self.words), []
             started = asyncio.get_running_loop().time()
             self.thinking = True
+            filler = asyncio.ensure_future(self._filler(said))
             try:
                 await mind.heard(said)
                 if _env("BUDDY_CALL_DEBUG", env) == "1":
@@ -896,6 +944,7 @@ async def run_stream(memory: Memory, websocket, call: dict, deliver=None, env=No
                 await finish({"action": "end", "say": "", "digits": "",
                               "outcome": "The call broke off on Buddy's side; nothing was settled."})
             finally:
+                filler.cancel()
                 self.thinking = False
                 if self.words and not self.user_talking:  # they said more while Buddy was thinking
                     self._later(0.15)

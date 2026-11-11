@@ -700,3 +700,64 @@ def test_voice_is_sent_a_little_ahead_to_absorb_network_jitter():
         return fast, time.monotonic() - start
     fast, total = asyncio.run(go())
     assert fast < 0.05 and 0.15 < total < 0.35
+
+
+class _FakeStream:
+    def __init__(self, pieces):
+        self.pieces = pieces
+
+    async def __aenter__(self):
+        return self
+
+    async def __aexit__(self, *a):
+        return False
+
+    @property
+    async def text_stream(self):
+        for p in self.pieces:
+            yield p
+
+    async def get_final_message(self):
+        return object()  # no usage: nothing to record
+
+
+def test_buddy_speaks_each_sentence_as_claude_writes_it(tmp_path, env, monkeypatch):
+    m = Memory(tmp_path / "b.db")
+    call = {**calls.plan(m, "Dr", "2015550123", "question", "hours?"), "_system": "x"}
+    pieces = ["Sure. Thursday ", "at two works", " for us.\n## ", '{"action": "end", "outcome": "Thursday 2pm"}']
+
+    class Client:
+        class messages:
+            @staticmethod
+            def stream(**kw):
+                return _FakeStream(pieces)
+    monkeypatch.setattr(calls, "_CLIENT", Client)
+    spoken = []
+
+    async def say_now(chunk):
+        spoken.append(chunk)
+    move = asyncio.run(calls.think(m, call, [{"role": "user", "content": "hi"}], say_now=say_now))
+    assert spoken == ["Sure.", "Thursday at two works for us."]
+    assert move["say"] == "Sure. Thursday at two works for us." and move["action"] == "end"
+    assert move["spoken"] == "Sure. Thursday at two works for us." and move["outcome"] == "Thursday 2pm"
+
+    out = {"said": [], "finished": []}
+
+    async def say(t):
+        out["said"].append(t)
+
+    async def finish(mv):
+        out["finished"].append(mv)
+    mind = calls.Mind(m, call, say=say, press_keys=None, finish=finish)
+    asyncio.run(mind.heard("What time works?"))
+    assert out["said"] == ["Sure.", "Thursday at two works for us."]  # each once, never twice
+    assert "## " in mind.history[-1]["content"]
+
+
+def test_old_and_new_reply_forms_are_both_read():
+    new = calls.parse('Of course.\n## {"digits": "2", "action": "continue"}')
+    assert new["say"] == "Of course." and new["digits"] == "2"
+    old = calls.parse('{"say": "Hi", "action": "end"}')
+    assert old["say"] == "Hi" and old["action"] == "end"
+    silent = calls.parse('\n## {"action": "continue"}')
+    assert silent["say"] == ""
