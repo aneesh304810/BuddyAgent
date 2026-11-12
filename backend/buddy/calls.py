@@ -51,7 +51,7 @@ KEEP_DAYS = 180
 DEFAULT_VOICE = "21m00Tcm4TlvDq8ikWAM"  # ElevenLabs' "Rachel" (female); BUDDY_CALL_VOICE changes it
 ECHO_WINDOW_S = 1.5               # a transcript this soon after Buddy spoke is checked for being its own echo
 BARGE_IN_WORDS = 3                # Buddy stops talking only once the other side has said this many words
-CLOSE_WAIT_S = 3.0                # after Buddy's goodbye: this long without a word from them, then hang up
+CLOSE_WAIT_S = 1.8                # after Buddy's goodbye: this long without a word from them, then hang up
 CLOSE_MAX_S = 15.0                # and never hold a finished call open longer than this
 GOODBYE_WORDS = {"bye", "goodbye", "bye-bye", "thanks", "thank", "you", "too", "same", "to", "have", "a", "an", "good",
                  "great", "nice", "lovely", "wonderful", "day", "night", "evening", "weekend", "one", "ok", "okay",
@@ -74,6 +74,8 @@ TTS_MODEL = "eleven_flash_v2_5"  # the fallback voice model; voice_model() norma
 STT_MODEL = "nova-3-general"      # the older hearing model (BUDDY_CALL_STT=nova-3)
 FLUX_MODEL = "flux-general-en"     # Deepgram Flux: hears the words and decides when the caller has finished
 FLUX_EOT = 0.7                     # how sure Flux must be that they've finished (higher waits a bit longer)
+FLUX_EOT_TIMEOUT_MS = 900          # and at most this much quiet before the turn ends anyway: a bare "Hello?" or
+                                   # "OK" leaves Flux unsure, and with its 3 s default the caller sat in silence
 FLUX_TAIL_S = 1.2                  # audio still sent after Silero hears silence, so Flux can hear the pause
 KINDS = ("appointment", "question", "hold_connect", "tell_me")  # tell_me: Buddy phones the owner to tell them something
 QUIET_START_S = 4.0  # nobody speaks this long after the pick-up: Buddy speaks first
@@ -518,7 +520,7 @@ booked. Free times (working hours, next week): {_free(memory)}
 Your job: find out who's calling and why, take a clear message, and judge how much it matters.
 - A real caller: get their name, the reason, any date, time or reference number, and the best number to call back \
 (read it back). Tell them when {first} will likely get back to them, then wrap up warmly and end.
-Ending the call, like a person: when you are done, say a warm goodbye in one short sentence (for example "Thanks so much for your help, have a great day!") and set "end" in that same reply. You don't hang up yourself: you wait for their goodbye, and if they add something you'll hear it and can carry on. Never end while a question is still open or they are mid-thought.
+Ending the call, like a person: when you are done, say a warm goodbye in one short sentence (for example "Thanks so much for your help, have a great day!") and set "end" in that same reply. You don't hang up yourself: you wait for their goodbye, and if they add something you'll hear it and can carry on. Never end while a question is still open or they are mid-thought. When everything is settled and they only acknowledge it ("OK", "got it", "thanks"), you are done: don't ask whether there is anything else, just say the goodbye and end.
 - Scam or robocall: threats (IRS, police, Social Security, arrest), gift cards, crypto or wire payments, "your car's \
 warranty", prizes, "your account is locked", asking for codes, passwords, card or account numbers, pressure to act \
 now, or a recording. Don't argue: "Not interested, thanks. Bye now." and end.
@@ -555,6 +557,7 @@ if you don't know. Start every reply with a short first sentence of four to eigh
 ("three eighty-nine"). Never make anything up, and don't take any action on the call: if {first} asks for one \
 (pay a bill, book something), say you'll do it in the Buddy app right after and put it in the outcome.
 If it's voicemail, leave a short message that Buddy called with an update, and end.
+When everything is said and they only acknowledge it ("OK", "got it", "thanks", "perfect"), that means you are done: don't ask whether there is anything else, just give a short warm goodbye and end.
 
 Reply in two parts. First, exactly the words to say out loud now, as natural speech. Then, on a new line, ## followed \
 by one line of JSON: {{"action": "continue" | "end", "outcome": "when ending: one or two sentences for the app (what \
@@ -617,7 +620,7 @@ should stay silent, e.g. on hold). Then, on a new line, ## followed by one line 
 '1', or ''", "action": "continue" | "connect" | "end", "outcome": "when ending or connecting: one or two \
 sentences for {first} (what was agreed, date and time, what to bring, reference numbers)"}}. \
 Use "connect" only when a real person has answered on a hold_connect call.
-Ending the call, like a person: when you are done, say a warm goodbye in one short sentence (for example "Thanks so much for your help, have a great day!") and set "end" in that same reply. You don't hang up yourself: you wait for their goodbye, and if they add something you'll hear it and can carry on. Never end while a question is still open or they are mid-thought."""
+Ending the call, like a person: when you are done, say a warm goodbye in one short sentence (for example "Thanks so much for your help, have a great day!") and set "end" in that same reply. You don't hang up yourself: you wait for their goodbye, and if they add something you'll hear it and can carry on. Never end while a question is still open or they are mid-thought. When everything is settled and they only acknowledge it ("OK", "got it", "thanks"), you are done: don't ask whether there is anything else, just say the goodbye and end."""
 
 
 _FIELD = r'"%s"\s*:\s*"((?:[^"\\]|\\.)*)'
@@ -1160,7 +1163,7 @@ async def run_stream(memory: Memory, websocket, call: dict, deliver=None, env=No
             stt = DeepgramFluxSTTService(
                 api_key=env_get("BUDDY_DEEPGRAM_KEY"), mip_opt_out=True, should_interrupt=False,
                 settings=DeepgramFluxSTTService.Settings(model=FLUX_MODEL, eot_threshold=FLUX_EOT,
-                                                         eot_timeout_ms=3000, **({"keyterm": terms} if terms else {})))
+                                                         eot_timeout_ms=FLUX_EOT_TIMEOUT_MS, **({"keyterm": terms} if terms else {})))
         except Exception:
             log.warning("call %s: Deepgram Flux isn't available here; using %s", call["id"], STT_MODEL, exc_info=True)
             flux = False
