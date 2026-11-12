@@ -893,3 +893,23 @@ def test_scams_and_unanswered_calls_still_end_at_once(tmp_path):
     mind, out = _closing_mind(tmp_path, [_move("", "end")], db="c.db")
     asyncio.run(mind.heard("[No one has spoken yet]"))
     assert out["finished"] and not out["closing"]
+
+
+def test_call_me_rings_only_the_owner_and_tells_them_after_yes(tmp_path, env, monkeypatch):
+    m, t, p = Memory(tmp_path / "b.db"), Thrift(), Plivo()
+    monkeypatch.setattr(calls, "dial", lambda mem, c, env=None, fetch=None: p.calls.append(c) or "req")
+    briefing = "Rain this afternoon in Union City; Amex is due tomorrow; Neha called twice."
+    got = asyncio.run(calls.run_tool(m, t, {"action": "call", "kind": "tell_me", "number": "2015550123",
+                                            "goal": briefing}))
+    assert got == "APPROVAL NEEDED" and not p.calls
+    question, run = t.asked[0]
+    assert "+12015550199" in question and "Amex is due tomorrow" in question  # the owner's own mobile, never another
+    assert asyncio.run(run()) == "Calling you now." and p.calls[0]["number"] == "+12015550199"
+    prompt = calls.system_prompt(m, p.calls[0])
+    assert briefing in prompt and "it's Buddy" in prompt and "share nothing at all" in prompt  # checks who answered
+    assert calls.outcome_message(p.calls[0], {"action": "end", "outcome": ""}) == "Our call's done."
+
+
+def test_persona_knows_it_can_phone():
+    from buddy.persona import PERSONA
+    assert "phone_call" in PERSONA and "Never say you can't call" in PERSONA.replace("\\\n", "")

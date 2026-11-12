@@ -43,7 +43,7 @@ from .tools import ToolError, local_now
 
 log = logging.getLogger("buddy.calls")
 CALLS_PER_DAY = 5
-LIMIT_S = {"appointment": 15 * 60, "question": 15 * 60, "hold_connect": 90 * 60, "screen": 5 * 60}
+LIMIT_S = {"appointment": 15 * 60, "question": 15 * 60, "hold_connect": 90 * 60, "screen": 5 * 60, "tell_me": 10 * 60}
 SCREEN = "screen"                 # a call to the owner that they didn't pick up, answered by Buddy
 SCREENS_PER_DAY = 30              # a flood of robocalls can't run up the bill
 PRIORITIES = ("urgent", "normal", "low", "scam")
@@ -75,7 +75,7 @@ STT_MODEL = "nova-3-general"      # the older hearing model (BUDDY_CALL_STT=nova
 FLUX_MODEL = "flux-general-en"     # Deepgram Flux: hears the words and decides when the caller has finished
 FLUX_EOT = 0.7                     # how sure Flux must be that they've finished (higher waits a bit longer)
 FLUX_TAIL_S = 1.2                  # audio still sent after Silero hears silence, so Flux can hear the pause
-KINDS = ("appointment", "question", "hold_connect")
+KINDS = ("appointment", "question", "hold_connect", "tell_me")  # tell_me: Buddy phones the owner to tell them something
 QUIET_START_S = 4.0  # nobody speaks this long after the pick-up: Buddy speaks first
 SETUP = "sudo bash /opt/buddy/deploy/calls.sh"
 
@@ -172,7 +172,7 @@ def per_day(env=None) -> int:
 def plan(memory: Memory, who: str, number: str, kind: str, goal: str, windows: str = "") -> dict:
     _ready(memory)
     if kind not in KINDS:
-        raise ToolError("The kind of call is appointment, question or hold_connect.")
+        raise ToolError("The kind of call is appointment, question, hold_connect or tell_me.")
     if not (goal or "").strip():
         raise ToolError("What is the call for?")
     today = local_now().date().isoformat()
@@ -189,7 +189,8 @@ def plan(memory: Memory, who: str, number: str, kind: str, goal: str, windows: s
         raise ToolError(f"I've made {limit} calls today already (BUDDY_CALLS_PER_DAY); let's continue tomorrow.")
     cur = memory.db.execute(
         "INSERT INTO phone_calls (created_at, who, number, kind, goal, windows, token) VALUES (?, ?, ?, ?, ?, ?, ?)",
-        (datetime.now(timezone.utc).isoformat(), who.strip()[:80], normalise(number), kind, goal.strip()[:500],
+        (datetime.now(timezone.utc).isoformat(), who.strip()[:80], normalise(number), kind,
+         goal.strip()[:2000 if kind == "tell_me" else 500],
          (windows or "").strip()[:200], secrets.token_urlsafe(24)))
     memory.db.commit()
     return get(memory, cur.lastrowid)
@@ -536,9 +537,39 @@ HH:MM", "minutes": 30}}, \
 want {first} to do, what you told them about when {first} would call back)"}}."""
 
 
+def tell_prompt(call: dict, env=None) -> str:
+    """Buddy phoning the owner on their own mobile to tell them something (their briefing, a reminder, news)."""
+    o = owner(env)
+    first = (o["name"].split() or ["there"])[0]
+    return f"""You are Buddy, {first}'s personal assistant and friend, phoning {first} on {first}'s own mobile because \
+{first} asked you to. It's {local_now().strftime("%A %d %B, %I:%M %p")}.
+What to tell {first} (yours to put in your own words):
+{call['goal']}
+
+"[No one has spoken yet]" means they picked up and are silent: greet them. Open with "Hi {first}, it's Buddy." and \
+make sure it's {first}: if the voice says it's someone else, or they don't know who {first} is, share nothing at all \
+from the message; just ask them to let {first} know Buddy called, and say goodbye.
+Then tell it like a friend on the phone, not like reading a list: the most important thing first, a few short \
+sentences at a time, pausing so {first} can react; answer questions about it from what's above, and say so plainly \
+if you don't know. Start every reply with a short first sentence of four to eight words. Read amounts naturally \
+("three eighty-nine"). Never make anything up, and don't take any action on the call: if {first} asks for one \
+(pay a bill, book something), say you'll do it in the Buddy app right after and put it in the outcome.
+If it's voicemail, leave a short message that Buddy called with an update, and end.
+
+Reply in two parts. First, exactly the words to say out loud now, as natural speech. Then, on a new line, ## followed \
+by one line of JSON: {{"action": "continue" | "end", "outcome": "when ending: one or two sentences for the app (what \
+{first} asked you to do, if anything)"}}.
+Ending the call, like a person: when you are done, say a warm goodbye in one short sentence and set "end" in that \
+same reply. You don't hang up yourself: you wait for their goodbye, and if they add something you'll hear it and can \
+carry on.
+"""
+
+
 def system_prompt(memory: Memory, call: dict, env=None) -> str:
     if call["kind"] == SCREEN:
         return screen_prompt(memory, call, env)
+    if call["kind"] == "tell_me":
+        return tell_prompt(call, env)
     o = owner(env)
     first = o["name"].split()[0] if o["name"] else "them"
     may = [f"full name: {o['name']}"]
@@ -809,6 +840,8 @@ def outcome_message(call: dict, move: dict, env=None) -> str:
     if move["action"] == "connect":
         return (f"{call['who']}: a person is on the line. I'm ringing you now from Buddy's Plivo number; pick up "
                 "to take the call.")
+    if call.get("kind") == "tell_me":
+        return f"Our call's done. {move.get('outcome') or ''}".strip()
     return f"Call to {call['who']} done. {move.get('outcome') or ''}".strip()
 
 
@@ -1374,7 +1407,7 @@ TOOL = {
     "Plivo, with a natural voice). kind: appointment (book or move one, e.g. with their doctor, inside `windows`, "
     "checking their calendar; may give their name, callback number, date of birth and insurance), question (ask "
     "and report back), hold_connect (banks, card companies: get through the menu, wait on hold, and ring the user "
-    "when a person answers; only the user verifies). Find the number first (memory, library, contacts, places "
+    "when a person answers; only the user verifies), tell_me (phone the user themself on their own mobile and tell them something: 'call me', 'call me with my briefing'; goal = everything to tell them, written out in full, e.g. the morning briefing; no number needed). Find the number first (memory, library, contacts, places "
     "search) and confirm it. The user approves every call before it's made. status: the latest calls and their "
     "outcomes, including calls Buddy answered for the user when they didn't pick up (kind screen: who called, the "
     "message, scams hung up on today). forget_caller (number): forget a caller Buddy saved after an important "
@@ -1427,9 +1460,20 @@ async def run_tool(memory: Memory, thrift, args: dict) -> str:
         number = owner()["phone"]
         if not number:
             return f"Your mobile number isn't saved yet: {SETUP}"
-    call = plan(memory, args.get("who") or "the business", number, args.get("kind") or "question",
+    kind = args.get("kind") or "question"
+    if kind == "tell_me":  # only ever the owner's own phone: the message is theirs
+        if not owner()["phone"]:
+            return f"Your mobile number isn't saved yet: {SETUP}"
+        number = owner()["phone"]
+    call = plan(memory, "you" if kind == "tell_me" else (args.get("who") or "the business"), number, kind,
                 args.get("goal") or "", args.get("windows") or "")
     first = (owner()["name"].split() or ["your"])[0]
+    if call["kind"] == "tell_me":
+        async def ring() -> str:
+            await asyncio.to_thread(dial, memory, call)
+            return "Calling you now."
+        return thrift.ask_action(f"Call you at {call['number']} and tell you: {call['goal'][:300]}"
+                                 f"{'...' if len(call['goal']) > 300 else ''}? (Not recorded.)", ring)
     shares = ["your name", "callback number"] + (["date of birth", "insurance"] if call["kind"] == "appointment"
                                                  else [])
     what = {"appointment": f"book: {call['goal']}" + (f" ({call['windows']})" if call["windows"] else ""),
