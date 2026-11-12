@@ -91,3 +91,14 @@ def test_an_unreadable_log_is_not_an_error(tmp_path):
         raise OSError("no journalctl")
     assert selfcheck.read_log(run=broken) == []
     assert selfcheck.server_now()["disk_used_pct"] >= 0
+
+
+def test_the_check_runs_on_friday_mornings_once(tmp_path):
+    from datetime import datetime
+    m = Memory(tmp_path / "b.db")
+    friday = datetime(2026, 11, 13, 9, 30)
+    assert selfcheck.due(m, friday) and not selfcheck.due(m, friday.replace(hour=8))
+    assert not selfcheck.due(m, datetime(2026, 11, 12, 10, 0))  # Thursday
+    m.set(selfcheck.LAST_RUN_KEY, "2026-11-13")
+    assert not selfcheck.due(m, friday.replace(hour=15))  # once that day
+    assert selfcheck.SELFCHECK_HOURS == 168

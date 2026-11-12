@@ -1,7 +1,8 @@
 """Buddy looks at its own server: its log, memory, CPU and disk, and says what's wrong and how to fix it.
 
-Every SELFCHECK_HOURS:
-  log      the last hours of Buddy's own service log (journalctl -u buddy; the service is in the systemd-journal group
+Once a week, Friday morning (SELFCHECK_DAY, SELFCHECK_HOUR), over the past week (memory and disk are read every
+hour in between, locally and free, so the report covers the whole week):
+  log      the past week of Buddy's own service log (journalctl -u buddy; the service is in the systemd-journal group
            for this), only problem lines: crashes and out-of-memory kills, tracebacks, errors, warnings, call audio
            stutters. Call words (the "heard:"/"decided:" lines of call debugging) are skipped, numbers, emails and
            account-like strings are masked. Grouped by cause ("mail sorting: BudgetStop, 40 times").
@@ -11,7 +12,7 @@ Every SELFCHECK_HOURS:
   diagnose only when a new kind of problem appears, one small Claude call (the quick model) explains each in plain
            words with the fix; code problems come with a brief for Claude Code (code instructions only), which the
            owner sends with "send it to Claude" (claude_code_fix asks first, then self-deploy tests and rolls back).
-  tell     urgent things (a crash, out of memory) at once; the rest in the next message outside quiet hours.
+  tell     the weekly report as one message (outside quiet hours); each problem at most once a week.
 Kept: the last report and 7 days of server samples. Nothing leaves the server except the masked lines to Claude.
 """
 
@@ -28,7 +29,10 @@ from .memory import Memory
 from .tools import require_https
 
 log = logging.getLogger(__name__)
-SELFCHECK_HOURS = 3
+SELFCHECK_DAY = 4     # Friday (Monday is 0)
+SELFCHECK_HOUR = 9    # local time, or the first hourly look after it
+SELFCHECK_HOURS = 7 * 24  # the window it reads: the past week
+LAST_RUN_KEY = "selfcheck:last_run"
 REPORT_KEY = "selfcheck:last"
 SAMPLES_KEY = "selfcheck:samples"   # [{at, mem_used_pct, swap_used_pct, load, disk_used_pct}], 7 days
 TOLD_KEY = "selfcheck:told"         # {signature: iso time}: each problem told at most once a day
@@ -56,7 +60,7 @@ def read_log(hours: float = SELFCHECK_HOURS, run=None) -> list[tuple[str, str]]:
     run = run or subprocess.run
     try:
         got = run(["journalctl", "-u", "buddy", "--since", f"-{int(hours * 60)}min", "-o", "json", "--no-pager",
-                   "-n", "20000"], capture_output=True, text=True, timeout=30, check=False)  # nosec B603 B607
+                   "-n", "300000"], capture_output=True, text=True, timeout=30, check=False)  # nosec B603 B607
     except (OSError, subprocess.TimeoutExpired) as e:
         log.info("self-check: log not readable: %s", e)
         return []
@@ -247,6 +251,19 @@ def diagnose(found: list[dict], now: dict, create=None, memory=None) -> list[dic
         return [{**p, "meaning": "", "fix": "", "brief": "", "code_fix": False} for p in found]
 
 
+def due(memory: Memory, now: datetime | None = None) -> bool:
+    """Friday from SELFCHECK_HOUR, once that day."""
+    from .tools import local_now  # noqa: PLC0415
+    now = now or local_now()
+    return (now.weekday() == SELFCHECK_DAY and now.hour >= SELFCHECK_HOUR
+            and memory.get(LAST_RUN_KEY) != now.date().isoformat())
+
+
+def sample(memory: Memory) -> list[dict]:
+    """An hourly reading of memory, swap, load and disk (local, free), for the weekly report."""
+    return _remember(memory, server_now())
+
+
 def check(memory: Memory, hours: float = SELFCHECK_HOURS, run=None, create=None, env=None, fetch=None) -> dict:
     found = problems(read_log(hours, run))
     now = server_now()
@@ -256,8 +273,8 @@ def check(memory: Memory, hours: float = SELFCHECK_HOURS, run=None, create=None,
         told = json.loads(memory.get(TOLD_KEY) or "{}")
     except ValueError:
         told = {}
-    day_ago = (datetime.now(timezone.utc) - timedelta(days=1)).isoformat()
-    new = [p for p in found if told.get(p["signature"], "") < day_ago]
+    week_ago = (datetime.now(timezone.utc) - timedelta(days=7)).isoformat()
+    new = [p for p in found if told.get(p["signature"], "") < week_ago]
     report = {"at": datetime.now(timezone.utc).isoformat(), "hours": hours, "server": now, "droplet": drop,
               "advice": advice(now, samples, found, drop),
               "problems": diagnose(new, now, create, memory) + [{**p, "seen_before": True} for p in found if p not in new]}
@@ -285,14 +302,23 @@ def message(report: dict) -> tuple[str, bool]:
 
 
 async def run(memory: Memory, deliver, quiet=lambda: False) -> None:
-    """The background loop: a check every SELFCHECK_HOURS (the first a minute after start)."""
+    """The background loop: an hourly reading of the server (free), and the weekly check on Friday morning."""
     import asyncio  # noqa: PLC0415
+    from .tools import local_now  # noqa: PLC0415
     await asyncio.sleep(60)
     while True:
         try:
+            await asyncio.to_thread(sample, memory)
+            if not due(memory) or quiet():
+                await asyncio.sleep(3600)
+                continue
             report = await asyncio.to_thread(check, memory)
-            text, urgent = message(report)
-            if text and (urgent or not quiet()) and await deliver("health", text):
+            memory.set(LAST_RUN_KEY, local_now().date().isoformat())
+            text, _urgent = message(report)
+            text = text.replace("🔧 Buddy's self-check", "🔧 Buddy's weekly self-check").replace(
+                "🔧 Buddy found problems on its server", "🔧 Buddy's weekly self-check found problems") or \
+                "🔧 Buddy's weekly self-check: no problems on the server this week."
+            if await deliver("health", text):
                 try:
                     told = json.loads(memory.get(TOLD_KEY) or "{}")
                 except ValueError:
@@ -303,7 +329,7 @@ async def run(memory: Memory, deliver, quiet=lambda: False) -> None:
                 memory.set(TOLD_KEY, json.dumps({k: v for k, v in told.items() if v >= cut}))
         except Exception:
             log.exception("self-check failed")
-        await asyncio.sleep(SELFCHECK_HOURS * 3600)
+        await asyncio.sleep(3600)
 
 
 TOOL = {
@@ -311,7 +337,7 @@ TOOL = {
     "description": (
         "Buddy's own server: problems in its log (crashes, out of memory, repeated errors, call audio stutters), "
         "grouped by cause and explained, with the fix; and the server's memory, swap, load, disk and DigitalOcean "
-        "size and price. status: the last check; run: check now. For a problem with a code fix, offer to send its "
+        "size and price. It runs by itself every Friday morning over the past week. status: the last check; run: check now (past week). For a problem with a code fix, offer to send its "
         "brief to Claude Code (claude_code_fix send, which asks the owner first; self-deploy then tests and rolls "
         "back). Never claim you resized or rebooted the server: the owner does that in DigitalOcean."),
     "input_schema": {"type": "object", "properties": {"action": {"type": "string", "enum": ["status", "run"]}},
