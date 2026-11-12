@@ -43,7 +43,7 @@ from .tools import ToolError, local_now
 
 log = logging.getLogger("buddy.calls")
 CALLS_PER_DAY = 5
-LIMIT_S = {"appointment": 15 * 60, "question": 15 * 60, "hold_connect": 90 * 60, "screen": 5 * 60, "tell_me": 10 * 60}
+LIMIT_S = {"appointment": 15 * 60, "question": 15 * 60, "hold_connect": 90 * 60, "screen": 5 * 60, "tell_me": 10 * 60, "reservation": 10 * 60}
 SCREEN = "screen"                 # a call to the owner that they didn't pick up, answered by Buddy
 SCREENS_PER_DAY = 30              # a flood of robocalls can't run up the bill
 PRIORITIES = ("urgent", "normal", "low", "scam")
@@ -79,7 +79,7 @@ FLUX_EOT = 0.7                     # how sure Flux must be that they've finished
 FLUX_EOT_TIMEOUT_MS = 900          # and at most this much quiet before the turn ends anyway: a bare "Hello?" or
                                    # "OK" leaves Flux unsure, and with its 3 s default the caller sat in silence
 FLUX_TAIL_S = 1.2                  # audio still sent after Silero hears silence, so Flux can hear the pause
-KINDS = ("appointment", "question", "hold_connect", "tell_me")  # tell_me: Buddy phones the owner to tell them something
+KINDS = ("appointment", "question", "hold_connect", "tell_me", "reservation")  # tell_me: Buddy phones the owner to tell them something
 QUIET_START_S = 4.0  # nobody speaks this long after the pick-up: Buddy speaks first
 SETUP = "sudo bash /opt/buddy/deploy/calls.sh"
 
@@ -603,6 +603,12 @@ def system_prompt(memory: Memory, call: dict, env=None) -> str:
                        "free; repeat it back to confirm (day, date, time, with whom, anything to bring). If you reach "
                        f"voicemail, leave a short message asking them to call {first} back on the callback number, "
                        "then end.",
+        "reservation": "Book the table: party size, day and time as in the goal (a time within 30 minutes either "
+                       "side is fine unless the goal says exact; anything further, ask what they have and choose "
+                       "the closest). Give the name for the booking. Repeat it back to confirm (name, party, day, "
+                       "date, time) and ask about anything to know (deposit, time limit, dress code). If they need "
+                       f"a card to hold the table, never give one: say {first} will book it online or call back. "
+                       f"If you reach voicemail, leave a short message asking them to call {first} back, then end.",
         "question": "Ask the question, note the answer exactly, then thank them and say goodbye. If you reach "
                     "voicemail, end "
                     "without a message.",
@@ -1504,7 +1510,8 @@ TOOL = {
     "Plivo, with a natural voice). kind: appointment (book or move one, e.g. with their doctor, inside `windows`, "
     "checking their calendar; may give their name, callback number, date of birth and insurance), question (ask "
     "and report back), hold_connect (banks, card companies: get through the menu, wait on hold, and ring the user "
-    "when a person answers; only the user verifies), tell_me (phone the user themself on their own mobile and tell them something: 'call me', 'call me with my briefing'; goal = everything to tell them, written out in full, e.g. the morning briefing; no number needed). Find the number first (memory, library, contacts, places "
+    "when a person answers; only the user verifies), reservation (book a restaurant table: goal 'a table for 4 on "
+    "Friday 14 November at 7:30 pm, under Aneesh'; shares only their name and callback number), tell_me (phone the user themself on their own mobile and tell them something: 'call me', 'call me with my briefing'; goal = everything to tell them, written out in full, e.g. the morning briefing; no number needed). Find the number first (memory, library, contacts, places "
     "search) and confirm it. The user approves every call before it's made. status: the latest calls and their "
     "outcomes, including calls Buddy answered for the user when they didn't pick up (kind screen: who called, the "
     "message, scams hung up on today). forget_caller (number): forget a caller Buddy saved after an important "
@@ -1575,6 +1582,7 @@ async def run_tool(memory: Memory, thrift, args: dict) -> str:
                                                  else [])
     what = {"appointment": f"book: {call['goal']}" + (f" ({call['windows']})" if call["windows"] else ""),
             "question": f"ask: {call['goal']}",
+            "reservation": f"book {call['goal']}",
             "hold_connect": f"get through the menu and hold for {call['goal']}, then ring you when a person answers"}
 
     async def go() -> str:

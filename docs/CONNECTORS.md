@@ -171,6 +171,8 @@ a few cents at most.
 | Google Calendar booking | Calendar API OAuth | Acts, with your yes | Phase 3 |
 | Contacts | Google People API, or a vCard export | Reads | Phase 3 |
 | Oura Ring | Oura API v2 (OAuth, `deploy/oura.sh`), with a health plan on top (`docs/HEALTH.md`) | Reads | ✅ Now |
+| Restaurants | Google Places API (`BUDDY_GOOGLE_PLACES_KEY`) to find; booking links (OpenTable, Resy, the restaurant's site, Google Maps) or a reservation call after your yes | Reads; books only through you | ✅ Now |
+| Events and movies | Ticketmaster Discovery API (`BUDDY_TICKETMASTER_KEY`, free); showtime links for AMC, Regal, Fandango | Reads; you buy on their page or app | ✅ Now |
 | WhatsApp (tutor lessons to you) | WhatsApp Business API | Sends only to you | Phase 5 |
 | Booking sites, forms, subscriptions | Browser agent in a sandbox | Acts, with your yes | Phase 6 |
 | Teams, Zoom, Meet | Laptop helper or meeting bot | Reads (Call Co-pilot) | Later |

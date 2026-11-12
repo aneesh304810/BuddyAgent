@@ -1,6 +1,6 @@
 # Buddy Privacy and Data Retention Policy
 
-Source: https://claude.ai/artifact/MJVGZ7pWQvi26tg1MS914P, revision 74
+Source: https://claude.ai/artifact/MJVGZ7pWQvi26tg1MS914P, revision 75
 
 Nov 1, 2026 · @Aneesh
 
@@ -106,6 +106,8 @@ Buddy uses a few service providers to work. Each sees only what its job needs, u
 | Other free AI models (GitHub Models, OpenRouter, Mistral, Groq, Cerebras), when the owner sets them up | The same general tasks as Gemini, so Buddy can use the best free model for each | The same rule: general text only, never personal or financial data |
 | Google (Nest Smart Device Management API) | Reading and, after the owner's yes, changing the owner's Nest thermostat | Requests for the thermostat Google already manages for the owner; the sign-in tokens stay on Buddy's server |
 | Oura (API v2) | Reading the owner's own ring data | Requests for the data Oura already holds for the owner; read only; the sign-in tokens stay on Buddy's server |
+| Google (Places API) | Finding restaurants for the owner | The search words and a neighbourhood or city (for example "Italian in Chelsea, New York"); never the owner's exact location |
+| Ticketmaster (Discovery API) | Finding concerts, sports and shows for the owner | The search words and a city; never the owner's exact location. Tickets are bought by the owner on Ticketmaster's own page or app |
 | Plivo | Placing the phone calls the owner approved, ringing the owner in on hold-and-connect calls, and answering calls the owner's phone forwards when they don't pick up | The numbers called and the call's audio while it lasts, which includes the facts the owner allowed for that call; Buddy doesn't turn on Plivo's call recording |
 | Deepgram | Turning the other side's speech into text during a call | The call's audio, only while someone is talking; Buddy opts out of Deepgram's model improvement program |
 | ElevenLabs | Buddy's spoken voice on calls | The words Buddy says on the call, which can include the facts the owner allowed for that call |

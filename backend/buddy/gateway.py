@@ -129,6 +129,21 @@ CATALOG: dict[str, dict] = {
                          "health plan",
              "setup_command": "sudo bash /opt/buddy/deploy/oura.sh", "health": {"custom": "oura.check"},
              "moved": True},
+    # Restaurants (dining.py): Google's official Places API, for finding a table; only the search words and a
+    # neighbourhood go out, never the owner's position. Without it, dining falls back to Serper's Maps results.
+    "google_places": {"group": "Food & dining", "title": "Google Places (restaurants)",
+                      "hosts": ["https://places.googleapis.com"],
+                      "auth": {"type": "header", "header": "X-Goog-Api-Key", "secret": "BUDDY_GOOGLE_PLACES_KEY"},
+                      "cost": 0.035, "per_minute": 30, "privacy": "public", "no_backup": True,
+                      "used_for": "restaurants near you: ratings, prices, hours, phone, whether they take bookings",
+                      "health": {"custom": "dining.check"}, "moved": True},
+    # Entertainment (events.py): Ticketmaster's Discovery API finds concerts, sports and shows with their ticket
+    # pages; only the search words and a city go out. Movies (AMC, Regal, Fandango) have no public API: links only.
+    "ticketmaster": {"group": "Entertainment", "title": "Ticketmaster (events)",
+                     "hosts": ["https://app.ticketmaster.com"], "auth": {"type": "param", "secret": "BUDDY_TICKETMASTER_KEY"},
+                     "cost": 0.0, "per_minute": 30, "privacy": "public", "no_backup": True,
+                     "used_for": "concerts, sports and shows near you, with their ticket pages",
+                     "health": {"custom": "events.check"}, "moved": True},
     "phone_contacts": {"group": "Calls", "title": "Phone contacts (who's calling)", "auth": {"type": "phone"},
                        "privacy": "personal", "used_for": "names and numbers from your phone, so Buddy greets callers "
                        "by name; kept only on your server", "reports": True},
@@ -196,7 +211,7 @@ CATALOG: dict[str, dict] = {
 }
 
 
-GROUPS = ["Travel & transit", "Finance & markets", "Shopping", "Health", "Home", "Calls", "Search", "News & trends",
+GROUPS = ["Travel & transit", "Finance & markets", "Shopping", "Food & dining", "Entertainment", "Health", "Home", "Calls", "Search", "News & trends",
           "Weather", "AI models"]  # app order
 
 
@@ -380,8 +395,10 @@ def call_url(memory, name: str, urls: list[str], *, data: bytes | None = None, h
 
 
 def _redact(path: str) -> str:
-    """What the logs keep of a path: Plivo's account id (it's in every path) is left out."""
-    return re.sub(r"/Account/[^/]+", "/Account/~", path)
+    """What the logs keep of a path: Plivo's account id (it's in every path) and any key passed in the address
+    (apikey=, api_key=, key=, token=) are left out."""
+    path = re.sub(r"/Account/[^/]+", "/Account/~", path)
+    return re.sub(r"(?i)\b(api_?key|key|token|access_token)=[^&]+", r"\1=~", path)
 
 
 def call(memory, name: str, path: str = "", *, data: bytes | None = None, json_body=None, headers: dict | None = None,
