@@ -81,7 +81,13 @@ Optional settings (each asks for its value, hidden, and restarts Buddy):
 ```
 sudo bash /opt/buddy/deploy/set.sh BUDDY_CALL_VOICE          # voice ID from step 3.5
 sudo bash /opt/buddy/deploy/set.sh BUDDY_CALL_VOICE_MODEL    # only to force one model; Enter clears it
+sudo bash /opt/buddy/deploy/set.sh BUDDY_CALL_STT            # nova-3 to go back to the older hearing model
 ```
+
+How Buddy keeps the conversation natural: Deepgram **Flux** hears the other side and decides when they've finished
+speaking (from their words and tone, not just silence), so Buddy answers in about a second; the voice uses ElevenLabs'
+**Flash** model, the quickest to start speaking; replies start with a short sentence. If calls ever go silent on
+Buddy's side after it greets (it can't hear), set `BUDDY_CALL_STT` to `nova-3` and tell Claude Code.
 
 ## 6. Check it
 

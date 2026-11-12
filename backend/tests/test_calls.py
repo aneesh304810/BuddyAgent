@@ -305,6 +305,33 @@ def test_gate_sends_audio_to_deepgram_only_while_someone_talks():
         asyncio.run(go())
 
 
+def test_with_flux_the_gate_keeps_listening_briefly_after_they_stop():
+    pytest.importorskip("pipecat")
+    from pipecat.frames.frames import InputAudioRawFrame, VADUserStartedSpeakingFrame, VADUserStoppedSpeakingFrame
+    from pipecat.processors.frame_processor import FrameDirection, FrameProcessor
+
+    gate, got = calls.gate_class()(tail_s=0.4), []
+
+    async def push(frame, direction=FrameDirection.DOWNSTREAM):
+        got.append(frame)
+
+    async def nothing(self, frame, direction):
+        pass
+
+    async def go():
+        down = FrameDirection.DOWNSTREAM
+        chunk = lambda: InputAudioRawFrame(audio=b"\0\0" * 1600, sample_rate=8000, num_channels=1)  # 0.2 s
+        await gate.process_frame(VADUserStartedSpeakingFrame(), down)
+        await gate.process_frame(VADUserStoppedSpeakingFrame(), down)
+        for _ in range(4):  # 0.4 s of the pause goes on to Flux, then the gate closes
+            await gate.process_frame(chunk(), down)
+        assert sum(isinstance(f, InputAudioRawFrame) for f in got) == 2 and abs(gate.sent_s - 0.4) < 1e-6
+    gate.push_frame = push
+    with pytest.MonkeyPatch.context() as mp:
+        mp.setattr(FrameProcessor, "process_frame", nothing)
+        asyncio.run(go())
+
+
 @pytest.mark.parametrize("refuse_first", [False, True])
 def test_a_whole_call_over_plivos_stream(monkeypatch, env, refuse_first):
     """Plivo connects, nobody speaks, Buddy greets (Claude stood in for), its words are played to the call, and
@@ -314,6 +341,7 @@ def test_a_whole_call_over_plivos_stream(monkeypatch, env, refuse_first):
     from pipecat.frames.frames import TTSAudioRawFrame, TTSSpeakFrame
     from pipecat.processors.frame_processor import FrameProcessor
     from pipecat.services.deepgram import stt as dg
+    from pipecat.services.deepgram.flux import stt as dgf
     from pipecat.services.elevenlabs import tts as el
 
     from buddy import server
@@ -357,6 +385,7 @@ def test_a_whole_call_over_plivos_stream(monkeypatch, env, refuse_first):
 
     spoken, hung, told = [], [], []
     monkeypatch.setattr(dg, "DeepgramSTTService", FakeSTT)
+    monkeypatch.setattr(dgf, "DeepgramFluxSTTService", FakeSTT)
     monkeypatch.setattr(el, "ElevenLabsTTSService", FakeTTS)
     monkeypatch.setattr(calls, "QUIET_START_S", 0.2)
     monkeypatch.setattr(calls, "voice_model", lambda memory, env=None, fetch=None: "eleven_test_turbo")
@@ -440,8 +469,8 @@ def test_picks_the_cheapest_real_time_voice_model(tmp_path, env, monkeypatch):
         asked.append(url)
         assert headers["xi-api-key"] == "el"
         return json.dumps(models).encode()
-    assert calls.voice_model(m, fetch=fetch) == "eleven_v4_turbo"
-    assert calls.voice_model(m, fetch=fetch) == "eleven_v4_turbo" and len(asked) == 1  # asked once a day
+    assert calls.voice_model(m, fetch=fetch) == "eleven_flash_v2_5"  # Flash: the quickest to start speaking
+    assert calls.voice_model(m, fetch=fetch) == "eleven_flash_v2_5" and len(asked) == 1  # asked once a day
     monkeypatch.setenv("BUDDY_CALL_VOICE_MODEL", "eleven_flash_v2_5")
     assert calls.voice_model(m, fetch=fetch) == "eleven_flash_v2_5"  # the owner's choice wins
 
@@ -504,11 +533,11 @@ def test_me_calls_the_owners_saved_mobile(tmp_path, env):
 def test_a_refused_voice_model_isnt_picked_again(tmp_path, env):
     m = Memory(tmp_path / "b.db")
     models = [{"model_id": "eleven_v4_turbo", "name": "Eleven v4 Turbo"},
-              {"model_id": "eleven_flash_v2_5", "name": "Eleven Flash v2.5"}]
+              {"model_id": "eleven_flash_v3", "name": "Eleven Flash v3"}]
     fetch = lambda url, data=None, headers=None: json.dumps(models).encode()
+    assert calls.voice_model(m, fetch=fetch) == "eleven_flash_v3"
+    calls.model_refused(m, "eleven_flash_v3")
     assert calls.voice_model(m, fetch=fetch) == "eleven_v4_turbo"
-    calls.model_refused(m, "eleven_v4_turbo")
-    assert calls.voice_model(m, fetch=fetch) == "eleven_flash_v2_5"
     calls.model_refused(m, calls.TTS_MODEL)  # the fallback itself is never written off
     assert calls.TTS_MODEL not in calls._bad_models(m)
 

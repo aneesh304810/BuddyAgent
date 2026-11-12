@@ -71,7 +71,10 @@ FILLERS = ("Mm-hmm.", "Okay,", "Sure,", "Got it,", "Right,")
 AUDIO_LEAD_S = 0.4                # Buddy's voice is sent this far ahead, so network jitter doesn't stutter it
 VOICE_SPEED = 0.95                # ElevenLabs: 1.0 is normal; a little slower is clearer on a phone line
 TTS_MODEL = "eleven_flash_v2_5"  # the fallback voice model; voice_model() normally picks a newer real-time one
-STT_MODEL = "nova-3-general"
+STT_MODEL = "nova-3-general"      # the older hearing model (BUDDY_CALL_STT=nova-3)
+FLUX_MODEL = "flux-general-en"     # Deepgram Flux: hears the words and decides when the caller has finished
+FLUX_EOT = 0.7                     # how sure Flux must be that they've finished (higher waits a bit longer)
+FLUX_TAIL_S = 1.2                  # audio still sent after Silero hears silence, so Flux can hear the pause
 KINDS = ("appointment", "question", "hold_connect")
 QUIET_START_S = 4.0  # nobody speaks this long after the pick-up: Buddy speaks first
 SETUP = "sudo bash /opt/buddy/deploy/calls.sh"
@@ -344,10 +347,10 @@ def hung_up(memory: Memory, call: dict, form: dict) -> str:
 
 # --- the voice model -------------------------------------------------------------------------------------------
 def _model_rank(m: dict) -> tuple:
-    """How well an ElevenLabs model suits a live phone call, cheapest real-time first: Turbo (made for agents,
-    half the price of the full models), then Flash; a newer version beats an older one."""
+    """How well an ElevenLabs model suits a live phone call: Flash first (the quickest to start speaking, which
+    matters most for a natural back-and-forth), then Turbo; a newer version beats an older one."""
     name = f"{m.get('name', '')} {m.get('model_id', '')}".lower()
-    kind = 2 if "turbo" in name else 1 if "flash" in name else 0
+    kind = 2 if "flash" in name else 1 if "turbo" in name else 0
     version = max((float(v) for v in re.findall(r"v(\d+(?:\.\d+)?)", name)), default=0.0)
     return kind, version
 
@@ -490,7 +493,8 @@ Caller's number: {call['number']} ({who}). Carrier check of the caller ID: {call
 
 Sound like a real, experienced human secretary, never like a bot or a phone menu: warm, relaxed and brief. Use \
 contractions and everyday words ("Oh, sure", "Got it", "Of course", "No problem"), one or two short sentences at a \
-time, and react to what they actually said. Don't repeat their words back word for word, don't list options, don't \
+time, and react to what they actually said. Start every reply with a short first sentence of four to eight words \
+("Oh sure, let me check that.") so they hear you right away, then the rest. Don't repeat their words back word for word, don't list options, don't \
 say "as an assistant" or "I understand your concern". Read numbers back naturally in groups ("two oh one, five five \
 five..."). Refer to {first} by name, not as he or she. If they ask whether you're a real person, a bot or an AI, be \
 honest and easy about it: "I'm actually an AI assistant, but I'll make sure {first} gets this." Never deny it.
@@ -566,7 +570,8 @@ Calendar (busy): {_busy(memory)}.
 
 What you hear is speech-to-text of the other side, so it may have small errors. "[No one has spoken yet]" means \
 they picked up and are silent: greet them.
-How you sound: a warm, natural, efficient human assistant on the phone. Short sentences, one thing at a time, \
+How you sound: a warm, natural, efficient human assistant on the phone. Start every reply with a short first \
+sentence of four to eight words ("Sure, let me check on that."), so they hear you right away. Short sentences, one thing at a time, \
 plain words, small acknowledgements ("Sure", "Got it", "Perfect"). Spell names and read numbers digit by digit \
 when asked. If they say "please hold", say "Of course" and wait. On hold music or a recording, stay silent.
 Introduce yourself as: "Hi, this is {o['name']}'s assistant, calling on {first}'s behalf." Never say you are \
@@ -861,9 +866,10 @@ def gate_class():
 
         PRE_ROLL_S = 0.6
 
-        def __init__(self):
+        def __init__(self, tail_s: float = 0.0):
             super().__init__()
             self.open, self.held, self.held_s = False, [], 0.0
+            self.tail_s, self.tail_left = tail_s, 0.0  # audio still sent after they stop (Flux hears the pause)
             self.sent_s = 0.0  # audio passed on to Deepgram: what it bills
 
         @staticmethod
@@ -873,7 +879,9 @@ def gate_class():
         async def process_frame(self, frame, direction):
             await super().process_frame(frame, direction)
             if isinstance(frame, InputAudioRawFrame) and direction == FrameDirection.DOWNSTREAM:
-                if self.open:
+                if self.open or self.tail_left > 0:
+                    if not self.open:
+                        self.tail_left -= self._secs(frame)
                     self.sent_s += self._secs(frame)
                     await self.push_frame(frame, direction)
                     return
@@ -891,7 +899,7 @@ def gate_class():
                 self.held, self.held_s = [], 0.0
             await self.push_frame(frame, direction)
             if isinstance(frame, VADUserStoppedSpeakingFrame) and direction == FrameDirection.DOWNSTREAM:
-                self.open = False
+                self.open, self.tail_left = False, self.tail_s
     return Gate
 
 
@@ -957,12 +965,12 @@ async def run_stream(memory: Memory, websocket, call: dict, deliver=None, env=No
             self.quiet_done = asyncio.Event()
             self.started = asyncio.get_running_loop().time()
 
-        def _later(self, delay: float) -> None:
+        def _later(self, delay: float, final: bool = False) -> None:
             if self.thinking:  # a reply is on its way: these words wait for the next turn instead of cancelling it
                 return
             if self.reply and not self.reply.done():
                 self.reply.cancel()
-            self.reply = asyncio.ensure_future(self._answer(delay))
+            self.reply = asyncio.ensure_future(self._answer(delay, final))
 
         async def _filler(self, said: str) -> None:
             """A reply that's slow to come: a short, natural acknowledgement instead of dead air (not on phone
@@ -980,10 +988,10 @@ async def run_stream(memory: Memory, websocket, call: dict, deliver=None, env=No
                 return False
             return looks_like_echo(text, last_said["text"])
 
-        async def _answer(self, delay: float) -> None:
+        async def _answer(self, delay: float, final: bool = False) -> None:
             await asyncio.sleep(delay)
-            if self.user_talking or not self.words:
-                return
+            if (self.user_talking and not final) or not self.words:
+                return  # final: Flux decided they've finished, even if Silero hasn't heard the silence yet
             said, self.words = " ".join(self.words), []
             started = asyncio.get_running_loop().time()
             self.thinking = True
@@ -1030,7 +1038,9 @@ async def run_stream(memory: Memory, websocket, call: dict, deliver=None, env=No
                     await self.broadcast_interruption()  # they're really talking over Buddy: Buddy stops
                 if isinstance(frame, TranscriptionFrame):
                     self.words.append(text)
-                    if not self.user_talking:
+                    if flux:  # Flux sends the whole turn once it's sure they've finished: answer now
+                        self._later(0.0, final=True)
+                    elif not self.user_talking:
                         self._later(0.15)
                 return
             if isinstance(frame, BotStartedSpeakingFrame):
@@ -1047,7 +1057,20 @@ async def run_stream(memory: Memory, websocket, call: dict, deliver=None, env=No
                                       params=PlivoFrameSerializer.InputParams(auto_hang_up=False))
     transport = FastAPIWebsocketTransport(websocket=websocket, params=FastAPIWebsocketParams(
         audio_in_enabled=True, audio_out_enabled=True, add_wav_header=False, serializer=serializer))
-    stt = DeepgramSTTService(
+    flux = (env_get("BUDDY_CALL_STT") or "flux").lower() != "nova-3"
+    stt = None
+    if flux:
+        try:
+            from pipecat.services.deepgram.flux.stt import DeepgramFluxSTTService  # noqa: PLC0415
+            terms = [w for w in o["name"].split() if len(w) > 2]
+            stt = DeepgramFluxSTTService(
+                api_key=env_get("BUDDY_DEEPGRAM_KEY"), mip_opt_out=True, should_interrupt=False,
+                settings=DeepgramFluxSTTService.Settings(model=FLUX_MODEL, eot_threshold=FLUX_EOT,
+                                                         eot_timeout_ms=3000, **({"keyterm": terms} if terms else {})))
+        except Exception:
+            log.warning("call %s: Deepgram Flux isn't available here; using %s", call["id"], STT_MODEL, exc_info=True)
+            flux = False
+    stt = stt or DeepgramSTTService(
         api_key=env_get("BUDDY_DEEPGRAM_KEY"), mip_opt_out=True,
         settings=DeepgramSTTService.Settings(model=STT_MODEL, language=Language.EN_US, smart_format=True,
                                              numerals=True, punctuate=True,
@@ -1138,7 +1161,7 @@ async def run_stream(memory: Memory, websocket, call: dict, deliver=None, env=No
 
     _send_ahead(transport.output())
     mind = Mind(memory, call, say=speak, press_keys=press_keys, finish=finish, env=env, closing=closing)
-    gate = Gate()
+    gate = Gate(tail_s=FLUX_TAIL_S if flux else 0.0)
     pipeline = Pipeline([transport.input(),
                          VADProcessor(vad_analyzer=SileroVADAnalyzer(params=VADParams(stop_secs=0.5))),
                          gate, stt, talk, tts, transport.output()])
