@@ -436,10 +436,9 @@ def screen_greeting(env=None, call: dict | None = None) -> str:
     first = (owner(env)["name"].split() or ["the owner"])[0]
     name, how = _caller(call or {})
     if how in ("contact", "saved") and name:
-        return (f"Hi {name.split()[0]}, this is {first}'s assistant. {first} can't pick up right now. "
-                "What can I do for you?")
-    return (f"Hi, you've reached {first}'s phone, I'm the assistant. {first} can't come to the phone right now. "
-            "Who's calling, please?")
+        return f"Hi {name.split()[0]}, it's {first}'s assistant. {first} can't pick up, can I help?"
+    # short, like a real receptionist: callers start talking over a long greeting
+    return f"Hi, {first}'s phone, this is the assistant. Who's calling?"
 
 
 def _schedule(memory: Memory) -> str:
@@ -493,6 +492,7 @@ Caller's number: {call['number']} ({who}). Carrier check of the caller ID: {call
 {_schedule(memory)}
 
 Sound like a real, experienced human secretary, never like a bot or a phone menu: warm, relaxed and brief. Use \
+the caller's name exactly as they give it, never adding Mr., Mrs., Ms., sir or ma'am. Use \
 contractions and everyday words ("Oh, sure", "Got it", "Of course", "No problem"), one or two short sentences at a \
 time, and react to what they actually said. Start every reply with a short first sentence of four to eight words \
 ("Oh sure, let me check that.") so they hear you right away, then the rest. Don't repeat their words back word for word, don't list options, don't \
@@ -1121,7 +1121,7 @@ async def run_stream(memory: Memory, websocket, call: dict, deliver=None, env=No
             if isinstance(frame, VADUserStoppedSpeakingFrame):
                 if direction == FrameDirection.DOWNSTREAM:
                     self.user_talking = False
-                    self._later(0.35)  # Deepgram's last words arrive just after (it's asked to finish now)
+                    self._later(0.15)  # usually the words are in already; a late final word starts its own short wait
                 await self.push_frame(frame, direction)
                 return
             if isinstance(frame, (TranscriptionFrame, InterimTranscriptionFrame)):

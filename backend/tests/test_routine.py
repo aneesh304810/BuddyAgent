@@ -105,12 +105,12 @@ def test_screened_call_greets_contacts_by_name_and_saves_important_strangers(tmp
     m = Memory(tmp_path / "b.db")
     contacts.ingest(m, {"contacts": [{"name": "Priya Nair", "numbers": ["2015550111"]}]})
     priya = calls.screen_call(m, {"From": "12015550111", "CallUUID": "c1"})
-    assert calls.screen_greeting(None, priya).startswith("Hi Priya, this is Sam's assistant.")
+    assert calls.screen_greeting(None, priya).startswith("Hi Priya, it's Sam's assistant.")
     prompt = calls.system_prompt(m, priya)
     assert "Priya Nair, in Sam's contacts" in prompt and "This caller is someone Buddy knows" in prompt
 
     stranger = calls.screen_call(m, {"From": "12015550222", "CallUUID": "c2"})
-    assert calls.screen_greeting(None, stranger).endswith("Who's calling, please?")
+    assert calls.screen_greeting(None, stranger).endswith("Who's calling?")
     prompt = calls.system_prompt(m, stranger)
     assert "an unknown number" in prompt and "Ask their name early" in prompt
     assert "Only if the caller were someone Buddy knows" in prompt
