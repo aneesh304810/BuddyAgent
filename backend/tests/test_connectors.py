@@ -301,7 +301,7 @@ def test_agenda_falls_back_to_phone_calendar_without_ics_link():
     assert asyncio.run(run_connector_tool(hub, "agenda", {})) == NOT_CONNECTED
     assert not hub.calendar_connected()
     hub.ingest("phone_calendar", phone_events({"id": "1", "title": "Flight EY3", "start": at(1), "end": at(2)}))
-    out = asyncio.run(run_connector_tool(hub, "agenda", {"days": 1}))
+    out = asyncio.run(run_connector_tool(hub, "agenda", {"days": 2}))  # 2: an hour from now may be tomorrow
     assert out.startswith("Synced from") and "Flight EY3" in out
     assert hub.calendar_connected()
 
@@ -331,7 +331,7 @@ def test_agenda_with_ics_link_is_unchanged():
     assert asyncio.run(run_connector_tool(hub, "agenda", {})) == "No events."
     hub._store(hub.connectors["calendar"], [item(7, title="Dentist", body="", hours=1)])
     hub.ingest("phone_calendar", phone_events({"id": "1", "title": "Gym", "start": at(2)}))
-    titles = [e["title"] for e in agenda(hub.memory, 1)]
+    titles = [e["title"] for e in agenda(hub.memory, 2)]  # 2: late in the evening these are tomorrow
     assert titles == ["Dentist", "Gym"]  # both sources, as before
 
 

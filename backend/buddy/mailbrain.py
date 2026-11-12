@@ -19,6 +19,7 @@ import asyncio
 import time
 import json
 import logging
+import re
 from collections.abc import Awaitable, Callable
 from urllib.parse import quote
 from datetime import datetime, timedelta, timezone
@@ -42,6 +43,17 @@ BATCH = 25
 FIRST_LOOK_HOURS = 12          # the first time, only sort mail from the last few hours
 ACTIONS = ("urgent", "normal", "low", "label", "archive", "mark_read")
 CHANGES_MAIL = ("label", "archive", "mark_read")
+PAUSED_KEY = "mail:sorted_plain"  # when mail was last sorted without Claude (paused or over budget), and why
+# Sorting without Claude (the budget hold or cutoff): plain words in code, so important mail still gets through.
+URGENT_WORDS = re.compile(
+    r"\b(fraud|suspicious|security alert|unusual (sign-?in|activity)|verify (it's|it is) you|account (locked|suspended)"
+    r"|payment (is )?(due|failed|declined)|past due|overdue|due (today|tomorrow)|final notice|urgent|action required"
+    r"|flight (cancel+ed|delayed|changed?)|gate change|schedule change|delivery (failed|exception))\b", re.I)
+LOW_WORDS = re.compile(r"\b(unsubscribe|newsletter|webinar|digest|% off|sale ends|deal|promo(tion)?|sponsored"
+                       r"|recommended for you|weekly roundup)\b", re.I)
+LOW_SENDERS = re.compile(r"(no-?reply|newsletter|marketing|promo|news@|offers@|deals@|notifications?@)", re.I)
+RULE_SKIP = {"emails", "email", "mail", "from", "about", "anything", "everything", "that", "this", "with", "urgent",
+             "important", "label", "archive", "mark", "read", "them", "they", "their", "should", "always", "never"}
 
 SCHEMA_SQL = """
 CREATE TABLE IF NOT EXISTS mail_rules (
@@ -222,12 +234,18 @@ class MailManager:
 
     def briefing_line(self) -> str:
         found = self.important(24)
+        note = (" (sorted by simple rules: AI sorting is paused until you approve this month's pace in Insights)"
+                if self.paused() else "")
         if not found:
-            return "nothing important or not connected"
+            if not email_accounts(self.env):
+                return "no email account is connected"
+            if not self.fetched_lately():
+                return "no email arrived in the last day: the email connection may be broken (check Connections)"
+            return "nothing important" + note
         urgent = [f["reason"] for f in found if f["priority"] == "urgent"]
         normal = len(found) - len(urgent)
         line = f"{len(urgent)} urgent, {normal} worth reading"
-        return line + (": " + "; ".join(urgent[:3]) if urgent else "")
+        return line + (": " + "; ".join(urgent[:3]) if urgent else "") + note
 
     # --- sorting new mail -------------------------------------------------
     async def run(self) -> None:
@@ -265,9 +283,25 @@ class MailManager:
             emails = self._new_emails()
         except Exception:  # no records table yet: the email connector hasn't run
             return 0
-        if not emails or self._over_budget():
+        if not emails:
             return 0
-        verdicts = await self._classify(emails)
+        from .budgets import BudgetStop  # noqa: PLC0415
+        plain = ""
+        if self._over_budget():
+            plain = "this month's budget is reached"
+        else:
+            try:
+                verdicts = await self._classify(emails)
+            except BudgetStop as e:  # the pace hold or the cutoff: sort in code rather than retry forever
+                plain = str(e)
+        if plain:
+            verdicts = self._plain_sort(emails)
+            if not self.memory.get(PAUSED_KEY):
+                log.warning("email manager: Claude is paused (%s); sorting new mail with plain rules", plain)
+            self.memory.set(PAUSED_KEY, json.dumps({"at": datetime.now(timezone.utc).isoformat(), "why": plain}))
+        elif self.memory.get(PAUSED_KEY):
+            self.memory.set(PAUSED_KEY, "")
+            log.warning("email manager: Claude is back; sorting new mail as usual")
         rules = {r["id"]: r for r in self.rules()}
         by_id = {e["id"]: e for e in emails}
         urgent, money_notes, links = [], [], []
@@ -278,6 +312,8 @@ class MailManager:
                 continue
             data = {**json.loads(email_row["data"] or "{}"), "message_id": email_row["external_id"]}
             applied = [rules[i] for i in v["rules"] if i in rules]
+            if plain:  # rules that change mail wait for Claude's reading: plain words could misfire on them
+                applied = [r for r in applied if r["action"] not in CHANGES_MAIL]
             priority = next((r["action"] for r in reversed(applied) if r["action"] in ("urgent", "normal", "low")),
                             v["priority"])
             done = await asyncio.to_thread(self._apply, data, applied)
@@ -307,6 +343,47 @@ class MailManager:
         if money_notes:
             await self.notify("money", " ".join(dict.fromkeys(money_notes)))  # no line twice
         return len(verdicts)
+
+    def _plain_sort(self, emails: list[dict]) -> list[dict]:
+        """Sort without Claude: the user's priority rules by the sender or subject they name, then plain words
+        (fraud, payment due, flight changes are urgent; newsletters and promotions low; the rest worth reading)."""
+        rules = [r for r in self.rules() if r["action"] in ("urgent", "normal", "low")]
+        out = []
+        for e in emails:
+            data = json.loads(e["data"] or "{}")
+            sender = str(data.get("from", "")).lower()
+            subject = e["title"] or ""
+            hay = f"{sender} {subject.lower()}"
+            hits = [r["id"] for r in rules
+                    if any(w in hay for w in re.findall(r"[a-z0-9][a-z0-9.@-]{3,}", r["rule"].lower())
+                           if w not in RULE_SKIP)]
+            if URGENT_WORDS.search(subject):
+                priority = "urgent"
+            elif LOW_SENDERS.search(sender) or LOW_WORDS.search(subject) or LOW_WORDS.search((e["body"] or "")[-600:]):
+                priority = "low"
+            else:
+                priority = "normal"
+            who = (data.get("from") or "someone").split("<")[0].strip().strip('"') or "someone"
+            out.append({"id": e["id"], "priority": priority, "reason": f"{who}: {subject}"[:300], "rules": hits})
+        return out
+
+    def paused(self) -> str:
+        """Why mail was sorted without Claude in the last day ('' when it wasn't)."""
+        try:
+            got = json.loads(self.memory.get(PAUSED_KEY) or "{}")
+            when = datetime.fromisoformat(got["at"])
+        except (ValueError, KeyError, TypeError):
+            return ""
+        return got.get("why", "") if datetime.now(timezone.utc) - when < timedelta(days=1) else ""
+
+    def fetched_lately(self, hours: int = 24) -> bool:
+        """Any email fetched into memory in the last `hours` (the connection is working)."""
+        since = (datetime.now(timezone.utc) - timedelta(hours=hours)).isoformat()
+        try:
+            return bool(self.memory.db.execute("SELECT 1 FROM records WHERE source = 'email' AND start_at >= ? LIMIT 1",
+                                               (since,)).fetchone())
+        except Exception:
+            return False
 
     async def _classify(self, emails: list[dict]) -> list[dict]:
         rules = "\n".join(f"{r['id']}: {r['rule']} -> {r['action']}{' ' + r['label'] if r['label'] else ''}"

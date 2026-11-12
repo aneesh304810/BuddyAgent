@@ -227,3 +227,42 @@ def test_gmail_link_only_for_gmail_accounts():
     work = {"BUDDY_EMAIL_ADDRESS": "me@work.com", "BUDDY_EMAIL_APP_PASSWORD": "x"}  # Google Workspace
     assert mailbrain.gmail_link("me@work.com", "<a@x.com>", env=work).startswith("https://mail.google.com/")
     assert mailbrain.gmail_link("", "<a@x.com>", env={}) == ""
+
+
+def test_paused_claude_still_sorts_mail_with_plain_rules(setup, monkeypatch):
+    from buddy.budgets import BudgetStop
+    memory, manager, told, box = setup
+    travel = manager.add_rule("Uber receipts", "label", "Travel")["id"]
+    boss = manager.add_rule("anything from priya@work.com", "urgent")["id"]
+    add_email(memory, 1, "Chase <alerts@chase.com>", "Payment due tomorrow")
+    add_email(memory, 2, "Uber <receipts@uber.com>", "Your trip")
+    add_email(memory, 3, "Shop <deals@shop.com>", "50% off everything")
+    add_email(memory, 4, "Priya <priya@work.com>", "Quick question")
+
+    class Paused:
+        beta = SimpleNamespace(messages=SimpleNamespace(create=None))
+
+    async def refuse(**kw):
+        raise BudgetStop("Background AI work is paused until you approve this month's pace.")
+    Paused.beta.messages.create = refuse
+    monkeypatch.setattr(mailbrain, "client", Paused)
+
+    assert asyncio.run(manager.sort_new()) == 4  # sorted anyway, and the pointer moves on (no endless retry)
+    got = {i["subject"]: i["priority"] for i in manager.important(include_low=True)}
+    assert got == {"Payment due tomorrow": "urgent", "Your trip": "normal", "50% off everything": "low",
+                   "Quick question": "urgent"}  # the user's own rule, matched by its address
+    assert told and "Chase: Payment due tomorrow" in told[0]
+    assert box.done == []  # rules that change mail wait for Claude
+    assert manager.paused() and "paused" in manager.briefing_line()
+    assert asyncio.run(manager.sort_new()) == 0
+    assert travel and boss
+
+
+def test_briefing_says_why_there_is_no_mail(setup, monkeypatch):
+    memory, manager, told, box = setup
+    monkeypatch.setattr(mailbrain, "email_accounts", lambda env=None: [])
+    assert "no email account" in manager.briefing_line()
+    monkeypatch.setattr(mailbrain, "email_accounts", lambda env=None: ["me@gmail.com"])
+    assert "connection may be broken" in manager.briefing_line()
+    add_email(memory, 9, "Sam <sam@x.com>", "Hi")
+    assert manager.briefing_line() == "nothing important"
