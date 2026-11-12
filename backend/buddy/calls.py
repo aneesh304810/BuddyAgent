@@ -81,6 +81,8 @@ FLUX_EOT_TIMEOUT_MS = 900          # and at most this much quiet before the turn
 FLUX_TAIL_S = 1.2                  # audio still sent after Silero hears silence, so Flux can hear the pause
 KINDS = ("appointment", "question", "hold_connect", "tell_me", "reservation")  # tell_me: Buddy phones the owner to tell them something
 QUIET_START_S = 4.0  # nobody speaks this long after the pick-up: Buddy speaks first
+OWNER_OPEN_S = 1.0   # a call to the owner: if they haven't said hello this long after picking up, Buddy greets first
+VAD_STOP_S = 0.3     # silence that ends their first "Hello?" (Flux decides the end of real turns; 0.5 without it)
 SETUP = "sudo bash /opt/buddy/deploy/calls.sh"
 
 SCHEMA = """
@@ -877,11 +879,18 @@ class Mind:
             self.ended = True
             await self.finish(move)
 
-    async def open_now(self) -> bool:
-        """Say the opener at once (their first "Hello?" just ended, or they picked up and stayed quiet)."""
+    async def open_now(self, first: bool = False) -> bool:
+        """Say the opener at once: their first "Hello?" just ended (it answers that), or, first=True, they picked up
+        and haven't spoken (Buddy greets first; whatever they say next goes to Claude)."""
         if not self.opener or self.spoke_any or self.ended or self.heard_any:
             return False
-        self.spoke_any = self.opened = True
+        self.spoke_any = True
+        if first:
+            self.history.append({"role": "user", "content": "[They said] [No one has spoken yet]"})
+            self.history.append({"role": "assistant",
+                                 "content": f"{self.opener}\n## {json.dumps({'action': 'continue'})}"})
+        else:
+            self.opened = True
         await self.say(self.opener)
         return True
 
@@ -986,6 +995,21 @@ def _send_ahead(output) -> None:
         if wait > 0:
             await asyncio.sleep(wait)
     output._write_audio_sleep = ahead
+
+
+def prewarm() -> None:
+    """Load the call engine when Buddy starts, not when a call is answered (that took about a second while the
+    person said "Hello?"). Does nothing where the call engine isn't installed."""
+    try:
+        import pipecat.audio.vad.silero  # noqa: F401, PLC0415
+        import pipecat.pipeline.worker  # noqa: F401, PLC0415
+        import pipecat.serializers.plivo  # noqa: F401, PLC0415
+        import pipecat.services.deepgram.flux.stt  # noqa: F401, PLC0415
+        import pipecat.services.deepgram.stt  # noqa: F401, PLC0415
+        import pipecat.services.elevenlabs.tts  # noqa: F401, PLC0415
+        import pipecat.transports.websocket.fastapi  # noqa: F401, PLC0415
+    except Exception:
+        log.info("call engine not preloaded", exc_info=True)
 
 
 def gate_class():
@@ -1299,7 +1323,7 @@ async def run_stream(memory: Memory, websocket, call: dict, deliver=None, env=No
     mind = Mind(memory, call, say=speak, press_keys=press_keys, finish=finish, env=env, closing=closing)
     gate = Gate(tail_s=FLUX_TAIL_S if flux else 0.0)
     pipeline = Pipeline([transport.input(),
-                         VADProcessor(vad_analyzer=SileroVADAnalyzer(params=VADParams(stop_secs=0.5))),
+                         VADProcessor(vad_analyzer=SileroVADAnalyzer(params=VADParams(stop_secs=VAD_STOP_S if flux else 0.5))),
                          gate, stt, talk, tts, transport.output()])
     worker = PipelineWorker(pipeline, params=PipelineParams(audio_in_sample_rate=8000, audio_out_sample_rate=8000),
                             idle_timeout_secs=None)
@@ -1315,8 +1339,14 @@ async def run_stream(memory: Memory, websocket, call: dict, deliver=None, env=No
             await speak(screen_greeting(env, call))
             await asyncio.sleep(QUIET_START_S + 4)
         else:
-            await asyncio.sleep(QUIET_START_S)
-        if not mind.heard_any and not talk.words and not talk.user_talking:
+            if call["kind"] == "tell_me":  # calling the owner: greet first if they don't say hello straight away
+                await asyncio.sleep(OWNER_OPEN_S)
+                if not talk.user_talking and not talk.words:
+                    await mind.open_now(first=True)
+                await asyncio.sleep(QUIET_START_S - OWNER_OPEN_S)
+            else:
+                await asyncio.sleep(QUIET_START_S)
+        if not mind.heard_any and not talk.words and not talk.user_talking and not mind.spoke_any:
             await mind.heard("[No one has spoken yet]")  # silence or voicemail: Claude decides
 
     async def lag_watch():  # testing only: is the server ever too busy to send the audio on time?

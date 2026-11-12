@@ -786,6 +786,8 @@ async def health_sync(body: dict) -> dict:
 async def _link_inbound_calls() -> None:
     """At start: point Buddy's Plivo number at /calls/inbound, so calls forwarded from the owner's phone reach it."""
     from . import calls  # noqa: PLC0415
+    if not calls.ready():  # calls are set up: load the call engine now, so the first "Hello?" isn't kept waiting
+        await asyncio.to_thread(calls.prewarm)
     try:
         await asyncio.to_thread(calls.link_inbound, memory)
     except Exception as e:

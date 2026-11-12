@@ -981,3 +981,17 @@ def test_their_first_hello_gets_the_opener_at_once_then_claude_carries_on(tmp_pa
     assert out["said"][-1] == "Great! Quick update: it'll rain this afternoon."
     assert not asyncio.run(mind.open_now())  # only ever once
     assert calls.opener_line({"kind": "hold_connect"}) == "" and calls.opener_line({"kind": calls.SCREEN}) == ""
+
+
+def test_greeting_first_on_a_quiet_pickup_leaves_their_reply_to_claude(tmp_path):
+    mind, out = _closing_mind(tmp_path, [_move("Morning! Rain later, so take an umbrella.")])
+    mind.call["kind"] = "tell_me"
+    mind.opener = calls.opener_line(mind.call)
+    assert asyncio.run(mind.open_now(first=True)) and not mind.opened
+    asyncio.run(mind.heard("Hey Buddy"))  # their reply is answered by Claude, not swallowed as their "hello"
+    assert out["said"] == [mind.opener, "Morning! Rain later, so take an umbrella."]
+    assert calls.VAD_STOP_S < 0.5 and calls.OWNER_OPEN_S <= 1.0
+
+
+def test_prewarm_never_raises():
+    calls.prewarm()
