@@ -688,11 +688,37 @@ async def think(memory: Memory, call: dict, history: list[dict], env=None, say_n
     if _CLIENT is None:  # one client for every call and turn: no new connection to Claude each time
         _CLIENT = claude_client()
     system = call.get("_system") or await asyncio.to_thread(system_prompt, memory, call, env)
-    text, spoken, said = "", 0, []
+    said: list[str] = []
     # The call's instructions are the same every turn: cached, so each reply starts sooner and costs less.
-    async with _CLIENT.messages.stream(model=settings.fast_model, max_tokens=300,
-                                       system=[{"type": "text", "text": system, "cache_control": {"type": "ephemeral"}}],
-                                       messages=history) as stream:
+    # No silent thinking on a live call: Haiku 5.5 thinks by default, and its thinking used the whole reply allowance,
+    # so calls got no words at all. Off (with low effort), a reply starts at once. A model that won't turn thinking off
+    # (THINK_OFF refused) gets low effort and a larger allowance instead.
+    kw = dict(model=settings.fast_model, max_tokens=CALL_MAX_TOKENS,
+              system=[{"type": "text", "text": system, "cache_control": {"type": "ephemeral"}}], messages=history,
+              **({} if _THINK_OFF_REFUSED.get(settings.fast_model) else THINK_OFF))
+    try:
+        response, text = await _stream_reply(kw, say_now, said)
+    except Exception as e:  # noqa: BLE001
+        if "thinking" not in str(e).lower() or "thinking" not in kw:
+            raise
+        _THINK_OFF_REFUSED[settings.fast_model] = True
+        log.warning("call model %s won't turn thinking off; using low effort instead", settings.fast_model)
+        kw.pop("thinking")
+        kw["max_tokens"] = 2048
+        response, text = await _stream_reply(kw, say_now, said)
+    cost = usage.record(memory, response.model, response.usage, purpose="phone_call", response=response) \
+        if hasattr(response, "usage") else 0.0
+    return _finish_move(text, cost, response, said, call, env)
+
+
+CALL_MAX_TOKENS = 600
+THINK_OFF = {"thinking": {"type": "disabled"}, "output_config": {"effort": "low"}}
+_THINK_OFF_REFUSED: dict[str, bool] = {}
+
+
+async def _stream_reply(kw: dict, say_now, said: list) -> tuple:
+    text, spoken = "", 0
+    async with _CLIENT.messages.stream(**kw) as stream:
         async for piece in stream.text_stream:
             text += piece
             if say_now is None:
@@ -715,8 +741,10 @@ async def think(memory: Memory, call: dict, history: list[dict], env=None, say_n
                     said.append(chunk)
                     await say_now(chunk)
         response = await stream.get_final_message()
-    cost = usage.record(memory, response.model, response.usage, purpose="phone_call", response=response) \
-        if hasattr(response, "usage") else 0.0
+    return response, text
+
+
+def _finish_move(text: str, cost, response, said: list, call: dict, env=None) -> dict:
     move = parse(text)
     move["cost_usd"] = float(cost or 0.0)
     if _env("BUDDY_CALL_DEBUG", env) == "1" and not move["say"]:  # testing only: why was there nothing to say?

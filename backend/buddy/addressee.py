@@ -72,7 +72,7 @@ async def is_for_buddy(memory, text: str, buddy_said: str, seconds_since_buddy: 
     try:
         started = time.monotonic()
         response = await client.beta.messages.create(
-            model=model, max_tokens=200,
+            model=model, max_tokens=600,  # low effort may still think a little: leave room for the answer
             system=PROMPT.format(user=settings.user_name, assistant=settings.assistant_name),
             output_config={"effort": "low", "format": {"type": "json_schema", "schema": SCHEMA}},
             **fallback_kwargs(model),

@@ -937,3 +937,28 @@ def test_inbound_application_name_is_one_plivo_accepts():
     src = inspect.getsource(calls.link_inbound)
     name = re.search(r'"app_name": "([^"]+)"', src).group(1)
     assert re.fullmatch(r"[A-Za-z0-9_-]+", name)
+
+
+def test_call_replies_dont_think_silently_and_fall_back_if_a_model_insists(tmp_path, monkeypatch):
+    m = Memory(tmp_path / "b.db")
+    call = {**calls.plan(m, "Dr", "2015550123", "question", "hours?"), "_system": "x"}
+    seen = []
+
+    class Client:
+        class messages:
+            @staticmethod
+            def stream(**kw):
+                seen.append(kw)
+                if "thinking" in kw and len(seen) == 1 and refuse:
+                    raise RuntimeError("thinking.type: disabled is not supported on this model")
+                return _FakeStream(["Sure, we're open nine to five.\n## ", '{"action": "continue"}'])
+    for refuse in (False, True):
+        seen.clear()
+        calls._THINK_OFF_REFUSED.clear()
+        monkeypatch.setattr(calls, "_CLIENT", Client)
+        move = asyncio.run(calls.think(m, call, [{"role": "user", "content": "hi"}]))
+        assert move["say"] == "Sure, we're open nine to five."
+        assert seen[0]["thinking"] == {"type": "disabled"} and seen[0]["output_config"] == {"effort": "low"}
+        if refuse:  # that model gets low effort and room to think instead, and isn't asked again
+            assert "thinking" not in seen[1] and seen[1]["max_tokens"] == 2048
+            assert calls._THINK_OFF_REFUSED
