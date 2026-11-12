@@ -492,6 +492,9 @@ async def lifespan(app: FastAPI):
     bank_loop = asyncio.create_task(bank.run())
     plaid_loop = asyncio.create_task(plaid.Plaid(memory).run(deliver))
     health_loop = asyncio.create_task(healthcheck.run(memory, finops, deliver))
+    from . import selfcheck  # noqa: PLC0415  Buddy reads its own log and server state every few hours
+    from .connectors.phone import in_quiet_hours  # noqa: PLC0415
+    selfcheck_loop = asyncio.create_task(selfcheck.run(memory, deliver, quiet=in_quiet_hours))
     tutor_loop = asyncio.create_task(tutor.run(memory, jobs))
     brain_loop = asyncio.create_task(_index_brain())
     asyncio.create_task(_link_inbound_calls())
@@ -536,6 +539,7 @@ async def lifespan(app: FastAPI):
         bank_loop.cancel()
         plaid_loop.cancel()
         health_loop.cancel()
+        selfcheck_loop.cancel()
         tutor_loop.cancel()
         brain_loop.cancel()
         budget_loop.cancel()

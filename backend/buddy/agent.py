@@ -58,6 +58,7 @@ from .health_data import HEALTH_INFO_TOOL, MY_HEALTH_TOOL
 from .coach import TOOL as HEALTH_PLAN_TOOL
 from .dining import TOOL as RESTAURANTS_TOOL
 from .events import TOOL as ENTERTAINMENT_TOOL
+from .selfcheck import TOOL as SELF_CHECK_TOOL
 from .nest import TOOL as THERMOSTAT_TOOL
 from .calls import TOOL as PHONE_CALL_TOOL
 from .convolog import TOOL as RECALL_CONVO_TOOL
@@ -795,7 +796,7 @@ class Conversation:
                      TRANSIT_TOOL, FLIGHT_TOOL, DECISION_TOOL, MAPS_TOOL,
                      WEATHER_TOOL, PACKAGES_TOOL, MESSAGE_TOOL, BUDGET_TOOL, COSTWATCH_TOOL, ADVICE_TOOL, EDIT_TOOL,
                      RECALL_CONVO_TOOL, CLAUDE_FIX_TOOL, COMMUTE_TOOL, ROUTINE_TOOL, CALENDAR_ADD_TOOL,
-                     CONNECTIONS_TOOL, AMAZON_TOOL, MY_HEALTH_TOOL, HEALTH_INFO_TOOL, HEALTH_PLAN_TOOL, RESTAURANTS_TOOL, ENTERTAINMENT_TOOL,
+                     CONNECTIONS_TOOL, AMAZON_TOOL, MY_HEALTH_TOOL, HEALTH_INFO_TOOL, HEALTH_PLAN_TOOL, RESTAURANTS_TOOL, ENTERTAINMENT_TOOL, SELF_CHECK_TOOL,
                      THERMOSTAT_TOOL, PHONE_CALL_TOOL]
         spending += [BROWSE_TOOL] if self.jobs else []  # listed even when the sandbox is down: it says what to fix
         if self.memory.get("forms:phone") != "1":  # the owner's choice: forms always in Buddy's own browser
@@ -963,6 +964,9 @@ class Conversation:
         if name == "thermostat":  # the owner's home: changes only after a yes (nest.run_tool asks)
             from . import nest  # noqa: PLC0415
             return await nest.run_tool(self.memory, self.thrift, args)
+        if name == "self_check":  # Buddy's own log and server; fixes go through claude_code_fix (asks first)
+            from . import selfcheck  # noqa: PLC0415
+            return await asyncio.to_thread(selfcheck.run_tool, self.memory, args)
         if name == "entertainment":  # finds events and showtimes; the owner buys through the links, never Buddy
             from . import events  # noqa: PLC0415
             return await asyncio.to_thread(events.run_tool, self.memory, args)

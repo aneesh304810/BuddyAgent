@@ -1,6 +1,6 @@
 # Buddy Privacy and Data Retention Policy
 
-Source: https://claude.ai/artifact/MJVGZ7pWQvi26tg1MS914P, revision 75
+Source: https://claude.ai/artifact/MJVGZ7pWQvi26tg1MS914P, revision 76
 
 Nov 1, 2026 · @Aneesh
 
@@ -166,6 +166,7 @@ Data is kept only as long as it is useful, then deleted automatically.
 | Daily health totals from the phone | 90 days, then deleted automatically; turning the permission off in Health Connect stops new ones |
 | Oura Ring daily data | 90 days, then deleted automatically; removing Buddy's access in the Oura account stops new ones |
 | Health plan, habit log and meals | The plan until the owner changes it or says "forget my health plan"; the habit log and meals 90 days |
+| Buddy's self-check of its own server (problems from its log, with numbers, emails and call words removed, sent to Claude for a diagnosis; memory and disk readings) | The last report and 7 days of readings |
 | Phone call summaries (who was called, the goal, the outcome, minutes) | 180 days, then deleted automatically; no recordings or transcripts are ever kept |
 | Messages from calls Buddy answered for the owner (caller's number, name, message) | 180 days, then deleted automatically; no recordings or transcripts are ever kept |
 | Phone contacts (names and numbers) | Replaced by each sync from the phone (a contact deleted on the phone is deleted here too); turning "Share contacts" off in the app deletes the whole synced list from the server |

@@ -50,6 +50,9 @@ done
 bash "$APP/deploy/security.sh" install
 bash "$APP/deploy/access.sh" install
 bash "$APP/deploy/selfdeploy.sh" refresh   # Buddy's self-deploy watcher, only if the owner turned it on
+# Buddy reads its own service log for its self-check (selfcheck.py): read-only, the journal group.
+mkdir -p /etc/systemd/system/buddy.service.d
+printf '[Service]\nSupplementaryGroups=systemd-journal\n' > /etc/systemd/system/buddy.service.d/logs.conf
 HARDENED=0
 if [ ! -f /etc/systemd/system/buddy.service.d/hardening.conf ] && [ ! -f /etc/buddy/no-hardening ]; then
   HARDENED=1
