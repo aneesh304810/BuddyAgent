@@ -107,6 +107,11 @@ Ask in plain words. Buddy always says what it will share and **waits for your ye
 - **Hold and connect:** "Call Chase card services and get me a person about a disputed charge." It goes through
   the menu and waits on hold. When a person answers, it says "one moment, connecting you," notifies the app
   and rings your mobile. You take over and do the account verification.
+- **Call me:** "Call me", "call me with my briefing" or "call me so we can talk." Buddy rings your own mobile
+  and on that call it is the **whole Buddy**, as in the app: your memory, mail, calendar, money and every tool.
+  Ask "anything in my email?" or "move my 3 o'clock" while you walk. Anything that needs your yes waits for a
+  spoken "yes" on the call. "Bye", "that's all" or "I'm good" ends it; a plain "okay" or "yes" never does.
+  Up to 20 minutes. To turn this off and keep "call me" to the message only: `BUDDY_CALL_BRAIN=off`.
 - **Results:** Buddy messages you when a call ends. Ask "how did my calls go?" for the last five.
 - **Who's calling:** turn on **Settings → Share contacts** in the app (opt-in; names and phone numbers only,
   sent to your server every 6 hours). Calls Buddy answers for you then greet a contact by name and treat them as
@@ -115,7 +120,7 @@ Ask in plain words. Buddy always says what it will share and **waits for your ye
 
 Built-in rules:
 - at most 5 calls a day;
-- 15 minutes a call (90 for hold calls);
+- 15 minutes a call (90 for hold calls, 20 for calls to you);
 - it says it's an AI assistant if asked;
 - it never gives card or account numbers, SSN or passwords;
 - it never pays, cancels or agrees to fees;

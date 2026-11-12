@@ -43,7 +43,7 @@ from .tools import ToolError, local_now
 
 log = logging.getLogger("buddy.calls")
 CALLS_PER_DAY = 5
-LIMIT_S = {"appointment": 15 * 60, "question": 15 * 60, "hold_connect": 90 * 60, "screen": 5 * 60, "tell_me": 10 * 60, "reservation": 10 * 60}
+LIMIT_S = {"appointment": 15 * 60, "question": 15 * 60, "hold_connect": 90 * 60, "screen": 5 * 60, "tell_me": 20 * 60, "reservation": 10 * 60}
 SCREEN = "screen"                 # a call to the owner that they didn't pick up, answered by Buddy
 SCREENS_PER_DAY = 30              # a flood of robocalls can't run up the bill
 PRIORITIES = ("urgent", "normal", "low", "scam")
@@ -60,6 +60,23 @@ GOODBYE_WORDS = {"bye", "goodbye", "bye-bye", "thanks", "thank", "you", "too", "
                  "no", "problem", "much", "so", "very", "and", "bye.", "mhm", "uh", "um", "great.", "now",
                  "i'm", "im", "i", "am", "good", "fine", "that's", "thats", "all", "nope", "nothing", "else", "set",
                  "done", "it's", "its"}
+
+
+PARTING = re.compile(r"\b(bye|goodbye|bye-bye|talk (to you )?(soon|later)|see (you|ya)|later|take care|good ?night|"
+                     r"that'?s (all|it)|nothing else|i'?m (good|fine|all set|done)|no,? thanks?|all set|"
+                     r"that'?s everything)\b")
+AGREE = re.compile(r"\b(yes|yeah|yep|sure|go ahead|do it|please)\b")
+
+
+def brain_goodbye(heard: str, asked_more: bool) -> bool:
+    """On a call with Buddy's whole brain, "okay" and "yes" are answers (a yes approves things), so only real
+    parting words end it: "bye", "that's all", "I'm good"; or a plain "no" right after "Anything else?"."""
+    text = (heard or "").lower()
+    if not is_goodbye(heard) and not (PARTING.search(text) and len(text.split()) <= 6):
+        return False
+    if PARTING.search(text):
+        return True
+    return asked_more and not AGREE.search(text)
 
 
 def is_goodbye(heard: str) -> bool:
@@ -793,6 +810,9 @@ class Mind:
         self.say, self.press_keys, self.finish = say, press_keys, finish
         self.closing = closing          # starts the wait for their goodbye (run_stream); None: end at once
         self.opener = opener_line(call, env)  # said the moment their first "Hello?" ends, without waiting for Claude
+        self.convo = None               # on calls to the owner: Buddy's whole brain (agent.Conversation) answers
+        self.convo_turns = 0
+        self.asked_more = False          # the brain's last words asked "Anything else?"
         self.opened = False             # the opener was said and isn't in the history yet
         self.closing_move: dict | None = None  # Buddy said goodbye and is waiting for theirs
         self.brain = brain or think
@@ -829,6 +849,9 @@ class Mind:
                 await self.finish({**move, "say": bye})
                 return
             # they had more to say ("oh, one more thing"): the conversation goes on
+        if self.convo is not None and said != "[No one has spoken yet]":
+            await self._brain_turn(said)
+            return
         key = self._key(said)
         if len(key) > 25 and key in self.recordings:
             return  # the same hold message again: nothing to decide
@@ -878,6 +901,54 @@ class Mind:
         elif move["action"] in ("connect", "end"):
             self.ended = True
             await self.finish(move)
+
+    BRAIN_NOTE = ("(This is a phone call to {first}'s own mobile, not the app: you phoned {first} because they asked. "
+                  "Talk like a friend on the phone: short spoken sentences, no lists, links, cards or reading out "
+                  "long numbers. When it sounds like they're done, ask once 'Anything else?'. You have all your "
+                  "usual tools and memory: look things up and do things as in the app, asking for a yes first as always (a spoken yes on this call counts). If the person says "
+                  "they aren't {first}, share nothing personal and end politely. The call opened with this for "
+                  "{first}: {goal})\n\n")
+
+    async def _brain_turn(self, said: str) -> None:
+        """A call to the owner with Buddy's whole brain: their words go to the app's conversation (memory, mail,
+        calendar, money, tools, approvals by voice) and its sentences are spoken as they come: the first at once,
+        the rest a few at a time, so the voice keeps its rhythm."""
+        if self.convo_turns and brain_goodbye(said, self.asked_more):
+            self.ended = True
+            first = (owner(self.env)["name"].split() or [""])[0]
+            bye = f"Okay, talk soon{', ' + first if first else ''}. Bye!"
+            self.spoke_any = True
+            await self.say(bye)
+            await self.finish({"action": "end", "say": bye, "digits": "", "outcome": "We talked on the phone."})
+            return
+        text = said
+        if not self.convo_turns:
+            first = (owner(self.env)["name"].split() or ["the owner"])[0]
+            text = self.BRAIN_NOTE.format(first=first, goal=self.call.get("goal") or "a chat") + said
+        self.convo_turns += 1
+        self.asked_more = False
+        held: list[str] = []
+        out = {"first": True}
+
+        async def sentence(s: str) -> None:
+            s = " ".join(str(s or "").split())
+            if not s:
+                return
+            self.asked_more = bool(re.search(r"anything else", s.lower()))
+            if out["first"]:
+                out["first"] = False
+                self.spoke_any = True
+                await self.say(s)  # the first words of every reply at once
+                return
+            held.append(s)
+            if len(held) >= 2:
+                await self.say(" ".join(held))
+                held.clear()
+        if _env("BUDDY_CALL_DEBUG", self.env) == "1":
+            log.warning("call %s heard: %s (to Buddy's brain)", self.call["id"], said[:300])
+        await self.convo.reply(text, sentence, via="phone")
+        if held:
+            await self.say(" ".join(held))
 
     async def open_now(self, first: bool = False) -> bool:
         """Say the opener at once: their first "Hello?" just ended (it answers that), or, first=True, they picked up
@@ -1077,7 +1148,7 @@ def _quiet_pipecat() -> None:
     _QUIET["done"] = True
 
 
-async def run_stream(memory: Memory, websocket, call: dict, deliver=None, env=None) -> None:
+async def run_stream(memory: Memory, websocket, call: dict, deliver=None, env=None, make_convo=None) -> None:
     """One call's audio, both ways, until it ends: Plivo's stream -> Silero (who is speaking) -> the cost gate ->
     Deepgram (words) -> Mind (Claude) -> ElevenLabs (voice) -> Plivo."""
     from . import usage  # noqa: PLC0415
@@ -1135,7 +1206,7 @@ async def run_stream(memory: Memory, websocket, call: dict, deliver=None, env=No
             menus or hold lines, and not for a word or two like "hello")."""
             await asyncio.sleep(FILLER_AFTER_S)
             if (call["kind"] != "hold_connect" and not mind.ended and not self.bot_talking
-                    and len(said.split()) >= 4 and mind.spoke_any):
+                    and len(said.split()) >= 4 and mind.spoke_any and mind.convo is None):  # the brain has its own
                 await speak(FILLERS[int(asyncio.get_running_loop().time() * 10) % len(FILLERS)])
 
         def _echo(self, text: str) -> bool:
@@ -1321,6 +1392,13 @@ async def run_stream(memory: Memory, websocket, call: dict, deliver=None, env=No
 
     _send_ahead(transport.output())
     mind = Mind(memory, call, say=speak, press_keys=press_keys, finish=finish, env=env, closing=closing)
+    if call["kind"] == "tell_me" and make_convo is not None and _env("BUDDY_CALL_BRAIN", env) != "off":
+        try:  # the owner on the line: Buddy's whole brain answers (memory, mail, calendar, money, tools)
+            mind.convo = make_convo()
+            mind.convo.say_now = speak
+        except Exception:
+            log.warning("call %s: Buddy's brain isn't available; the call uses its message only", call["id"],
+                        exc_info=True)
     gate = Gate(tail_s=FLUX_TAIL_S if flux else 0.0)
     pipeline = Pipeline([transport.input(),
                          VADProcessor(vad_analyzer=SileroVADAnalyzer(params=VADParams(stop_secs=VAD_STOP_S if flux else 0.5))),
@@ -1541,7 +1619,7 @@ TOOL = {
     "checking their calendar; may give their name, callback number, date of birth and insurance), question (ask "
     "and report back), hold_connect (banks, card companies: get through the menu, wait on hold, and ring the user "
     "when a person answers; only the user verifies), reservation (book a restaurant table: goal 'a table for 4 on "
-    "Friday 14 November at 7:30 pm, under Aneesh'; shares only their name and callback number), tell_me (phone the user themself on their own mobile and tell them something: 'call me', 'call me with my briefing'; goal = everything to tell them, written out in full, e.g. the morning briefing; no number needed). Find the number first (memory, library, contacts, places "
+    "Friday 14 November at 7:30 pm, under Aneesh'; shares only their name and callback number), tell_me (phone the user themself on their own mobile and tell them something: 'call me', 'call me with my briefing'; goal = everything to tell them, written out in full, e.g. the morning briefing, or just 'to talk' for 'call me so we can chat'; no number needed; on that call Buddy's whole brain answers: memory, mail, calendar, money and every tool, with a spoken yes for approvals). Find the number first (memory, library, contacts, places "
     "search) and confirm it. The user approves every call before it's made. status: the latest calls and their "
     "outcomes, including calls Buddy answered for the user when they didn't pick up (kind screen: who called, the "
     "message, scams hung up on today). forget_caller (number): forget a caller Buddy saved after an important "

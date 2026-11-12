@@ -886,7 +886,8 @@ async def call_stream(websocket: WebSocket, call_id: int, token: str):
     _call_streams.add(call_id)
     await websocket.accept()
     try:
-        await calls.run_stream(memory, websocket, call, deliver)
+        await calls.run_stream(memory, websocket, call, deliver, make_convo=lambda: Conversation(
+            memory, registry, jobs, thrift, hub, finops, mail, watcher, builder))  # the owner's calls: whole brain
     except Exception:
         log.exception("call %s: the call's audio stopped", call_id)
         with contextlib.suppress(Exception):

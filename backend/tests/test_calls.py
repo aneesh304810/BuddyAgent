@@ -995,3 +995,43 @@ def test_greeting_first_on_a_quiet_pickup_leaves_their_reply_to_claude(tmp_path)
 
 def test_prewarm_never_raises():
     calls.prewarm()
+
+
+class FakeConvo:
+    def __init__(self, replies):
+        self.replies, self.got, self.via = list(replies), [], None
+        self.say_now = None
+
+    async def reply(self, text, say, via="user"):
+        self.got.append(text)
+        self.via = via
+        for s in self.replies.pop(0):
+            await say(s)
+
+
+def test_owner_calls_use_buddys_whole_brain_and_speak_in_few_pieces(tmp_path):
+    mind, out = _closing_mind(tmp_path, [])
+    mind.call["kind"] = "tell_me"
+    mind.call["goal"] = "your 3pm moved to 4"
+    mind.convo = FakeConvo([["Sure.", "Your inbox has two new emails.", "One from Sam about Friday.",
+                             "Want me to reply?"], ["Done, I've sent it."], ["Okay, anything else?"]])
+    asyncio.run(mind.heard("Hey, anything in my email?"))
+    first = mind.convo.got[0]
+    assert "phone call" in first and "your 3pm moved to 4" in first and first.endswith("anything in my email?")
+    assert mind.convo.via == "phone"  # trusted: a spoken yes approves, as in the app
+    assert out["said"] == ["Sure.", "Your inbox has two new emails. One from Sam about Friday.", "Want me to reply?"]
+    asyncio.run(mind.heard("Yes"))  # a yes is an answer, never a goodbye
+    assert mind.convo.got[1] == "Yes" and not mind.ended and out["said"][-1] == "Done, I've sent it."
+    asyncio.run(mind.heard("Okay"))
+    assert not mind.ended and mind.asked_more
+    asyncio.run(mind.heard("No"))  # a plain no after "anything else?" ends it, politely
+    assert mind.ended and out["finished"] and out["said"][-1].endswith("Bye!")
+
+
+def test_brain_goodbye_needs_real_parting_words():
+    assert calls.brain_goodbye("Okay bye", False) and calls.brain_goodbye("No that's all, thanks", False)
+    assert calls.brain_goodbye("I'm good", False)
+    assert not calls.brain_goodbye("Yes", True) and not calls.brain_goodbye("Okay", False)
+    assert not calls.brain_goodbye("Sure, go ahead", True)
+    assert calls.brain_goodbye("No", True) and not calls.brain_goodbye("No", False)
+    assert not calls.brain_goodbye("Bye the way, can you check my calendar for tomorrow afternoon please", False)
