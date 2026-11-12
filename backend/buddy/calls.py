@@ -637,7 +637,9 @@ async def think(memory: Memory, call: dict, history: list[dict], env=None, say_n
         _CLIENT = claude_client()
     system = call.get("_system") or await asyncio.to_thread(system_prompt, memory, call, env)
     text, spoken, said = "", 0, []
-    async with _CLIENT.messages.stream(model=settings.fast_model, max_tokens=300, system=system,
+    # The call's instructions are the same every turn: cached, so each reply starts sooner and costs less.
+    async with _CLIENT.messages.stream(model=settings.fast_model, max_tokens=300,
+                                       system=[{"type": "text", "text": system, "cache_control": {"type": "ephemeral"}}],
                                        messages=history) as stream:
         async for piece in stream.text_stream:
             text += piece
@@ -774,13 +776,22 @@ def outcome_message(call: dict, move: dict, env=None) -> str:
     return f"Call to {call['who']} done. {move.get('outcome') or ''}".strip()
 
 
+NOISE_WORDS = {"uh", "um", "umm", "hmm", "mm", "er", "ah", "eh"}
+
+
 def looks_like_echo(heard: str, said: str) -> bool:
-    """A transcript that is mostly Buddy's own last words (or no real words at all)."""
-    words = re.findall(r"[a-z']{3,}", (heard or "").lower())
-    if not words:
-        return True
-    mine = set(re.findall(r"[a-z']{3,}", (said or "").lower()))
-    return sum(w in mine for w in words) / len(words) >= 0.5
+    """Buddy's own voice coming back down the line: a run of Buddy's last words, in order, with nothing new (or only
+    "uh"/"hmm" noise). A real answer is never dropped, however short ("no", "OK") or however much it repeats the
+    question ("yes, the 3 pm appointment is available" has "yes" in it, so it's the caller)."""
+    words = re.findall(r"[a-z0-9']+", (heard or "").lower())
+    real = [w for w in words if w not in NOISE_WORDS]
+    if not real:
+        return True  # only noise: nothing to answer
+    if len(real) < 2:
+        return False  # "no", "yes", "OK", "Sam": an answer
+    mine = re.findall(r"[a-z0-9']+", (said or "").lower())
+    n = len(real)
+    return any(mine[i:i + n] == real for i in range(len(mine) - n + 1))  # a stretch of what Buddy just said
 
 
 def _send_ahead(output) -> None:

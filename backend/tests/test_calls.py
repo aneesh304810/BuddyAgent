@@ -677,6 +677,12 @@ def test_buddys_own_echo_isnt_taken_for_the_caller():
     assert calls.looks_like_echo("uh", said)  # no real words
     assert not calls.looks_like_echo("It's ten past seven", said)
     assert not calls.looks_like_echo("Sorry, who is this?", said)
+    asked = "Is the 3 pm appointment on Tuesday still available?"
+    assert not calls.looks_like_echo("No", asked) and not calls.looks_like_echo("OK", asked)  # short answers count
+    assert not calls.looks_like_echo("Yes, the 3 pm appointment is available", asked)  # repeats it, but answers
+    assert not calls.looks_like_echo("Tuesday", asked)
+    assert calls.looks_like_echo("um, hmm", asked)
+    assert calls.looks_like_echo("appointment on Tuesday", asked)  # a stretch of Buddy's own words
 
 
 def test_voice_is_sent_a_little_ahead_to_absorb_network_jitter():
