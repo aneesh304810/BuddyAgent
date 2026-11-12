@@ -719,6 +719,10 @@ async def think(memory: Memory, call: dict, history: list[dict], env=None, say_n
         if hasattr(response, "usage") else 0.0
     move = parse(text)
     move["cost_usd"] = float(cost or 0.0)
+    if _env("BUDDY_CALL_DEBUG", env) == "1" and not move["say"]:  # testing only: why was there nothing to say?
+        kinds = [getattr(b, "type", "?") for b in getattr(response, "content", []) or []]
+        log.warning("call %s: Claude gave no words (stop=%s, blocks=%s): %r", call.get("id"),
+                    getattr(response, "stop_reason", "?"), kinds, text[:300])
     if said:  # already spoken while it was written
         move["spoken"] = " ".join(said)
     return move
@@ -780,6 +784,16 @@ class Mind:
         already = move.pop("spoken", "")
         if self.ended:
             return
+        if self._needs_words(move, said, already):  # silence would leave them saying "hello?": ask once more
+            history = self._history()
+            history[-1] = {"role": "user", "content": history[-1]["content"] + SPEAK_NOW}
+            move = await self.brain(self.memory, self.call, history, self.env)
+            self.claude_usd += float(move.pop("cost_usd", 0.0) or 0.0)
+            move.pop("spoken", None)
+            if self._needs_words(move, said, ""):
+                move["say"] = self._fallback(said)
+            log.warning("call %s: Claude had nothing to say; %s", self.call["id"],
+                        "asked again" if move["say"] and move["say"] != self._fallback(said) else "used a fallback line")
         if move["action"] == "connect" and self.call["kind"] != "hold_connect":
             move["action"] = "continue"  # only hold_connect calls may ring the owner in
         meta = {k: v for k, v in move.items() if k != "say"}
@@ -802,6 +816,23 @@ class Mind:
         elif move["action"] in ("connect", "end"):
             self.ended = True
             await self.finish(move)
+
+    def _needs_words(self, move: dict, said: str, already: str) -> bool:
+        """Buddy would stay silent when it shouldn't: someone just said a few words (or picked up and is silent)
+        on a call that isn't a hold line. Long recordings and hold messages may rightly get silence."""
+        if move.get("say") or already or move.get("digits") or move.get("action") != "continue":
+            return False
+        if self.call["kind"] == "hold_connect":
+            return False
+        return said == "[No one has spoken yet]" or len(said.split()) <= 8
+
+    def _fallback(self, said: str) -> str:
+        if said == "[No one has spoken yet]" or said.lower().strip(" ?!.").startswith("hello"):
+            o = owner(self.env)
+            first = (o["name"].split() or [""])[0]
+            return (f"Hi {first}, it's Buddy." if self.call["kind"] == "tell_me"
+                    else f"Hi, this is {o['name']}'s assistant." if self.call["kind"] != SCREEN else "Hi, are you there?")
+        return "Sorry, could you say that again?"
 
     def _history(self) -> list[dict]:
         h = self.history[-40:]
@@ -844,6 +875,8 @@ def outcome_message(call: dict, move: dict, env=None) -> str:
         return f"Our call's done. {move.get('outcome') or ''}".strip()
     return f"Call to {call['who']} done. {move.get('outcome') or ''}".strip()
 
+
+SPEAK_NOW = "\n[Note for you: they're waiting on the line. Say something out loud now, then the ## line.]"
 
 NOISE_WORDS = {"uh", "um", "umm", "hmm", "mm", "er", "ah", "eh"}
 
@@ -1269,7 +1302,7 @@ def link_inbound(memory, env=None, fetch=None) -> str:
     kept up to date when the public address changes)."""
     if ready(env):
         return ""
-    body = {"app_name": "Buddy call screening", "answer_url": inbound_url("inbound", env), "answer_method": "POST",
+    body = {"app_name": "Buddy-call-screening", "answer_url": inbound_url("inbound", env), "answer_method": "POST",
             "hangup_url": inbound_url("missed", env), "hangup_method": "POST"}
     saved = {}
     with contextlib.suppress(ValueError, TypeError):

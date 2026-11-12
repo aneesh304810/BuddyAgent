@@ -2,6 +2,7 @@
 call needs the owner's yes, shares only allowed facts, and Plivo's requests must carry the call's token and
 signature."""
 
+import re
 import asyncio
 import base64
 import hashlib
@@ -913,3 +914,26 @@ def test_call_me_rings_only_the_owner_and_tells_them_after_yes(tmp_path, env, mo
 def test_persona_knows_it_can_phone():
     from buddy.persona import PERSONA
     assert "phone_call" in PERSONA and "Never say you can't call" in PERSONA.replace("\\\n", "")
+
+
+def test_an_empty_reply_is_asked_again_never_left_as_silence(tmp_path):
+    mind, out = _closing_mind(tmp_path, [_move(""), _move("Hi! Sorry about that, I'm here.")])
+    asyncio.run(mind.heard("Hello?"))
+    assert out["said"] == ["Hi! Sorry about that, I'm here."]
+    mind, out = _closing_mind(tmp_path, [_move(""), _move("")], db="c.db")
+    asyncio.run(mind.heard("Can you repeat the time?"))
+    assert out["said"] == ["Sorry, could you say that again?"]
+
+
+def test_hold_lines_may_stay_silent(tmp_path):
+    mind, out = _closing_mind(tmp_path, [_move("")])
+    mind.call["kind"] = "hold_connect"
+    asyncio.run(mind.heard("Please hold"))
+    assert out["said"] == []
+
+
+def test_inbound_application_name_is_one_plivo_accepts():
+    import inspect
+    src = inspect.getsource(calls.link_inbound)
+    name = re.search(r'"app_name": "([^"]+)"', src).group(1)
+    assert re.fullmatch(r"[A-Za-z0-9_-]+", name)
