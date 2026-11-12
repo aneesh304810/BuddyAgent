@@ -221,3 +221,25 @@ def test_free_apis_and_services_each_have_a_line_with_what_they_are_for():
         assert lines[name]["source"] == "free", name
     names = [l["provider"] for l in report["lines"]]
     assert names.count("Hacker News (Algolia search)") == 1  # not listed twice
+
+
+def test_components_map_every_cost_to_a_part_without_double_counting():
+    from buddy.finops import CostLine
+    memory = Memory(":memory:")
+    f = fo.FinOps(memory, env={})
+    f._phone_claude = lambda: 0.40
+    lines = [CostLine("Claude", 2.00, 6.00, "buddy meter", ""),
+             CostLine("Groq (speech to text and quick models)", 0.0, 0.0, "free"),
+             CostLine("Plivo (phone line for calls)", 0.30, 0.90, "buddy meter"),
+             CostLine("ElevenLabs (Buddy's voice on calls)", 0.10, 0.30, "buddy meter"),
+             CostLine("Server (DigitalOcean)", 6.00, 12.00, "plan price"),
+             CostLine("Serper (web search, Google News)", 0.05, 0.15, "buddy meter"),
+             CostLine("Google Places (restaurants)", 0.07, 0.21, "buddy meter"),
+             CostLine("Zapier", 0.0, 0.0, "free")]
+    parts = {p["key"]: p for p in f.components(lines)}
+    assert parts["brain"]["month_to_date"] == 1.60 and parts["phone"]["month_to_date"] == 0.80
+    assert parts["server"]["month_to_date"] == 6.00 and parts["agents"]["lines"][0]["provider"] == "Zapier"
+    areas = {a["name"]: a for a in parts["connect"]["areas"]}
+    assert areas["Food & dining"]["month_to_date"] == 0.07 and areas["Search"]["month_to_date"] == 0.05
+    total = sum(p["month_to_date"] for p in parts.values())
+    assert round(total, 2) == round(sum(x.month_to_date for x in lines), 2)  # nothing lost or counted twice

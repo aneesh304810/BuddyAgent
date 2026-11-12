@@ -107,7 +107,23 @@ class FinOps:
         return (self.env.get(key) or default).strip()
 
     # --- providers ---------------------------------------------------------
+    def _phone_claude(self) -> float:
+        """This month's Claude cost for phone calls (Buddy's thinking on calls), part of the Claude line."""
+        try:
+            return float(self.memory.db.execute(
+                "SELECT COALESCE(SUM(cost_usd), 0) FROM model_calls WHERE at >= ? AND purpose = 'phone_call'",
+                (self._month_start(),)).fetchone()[0] or 0)
+        except Exception:
+            return 0.0
+
     async def claude(self) -> CostLine:
+        line = await self._claude()
+        phone = self._phone_claude()
+        if phone >= 0.005:
+            line.note += f"; ${phone:.2f} of it on phone calls"
+        return line
+
+    async def _claude(self) -> CostLine:
         metered = usage.month_to_date(self.memory)
         key = self.setting("BUDDY_ANTHROPIC_ADMIN_KEY")
         if key:
@@ -301,14 +317,18 @@ class FinOps:
                  "mta": "MTA alerts (subway, buses, LIRR, Metro-North)", "path": "PATH (arrivals and alerts)",
                  "njt": "NJ Transit (train and light rail alerts)", "airlabs": "AirLabs (flight status)",
                  "flightaware": "FlightAware AeroAPI (flight status backup)", "openmeteo": "Open-Meteo (weather)",
-                 "17track": "17TRACK (package tracking)"}
+                 "17track": "17TRACK (package tracking)",
+                 "plivo": "Plivo (phone line for calls)", "deepgram": "Deepgram (hearing on calls)",
+                 "elevenlabs": "ElevenLabs (Buddy's voice on calls)", "google_places": "Google Places (restaurants)",
+                 "ticketmaster": "Ticketmaster (events)", "oura": "Oura Ring", "nest": "Google Nest"}
     # Free APIs: shown as free whatever they're called (no per-call price).
     FREE_APIS = {"alpaca": "free market data plan (paper account)", "reddit": "free public search",
                  "stocktwits": "free public API", "hackernews": "free, no key", "arxiv": "free public API",
                  "github": "free public search", "coinbase": "free public prices", "stooq": "free daily prices",
                  "yahoo": "free public chart data", "mta": "free, no key", "path": "free public feed",
                  "njt": "free developer account", "airlabs": "free plan",
-                 "openmeteo": "free, no key", "17track": "free plan"}
+                 "openmeteo": "free, no key", "17track": "free plan", "ticketmaster": "free Discovery API key",
+                 "oura": "free with your Oura membership", "nest": "free (Google Device Access is a one-off $5)"}
 
     def outside_apis(self, calls: dict) -> list[CostLine]:
         lines = []
@@ -386,6 +406,75 @@ class FinOps:
         return [CostLine(name, round(amount * fraction, 2), amount, "fixed")
                 for name, amount in _parse_fixed(self.setting("BUDDY_FIXED_COSTS"))]
 
+    # --- Buddy's parts, for the cost map in Insights ------------------------------
+    COMPONENTS = (("brain", "Brain", "Claude and the free AI models: chat, planning, writing"),
+                  ("phone", "Phone agent", "calls: phone line, hearing, voice, and Claude's thinking on calls"),
+                  ("connect", "Buddy Connect", "outside services, by area"),
+                  ("server", "Server & storage", "the machine Buddy runs on, its domain, fixed costs"),
+                  ("agents", "Agents", "Zapier and other connected agents"))
+    PHONE_KEYS = ("plivo", "deepgram", "elevenlabs")
+    AREAS = {"mta": "Travel & transit", "path": "Travel & transit", "njt": "Travel & transit",
+             "airlabs": "Travel & transit", "flightaware": "Travel & transit", "duffel": "Travel & transit",
+             "travelpayouts": "Travel & transit", "serpapi": "Travel & transit", "alpaca": "Finance & markets",
+             "coinbase": "Finance & markets", "stooq": "Finance & markets", "yahoo": "Finance & markets",
+             "stocktwits": "Finance & markets", "serper": "Search", "github": "Search", "reddit": "News & trends",
+             "hackernews": "News & trends", "arxiv": "News & trends", "openmeteo": "Weather", "17track": "Shopping",
+             "openrouter_list": "AI models"}
+
+    def components(self, lines: list[CostLine]) -> list[dict]:
+        """The month's cost lines grouped into Buddy's parts (each with its lines; Buddy Connect also by area).
+        Claude's phone-call share moves from Brain to Phone agent, so nothing is counted twice."""
+        from . import gateway  # noqa: PLC0415
+        by_name = {v: k for k, v in self.API_NAMES.items()}
+        models = set(self.MODEL_NAMES.values())
+        parts = {key: {"key": key, "name": name, "what": what, "month_to_date": 0.0, "forecast": 0.0, "lines": []}
+                 for key, name, what in self.COMPONENTS}
+
+        def put(part: str, line: dict, area: str = "") -> None:
+            p = parts[part]
+            p["month_to_date"] = round(p["month_to_date"] + line["month_to_date"], 2)
+            p["forecast"] = round(p["forecast"] + line["forecast"], 2)
+            p["lines"].append({**line, "area": area})
+        phone = round(self._phone_claude(), 2)
+        _, days = _month_progress()
+        for line in (asdict(x) for x in lines):
+            name, key = line["provider"], by_name.get(line["provider"], "")
+            if name == "Claude":
+                share = min(phone, line["month_to_date"])
+                if share:
+                    ratio = share / line["month_to_date"] if line["month_to_date"] else 0
+                    put("phone", {**line, "provider": "Claude (thinking on calls)", "month_to_date": share,
+                                  "forecast": round(line["forecast"] * ratio, 2), "note": "replies during calls"})
+                    line = {**line, "month_to_date": round(line["month_to_date"] - share, 2),
+                            "forecast": round(line["forecast"] * (1 - ratio), 2)}
+                put("brain", line)
+            elif name in models:
+                put("brain", line)
+            elif key in self.PHONE_KEYS:
+                put("phone", line)
+            elif name == "Zapier":
+                put("agents", line)
+            elif name == "Plaid":
+                put("connect", line, "Finance & markets")
+            elif line["source"] == "fixed" or name.startswith(("Server", "Domain", "DigitalOcean")) or \
+                    name == self.setting("BUDDY_SERVER_PROVIDER", "\0"):
+                put("server", line)
+            else:
+                put("connect", line, gateway.group_of(key) if key in gateway.CATALOG else self.AREAS.get(key, "Other"))
+        out = list(parts.values())
+        for p in out:
+            p["lines"].sort(key=lambda x: -x["forecast"])
+            if p["key"] == "connect":
+                areas: dict[str, dict] = {}
+                for x in p["lines"]:
+                    a = areas.setdefault(x["area"] or "Other", {"name": x["area"] or "Other", "month_to_date": 0.0,
+                                                               "forecast": 0.0, "services": 0})
+                    a["month_to_date"] = round(a["month_to_date"] + x["month_to_date"], 2)
+                    a["forecast"] = round(a["forecast"] + x["forecast"], 2)
+                    a["services"] += 1
+                p["areas"] = sorted(areas.values(), key=lambda a: -a["forecast"])
+        return out
+
     # --- the report --------------------------------------------------------
     async def report(self, fresh: bool = False) -> dict:
         if not fresh and self._cache and time.time() - self._cache[0] < CACHE_SECONDS:
@@ -419,6 +508,7 @@ class FinOps:
             "all_in_budget_usd": budget or None,
             "over_budget": bool(budget and forecast > budget),
             "lines": [asdict(l) for l in lines],
+            "components": self.components(lines),
             "claude_by_purpose": self.claude_by_purpose(),
             "agents": self.by_agent(),
             "digitalocean_invoices": await self.digitalocean_invoices(),

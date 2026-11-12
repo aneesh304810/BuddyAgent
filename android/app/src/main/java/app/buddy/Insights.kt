@@ -1,6 +1,7 @@
 package app.buddy
 
 import androidx.compose.foundation.background
+import androidx.compose.foundation.border
 import androidx.compose.foundation.clickable
 import androidx.compose.foundation.horizontalScroll
 import androidx.compose.foundation.rememberScrollState
@@ -166,6 +167,8 @@ fun InsightsScreen(link: ServerLink?) {
     var data by remember { mutableStateOf<JSONObject?>(null) }
     var monthAllIn by remember { mutableStateOf<String?>(null) }
     var costLines by remember { mutableStateOf<List<JSONObject>>(emptyList()) }
+    var costParts by remember { mutableStateOf<List<JSONObject>>(emptyList()) }
+    var costTotals by remember { mutableStateOf(0.0 to 0.0) }
     var agentCosts by remember { mutableStateOf<List<JSONObject>>(emptyList()) }
     var problem by remember { mutableStateOf<String?>(null) }
     var healthData by remember { mutableStateOf<JSONObject?>(null) }
@@ -200,6 +203,8 @@ fun InsightsScreen(link: ServerLink?) {
                 (it.optJSONArray("price_not_set")?.let { arr -> if (arr.length() > 0) ". Price not set yet: " +
                     (0 until arr.length()).joinToString(", ") { i -> arr.optString(i) } else "" } ?: "")
             costLines = it.optJSONArray("lines")?.objects().orEmpty()
+            costParts = it.optJSONArray("components")?.objects().orEmpty()
+            costTotals = it.optDouble("month_to_date_usd") to it.optDouble("forecast_usd")
             agentCosts = it.optJSONArray("agents")?.objects().orEmpty()
         }
     }
@@ -236,6 +241,7 @@ fun InsightsScreen(link: ServerLink?) {
                 }
             }
         }
+        if (costParts.isNotEmpty()) item { CostMap(costParts, costTotals.first, costTotals.second) }
         monthAllIn?.let { item { Text(it, color = Dim, fontSize = 13.sp) } }
         budgetData?.let { b -> item { BudgetCard(b, link) { budgetData = it } } }
         item { TraceButtons(link) }
@@ -1162,5 +1168,91 @@ private fun TraceButtons(link: ServerLink?) {
             Chip("Since reset", false) { open("since_reset") }
         }
         note?.let { Text(it, color = Dim, fontSize = 12.sp) }
+    }
+}
+
+
+/** Buddy's parts as a simple map, each with what it costs this month; tap one for its pieces. */
+@Composable
+private fun CostMap(parts: List<JSONObject>, monthToDate: Double, forecast: Double) {
+    var open by remember { mutableStateOf("") }
+    val byKey = parts.associateBy { it.optString("key") }
+    val top = parts.maxOfOrNull { it.optDouble("forecast") }?.takeIf { it > 0 } ?: 1.0
+    Column(Modifier.fillMaxWidth().background(Card, RoundedCornerShape(14.dp)).padding(14.dp)) {
+        Text("Where the money goes", color = Pal.text, fontSize = 17.sp, fontWeight = FontWeight.SemiBold)
+        Text("${usd(monthToDate)} this month so far, heading for ${usd(forecast)}. Tap a part for its pieces.",
+            color = Dim, fontSize = 12.sp, modifier = Modifier.padding(bottom = 10.dp))
+        // You -> private network -> your server (with its parts) -> the outside services
+        Text("📱 Buddy app  →  private network  →", color = Dim, fontSize = 12.sp)
+        Column(Modifier.fillMaxWidth().padding(top = 6.dp)
+            .border(1.5.dp, Pal.accent, RoundedCornerShape(12.dp)).padding(10.dp)) {
+            val server = byKey["server"]
+            PartTile(server, "🖥️", top, open == "server", Modifier.fillMaxWidth()) { open = if (open == "server") "" else "server" }
+            Spacer(Modifier.height(8.dp))
+            Row(horizontalArrangement = Arrangement.spacedBy(8.dp)) {
+                PartTile(byKey["brain"], "🧠", top, open == "brain", Modifier.weight(1f)) { open = if (open == "brain") "" else "brain" }
+                PartTile(byKey["phone"], "📞", top, open == "phone", Modifier.weight(1f)) { open = if (open == "phone") "" else "phone" }
+            }
+            Spacer(Modifier.height(8.dp))
+            Row(horizontalArrangement = Arrangement.spacedBy(8.dp)) {
+                PartTile(byKey["connect"], "🔌", top, open == "connect", Modifier.weight(1f)) { open = if (open == "connect") "" else "connect" }
+                PartTile(byKey["agents"], "🤖", top, open == "agents", Modifier.weight(1f)) { open = if (open == "agents") "" else "agents" }
+            }
+        }
+        Text("→  Claude, free models, call providers and every connected service", color = Dim, fontSize = 12.sp,
+            modifier = Modifier.padding(top = 6.dp))
+        byKey[open]?.let { p ->
+            Spacer(Modifier.height(10.dp))
+            Text(p.optString("name") + ": " + p.optString("what"), color = Pal.text, fontSize = 14.sp,
+                fontWeight = FontWeight.SemiBold)
+            val areas = p.optJSONArray("areas")?.objects().orEmpty()
+            if (areas.isNotEmpty()) {
+                Text("By area", color = Dim, fontSize = 12.sp, modifier = Modifier.padding(top = 6.dp))
+                val aTop = areas.maxOfOrNull { it.optDouble("forecast") }?.takeIf { it > 0 } ?: 1.0
+                areas.forEach { a ->
+                    PieceRow(a.optString("name") + " (${a.optInt("services")})", a.optDouble("month_to_date"),
+                        a.optDouble("forecast"), (a.optDouble("forecast") / aTop).toFloat(), "")
+                }
+                Text("Services", color = Dim, fontSize = 12.sp, modifier = Modifier.padding(top = 8.dp))
+            }
+            val lines = p.optJSONArray("lines")?.objects().orEmpty()
+            val lTop = lines.maxOfOrNull { it.optDouble("forecast") }?.takeIf { it > 0 } ?: 1.0
+            lines.forEach { l ->
+                val note = listOf(l.optString("area"), l.optString("source"), l.optString("note"))
+                    .filter { it.isNotBlank() }.joinToString(" · ")
+                PieceRow(l.optString("provider"), l.optDouble("month_to_date"), l.optDouble("forecast"),
+                    (l.optDouble("forecast") / lTop).toFloat(), note)
+            }
+            if (lines.isEmpty()) Text("Nothing yet this month.", color = Dim, fontSize = 12.sp)
+        }
+    }
+}
+
+@Composable
+private fun PartTile(p: JSONObject?, icon: String, top: Double, selected: Boolean, modifier: Modifier, onClick: () -> Unit) {
+    if (p == null) return
+    val share = (p.optDouble("forecast") / top).toFloat().coerceIn(0f, 1f)
+    Column(modifier.background(if (selected) Pal.track else Pal.bg, RoundedCornerShape(10.dp))
+        .clickable { onClick() }.padding(10.dp)) {
+        Text("$icon ${p.optString("name")}", color = Pal.text, fontSize = 13.sp, fontWeight = FontWeight.SemiBold)
+        Text(usd(p.optDouble("month_to_date")), color = Pal.text, fontSize = 18.sp, fontWeight = FontWeight.Bold)
+        Text("→ ${usd(p.optDouble("forecast"))} by month end", color = Dim, fontSize = 11.sp)
+        Box(Modifier.fillMaxWidth().padding(top = 6.dp).height(4.dp).background(Pal.track, RoundedCornerShape(2.dp))) {
+            Box(Modifier.fillMaxWidth(share).fillMaxHeight().background(Pal.accent, RoundedCornerShape(2.dp)))
+        }
+    }
+}
+
+@Composable
+private fun PieceRow(title: String, monthToDate: Double, forecast: Double, share: Float, note: String) {
+    Column(Modifier.fillMaxWidth().padding(vertical = 4.dp)) {
+        Row(verticalAlignment = Alignment.CenterVertically) {
+            Text(title, color = Pal.text, fontSize = 13.sp, modifier = Modifier.weight(1f))
+            Text("${usd(monthToDate)} → ${usd(forecast)}", color = Pal.text, fontSize = 13.sp)
+        }
+        Box(Modifier.fillMaxWidth().padding(top = 3.dp).height(3.dp).background(Pal.track, RoundedCornerShape(2.dp))) {
+            Box(Modifier.fillMaxWidth(share.coerceIn(0f, 1f)).fillMaxHeight().background(Pal.accent, RoundedCornerShape(2.dp)))
+        }
+        if (note.isNotBlank()) Text(note, color = Dim, fontSize = 11.sp)
     }
 }
