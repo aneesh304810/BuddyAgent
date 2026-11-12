@@ -809,3 +809,58 @@ def test_old_and_new_reply_forms_are_both_read():
     assert old["say"] == "Hi" and old["action"] == "end"
     silent = calls.parse('\n## {"action": "continue"}')
     assert silent["say"] == ""
+
+
+def test_goodbye_words_tell_a_farewell_from_more_to_say():
+    assert calls.is_goodbye("OK, thanks, you too, bye!") and calls.is_goodbye("Have a good one.")
+    assert calls.is_goodbye("Thank you so much, take care")
+    assert not calls.is_goodbye("Oh wait, one more thing, can she bring her ID?")
+    assert not calls.is_goodbye("No, actually Thursday is better") and not calls.is_goodbye("")
+
+
+def _closing_mind(tmp_path, replies, db="b.db"):
+    m = Memory(tmp_path / db)
+    call = {**calls.plan(m, "Dr", "2015550123", "question", "hours?"), "_system": "x"}
+    out = {"said": [], "finished": [], "closing": []}
+
+    async def brain(memory, call, history, env=None):
+        return dict(replies.pop(0))
+
+    async def say(t):
+        out["said"].append(t)
+
+    async def finish(mv):
+        out["finished"].append(mv)
+
+    async def closing(mv):
+        out["closing"].append(mv)
+    mind = calls.Mind(m, call, say=say, press_keys=None, finish=finish, brain=brain, closing=closing)
+    return mind, out
+
+
+def _move(say, action="continue", **kw):
+    return {"say": say, "digits": "", "action": action, "outcome": kw.pop("outcome", ""), **kw}
+
+
+def test_buddy_waits_for_their_goodbye_before_hanging_up(tmp_path):
+    mind, out = _closing_mind(tmp_path, [_move("Great, thanks so much, have a lovely day!", "end", outcome="Open 9-5")])
+    asyncio.run(mind.heard("We're open nine to five."))
+    assert out["closing"] and not out["finished"] and not mind.ended  # goodbye said, line still open
+    asyncio.run(mind.heard("You too, bye!"))
+    assert out["said"][-1] == "Bye now." and out["finished"][0]["outcome"] == "Open 9-5" and mind.ended
+
+
+def test_more_to_say_after_the_goodbye_carries_on(tmp_path):
+    mind, out = _closing_mind(tmp_path, [_move("Thanks, bye now!", "end"), _move("Oh sure, what is it?")])
+    asyncio.run(mind.heard("That's all set."))
+    asyncio.run(mind.heard("Oh wait, one more thing about parking"))
+    assert not out["finished"] and not mind.ended and out["said"][-1] == "Oh sure, what is it?"
+
+
+def test_scams_and_unanswered_calls_still_end_at_once(tmp_path):
+    mind, out = _closing_mind(tmp_path, [_move("Not interested, thanks. Bye now.", "end", priority="scam")])
+    asyncio.run(mind.heard("Your car's extended warranty is about to expire"))
+    assert out["finished"] and not out["closing"] and mind.ended
+    mind, out = _closing_mind(tmp_path, [_move("", "end")], db="c.db")
+    asyncio.run(mind.heard("[No one has spoken yet]"))
+    assert out["finished"] and not out["closing"]

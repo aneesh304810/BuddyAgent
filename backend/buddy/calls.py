@@ -51,6 +51,19 @@ KEEP_DAYS = 180
 DEFAULT_VOICE = "21m00Tcm4TlvDq8ikWAM"  # ElevenLabs' "Rachel" (female); BUDDY_CALL_VOICE changes it
 ECHO_WINDOW_S = 1.5               # a transcript this soon after Buddy spoke is checked for being its own echo
 BARGE_IN_WORDS = 3                # Buddy stops talking only once the other side has said this many words
+CLOSE_WAIT_S = 3.0                # after Buddy's goodbye: this long without a word from them, then hang up
+CLOSE_MAX_S = 15.0                # and never hold a finished call open longer than this
+GOODBYE_WORDS = {"bye", "goodbye", "bye-bye", "thanks", "thank", "you", "too", "same", "to", "have", "a", "an", "good",
+                 "great", "nice", "lovely", "wonderful", "day", "night", "evening", "weekend", "one", "ok", "okay",
+                 "alright", "all", "right", "sure", "cheers", "take", "care", "see", "ya", "you're", "welcome",
+                 "appreciate", "it", "perfect", "sounds", "yes", "yeah", "yep", "will", "do", "talk", "soon", "later",
+                 "no", "problem", "much", "so", "very", "and", "bye.", "mhm", "uh", "um", "great.", "now"}
+
+
+def is_goodbye(heard: str) -> bool:
+    """Only parting words ("OK, thanks, you too, bye!"): the call can end. Anything more and they have more to say."""
+    words = re.findall(r"[a-z'-]+", (heard or "").lower())
+    return bool(words) and len(words) <= 12 and all(w in GOODBYE_WORDS for w in words)
 FILLER_AFTER_S = 1.6              # no reply yet after this long: a quick "Mm-hmm" rather than silence
 FIRST_PIECE_WORDS = 4             # the first words spoken while Claude still writes: at least this many
 VOICE_RATE = 16000                # ElevenLabs renders at 16 kHz; it is brought down to the 8 kHz line cleanly
@@ -500,6 +513,7 @@ booked. Free times (working hours, next week): {_free(memory)}
 Your job: find out who's calling and why, take a clear message, and judge how much it matters.
 - A real caller: get their name, the reason, any date, time or reference number, and the best number to call back \
 (read it back). Tell them when {first} will likely get back to them, then wrap up warmly and end.
+Ending the call, like a person: when you are done, say a warm goodbye in one short sentence (for example "Thanks so much for your help, have a great day!") and set "end" in that same reply. You don't hang up yourself: you wait for their goodbye, and if they add something you'll hear it and can carry on. Never end while a question is still open or they are mid-thought.
 - Scam or robocall: threats (IRS, police, Social Security, arrest), gift cards, crypto or wire payments, "your car's \
 warranty", prizes, "your account is locked", asking for codes, passwords, card or account numbers, pressure to act \
 now, or a recording. Don't argue: "Not interested, thanks. Bye now." and end.
@@ -537,7 +551,8 @@ def system_prompt(memory: Memory, call: dict, env=None) -> str:
                        "free; repeat it back to confirm (day, date, time, with whom, anything to bring). If you reach "
                        f"voicemail, leave a short message asking them to call {first} back on the callback number, "
                        "then end.",
-        "question": "Ask the question, note the answer exactly, thank them and end. If you reach voicemail, end "
+        "question": "Ask the question, note the answer exactly, then thank them and say goodbye. If you reach "
+                    "voicemail, end "
                     "without a message.",
         "hold_connect": "Get through the phone menu to a real person for this goal (press keys, or say the option), "
                         "wait patiently on hold, and the moment a real person answers say: 'Hi, thank you. One "
@@ -565,7 +580,8 @@ Reply in two parts. First, exactly the words to say out loud now, as natural spe
 should stay silent, e.g. on hold). Then, on a new line, ## followed by one line of JSON: {{"digits": "keys to press, e.g. \
 '1', or ''", "action": "continue" | "connect" | "end", "outcome": "when ending or connecting: one or two \
 sentences for {first} (what was agreed, date and time, what to bring, reference numbers)"}}. \
-Use "connect" only when a real person has answered on a hold_connect call."""
+Use "connect" only when a real person has answered on a hold_connect call.
+Ending the call, like a person: when you are done, say a warm goodbye in one short sentence (for example "Thanks so much for your help, have a great day!") and set "end" in that same reply. You don't hang up yourself: you wait for their goodbye, and if they add something you'll hear it and can carry on. Never end while a question is still open or they are mid-thought."""
 
 
 _FIELD = r'"%s"\s*:\s*"((?:[^"\\]|\\.)*)'
@@ -679,9 +695,11 @@ class Mind:
     """The call's conversation, apart from the audio: what they said in, Buddy's moves out (say, press keys,
     connect the owner, end). The words live only in this object while the call lasts."""
 
-    def __init__(self, memory: Memory, call: dict, *, say, press_keys, finish, brain=None, env=None):
+    def __init__(self, memory: Memory, call: dict, *, say, press_keys, finish, brain=None, env=None, closing=None):
         self.memory, self.call, self.env = memory, call, env
         self.say, self.press_keys, self.finish = say, press_keys, finish
+        self.closing = closing          # starts the wait for their goodbye (run_stream); None: end at once
+        self.closing_move: dict | None = None  # Buddy said goodbye and is waiting for theirs
         self.brain = brain or think
         self.history: list[dict] = []
         self.recordings: set[str] = set()  # things heard that needed no answer (hold messages): not re-sent
@@ -699,6 +717,16 @@ class Mind:
             return
         if said != "[No one has spoken yet]":
             self.heard_any = True
+        if self.closing_move is not None and said != "[No one has spoken yet]":
+            move, self.closing_move = self.closing_move, None
+            if is_goodbye(said):  # their goodbye: a short one back if Buddy hadn't said bye, then hang up
+                self.ended = True
+                bye = "" if re.search(r"\bbye\b", (move.get("say") or "").lower()) else "Bye now."
+                if bye:
+                    await self.say(bye)
+                await self.finish({**move, "say": bye})
+                return
+            # they had more to say ("oh, one more thing"): the conversation goes on
         key = self._key(said)
         if len(key) > 25 and key in self.recordings:
             return  # the same hold message again: nothing to decide
@@ -732,7 +760,10 @@ class Mind:
         if rest:
             self.spoke_any = True
             await self.say(rest)
-        if move["action"] in ("connect", "end"):
+        if move["action"] == "end" and self.closing and self.heard_any and move.get("priority") != "scam":
+            self.closing_move = move  # like a person: wait for their goodbye (or a few quiet seconds), then hang up
+            await self.closing(move)
+        elif move["action"] in ("connect", "end"):
             self.ended = True
             await self.finish(move)
 
@@ -1043,6 +1074,7 @@ async def run_stream(memory: Memory, websocket, call: dict, deliver=None, env=No
                 await asyncio.to_thread(model_refused, memory, failed[1])
     talk = Talk()
     done_speaking = asyncio.Event()
+    done_speaking.set()  # nothing said yet
     call_uuid = data.get("call_id") or call["call_sid"]
 
     async def speak(text: str) -> None:
@@ -1054,11 +1086,38 @@ async def run_stream(memory: Memory, websocket, call: dict, deliver=None, env=No
     async def press_keys(digits: str) -> None:
         await asyncio.to_thread(press, memory, call_uuid, digits, env)
 
-    async def finish(move: dict) -> None:
-        if move.get("say"):  # let Buddy's last words be heard first
+    async def spoken_out() -> None:
+        """Until every word Buddy queued has played on the line: a pause between two pieces of a sentence isn't the
+        end (that cut goodbyes off mid-word), and the audio sent ahead still has to play."""
+        loop = asyncio.get_running_loop()
+        until = loop.time() + 30
+        while loop.time() < until:
             with contextlib.suppress(asyncio.TimeoutError):
-                await asyncio.wait_for(done_speaking.wait(), timeout=4 + 0.08 * len(move["say"]))
-            await asyncio.sleep(AUDIO_LEAD_S + 0.3)  # the audio sent ahead is still playing on the line
+                await asyncio.wait_for(done_speaking.wait(), timeout=max(0.1, until - loop.time()))
+            await asyncio.sleep(AUDIO_LEAD_S + 0.5)
+            if done_speaking.is_set() and not talk.bot_talking:
+                return
+
+    async def closing(move: dict) -> None:
+        """After Buddy's goodbye: hang up once they've said theirs (Mind.heard), or after CLOSE_WAIT_S of quiet."""
+        async def watch():
+            await spoken_out()
+            loop = asyncio.get_running_loop()
+            started = last = loop.time()
+            while mind.closing_move is move:
+                now = loop.time()
+                if talk.user_talking or talk.words:
+                    last = now  # they're talking: Mind.heard decides
+                if now - last >= CLOSE_WAIT_S or now - started >= CLOSE_MAX_S:
+                    mind.closing_move, mind.ended = None, True
+                    await finish({**move, "say": ""})
+                    return
+                await asyncio.sleep(0.2)
+        asyncio.ensure_future(watch())
+
+    async def finish(move: dict) -> None:
+        await spoken_out()  # Buddy's last words are heard in full
+        await asyncio.sleep(0.4)  # a natural beat before the line goes quiet
         connect = move["action"] == "connect" and call["kind"] == "hold_connect" and bool(o["phone"])
         update(memory, call["id"], status="connected" if connect else "done",
                outcome=move.get("outcome") or ("A person answered; you were rung in." if connect else ""))
@@ -1078,7 +1137,7 @@ async def run_stream(memory: Memory, websocket, call: dict, deliver=None, env=No
             await worker.queue_frame(EndFrame())
 
     _send_ahead(transport.output())
-    mind = Mind(memory, call, say=speak, press_keys=press_keys, finish=finish, env=env)
+    mind = Mind(memory, call, say=speak, press_keys=press_keys, finish=finish, env=env, closing=closing)
     gate = Gate()
     pipeline = Pipeline([transport.input(),
                          VADProcessor(vad_analyzer=SileroVADAnalyzer(params=VADParams(stop_secs=0.5))),
