@@ -962,3 +962,22 @@ def test_call_replies_dont_think_silently_and_fall_back_if_a_model_insists(tmp_p
         if refuse:  # that model gets low effort and room to think instead, and isn't asked again
             assert "thinking" not in seen[1] and seen[1]["max_tokens"] == 2048
             assert calls._THINK_OFF_REFUSED
+
+
+def test_no_in_any_form_closes_after_anything_else():
+    for s in ("I'm good, thanks", "No, that's it", "It's fine", "Nope, all set", "That's all, bye"):
+        assert calls.is_goodbye(s), s
+    assert not calls.is_goodbye("Actually, can you also check Friday?")
+
+
+def test_their_first_hello_gets_the_opener_at_once_then_claude_carries_on(tmp_path):
+    mind, out = _closing_mind(tmp_path, [_move("Great! Quick update: it'll rain this afternoon.")])
+    mind.call["kind"] = "tell_me"
+    mind.opener = calls.opener_line(mind.call)
+    assert asyncio.run(mind.open_now()) and out["said"] == [mind.opener] and mind.opener.endswith("it's Buddy.")
+    asyncio.run(mind.heard("Hello?"))  # their hello: already answered, no second greeting
+    assert out["said"] == [mind.opener] and mind.history[-1]["role"] == "assistant"
+    asyncio.run(mind.heard("Hey Buddy, what's up?"))
+    assert out["said"][-1] == "Great! Quick update: it'll rain this afternoon."
+    assert not asyncio.run(mind.open_now())  # only ever once
+    assert calls.opener_line({"kind": "hold_connect"}) == "" and calls.opener_line({"kind": calls.SCREEN}) == ""

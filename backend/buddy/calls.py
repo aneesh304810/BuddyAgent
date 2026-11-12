@@ -57,7 +57,9 @@ GOODBYE_WORDS = {"bye", "goodbye", "bye-bye", "thanks", "thank", "you", "too", "
                  "great", "nice", "lovely", "wonderful", "day", "night", "evening", "weekend", "one", "ok", "okay",
                  "alright", "all", "right", "sure", "cheers", "take", "care", "see", "ya", "you're", "welcome",
                  "appreciate", "it", "perfect", "sounds", "yes", "yeah", "yep", "will", "do", "talk", "soon", "later",
-                 "no", "problem", "much", "so", "very", "and", "bye.", "mhm", "uh", "um", "great.", "now"}
+                 "no", "problem", "much", "so", "very", "and", "bye.", "mhm", "uh", "um", "great.", "now",
+                 "i'm", "im", "i", "am", "good", "fine", "that's", "thats", "all", "nope", "nothing", "else", "set",
+                 "done", "it's", "its"}
 
 
 def is_goodbye(heard: str) -> bool:
@@ -434,6 +436,18 @@ def _caller(call: dict) -> tuple[str, str]:
     return (rest, how) if how in ("contact", "saved", "known") else ("", "")
 
 
+def opener_line(call: dict, env=None) -> str:
+    """What Buddy says first on a call it placed, known before anyone speaks ('' when Claude should decide: a phone
+    menu on a hold line, or a call Buddy answered)."""
+    if call.get("kind") in (SCREEN, "hold_connect"):
+        return ""
+    o = owner(env)
+    first = (o["name"].split() or [""])[0]
+    if call.get("kind") == "tell_me":
+        return f"Hi {first}, it's Buddy." if first else "Hi, it's Buddy."
+    return f"Hi, this is {o['name']}'s assistant, calling on {first}'s behalf." if first else "Hi, I'm calling as an assistant."
+
+
 def screen_greeting(env=None, call: dict | None = None) -> str:
     first = (owner(env)["name"].split() or ["the owner"])[0]
     name, how = _caller(call or {})
@@ -520,7 +534,7 @@ booked. Free times (working hours, next week): {_free(memory)}
 Your job: find out who's calling and why, take a clear message, and judge how much it matters.
 - A real caller: get their name, the reason, any date, time or reference number, and the best number to call back \
 (read it back). Tell them when {first} will likely get back to them, then wrap up warmly and end.
-Ending the call, like a person: when you are done, say a warm goodbye in one short sentence (for example "Thanks so much for your help, have a great day!") and set "end" in that same reply. You don't hang up yourself: you wait for their goodbye, and if they add something you'll hear it and can carry on. Never end while a question is still open or they are mid-thought. When everything is settled and they only acknowledge it ("OK", "got it", "thanks"), you are done: don't ask whether there is anything else, just say the goodbye and end.
+Ending the call, like a person: when you are done, say a warm goodbye in one short sentence (for example "Thanks so much for your help, have a great day!") and set "end" in that same reply. You don't hang up yourself: you wait for their goodbye, and if they add something you'll hear it and can carry on. Never end while a question is still open or they are mid-thought. When everything is settled, ask once, naturally, "Anything else I can help with?" (or "Was there anything else?"). When they say no in any form ("I'm good", "no, that's it", "it's fine", "that's all, thanks"), that is their closing: say a short warm goodbye and end in that same reply. Never ask it twice.
 - Scam or robocall: threats (IRS, police, Social Security, arrest), gift cards, crypto or wire payments, "your car's \
 warranty", prizes, "your account is locked", asking for codes, passwords, card or account numbers, pressure to act \
 now, or a recording. Don't argue: "Not interested, thanks. Bye now." and end.
@@ -557,7 +571,7 @@ if you don't know. Start every reply with a short first sentence of four to eigh
 ("three eighty-nine"). Never make anything up, and don't take any action on the call: if {first} asks for one \
 (pay a bill, book something), say you'll do it in the Buddy app right after and put it in the outcome.
 If it's voicemail, leave a short message that Buddy called with an update, and end.
-When everything is said and they only acknowledge it ("OK", "got it", "thanks", "perfect"), that means you are done: don't ask whether there is anything else, just give a short warm goodbye and end.
+When everything is said, ask once, naturally, "Anything else you need?". When they say no in any form ("I'm good", "no, that's it", "it's fine", "OK, thanks"), that is their closing: say a short warm goodbye and end in that same reply. Never ask it twice.
 
 Reply in two parts. First, exactly the words to say out loud now, as natural speech. Then, on a new line, ## followed \
 by one line of JSON: {{"action": "continue" | "end", "outcome": "when ending: one or two sentences for the app (what \
@@ -620,7 +634,7 @@ should stay silent, e.g. on hold). Then, on a new line, ## followed by one line 
 '1', or ''", "action": "continue" | "connect" | "end", "outcome": "when ending or connecting: one or two \
 sentences for {first} (what was agreed, date and time, what to bring, reference numbers)"}}. \
 Use "connect" only when a real person has answered on a hold_connect call.
-Ending the call, like a person: when you are done, say a warm goodbye in one short sentence (for example "Thanks so much for your help, have a great day!") and set "end" in that same reply. You don't hang up yourself: you wait for their goodbye, and if they add something you'll hear it and can carry on. Never end while a question is still open or they are mid-thought. When everything is settled and they only acknowledge it ("OK", "got it", "thanks"), you are done: don't ask whether there is anything else, just say the goodbye and end."""
+Ending the call, like a person: when you are done, say a warm goodbye in one short sentence (for example "Thanks so much for your help, have a great day!") and set "end" in that same reply. You don't hang up yourself: you wait for their goodbye, and if they add something you'll hear it and can carry on. Never end while a question is still open or they are mid-thought. When everything is settled, ask once, naturally, "Anything else I can help with?" (or "Was there anything else?"). When they say no in any form ("I'm good", "no, that's it", "it's fine", "that's all, thanks"), that is their closing: say a short warm goodbye and end in that same reply. Never ask it twice."""
 
 
 _FIELD = r'"%s"\s*:\s*"((?:[^"\\]|\\.)*)'
@@ -770,6 +784,8 @@ class Mind:
         self.memory, self.call, self.env = memory, call, env
         self.say, self.press_keys, self.finish = say, press_keys, finish
         self.closing = closing          # starts the wait for their goodbye (run_stream); None: end at once
+        self.opener = opener_line(call, env)  # said the moment their first "Hello?" ends, without waiting for Claude
+        self.opened = False             # the opener was said and isn't in the history yet
         self.closing_move: dict | None = None  # Buddy said goodbye and is waiting for theirs
         self.brain = brain or think
         self.history: list[dict] = []
@@ -788,6 +804,13 @@ class Mind:
             return
         if said != "[No one has spoken yet]":
             self.heard_any = True
+        if self.opened:  # the opener already answered this (their "Hello?"): note both, Claude takes the next turn
+            self.opened = False
+            self.history.append({"role": "user", "content": f"[They said] {said}"})
+            self.history.append({"role": "assistant", "content": f"{self.opener}\n## {json.dumps({'action': 'continue'})}"})
+            if _env("BUDDY_CALL_DEBUG", self.env) == "1":
+                log.warning("call %s heard: %s (answered with the opener)", self.call["id"], said[:300])
+            return
         if self.closing_move is not None and said != "[No one has spoken yet]":
             move, self.closing_move = self.closing_move, None
             if is_goodbye(said):  # their goodbye: a short one back if Buddy hadn't said bye, then hang up
@@ -847,6 +870,14 @@ class Mind:
         elif move["action"] in ("connect", "end"):
             self.ended = True
             await self.finish(move)
+
+    async def open_now(self) -> bool:
+        """Say the opener at once (their first "Hello?" just ended, or they picked up and stayed quiet)."""
+        if not self.opener or self.spoke_any or self.ended or self.heard_any:
+            return False
+        self.spoke_any = self.opened = True
+        await self.say(self.opener)
+        return True
 
     def _needs_words(self, move: dict, said: str, already: str) -> bool:
         """Buddy would stay silent when it shouldn't: someone just said a few words (or picked up and is silent)
@@ -1124,6 +1155,8 @@ async def run_stream(memory: Memory, websocket, call: dict, deliver=None, env=No
             if isinstance(frame, VADUserStoppedSpeakingFrame):
                 if direction == FrameDirection.DOWNSTREAM:
                     self.user_talking = False
+                    if mind.opener and not mind.spoke_any:  # their first "Hello?": answer at once, no waiting
+                        asyncio.ensure_future(mind.open_now())
                     self._later(0.15)  # usually the words are in already; a late final word starts its own short wait
                 await self.push_frame(frame, direction)
                 return
@@ -1278,7 +1311,7 @@ async def run_stream(memory: Memory, websocket, call: dict, deliver=None, env=No
         else:
             await asyncio.sleep(QUIET_START_S)
         if not mind.heard_any and not talk.words and not talk.user_talking:
-            await mind.heard("[No one has spoken yet]")
+            await mind.heard("[No one has spoken yet]")  # silence or voicemail: Claude decides
 
     async def lag_watch():  # testing only: is the server ever too busy to send the audio on time?
         loop, worst = asyncio.get_running_loop(), 0.0
