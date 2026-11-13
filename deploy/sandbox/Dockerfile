@@ -7,7 +7,7 @@
 # sandbox's isolation is the safety net for those.)
 # Debian 12 (bookworm): Playwright's browser installer supports it (Debian 13 "trixie" isn't supported yet and the
 # build fails looking for Ubuntu font packages).
-FROM python:3.12-slim-bookworm
+FROM python:3.15-slim-bookworm
 # A headless Chromium (Playwright) for Buddy's browser (browser/driver.py), shared by every user of the image.
 ENV PLAYWRIGHT_BROWSERS_PATH=/opt/pw-browsers
 RUN apt-get update && apt-get install -y --no-install-recommends \
