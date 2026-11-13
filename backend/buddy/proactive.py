@@ -480,6 +480,14 @@ async def run(memory: Memory, deliver: Deliver, connected=None) -> None:
                             commute.told(alert)
             except Exception:
                 log.exception("transit failed")
+            try:  # shopping: order and return emails into the lasting purchase history (code only), hourly
+                from . import shopper  # noqa: PLC0415
+                hour = local_now().strftime("%Y-%m-%dT%H")
+                if memory.get("shop:scan_hour") != hour:
+                    memory.set("shop:scan_hour", hour)
+                    await asyncio.to_thread(shopper.scan_orders, memory)
+            except Exception:
+                log.exception("purchase history failed")
             try:  # Market school: a short lesson every weekday morning (New York time), unless turned off
                 from . import market_school  # noqa: PLC0415
                 if MARKET_SCHOOL and market_school.due(memory) and not in_quiet_hours():

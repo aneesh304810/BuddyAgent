@@ -60,6 +60,7 @@ from .dining import TOOL as RESTAURANTS_TOOL
 from .events import TOOL as ENTERTAINMENT_TOOL
 from .selfcheck import TOOL as SELF_CHECK_TOOL
 from .market_school import TOOL as MARKET_SCHOOL_TOOL
+from .shopper import TOOL as SHOPPING_PROFILE_TOOL
 from .nest import TOOL as THERMOSTAT_TOOL
 from .calls import TOOL as PHONE_CALL_TOOL
 from .convolog import TOOL as RECALL_CONVO_TOOL
@@ -797,7 +798,7 @@ class Conversation:
                      TRANSIT_TOOL, FLIGHT_TOOL, DECISION_TOOL, MAPS_TOOL,
                      WEATHER_TOOL, PACKAGES_TOOL, MESSAGE_TOOL, BUDGET_TOOL, COSTWATCH_TOOL, ADVICE_TOOL, EDIT_TOOL,
                      RECALL_CONVO_TOOL, CLAUDE_FIX_TOOL, COMMUTE_TOOL, ROUTINE_TOOL, CALENDAR_ADD_TOOL,
-                     CONNECTIONS_TOOL, AMAZON_TOOL, MY_HEALTH_TOOL, HEALTH_INFO_TOOL, HEALTH_PLAN_TOOL, RESTAURANTS_TOOL, ENTERTAINMENT_TOOL, SELF_CHECK_TOOL, MARKET_SCHOOL_TOOL,
+                     CONNECTIONS_TOOL, AMAZON_TOOL, MY_HEALTH_TOOL, HEALTH_INFO_TOOL, HEALTH_PLAN_TOOL, RESTAURANTS_TOOL, ENTERTAINMENT_TOOL, SELF_CHECK_TOOL, MARKET_SCHOOL_TOOL, SHOPPING_PROFILE_TOOL,
                      THERMOSTAT_TOOL, PHONE_CALL_TOOL]
         spending += [BROWSE_TOOL] if self.jobs else []  # listed even when the sandbox is down: it says what to fix
         if self.memory.get("forms:phone") != "1":  # the owner's choice: forms always in Buddy's own browser
@@ -965,6 +966,9 @@ class Conversation:
         if name == "thermostat":  # the owner's home: changes only after a yes (nest.run_tool asks)
             from . import nest  # noqa: PLC0415
             return await nest.run_tool(self.memory, self.thrift, args)
+        if name == "shopping_profile":  # how the owner researches and decides, per kind of purchase; never buys
+            from . import shopper  # noqa: PLC0415
+            return await asyncio.to_thread(shopper.run_tool, self.memory, args)
         if name == "market_school":  # education from real data: lessons, themes, rates, company filings; never advice
             from . import market_school  # noqa: PLC0415
             return await market_school.run_tool(self.memory, args)

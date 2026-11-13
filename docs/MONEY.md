@@ -79,3 +79,22 @@ Free data to connect (about 5 minutes, each optional; only series names and tick
 Without them the lesson still works from prices alone. Commodities (gold, silver, oil, gas, copper, farm goods,
 through their US funds) are also in the daily trade-idea scan now, and the scan covers US stocks and crypto;
 say "scan Indian stocks too" to add India back.
+
+## Shopping: your way of buying
+
+Buddy learns how you research and decide, separately for electronics, home, travel and clothing (most people
+decide each differently), and uses it whenever you ask about a purchase.
+
+- **The interview:** say "let's do my shopping interview". Buddy asks a couple of questions at a time by voice
+  (what you check first, whose reviews you trust, brands you like and avoid, how long you'll wait for a deal and
+  what makes you buy now, must-haves, budgets, regrets) and you can stop any time and carry on later. Say "show my
+  shopping profile" to hear it, or just mention a preference in passing ("I never buy Samsung appliances").
+- **Your purchases:** order and return emails are read every hour by text rules (no AI) into a lasting purchase
+  history (email itself is only kept 30 days): shop, item, price, whether it was on sale. With the bank feed's
+  shopping and travel charges, Buddy learns your usual shops, typical spend, how often you buy on sale and what
+  you return. Tell Buddy "I'm thinking of buying a new vacuum" and it notes the day, so when the order arrives it
+  learns how long you take to decide.
+
+All of it stays on your server; only Claude sees it. Buddy still never buys or pays. Next steps (not built yet):
+research done your way, better price history (Keepa, ShopSavvy), when-to-buy predictions, and after-purchase
+check-ins.
