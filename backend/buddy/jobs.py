@@ -308,6 +308,28 @@ JOB_TOOLS = [
         },
     },
     {
+        "name": "shop_for",
+        "description": (
+            "When the owner is deciding WHAT to buy ('I'm thinking of buying new headphones', 'which vacuum "
+            "should I get?'): hand it to the research agent with their shopping profile (their trusted sources "
+            "and brands, must-haves, budget, stores, patience, regrets and purchase history), so it researches "
+            "their way and comes back with their pick, the best 3, why not the others, and buy now or wait. "
+            "It also notes they're considering it, so Buddy learns how long they take to decide. Runs in the "
+            "background like start_research (same costs). For the cheapest place to buy a known item use "
+            "find_deals instead. Put the details in what: the item, use, size, budget if said."
+        ),
+        "input_schema": {
+            "type": "object",
+            "properties": {
+                "what": {"type": "string", "description": "What they're thinking of buying, with the details"},
+                "kind": {"type": "string", "enum": ["electronics", "home", "travel", "clothing", "other"]},
+                "depth": {"type": "string", "enum": ["quick", "deep"]},
+            },
+            "required": ["what", "kind", "depth"],
+            "additionalProperties": False,
+        },
+    },
+    {
         "name": "list_jobs",
         "description": "List recent background jobs (research, code, browser and others) with status and short "
         "summary. Optional keywords filter by topic. Check it before saying how a background task is going: never "
@@ -352,6 +374,16 @@ def run_job_tool(runner: JobRunner, name: str, args: dict, thrift: Thrift | None
         args = {"question": args.get("request", ""), "depth": args.get("depth", "quick"),
                 "mode": "deals", "category": category}
         name = "start_research"
+    if name == "shop_for":  # a research job in buy mode, with the owner's way of deciding
+        from . import shopper  # noqa: PLC0415
+        kind = args.get("kind") if args.get("kind") in shopper.KINDS[1:] else "other"
+        what = str(args.get("what") or "").strip()
+        if not what:
+            raise ToolError("What are you thinking of buying?")
+        shopper.considering(runner.memory, what, kind)
+        args = {"question": f"Help me decide what to buy: {what}", "depth": args.get("depth", "quick"),
+                "mode": "buy", "category": kind, "profile": shopper.brief(runner.memory, kind)}
+        name = "start_research"
     if name == "start_research":
         if runner.started_today("research") >= settings.research_daily_limit:
             raise ToolError(
@@ -367,10 +399,12 @@ def run_job_tool(runner: JobRunner, name: str, args: dict, thrift: Thrift | None
         params = {
             "question": question,
             "depth": "deep" if args.get("depth") == "deep" else "quick",
-            "mode": args.get("mode") if args.get("mode") in ("data", "deals") else "web",
+            "mode": args.get("mode") if args.get("mode") in ("data", "deals", "buy") else "web",
         }
-        if params["mode"] == "deals":
+        if params["mode"] in ("deals", "buy"):
             params["category"] = args.get("category", "other")
+        if params["mode"] == "buy":
+            params["profile"] = str(args.get("profile") or "")[:6000]
         if params["mode"] == "data":
             params["data"] = mask(args.get("data", ""))[:100_000]
         estimate, in_words = RESEARCH_COST[params["depth"]]
@@ -380,7 +414,7 @@ def run_job_tool(runner: JobRunner, name: str, args: dict, thrift: Thrift | None
                 return "Great, it's started. I'll tell you when it's done."
 
             topic = question if len(question) <= 80 else question[:77] + "…"
-            what = "deal hunt" if params["mode"] == "deals" else "research job"
+            what = {"deals": "deal hunt", "buy": "buying research"}.get(params["mode"], "research job")
             return thrift.ask_action(
                 f"A {params['depth']} {what} on \"{topic}\" costs {in_words}. Shall I start it?", start
             )

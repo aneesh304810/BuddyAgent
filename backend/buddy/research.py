@@ -126,6 +126,31 @@ fees, TRUE total, cancellation (refundable? until when?), where, link; then "Bes
 "Cheapest true total" and, if different, "Best quality"; then "Watch out for" (the catches \
 in plain words); then "Buy now or wait?" with a target price worth watching for."""
 
+BUY_METHOD = """\
+- {user} is deciding what to buy ({category}). Their shopping profile is at the end of \
+the request: research THEIR way, not the generic way.
+  - Use the sources they trust first (search those sites by name, their subreddits through \
+reddit, YouTube reviewers through search). Then check against two other independent sources.
+  - Their must-haves are filters: drop options that miss one, and say which.
+  - Brands they avoid are out (mention one only if it's clearly far better, and say why). \
+Brands they trust get a fair look, not a free pass.
+  - Respect their budget; if nothing good fits, say what the extra money buys.
+  - Check prices at the stores they actually use, plus the cheapest trustworthy seller.
+  - Learn from their regrets and returns: call out the same risk if an option has it.
+  - Refurbished or open-box only if they're open to it.
+- Their profile is private: never put it in searches or read_pages requests (ask only for product facts).
+- Look for real owners' complaints (Reddit, reviews): failures after months, bad support.
+- Buy now or wait: use their patience and target discount with the price history you \
+can find (Keepa, camelcamelcamel, Google Shopping's price insights), the sales calendar \
+(Prime Day, Black Friday, holiday sales, end of season) and product cycles (a new model \
+due soon usually drops the old one).
+- If what they told Buddy and what they actually do differ (e.g. they say they wait for \
+sales but usually pay full price), work from what they do and mention it kindly.
+- In the report: "My pick for you" in two sentences, tied to their own criteria; then a \
+table of the best 3 (what, price now and where, how it meets their must-haves, the main \
+catch); then "Why not the others" in one line each; then "Buy now or wait?" with a target \
+price; then "Before you buy" (return window, warranty, the one thing to check)."""
+
 DATA_METHOD = """\
 - The data to analyze is in the user message. Use code for every calculation, \
 total and comparison; never do arithmetic in your head.
@@ -177,6 +202,8 @@ def _system(mode: str, category: str = "") -> str:
         method = DATA_METHOD
     elif mode == "deals":
         method = DEALS_METHOD.format(user=settings.user_name, category=category or "shopping")
+    elif mode == "buy":
+        method = BUY_METHOD.format(user=settings.user_name, category=category or "shopping")
     else:
         method = WEB_METHOD
     return SYSTEM.format(
@@ -191,6 +218,9 @@ def _first_message(params: dict) -> str:
     question = mask(params["question"])
     if params.get("mode") == "data":
         return f"Question: {question}\n\nData:\n{mask(params.get('data', ''))}"
+    if params.get("mode") == "buy" and params.get("profile"):
+        return (f"{question}\n\nHow {settings.user_name} decides (their shopping profile and purchase "
+                f"history; follow it):\n{params['profile']}")
     return question
 
 

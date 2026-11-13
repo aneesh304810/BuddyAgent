@@ -87,3 +87,38 @@ def test_forget_keeps_history(memory):
     shopper.save(memory, "travel", {"loyalty": ["Delta SkyMiles"]}, ["loyalty"])
     assert "Forgot your travel" in shopper.run_tool(memory, {"action": "forget", "kind": "travel"})
     assert shopper.profile(memory, "travel") == ({}, [])
+
+
+def test_shop_for_researches_the_owners_way(memory):
+    from buddy import research
+    from buddy.jobs import JobRunner, run_job_tool
+
+    shopper.save(memory, "general", {"research_style": ["Reddit"], "patience": "a few weeks"}, ["first_step"])
+    shopper.save(memory, "electronics", {"trusted_sources": ["RTINGS"], "avoid_brands": ["Beats"],
+                                         "must_haves": ["noise cancelling"], "target_discount_pct": 20}, ["sources"])
+    email(memory, 'Ordered: "Sony WF-1000XM5 earbuds"', "Amazon.com <auto-confirm@amazon.com>",
+          "Order Total: $228.00 You saved $72", days_ago=60)
+
+    async def finished(job):
+        return True
+    runner = JobRunner(memory, finished)
+    runner.register("research", research.run_research)
+    out = run_job_tool(runner, "shop_for", {"what": "over-ear headphones for flights", "kind": "electronics",
+                                            "depth": "quick"})
+    assert "started" in out
+    params = runner.get(runner.list()[0]["id"])["params"]
+    assert params["mode"] == "buy" and params["category"] == "electronics"
+    assert "Avoids brands (electronics): Beats" in params["profile"] and "Researches by: Reddit" in params["profile"]
+    assert "Waits for a discount of (%) (electronics): 20" in params["profile"]
+    assert "usually buys at Amazon.com" in params["profile"] and "100% of orders on sale" in params["profile"]
+    first = research._first_message(params)
+    assert first.startswith("Help me decide what to buy: over-ear headphones") and "follow it" in first
+    system = research._system("buy", "electronics")
+    assert "research THEIR way" in system and "never put it in searches" in system
+    considered = memory.db.execute("SELECT item, kind FROM shop_considering").fetchone()
+    assert considered["item"] == "over-ear headphones for flights" and considered["kind"] == "electronics"
+    runner.cancel(runner.list()[0]["id"])
+
+
+def test_brief_without_a_profile_suggests_the_interview(memory):
+    assert "shopping interview" in shopper.brief(memory, "home")

@@ -95,6 +95,12 @@ decide each differently), and uses it whenever you ask about a purchase.
   you return. Tell Buddy "I'm thinking of buying a new vacuum" and it notes the day, so when the order arrives it
   learns how long you take to decide.
 
+- **Research your way:** say "I'm thinking of buying new headphones" or "which vacuum should I get?". Buddy hands
+  it to the research agent with your profile: your trusted sources first, your must-haves as filters, brands you
+  avoid left out, your budget and stores, your past regrets and returns. In a few minutes you get "my pick for
+  you" with the reasons in your own terms, the best 3 in a table, why not the others, and buy now or wait with a
+  target price (the same cost as a research job: you're asked first if it's over your approval amount). Your
+  profile is never put into web searches.
+
 All of it stays on your server; only Claude sees it. Buddy still never buys or pays. Next steps (not built yet):
-research done your way, better price history (Keepa, ShopSavvy), when-to-buy predictions, and after-purchase
-check-ins.
+better price history (Keepa, ShopSavvy), when-to-buy predictions, and after-purchase check-ins.

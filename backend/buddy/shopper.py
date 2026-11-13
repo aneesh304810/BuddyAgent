@@ -399,6 +399,46 @@ def show(memory: Memory, kind: str = "") -> dict:
     return out
 
 
+LABELS = {"research_style": "Researches by", "trusted_sources": "Trusts", "trusted_brands": "Likes brands",
+          "avoid_brands": "Avoids brands", "must_haves": "Must-haves", "budget": "Budget", "stores": "Buys at",
+          "patience": "Patience", "buy_trigger": "Buys now when", "target_discount_pct": "Waits for a discount of (%)",
+          "refurbished": "Refurbished/open-box", "regrets": "Regretted", "loyalty": "Loyal to", "notes": "Notes"}
+
+
+def brief(memory: Memory, kind: str) -> str:
+    """The profile in a few plain lines, for the research agent: what they told Buddy (general, then this kind)
+    and what their purchases show. No item list, no amounts beyond typical spend."""
+    lines = []
+    for k in ("general", kind) if kind in KINDS[1:] else ("general",):
+        prof, _ = profile(memory, k)
+        for key, label in LABELS.items():
+            v = prof.get(key)
+            if v not in (None, "", []):
+                lines.append(f"- {label}{'' if k == 'general' else f' ({k})'}: "
+                             + (", ".join(map(str, v)) if isinstance(v, list) else f"{v:g}" if isinstance(v, float)
+                                else str(v)))
+    if kind in KINDS[1:]:
+        scan_orders(memory)
+        got = learned(memory, kind)
+        seen = []
+        if got["top_shops"]:
+            seen.append(f"usually buys at {', '.join(got['top_shops'][:3])}")
+        if got["typical_spend"]:
+            seen.append(f"typical spend ${got['typical_spend']:,.0f}")
+        if got["bought_on_sale_pct"] is not None:
+            seen.append(f"{got['bought_on_sale_pct']}% of orders on sale")
+        if got["returns"]:
+            seen.append(f"{got['returns']} return{'s' if got['returns'] != 1 else ''} in the last year")
+        if got["brands_bought"]:
+            seen.append(f"bought brands {', '.join(got['brands_bought'][:4])}")
+        if got["days_to_decide_median"] is not None:
+            seen.append(f"takes about {got['days_to_decide_median']:g} days to decide")
+        if seen:
+            lines.append("- What their purchases show: " + "; ".join(seen))
+    return "\n".join(lines) or "- No shopping profile yet: research the usual careful way, and suggest the " \
+                                "shopping interview at the end."
+
+
 TOOL = {
     "name": "shopping_profile",
     "description": (
