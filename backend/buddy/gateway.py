@@ -72,6 +72,21 @@ CATALOG: dict[str, dict] = {
                "health": {"path": "/v2/stocks/snapshots?symbols=SPY", "headers_from": {
                    "APCA-API-KEY-ID": "BUDDY_ALPACA_KEY_ID", "APCA-API-SECRET-KEY": "BUDDY_ALPACA_SECRET"}},
                "moved": True},
+    # Market school (market_school.py): free official data; only series names and tickers go out.
+    "fred": {"group": "Finance & markets", "title": "FRED (rates and inflation)", "hosts": ["https://api.stlouisfed.org"],
+             "auth": {"type": "param", "secret": "BUDDY_FRED_KEY"}, "cost": 0.0, "per_minute": 60, "privacy": "public",
+             "no_backup": True, "used_for": "the Fed's rate, Treasury yields, inflation and jobs for Market school",
+             "health": {"custom": "market_school.check_fred"}, "moved": True},
+    "eia": {"group": "Finance & markets", "title": "EIA (oil and gas prices)", "hosts": ["https://api.eia.gov"],
+            "auth": {"type": "param", "secret": "BUDDY_EIA_KEY"}, "cost": 0.0, "per_minute": 60, "privacy": "public",
+            "no_backup": True, "used_for": "oil and natural gas prices for Market school",
+            "health": {"custom": "market_school.check_eia"}, "moved": True},
+    "sec": {"group": "Finance & markets", "title": "SEC EDGAR (company filings)",
+            "hosts": ["https://data.sec.gov", "https://www.sec.gov"], "auth": {"type": "param", "secret": "BUDDY_SEC_CONTACT"},
+            "cost": 0.0, "per_minute": 300, "privacy": "public", "no_backup": True,
+            "used_for": "a company's yearly revenue, profit, cash and debt from its filings (SEC asks for a contact "
+                        "email in each request: the one you set, nothing else)",
+            "health": {"custom": "market_school.check_sec"}, "moved": True},
     "reddit": {"group": "News & trends", "title": "Reddit", "hosts": ["https://www.reddit.com", "https://oauth.reddit.com"],
                "auth": {"type": "none"}, "cost": 0.0, "per_minute": 60, "privacy": "public",
                "used_for": "what people say about stocks and topics", "moved": True, "no_backup": True},

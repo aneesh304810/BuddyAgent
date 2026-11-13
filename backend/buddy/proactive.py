@@ -24,6 +24,7 @@ from .tools import format_local, local_now, user_tz
 log = logging.getLogger(__name__)
 CREDIT_DEALS = os.getenv("BUDDY_CREDIT_DEALS", "1") not in ("", "0")  # deal search before a credit runs out
 TREND_DIGEST = os.getenv("BUDDY_TRENDS", "1") not in ("", "0")  # morning trend digest and spike alerts (trends.py)
+MARKET_SCHOOL = os.getenv("BUDDY_MARKET_SCHOOL", "1") not in ("", "0")  # the weekday morning lesson (market_school.py)
 MARKET_SCAN = os.getenv("BUDDY_MARKET_SCAN", "1") not in ("", "0")  # the daily trade-idea scan (markets.py)
 CARD_LOOKUP = os.getenv("BUDDY_CARD_LOOKUP", "1") not in ("", "0")  # published card benefits, from issuer sites
 SOC_MONTHLY = os.getenv("BUDDY_SOC_MONTHLY", "1") not in ("", "0")
@@ -479,6 +480,14 @@ async def run(memory: Memory, deliver: Deliver, connected=None) -> None:
                             commute.told(alert)
             except Exception:
                 log.exception("transit failed")
+            try:  # Market school: a short lesson every weekday morning (New York time), unless turned off
+                from . import market_school  # noqa: PLC0415
+                if MARKET_SCHOOL and market_school.due(memory) and not in_quiet_hours():
+                    memory.set(market_school.DONE_KEY, market_school.school_day())
+                    _, text = await market_school.lesson(memory)
+                    await deliver("money", text)
+            except Exception:
+                log.exception("market school failed")
             try:  # markets: the daily scan after the US close (or when asked), and ideas checked in market hours
                 from . import markets as mkt  # noqa: PLC0415
                 trader = mkt.Markets(memory)

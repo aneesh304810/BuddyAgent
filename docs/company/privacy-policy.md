@@ -1,6 +1,6 @@
 # Buddy Privacy and Data Retention Policy
 
-Source: https://claude.ai/artifact/MJVGZ7pWQvi26tg1MS914P, revision 76
+Source: https://claude.ai/artifact/MJVGZ7pWQvi26tg1MS914P, revision 77
 
 Nov 1, 2026 · @Aneesh
 
@@ -120,6 +120,7 @@ Buddy uses a few service providers to work. Each sees only what its job needs, u
 | Tailscale | Private network between the phone and the server | Encrypted traffic it cannot read |
 | Duffel, SerpApi, Travelpayouts | Flight offers, Google Flights and Hotels prices, cheapest travel dates | Airports or place, dates and number of travellers only |
 | Alpaca (market data), Stooq, Coinbase, Yahoo Finance (public chart data), Reddit, StockTwits | Prices, charts, option prices and news for trade ideas; what people post about a stock or coin | Ticker symbols and search words only; never the owner's trades, holdings or account details. Buddy uses Alpaca's market data only and never places trades |
+| FRED (Federal Reserve Bank of St. Louis), EIA (US Energy Information Administration), SEC EDGAR | Interest rates, Treasury yields, inflation and jobs figures, oil and natural gas prices, and companies' yearly filings, for Market school (the owner's investing lessons) | Data series names and ticker symbols only; never the owner's holdings, trades or account details. SEC requires every app to name a contact in its requests, so SEC also receives the contact email the owner chooses for this, and nothing else |
 | MTA (api-endpoint.mta.info), NJ Transit (raildata.njtransit.com for trains, pcsdata.njtransit.com for buses and light rail), Port Authority PATH (panynj.gov) | Live service alerts and next trains for the lines the owner rides | No personal data: MTA and PATH feeds are downloaded whole and filtered on Buddy's server. NJ Transit receives the owner's NJ Transit developer username and password, to issue an access token |
 | AirLabs (airlabs.co) | Live status of the owner's tracked flights | Flight numbers only (for example AA1234); never the owner's name, booking or ticket details |
 | FlightAware AeroAPI (aeroapi.flightaware.com) | A backup for the owner's tracked flights when other sources lack the gate, delay or status | Flight numbers only (for example AA1234); never the owner's name, booking or ticket details |

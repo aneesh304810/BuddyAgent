@@ -78,7 +78,9 @@ US = ["SPY", "QQQ", "IWM", "DIA", "XLK", "XLF", "XLE", "XLV", "XLI", "XLY", "XLP
       "HD", "PG", "JNJ", "ABBV", "MRK", "PEP", "KO", "WMT", "BAC", "CRM", "ORCL", "ADBE", "AMD", "NFLX", "INTC",
       "CSCO", "QCOM", "TXN", "AMAT", "MU", "LRCX", "PANW", "CRWD", "SNOW", "PLTR", "UBER", "SHOP", "COIN", "MSTR",
       "DIS", "NKE", "MCD", "SBUX", "BA", "CAT", "DE", "GE", "GS", "MS", "C", "WFC", "T", "VZ", "TMO", "ISRG", "NOW",
-      "INTU", "ANET", "ARM", "DELL", "HOOD", "SOFI", "RIVN", "ABNB", "PYPL"]
+      "INTU", "ANET", "ARM", "DELL", "HOOD", "SOFI", "RIVN", "ABNB", "PYPL",
+      # commodities through their US funds: gold, silver, gold miners, oil, natural gas, copper, broad, farm goods
+      "GLD", "SLV", "GDX", "USO", "UNG", "CPER", "DBC", "DBA"]
 CRYPTO = ["BTC/USD", "ETH/USD", "SOL/USD", "XRP/USD", "DOGE/USD", "ADA/USD", "AVAX/USD", "LINK/USD", "LTC/USD",
           "DOT/USD"]
 INDIA = ["^NSEI", "RELIANCE", "TCS", "HDFCBANK", "ICICIBANK", "INFY", "BHARTIARTL", "ITC", "LT", "SBIN", "HINDUNILVR",
@@ -547,7 +549,7 @@ class Markets:
 
     # settings -----------------------------------------------------------------------------------------------
     def settings(self) -> dict:
-        s = {"markets": ["us", "crypto", "india"], "options": True, "account": None, "risk_pct": 1.0}
+        s = {"markets": ["us", "crypto"], "options": True, "account": None, "risk_pct": 1.0}  # India: when asked
         try:
             s.update(json.loads(self.memory.get("markets:settings") or "{}"))
         except ValueError:

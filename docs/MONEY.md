@@ -56,3 +56,26 @@ If one of these opens personal access, Buddy's agent builder can connect it.
   (Fine Hotels + Resorts, The Hotel Collection): named hotels at your watched trip destinations first, else an easy
   drive away. Ride, airline, streaming and similar credits get reminders only.
 - "Find deals for my Saks credit" runs the search right away. Turn the background search off with `BUDDY_CREDIT_DEALS=0`.
+
+## Market school: learn investing from real data
+
+Every weekday from 8 AM New York time Buddy sends a short lesson: what moved (the big indexes, sectors,
+commodities and bonds) and the likely reason, one idea explained simply (picked for that day's news, or the next
+one you haven't had), and a theme worth learning about. The full lesson, with tables, is in Reports. Ask any time:
+"teach me today's market", "how are the themes doing?", "what are rates and inflation now?", "show me Apple's
+numbers from its filings", "explain expense ratios". Turn it off with "turn off market school".
+
+It's education, not advice: Buddy never trades and never tells you what to buy.
+
+Free data to connect (about 5 minutes, each optional; only series names and tickers go out):
+
+1. **FRED** (rates, Treasury yields, inflation, jobs): make a free account at fred.stlouisfed.org, open
+   *My Account → API Keys*, request a key, then `sudo bash /opt/buddy/deploy/set.sh BUDDY_FRED_KEY`.
+2. **EIA** (oil and natural gas prices): register at eia.gov/opendata (the key arrives by email), then
+   `sudo bash /opt/buddy/deploy/set.sh BUDDY_EIA_KEY`.
+3. **SEC EDGAR** (company filings): no account, but SEC asks every app to name a contact email in its requests.
+   Pick one (it goes only to SEC): `sudo bash /opt/buddy/deploy/set.sh BUDDY_SEC_CONTACT`.
+
+Without them the lesson still works from prices alone. Commodities (gold, silver, oil, gas, copper, farm goods,
+through their US funds) are also in the daily trade-idea scan now, and the scan covers US stocks and crypto;
+say "scan Indian stocks too" to add India back.
