@@ -102,5 +102,14 @@ decide each differently), and uses it whenever you ask about a purchase.
   target price (the same cost as a research job: you're asked first if it's over your approval amount). Your
   profile is never put into web searches.
 
+- **Buy now or wait:** ask "should I buy this now?" (or it comes after a "thinking of buying" report). Worked out
+  in code from the prices Buddy has seen, the US sales calendar for that kind of thing (Black Friday and Cyber
+  Monday, Prime Day and Prime Big Deal Days, holiday weekends for appliances and mattresses, back to school for
+  laptops, end-of-season clearance for clothes, the Super Bowl for TVs), a newer model coming, and your own
+  patience and target discount. You get the call, the chance of a better price, the price worth waiting for and
+  until when. The sale discounts are rough rules of thumb, so every call is kept and checked later against the
+  prices Buddy saw (a price watch) or what you paid (the order email): ask "how good are your buy-or-wait calls?"
+  for the track record. Flights and hotels stay with the travel tools.
+
 All of it stays on your server; only Claude sees it. Buddy still never buys or pays. Next steps (not built yet):
-better price history (Keepa, ShopSavvy), when-to-buy predictions, and after-purchase check-ins.
+better price history (Keepa, ShopSavvy) and after-purchase check-ins.

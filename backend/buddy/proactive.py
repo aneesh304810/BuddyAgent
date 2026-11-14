@@ -486,6 +486,8 @@ async def run(memory: Memory, deliver: Deliver, connected=None) -> None:
                 if memory.get("shop:scan_hour") != hour:
                     memory.set("shop:scan_hour", hour)
                     await asyncio.to_thread(shopper.scan_orders, memory)
+                    from . import whentobuy  # noqa: PLC0415  buy-or-wait calls whose date passed: right or wrong
+                    await asyncio.to_thread(whentobuy.settle, memory)
             except Exception:
                 log.exception("purchase history failed")
             try:  # Market school: a short lesson every weekday morning (New York time), unless turned off
