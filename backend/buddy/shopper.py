@@ -150,10 +150,11 @@ KIND_WORDS = {
 }
 KIND_RE = {k: re.compile(rf"\b({v})", re.I) for k, v in KIND_WORDS.items()}
 STORE_KIND = {
-    "electronics": r"best ?buy|apple|b&h|newegg|samsung|micro center|dell|lenovo|bose|sony",
+    "electronics": r"best ?buy|apple|b&h|newegg|samsung|micro center|dell|lenovo|bose|sony|adorama|pcpartpicker|"
+                   r"\bhp\b|asus",
     "home": r"home depot|lowe'?s|ikea|wayfair|bed bath|crate|pottery barn|west elm|williams.sonoma|overstock|"
             r"container store|ashley|menards|ace hardware|harbor freight|tractor supply|northern tool|acme tools|"
-            r"grainger|floor ?& ?decor|build\.com|ferguson|sherwin|true value",
+            r"grainger|floor ?& ?decor|build\.com|ferguson|sherwin|true value|msc industrial",
     "clothing": r"nike|adidas|uniqlo|h&m|zara|gap|old navy|banana republic|j\.?crew|macy'?s|nordstrom|"
                 r"lululemon|levi|under armour|new balance|asos|kohl'?s",
     "travel": r"airline|airways|delta|united|american air|jetblue|southwest|alaska air|spirit|frontier|expedia|"
