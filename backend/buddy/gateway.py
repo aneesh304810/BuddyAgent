@@ -77,6 +77,13 @@ CATALOG: dict[str, dict] = {
              "auth": {"type": "param", "secret": "BUDDY_FRED_KEY"}, "cost": 0.0, "per_minute": 60, "privacy": "public",
              "no_backup": True, "used_for": "the Fed's rate, Treasury yields, inflation and jobs for Market school",
              "health": {"custom": "market_school.check_fred"}, "moved": True},
+    "finnhub": {"group": "Finance & markets", "title": "Finnhub (news, earnings, insiders)",
+                "hosts": ["https://finnhub.io"], "auth": {"type": "header", "header": "X-Finnhub-Token",
+                                                           "secret": "BUDDY_FINNHUB_KEY"},
+                "cost": 0.0, "per_minute": 50, "privacy": "public", "no_backup": True,
+                "used_for": "headlines, earnings dates, insider buying and selling, analyst ratings and live "
+                            "quotes for buy and sell signals (ticker symbols only)",
+                "health": {"custom": "finnhub.check"}, "moved": True},
     "bls": {"group": "Finance & markets", "title": "BLS (government price indexes)", "hosts": ["https://api.bls.gov"],
             "auth": {"type": "none"}, "cost": 0.0, "per_minute": 5, "privacy": "public", "no_backup": True,
             "used_for": "monthly consumer price indexes by category, for seasonal price patterns (no key needed)",

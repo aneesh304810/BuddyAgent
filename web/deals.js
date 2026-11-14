@@ -15,12 +15,13 @@ const $ = (id) => document.getElementById(id);
 const esc = (s) => String(s ?? "").replace(/[&<>"']/g, (c) => ({ "&": "&amp;", "<": "&lt;", ">": "&gt;", '"': "&quot;", "'": "&#39;" }[c]));
 const safe = (u) => /^https:\/\/[^\s"'<>]+$/.test(String(u || "")) ? u : "";
 const money = (v) => v == null ? "–" : "$" + Number(v).toLocaleString(undefined, { minimumFractionDigits: v % 1 ? 2 : 0, maximumFractionDigits: 2 });
-const TABS = [["product", "🛍️ Products"], ["flight", "✈️ Flights"], ["hotel", "🏨 Hotels"], ["predicted", "🔮 Predicted"]];
+const TABS = [["product", "🛍️ Products"], ["flight", "✈️ Flights"], ["hotel", "🏨 Hotels"], ["predicted", "🔮 Predicted"], ["signals", "📈 Signals"]];
 let predicted = null;
 let tab = TABS.some(([k]) => k === storageGet("dealsTab")) ? storageGet("dealsTab") : "product", data = null, timer = null;
 
-async function api(path) {
-  const res = await fetch(path, { headers: { Authorization: `Bearer ${token}` } });
+async function api(path, body) {
+  const res = await fetch(path, body ? { method: "POST", headers: { Authorization: `Bearer ${token}`, "Content-Type": "application/json" }, body: JSON.stringify(body) }
+    : { headers: { Authorization: `Bearer ${token}` } });
   const out = await res.json().catch(() => ({}));
   if (!res.ok) throw new Error(out.detail || (res.status === 401 ? "Open Deals from the Buddy app." : `Error ${res.status}`));
   return out;
@@ -28,7 +29,7 @@ async function api(path) {
 
 function tabs() {
   $("tabs").innerHTML = TABS.map(([k, label]) => {
-    const n = k === "predicted" ? "" : data ? data.counts[k] || 0 : "";
+    const n = k === "predicted" || k === "signals" ? "" : data ? data.counts[k] || 0 : "";
     return `<button class="chip${k === tab ? " on" : ""}" role="tab" aria-selected="${k === tab}" data-tab="${k}">${label}${n !== "" ? ` · ${n}` : ""}</button>`;
   }).join("");
   $("tabs").querySelectorAll("button").forEach((b) => b.onclick = () => { tab = b.dataset.tab; storageSet("dealsTab", tab); render(); });
@@ -48,9 +49,39 @@ async function renderPredicted() {
   } catch (e) { $("main").innerHTML = `<p class="err">${esc(e.message)}</p>`; }
 }
 
+// Signals: a switch per category, the recent buy and sell signals with how each did, and Buddy's record.
+async function renderSignals(fresh) {
+  try {
+    const s = fresh || await api("/api/deals/signals");
+    const sw = (c) => `<button class="chip${s.categories[c] ? " on" : ""}" data-cat="${esc(c)}" aria-pressed="${!!s.categories[c]}">${esc(c)}</button>`;
+    const mark = { right: "✅ right", wrong: "❌ wrong", flat: "➖ flat", open: "⏳ open" };
+    const rec = (c) => { const r = s.record[c]; return `<span class="pill">${esc(c)}: ${r.scored ? `${r.right} right of ${r.scored}` : "none scored yet"}${r.proven ? "" : " · unproven"}</span>`; };
+    $("main").innerHTML = `
+      <section class="card"><b>Alerts on for</b><br><small>Tap a category to turn its buy and sell alerts on or off.</small>
+        <p><small>Shopping and travel</small></p><div class="chips" style="flex-wrap:wrap">${s.shopping.map(sw).join("")}</div>
+        <p><small>Investing</small></p><div class="chips" style="flex-wrap:wrap">${s.investing.map(sw).join("")}</div></section>
+      <section class="card"><b>Buddy's record</b><br>${s.investing.map(rec).join(" ")}</section>` +
+      (s.signals.length ? s.signals.map((g) => `
+      <section class="card"><div class="deal"><div class="what">
+        <b>${g.action === "buy" ? "📈" : g.action === "sell" ? "📉" : "⚠️"} ${esc(g.key)} · ${esc(g.action === "sell" ? "sell or avoid" : g.action)}</b>
+        <small>${esc(g.reasons.join("; "))}</small><br><span class="pill">${esc(g.category)}</span> <span class="pill">${esc(mark[g.status] || g.status)}</span></div>
+        <div class="price"><b>${esc(g.day)}</b><s style="text-decoration:none">${money(g.price_then)}${g.price_after ? ` → ${money(g.price_after)}` : ""}</s></div>
+      </div></section>`).join("") : `<p class="muted">No signals yet. Buddy makes them on weekday mornings when a stock or fund gets unusual attention and its price trend and the tone agree.</p>`) +
+      (s.trending.length ? `<section class="card"><b>Most talked about last night</b><br><small>${s.trending.map((t) => `${esc(t.key)} (${t.mentions}${t.times_usual ? `, ${t.times_usual}× usual` : ""})`).join(" · ")}</small></section>` : "") +
+      `<p class="muted">${esc(s.note)} Signals are scored a week later; a category is "unproven" until 20 are scored.</p>`;
+    $("main").querySelectorAll("[data-cat]").forEach((b) => b.onclick = async () => {
+      try {
+        const got = await api("/api/deals/signals/switch", { category: b.dataset.cat, on: !s.categories[b.dataset.cat] });
+        renderSignals({ ...s, categories: got.categories });
+      } catch (e) { $("main").insertAdjacentHTML("afterbegin", `<p class="err">${esc(e.message)}</p>`); }
+    });
+  } catch (e) { $("main").innerHTML = `<p class="err">${esc(e.message)}</p>`; }
+}
+
 function render() {
   tabs();
   if (tab === "predicted") { renderPredicted(); return; }
+  if (tab === "signals") { renderSignals(); return; }
   const list = (data?.deals || []).filter((d) => d.domain === tab);
   if (!list.length) {
     $("main").innerHTML = `<p class="muted">No ${tab === "product" ? "product" : tab} deals here yet. Deals arrive from the deal feeds every morning and from your deals inbox every night.</p>`;

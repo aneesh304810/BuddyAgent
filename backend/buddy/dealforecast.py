@@ -329,7 +329,10 @@ def take_pending(memory: Memory) -> list[tuple[str, list[dict]]]:
     pending = json.loads(memory.get(PENDING_KEY) or "[]")
     memory.set(PENDING_KEY, "[]")
     out = []
+    from . import recommend  # noqa: PLC0415  the owner's switches per category
     for p in pending:
+        if not recommend.enabled(memory, recommend.category_of_item(p["title"])):
+            continue
         cmp = (" — the lowest Buddy has seen" if p["lowest"] and p["price"] <= p["lowest"] * 1.001
                else f" (lowest seen ${p['lowest']:,.2f})" if p["lowest"] else "")
         text = (f"🔔 The deal you were watching for is here: {p['title']} for ${p['price']:,.2f}"

@@ -1,5 +1,5 @@
-"""Signals: what people are saying on Reddit about deals, travel, products and markets, read once a night, tagged
-and counted, so Buddy's predictions can use attention and mood next to prices.
+"""Signals: what people are saying on Reddit about deals, travel, products and markets (and the day's market
+headlines from Finnhub, when its key is set), read once a night, tagged and counted, so Buddy's predictions can use attention and mood next to prices.
 
   Nightly: each community that's on (deals, travel, reviews, investing) -> its posts of the day
     -> tagged in code: the tickers, the product, the category (electronics, tools, flights, stocks, options...)
@@ -302,9 +302,9 @@ def keep(memory: Memory, posts: list[dict], day: date) -> int:
     _ready(memory)
     added = 0
     for p in posts:
-        got = pricebook.run(memory, "INSERT OR IGNORE INTO signals VALUES (?, ?, 'reddit', ?, ?, ?, ?, ?, ?, ?, ?, ?, "
+        got = pricebook.run(memory, "INSERT OR IGNORE INTO signals VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, "
                                     "?, ?, ?, ?) RETURNING id",
-                            (p["id"], day.isoformat(), p["community"], p["grp"], p["category"], p["title"], p["url"],
+                            (p["id"], day.isoformat(), p.get("source") or "reddit", p["community"], p["grp"], p["category"], p["title"], p["url"],
                              p["score"], p["comments"], p["place"], json.dumps(p["tickers"]), p["product"],
                              p["tone"], p["theme"], p["tagged_by"]))
         if got:
@@ -398,6 +398,15 @@ async def run(memory: Memory, fetch=None, ask=None, today: date | None = None) -
                 break
             continue
         posts += [tag(p, name, c["group"], known) for p in got]
+    try:  # the day's market headlines from Finnhub, when its key is set: counted next to Reddit
+        from . import finnhub  # noqa: PLC0415
+        if finnhub.configured():
+            news = await asyncio.to_thread(finnhub.market_news, memory, None, fetch)
+            posts += [{**tag({"id": n["id"], "title": n["title"], "text": n["text"], "url": n["url"], "score": None,
+                              "comments": None, "place": i + 1}, "finnhub", "investing", known), "source": "finnhub"}
+                      for i, n in enumerate(news)]
+    except Exception as e:
+        failed["finnhub news"] = str(e)[:100]
     seen = {}
     for p in posts:  # a post cross-posted or read twice counts once
         seen.setdefault(p["id"], p)

@@ -1538,6 +1538,22 @@ async def api_deals_predicted(days: int = 45) -> dict:
     return {"predictions": await asyncio.to_thread(dealforecast.predictions, memory, max(7, min(days, 120)))}
 
 
+@app.get("/api/deals/signals", dependencies=[Depends(require_admin)])
+async def api_deals_signals() -> dict:
+    from . import recommend  # noqa: PLC0415
+    return await asyncio.to_thread(recommend.page, memory)
+
+
+@app.post("/api/deals/signals/switch", dependencies=[Depends(require_admin)])
+async def api_deals_signals_switch(body: dict) -> dict:
+    from . import recommend  # noqa: PLC0415
+    try:
+        await asyncio.to_thread(recommend.switch, memory, [str(body.get("category", ""))], bool(body.get("on")))
+    except ToolError as e:
+        raise HTTPException(status_code=400, detail=str(e)) from e
+    return {"categories": recommend.categories(memory)}
+
+
 @app.get("/api/deals/history", dependencies=[Depends(require_admin)])
 async def api_deals_history(item: str, domain: str = "product") -> dict:
     from . import pricebook  # noqa: PLC0415

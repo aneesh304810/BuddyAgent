@@ -523,7 +523,7 @@ async def run(memory: Memory, deliver: Deliver, connected=None) -> None:
                     from . import pricebook  # noqa: PLC0415
                     gone = await asyncio.to_thread(patterns.prune_raw, memory)
                     if gone:
-                        log.info("price book: %d raw prices over 90 days deleted (already learned)", gone)
+                        log.info("price book: %d raw prices over a year old deleted (already learned)", gone)
                     if not pricebook.path_for(memory).startswith(":memory:"):
                         await asyncio.to_thread(pricebook.snapshot, memory,
                                                 str(Path(pricebook.path_for(memory)).with_name("pricebook-backup")))
@@ -538,6 +538,11 @@ async def run(memory: Memory, deliver: Deliver, connected=None) -> None:
                     dealcollector.prune(memory)
                     for text, links in dealcollector.messages(result):
                         await deliver("money", text, cards=links)
+                from . import recommend  # noqa: PLC0415  investing signals, weekday mornings
+                if recommend.due(memory) and not in_quiet_hours():
+                    memory.set(recommend.DAY_KEY, local_now().date().isoformat())
+                    for text in await asyncio.to_thread(recommend.run, memory):
+                        await deliver("money", text)
                 from . import dealforecast  # noqa: PLC0415  deals watched for (found overnight or this morning)
                 if not in_quiet_hours() and local_now().hour >= dealcollector.START_HOUR:
                     for text, links in dealforecast.take_pending(memory):

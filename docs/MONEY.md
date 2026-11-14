@@ -226,4 +226,19 @@ decide each differently), and uses it whenever you ask about a purchase.
 - **A year of history.** Raw prices, deals and posts are kept 365 days (`BUDDY_KEEP_RAW_DAYS`); the learned
   patterns and the daily counts are kept for good.
 
+- **Buy and sell signals, by category.** One switch per category, on the Deals page's Signals tab or by voice
+  ("turn off options signals", "turn on all investing signals"): electronics, home, tools, clothing, games,
+  flights, hotels (the deal alerts Buddy already sends), and ETFs, stocks, commodities, options. All are on to
+  start. Investing signals are made each weekday morning, in code, when a symbol got unusual attention on Reddit
+  the night before (three or more posts and three times its own usual) AND the rest agrees: the tone, the price
+  against its 50-day average, and, with a Finnhub key, insiders buying or selling and analysts' ratings. The
+  result is buy, sell or avoid, or "caution: crowded" when a crowd piles into something already stretched.
+  Attention alone never makes a signal. Each one is written down with that day's price and scored a week later
+  (right if it moved 2% or more the signal's way). Until a category has 20 scored signals every alert says
+  UNPROVEN with the count so far. At most three a morning. Ask "show my signals" or "how have your stock signals
+  done?". Signals, not advice: you decide and trade yourself.
+- **Finnhub** (your free key: `sudo bash /opt/buddy/deploy/set.sh BUDDY_FINNHUB_KEY`): market headlines counted
+  next to Reddit each night, and earnings dates, insider buying and selling and analyst ratings for each signal.
+  Only ticker symbols go to it.
+
 All of it stays on your server; only Claude sees it. Buddy still never buys or pays.

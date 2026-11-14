@@ -1,6 +1,6 @@
 """The price book: Buddy's separate database of market prices and deals (DuckDB), for history and predictions.
 
-Raw prices and deals are kept 90 days, then deleted once the nightly learning in the sandbox (patterns.py) has
+Raw prices and deals are kept a year, then deleted once the nightly learning in the sandbox (patterns.py) has
 learned from them; the learned patterns (pattern_months), launches and predictions are kept for good.
 
 What's in it (no personal data: products, routes, hotels, prices and dates):
@@ -324,7 +324,7 @@ TOOL = {
         "good price?'. export: write it all to CSV or Parquet files on the server for analysis in other tools. "
         "patterns: what the nightly learning in the sandbox found (real sale discounts per kind and year, the odds "
         "of a 10% drop, price by age since launch, flight booking windows per route, hotel weekday and month "
-        "patterns, how Buddy's past calls did). learn: run that learning now. Raw prices are kept 90 days; the "
+        "patterns, how Buddy's past calls did). learn: run that learning now. Raw prices are kept a year; the "
         "learned patterns are kept for good."),
     "input_schema": {"type": "object", "properties": {
         "action": {"type": "string", "enum": ["stats", "history", "export", "patterns", "learn"]},
