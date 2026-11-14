@@ -262,4 +262,29 @@ decide each differently), and uses it whenever you ask about a purchase.
   becomes a caution, and a strong, cheap business being sold off is not called a sell. Funds have no filings to
   check. Needs `BUDDY_SEC_CONTACT`; no AI cost.
 
+- **Fund holdings (13F).** Weekly, Buddy reads the SEC for new quarterly filings from the funds it follows
+  (Berkshire Hathaway, Bridgewater, Pershing Square, Scion, Renaissance, Appaloosa, Greenlight; "follow Oakmark
+  872323" adds one by its SEC number). "What does Berkshire own?" gives the largest holdings, each one's share
+  of the fund, and what was new, sold out, added to or trimmed since the quarter before; "who holds Coca-Cola?"
+  searches them by company name. A 13F is long US positions at a quarter's end, filed up to 45 days later:
+  every answer carries both dates and is never "what they own now". "Fund status" shows the name the SEC
+  returned for each number, so a wrong number is visible.
+- **The investment committee and journal.** Bring an idea ("should I buy MSFT?") and Buddy first gathers what
+  it has (the checklists, the price trend, Reddit, Finnhub's facts, which funds reported holding it, your
+  journal) and argues the strongest case for, the strongest case against, a neutral reading, and what would
+  prove each wrong; it is told not to agree with you to be agreeable. "Write my thesis on MSFT" saves why, what
+  you expect and what would prove you wrong (required), with that day's price and checklist read. "Review my
+  MSFT thesis" sets it against today. Entries are only ever added, never changed or deleted, so old reasoning
+  can be judged honestly. The journal is yours: it stays in Buddy's encrypted store and only Claude reads it.
+- **The investor library, used in decisions.** About twenty principles from the classic investors and books
+  (Graham, Buffett, Munger, Fisher, Lynch, Klarman, Marks, Greenblatt, Dalio, Soros, Taleb, Malkiel, Lefèvre,
+  Thorp, Schwager), each tagged in code with the situation it speaks to (expensive, cheap, no profits, a crowd,
+  stretched, falling, heavy debt, an unproven record). Each signal carries the one that fits ("a question from
+  Howard Marks: what does the price already assume?"), and the committee puts the five that fit to the company.
+  They are ideas summarised in Buddy's words, never quotations, and have not yet been checked line by line
+  against the originals; historical case studies are not included until they can be sourced.
+- **A paper portfolio.** "Paper buy 10 MSFT": pretend money ($100,000), real prices. It shows each position's
+  gain, the cash, the total return, and the same money in the S&P 500 fund since your first trade, which is the
+  honest comparison. No costs or taxes are taken off. Nothing is a real order.
+
 All of it stays on your server; only Claude sees it. Buddy still never buys or pays.

@@ -154,6 +154,12 @@ def judge(t: dict, bars: list[dict], facts: dict | None = None) -> dict | None:
         elif action == "sell" and lens["price"] == "cheap" and lens["business"] == "strong":
             action = "watch"  # a strong business at a low price, sold off: not a sell signal
             why.append("a strong business at a low price being sold off is not a sell signal")
+    if action != "watch":  # the lesson from the library that speaks to this situation (investors.py)
+        from . import investors as library  # noqa: PLC0415
+        tags = library.situation(lens, {"times_usual": t["times_usual"], "rsi": strength,
+                                        "earnings_on": facts.get("earnings_on")}, falling=action == "sell")
+        for p in library.lessons(tags, 1):
+            why.append(library.line(p))
     return {"key": t["key"], "category": t["category"], "action": action, "price": round(price, 2),
             "reasons": why, "facts": {"score": score, "rsi": round(strength, 1), "tone": t["tone"],
                                       "mentions": t["mentions"], "times_usual": t["times_usual"], **facts}}

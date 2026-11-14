@@ -540,6 +540,13 @@ async def run(memory: Memory, deliver: Deliver, connected=None) -> None:
                     dealcollector.prune(memory)
                     for text, links in dealcollector.messages(result):
                         await deliver("money", text, cards=links)
+                from . import funds  # noqa: PLC0415  new 13F filings from the funds followed, checked weekly
+                if funds.due(memory) and os.getenv("BUDDY_SEC_CONTACT") and not in_quiet_hours():
+                    y, wk, _ = local_now().isocalendar()
+                    memory.set(funds.WEEK_KEY, f"{y}-{wk}")
+                    note = await asyncio.to_thread(funds.weekly, memory)
+                    if note:
+                        await deliver("money", note)
                 from . import recommend  # noqa: PLC0415  investing signals, weekday mornings
                 if recommend.due(memory) and not in_quiet_hours():
                     memory.set(recommend.DAY_KEY, local_now().date().isoformat())
