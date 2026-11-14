@@ -31,11 +31,21 @@ def series(months=133, low_month=12, depth=4.0, growth=0.002):
     return rows[::-1]
 
 
-def fake_fetch(missing=(), renamed=None):
+def fake_fetch(missing=(), renamed=None, bls=None):
     """FRED: observations for the ids it has; 400 for the rest; a search by title for renamed ones."""
     renamed = renamed or {}  # category: the id FRED really uses
 
     def fetch(url, data=None, headers=None):
+        if "api.bls.gov" in url:
+            if bls is None:
+                raise OSError("unreachable")
+            ids = json.loads(data)["seriesid"]
+            return json.dumps({"status": "REQUEST_SUCCEEDED", "Results": {"series": [
+                {"seriesID": i, "data": [{"year": d[:4], "period": "M" + d[5:7], "value": str(v)}
+                                         for d, v in series(months=120, low_month=2)]
+                                        + [{"year": "2024", "period": "M13", "value": "1"},
+                                           {"year": "2025", "period": "M10", "value": "-"}]}
+                for i in ids if i in bls]}})
         if "/series/search" in url:
             import urllib.parse
             text = urllib.parse.parse_qs(urllib.parse.urlparse(url).query)["search_text"][0]
@@ -82,8 +92,24 @@ def test_a_wrong_first_id_never_stops_the_rest_and_is_found_by_name(memory):
     assert "14 of 14" in seasons.refresh(memory, ENV, fetch)  # next month it uses the id it found
 
 
-def test_no_key_says_so(memory):
-    assert "FRED isn't set up" in seasons.refresh(memory, {}, fake_fetch())
+def test_what_fred_lacks_comes_from_the_bls(memory):
+    """Live, FRED had 7 of the 14: the item-level ones (televisions, appliances...) are only at the BLS."""
+    tv, rental = seasons.SERIES["televisions"][0], seasons.SERIES["car rental"][0]
+    fetch = fake_fetch(missing={tv, rental}, bls={tv})
+    status = seasons.refresh(memory, ENV, fetch)
+    assert "13 of 14" in status and "car rental" in status and "televisions" not in status
+    assert seasons.get(memory, "televisions")["cheapest"][0] == 2  # the BLS shape, annual rows and '-' skipped
+    assert pricebook.run(memory, "SELECT series FROM seasons WHERE category = 'televisions'")[0]["series"] == \
+        "bls:" + tv
+    assert "13 of 14" in seasons.refresh(memory, ENV, fetch)  # and goes straight there next month
+
+
+def test_no_fred_key_uses_the_bls_alone(memory, tmp_path):
+    every = {s for s, _ in seasons.SERIES.values()}
+    assert "14 of 14" in seasons.refresh(memory, {}, fake_fetch(bls=every))
+    (tmp_path / "two").mkdir()
+    other = Memory(tmp_path / "two" / "other.db")  # its own price book; the BLS can't be reached
+    assert "0 of 14" in seasons.refresh(other, {}, fake_fetch())
 
 
 def test_outlook_for_things_flights_and_hotels(memory):
@@ -116,7 +142,7 @@ def test_monthly_and_the_tool(memory):
     assert seasons.due(memory, now)
     memory.set(seasons.MONTH_KEY, "2026-11")
     assert not seasons.due(memory, now) and seasons.due(memory, datetime(2026, 12, 1, 9, 0))
-    assert "refresh the seasonal prices" in seasons.run_tool(memory, {"action": "list"})
+    assert "Not fetched yet" in seasons.run_tool(memory, {"action": "list"})
     seasons.refresh(memory, ENV, fake_fetch())
     assert json.loads(seasons.run_tool(memory, {"action": "list"}))["airline fares"]["cheapest"][0] == "Jul"
     assert json.loads(seasons.run_tool(memory, {"action": "show", "what": "dewalt drill"}))["category"] == \

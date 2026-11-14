@@ -3,13 +3,13 @@
 The US Bureau of Labor Statistics publishes a monthly consumer price index for narrow categories (televisions,
 computers, major appliances, furniture, tools, clothing, footwear, airline fares, hotels, car rental...), going
 back decades, not seasonally adjusted. FRED (the St. Louis Fed, the free key Market school already uses) serves
-them. For each category Buddy takes the last ten years and works out, per calendar month, how far prices usually
+some; the rest come straight from the Bureau's own public API, which needs no key. For each category Buddy takes the last ten years and works out, per calendar month, how far prices usually
 sit above or below that year's trend (the index against its centred 12-month average; the median across years).
 So "TVs are usually about 4% under their yearly trend in December" is from data, not a rule of thumb.
 
 What it is and isn't: a category's national average price level by month. It says nothing about one product or one
 store, and a category index moves less than a single item's sale price does; it shows the season, and Buddy's own
-price book shows the item. Refreshed once a month (code only; no AI, no cost). Only series names go to FRED.
+price book shows the item. Refreshed once a month (code only; no AI, no cost). Only series names go to FRED and the BLS.
 """
 
 import json
@@ -110,40 +110,89 @@ def find_series(memory: Memory, category: str, env=None, fetch=None) -> str:
     return ""
 
 
+def bls(memory: Memory, ids: list[str], env=None, fetch=None, today: date | None = None) -> dict:
+    """Ten years of monthly values for up to 25 series, straight from the Bureau of Labor Statistics' public
+    API (one request, no key): {id: [(date, value)]}. Annual averages and missing months are left out."""
+    from . import gateway  # noqa: PLC0415
+    year = (today or local_now().date()).year
+    got = gateway.call(memory, "bls", "/publicAPI/v1/timeseries/data/", env=env, fetch=fetch, purpose="seasons",
+                       json_body={"seriesid": ids[:25], "startyear": str(year - 9), "endyear": str(year)}) or {}
+    if got.get("status") != "REQUEST_SUCCEEDED":
+        raise ToolError("BLS: " + "; ".join(got.get("message") or [str(got.get("status"))])[:120])
+    out = {}
+    for s in (got.get("Results") or {}).get("series") or []:
+        rows = []
+        for d in s.get("data") or []:
+            period = str(d.get("period", ""))
+            try:
+                if period.startswith("M") and 1 <= int(period[1:]) <= 12:
+                    rows.append((f"{d['year']}-{period[1:]}-01", float(d["value"])))
+            except (ValueError, KeyError):
+                continue
+        out[s.get("seriesID")] = rows
+    return out
+
+
+def _from_fred(memory: Memory, category: str, series: str, env, fetch) -> tuple[dict | None, str, str]:
+    """(pattern, the id used, why not) for one category from FRED: the id, then a search by name."""
+    from . import market_school  # noqa: PLC0415
+    got, why, used = None, "", ""
+    for attempt in ("known", "search"):
+        try:
+            used = series if attempt == "known" else find_series(memory, category, env, fetch)
+            if not used:
+                why = why or "FRED has no series by that name"
+                continue
+            got = seasonal(market_school.fred(memory, used, YEARS * 12 + 13, env, fetch))
+            if got:
+                return got, used, ""
+            why = "not enough monthly data"
+        except Exception as e:  # a wrong id, a rate limit, the network: note it and go on
+            log.info("seasons %s (%s): %s", category, used, e)
+            why = str(e)[:80]
+    return None, used, why
+
+
 def refresh(memory: Memory, env=None, fetch=None) -> str:
-    """Fetch every category from FRED and keep its seasonal pattern. Returns a status line. One category failing
-    never stops the others."""
-    from . import gateway, market_school, pricebook  # noqa: PLC0415
-    if not gateway._secret(env, "BUDDY_FRED_KEY"):
-        return _status(memory, "FRED isn't set up: get a free key at fred.stlouisfed.org, then "
-                               "sudo bash /opt/buddy/deploy/set.sh BUDDY_FRED_KEY")
+    """Fetch every category and keep its seasonal pattern. Returns a status line. FRED first when its key is
+    set; whatever FRED doesn't carry (it lacks several item-level indexes) comes straight from the Bureau of
+    Labor Statistics, which publishes them all and needs no key. One category failing never stops the others."""
+    from . import gateway, pricebook  # noqa: PLC0415
     _ready(memory)
     known = {r["category"]: r["series"] for r in pricebook.run(memory, "SELECT category, series FROM seasons")}
-    done, failed = [], []
+    have_fred = bool(gateway._secret(env, "BUDDY_FRED_KEY"))
+    found, failed, left = {}, {}, []
     for category, (series, _) in SERIES.items():
-        got, why, used = None, "", ""
-        for attempt in ("known", "search"):
-            try:
-                used = (known.get(category) or series) if attempt == "known" \
-                    else find_series(memory, category, env, fetch)
-                if not used:
-                    why = why or "FRED has no series by that name"
-                    continue
-                got = seasonal(market_school.fred(memory, used, YEARS * 12 + 13, env, fetch))
-                if got:
-                    break
-                why = "not enough monthly data"
-            except Exception as e:  # a wrong id, a rate limit, the network: note it and go on
-                log.info("seasons %s (%s): %s", category, used, e)
-                why = str(e)[:80]
-        if not got:
-            failed.append(f"{category} ({why})")
+        was = known.get(category) or series
+        if not have_fred or was.startswith("bls:"):
+            left.append(category)
             continue
+        got, used, why = _from_fred(memory, category, was, env, fetch)
+        if got:
+            found[category] = (used, got)
+        else:
+            failed[category] = why
+            left.append(category)
+    if left:
+        try:
+            rows = bls(memory, [SERIES[c][0] for c in left], env, fetch)
+        except Exception as e:
+            log.info("seasons BLS: %s", e)
+            rows = {}
+            failed.update({c: failed.get(c) or str(e)[:80] for c in left})
+        for c in left:
+            got = seasonal(rows.get(SERIES[c][0]) or [])
+            if got:
+                found[c] = ("bls:" + SERIES[c][0], got)
+                failed.pop(c, None)
+            else:
+                failed.setdefault(c, "BLS has too little monthly data for it")
+    for category, (used, got) in found.items():
         pricebook.run(memory, "INSERT OR REPLACE INTO seasons VALUES (?, ?, ?, ?)",
                       (category, used, json.dumps(got), local_now().date().isoformat()))
-        done.append(category)
-    return _status(memory, f"seasonal patterns for {len(done)} of {len(SERIES)} categories"
-                           + (f"; not available: {'; '.join(failed)}" if failed else ""))
+    return _status(memory, f"seasonal patterns for {len(found)} of {len(SERIES)} categories"
+                           + ("; not available: " + "; ".join(f"{c} ({w})" for c, w in failed.items())
+                              if failed else ""))
 
 
 def _status(memory: Memory, text: str) -> str:
@@ -241,7 +290,7 @@ def run_tool(memory: Memory, args: dict) -> str:
             if s:
                 out[c] = {"cheapest": [MONTHS[m - 1] for m in s["cheapest"]],
                           "dearest": [MONTHS[m - 1] for m in s["dearest"]], "swing_pct": s["swing_pct"]}
-        return json.dumps(out or {"note": "Not fetched yet: needs the free FRED key (BUDDY_FRED_KEY), then say "
+        return json.dumps(out or {"note": "Not fetched yet: say "
                                           "'refresh the seasonal prices'.", "status": memory.get(STATUS_KEY)})
     if action == "show":
         what = args.get("what", "")
