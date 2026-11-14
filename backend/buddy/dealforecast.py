@@ -164,6 +164,86 @@ def store_rhythm(memory: Memory, kind: str) -> dict:
                         "usual_weekday": v.get("weekday"), "usual_depth": v.get("depth")} for s, v in top]}
 
 
+MONTHS = ("", "Jan", "Feb", "Mar", "Apr", "May", "Jun", "Jul", "Aug", "Sep", "Oct", "Nov", "Dec")
+
+
+def company(memory: Memory, name: str, today: date | None = None) -> dict:
+    """A company's deal playbook (a store or a brand): how often it runs deals, on which weekday, how deep, why,
+    in which months, on what; and when its next deal day is likely."""
+    from . import patterns  # noqa: PLC0415
+    today = today or local_now().date()
+    want = (name or "").strip().lower()
+    found = [v for k, v in (patterns.get(memory).get("companies") or {}).items()
+             if want and (want in k.split(":", 1)[1] or k.split(":", 1)[1] in want)]
+    if not found:
+        return {"company": name, "note": "No pattern learned for it yet: Buddy needs to see at least 4 of its deals "
+                                         "on 2 different days (feeds, the deals inbox, app notifications)."}
+    out = []
+    for v in sorted(found, key=lambda v: -v["deals"]):
+        total = sum(v["reasons"].values()) or 1
+        last = date.fromisoformat(v["deal_days"][-1])
+        gap = max(1, round(v.get("every_days") or 7))
+        nxt = last + timedelta(days=gap)
+        while nxt < today:
+            nxt += timedelta(days=gap)
+        busy = sorted(v["months"].items(), key=lambda kv: -kv[1])[:3]
+        out.append({"company": v["name"], "as": v["role"], "deals_seen": v["deals"], "deal_days_seen": len(v["deal_days"]),
+                    "runs_deals_every_days": v.get("every_days"), "usual_weekday": v.get("weekday"),
+                    "usual_depth": v.get("depth"),
+                    "why": {r: round(n / total, 2) for r, n in sorted(v["reasons"].items(), key=lambda kv: -kv[1])},
+                    "busiest_months": [MONTHS[int(m)] for m, _ in busy], "mostly": list(v["kinds"]),
+                    "next_deal_day_likely": nxt.isoformat(), "last_deal_day": last.isoformat()})
+    return {"company": name, "playbooks": out,
+            "note": "Learned from the deals Buddy has seen; more history makes it sharper. Rough, not a promise."}
+
+
+def predictions(memory: Memory, days: int = 45, today: date | None = None) -> list[dict]:
+    """Predicted deals, up front: every product with a deal rhythm (2+ deals seen), every company's next deal
+    day, and the coming sales, soonest first."""
+    from . import patterns, whentobuy  # noqa: PLC0415
+    today = today or local_now().date()
+    until = today + timedelta(days=days)
+    learned = patterns.get(memory)
+    out = []
+    for model, v in (learned.get("item_deals") or {}).items():
+        dates = sorted(date.fromisoformat(d) for d in v.get("dates", []))
+        gaps = sorted((b - a).days for a, b in zip(dates, dates[1:]) if (b - a).days >= 3)
+        if len(dates) < 2 or not gaps:
+            continue
+        gap = gaps[len(gaps) // 2]
+        nxt = dates[-1] + timedelta(days=gap)
+        while nxt < today:
+            nxt += timedelta(days=gap)
+        if nxt <= until:
+            low = min(p for p in v.get("prices", []) if p) if any(v.get("prices", [])) else None
+            out.append({"when": nxt.isoformat(), "what": model, "type": "product", "expect_price": low,
+                        "why": f"on deal {len(dates)} times, about every {gap} days"
+                               + (f" (at {', '.join(v.get('stores', [])[:2])})" if v.get("stores") else ""),
+                        "confidence": "medium" if len(dates) >= 3 else "low"})
+    for v in (learned.get("companies") or {}).values():
+        if len(v.get("deal_days", [])) < 3:
+            continue
+        gap = max(1, round(v.get("every_days") or 7))
+        nxt = date.fromisoformat(v["deal_days"][-1]) + timedelta(days=gap)
+        while nxt < today:
+            nxt += timedelta(days=gap)
+        if nxt <= until and gap >= 5:  # daily dealers aren't news
+            out.append({"when": nxt.isoformat(), "what": f"{v['name']} ({v['role']})", "type": "company",
+                        "expect_price": None,
+                        "why": f"runs deals about every {gap} days, usually on {v.get('weekday', 'the same weekday')}"
+                               + (f", around {v['depth']:.0%} off" if v.get("depth") else ""),
+                        "confidence": "medium" if len(v["deal_days"]) >= 5 else "low"})
+    seen = set()
+    for kind in ("electronics", "home", "clothing"):
+        for e in whentobuy.next_sales("drill tv laptop mattress grill mower" if kind == "home" else "", kind, today, days):
+            if e["name"] not in seen:
+                seen.add(e["name"])
+                out.append({"when": max(e["start"], today).isoformat(), "what": e["name"], "type": "sale",
+                            "expect_price": None, "why": f"usually {e['discount'][0]}–{e['discount'][1]}% off "
+                                                         f"({', '.join(sorted(e['for']))})", "confidence": "calendar"})
+    return sorted(out, key=lambda p: p["when"])[:60]
+
+
 # --- alerts -------------------------------------------------------------------------------------------------------
 def watch(memory: Memory, what: str, kind: str = "", target: float | None = None, price: float | None = None) -> dict:
     _ready(memory)
@@ -288,9 +368,15 @@ TOOL = {
         "part for a kind. watch: what, kind, target (optional; default the expected deal price): an alert, told in "
         "the morning when a matching deal or price appears in the feeds, the deals inbox or the daily price checks. "
         "alerts: the alerts set. stop: which (number or name). upcoming: the deals worth watching for in the next "
-        "month. Rough forecasts from what Buddy has seen, not promises; Buddy never buys."),
+        "month. company: a store's or brand's deal playbook (company: 'Best Buy', 'Sony', 'Home Depot'): how "
+        "often it runs deals, which weekday, how deep, why, its busiest months, and its next likely deal day. "
+        "predictions: every predicted deal for the next days (default 45), up front: products with a deal rhythm, "
+        "companies' next deal days, and the coming sales (also on the Deals page's Predicted tab). "
+        "Rough forecasts from what Buddy has seen, not promises; Buddy never buys."),
     "input_schema": {"type": "object", "properties": {
-        "action": {"type": "string", "enum": ["forecast", "why", "watch", "alerts", "stop", "upcoming"]},
+        "action": {"type": "string", "enum": ["forecast", "why", "watch", "alerts", "stop", "upcoming", "company",
+                                              "predictions"]},
+        "company": {"type": "string"}, "days": {"type": "integer"},
         "what": {"type": "string"}, "kind": {"type": "string", "enum": ["", "electronics", "home", "clothing", "other"]},
         "price": {"type": "number"}, "target": {"type": "number"}, "which": {"type": "string"}},
         "required": ["action"], "additionalProperties": False},
@@ -311,6 +397,10 @@ def run_tool(memory: Memory, args: dict) -> str:
         return json.dumps(alerts(memory), ensure_ascii=False)
     if action == "stop":
         return stop(memory, str(args.get("which", "")))
+    if action == "company":
+        return json.dumps(company(memory, args.get("company") or args.get("what", "")), ensure_ascii=False)
+    if action == "predictions":
+        return json.dumps(predictions(memory, int(args.get("days") or 45)), ensure_ascii=False)
     if action == "upcoming":
         return weekly(memory) or "Nothing worth watching for in the next month yet."
-    raise ToolError("Use forecast, why, watch, alerts, stop or upcoming.")
+    raise ToolError("Use forecast, why, watch, alerts, stop, upcoming, company or predictions.")

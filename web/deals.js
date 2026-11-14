@@ -15,7 +15,8 @@ const $ = (id) => document.getElementById(id);
 const esc = (s) => String(s ?? "").replace(/[&<>"']/g, (c) => ({ "&": "&amp;", "<": "&lt;", ">": "&gt;", '"': "&quot;", "'": "&#39;" }[c]));
 const safe = (u) => /^https:\/\/[^\s"'<>]+$/.test(String(u || "")) ? u : "";
 const money = (v) => v == null ? "–" : "$" + Number(v).toLocaleString(undefined, { minimumFractionDigits: v % 1 ? 2 : 0, maximumFractionDigits: 2 });
-const TABS = [["product", "🛍️ Products"], ["flight", "✈️ Flights"], ["hotel", "🏨 Hotels"]];
+const TABS = [["product", "🛍️ Products"], ["flight", "✈️ Flights"], ["hotel", "🏨 Hotels"], ["predicted", "🔮 Predicted"]];
+let predicted = null;
 let tab = TABS.some(([k]) => k === storageGet("dealsTab")) ? storageGet("dealsTab") : "product", data = null, timer = null;
 
 async function api(path) {
@@ -27,14 +28,29 @@ async function api(path) {
 
 function tabs() {
   $("tabs").innerHTML = TABS.map(([k, label]) => {
-    const n = data ? data.counts[k] || 0 : "";
+    const n = k === "predicted" ? "" : data ? data.counts[k] || 0 : "";
     return `<button class="chip${k === tab ? " on" : ""}" role="tab" aria-selected="${k === tab}" data-tab="${k}">${label}${n !== "" ? ` · ${n}` : ""}</button>`;
   }).join("");
   $("tabs").querySelectorAll("button").forEach((b) => b.onclick = () => { tab = b.dataset.tab; storageSet("dealsTab", tab); render(); });
 }
 
+async function renderPredicted() {
+  try {
+    predicted = predicted || (await api("/api/deals/predicted")).predictions;
+    const icon = { product: "🛍️", company: "🏬", sale: "📅" };
+    $("main").innerHTML = (predicted.length ? predicted.map((p) => `
+      <section class="card"><div class="deal"><div class="what">
+        <b>${icon[p.type] || ""} ${esc(p.what)}</b>
+        <small>${esc(p.why)}</small><br><span class="pill">${esc(p.confidence)} confidence</span></div>
+        <div class="price"><b>${esc(p.when)}</b>${p.expect_price ? `<s style="text-decoration:none">about ${money(p.expect_price)}</s>` : ""}</div>
+      </div></section>`).join("") : `<p class="muted">No predictions yet. Buddy needs to see a product on deal at least twice, or a company's deals on three days, before it can predict the next one.</p>`) +
+      `<p class="muted">Predicted from the deal patterns Buddy has learned and the sales calendar. Rough, not promises. Say "watch for it" to Buddy to get an alert.</p>`;
+  } catch (e) { $("main").innerHTML = `<p class="err">${esc(e.message)}</p>`; }
+}
+
 function render() {
   tabs();
+  if (tab === "predicted") { renderPredicted(); return; }
   const list = (data?.deals || []).filter((d) => d.domain === tab);
   if (!list.length) {
     $("main").innerHTML = `<p class="muted">No ${tab === "product" ? "product" : tab} deals here yet. Deals arrive from the deal feeds every morning and from your deals inbox every night.</p>`;

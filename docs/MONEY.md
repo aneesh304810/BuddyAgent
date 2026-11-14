@@ -178,4 +178,11 @@ decide each differently), and uses it whenever you ask about a purchase.
   Friday in April, Father's Day tool deals, Memorial Day, Labor Day, Black Friday) are on the calendar, and
   r/ToolDeals is among the feeds.
 
+- **Deal playbooks and predictions up front:** the nightly learning also builds a playbook per company, each
+  store and each brand: how often it runs deals, on which weekday, how deep, why (weekly sale, coupon, holiday,
+  clearance...), its busiest months and what it discounts. Ask "how does Best Buy do deals?" or "when does Sony
+  discount?". "What deals do you predict?" (or the Deals page's 🔮 Predicted tab) lists every predicted deal for
+  the next 45 days, soonest first: products with a deal rhythm (seen on deal at least twice), companies' next
+  deal days (seen on at least three days) and the coming sales, each with its reason and confidence.
+
 All of it stays on your server; only Claude sees it. Buddy still never buys or pays.

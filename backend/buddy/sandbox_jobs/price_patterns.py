@@ -208,6 +208,23 @@ def deal_rhythms(deals: pd.DataFrame) -> dict:
             "depth": round(float(g["depth"].median()), 3) if g["depth"].notna().any() else None}
     for (kind, reason), g in d.groupby(["kind", "reason"]):
         out["deal_reasons"].setdefault(kind, {})[reason] = {"deals": int(len(g))}
+    # a playbook per company: each store, and each brand (the model's first word), across all its deals
+    out["companies"] = {}
+    d["brand"] = d["model"].astype(str).str.split().str[0]
+    for role, col in (("store", "store"), ("brand", "brand")):
+        for name, g in d.groupby(col):
+            days = sorted(g["day"].unique())
+            if len(g) < 4 or len(days) < 2 or not str(name).strip() or str(name)[0].isdigit():
+                continue
+            gaps = pd.Series(pd.to_datetime(days)).diff().dt.days.dropna()
+            when = pd.Series(pd.to_datetime(days))
+            out["companies"][f"{role}:{str(name).lower()[:40]}"] = {
+                "role": role, "name": str(name)[:40], "deals": int(len(g)), "deal_days": [x.date().isoformat() for x in when],
+                "every_days": float(gaps.median()), "weekday": when.dt.day_name().mode().iloc[0],
+                "depth": round(float(g["depth"].median()), 3) if g["depth"].notna().any() else None,
+                "reasons": {str(k): int(v) for k, v in g["reason"].value_counts().items()},
+                "months": {str(int(k)): int(v) for k, v in when.dt.month.value_counts().sort_index().items()},
+                "kinds": {str(k): int(v) for k, v in g["kind"].value_counts().head(4).items()}}
     return out
 
 

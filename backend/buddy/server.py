@@ -1532,6 +1532,12 @@ async def api_deals(days: int = 7, domain: str = "", q: str = "") -> dict:
     return await asyncio.to_thread(pricebook.deals_page, memory, days, domain, q)
 
 
+@app.get("/api/deals/predicted", dependencies=[Depends(require_admin)])
+async def api_deals_predicted(days: int = 45) -> dict:
+    from . import dealforecast  # noqa: PLC0415
+    return {"predictions": await asyncio.to_thread(dealforecast.predictions, memory, max(7, min(days, 120)))}
+
+
 @app.get("/api/deals/history", dependencies=[Depends(require_admin)])
 async def api_deals_history(item: str, domain: str = "product") -> dict:
     from . import pricebook  # noqa: PLC0415

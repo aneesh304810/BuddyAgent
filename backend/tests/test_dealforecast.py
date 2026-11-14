@@ -92,3 +92,26 @@ def test_weekly_suggests_what_to_watch(memory):
     note = df.weekly(memory, today=date(2026, 11, 14))
     assert note.startswith("📅 Deals to watch for this month") and "Black Friday to Cyber Monday" in note
     assert df.weekly_due(memory, datetime(2026, 11, 16, 10, 5)) and not df.weekly_due(memory, datetime(2026, 11, 17, 10))
+
+
+def test_company_playbook_and_upfront_predictions(tmp_path, memory):
+    from buddy.sandbox_jobs import price_patterns
+    folder = tmp_path / "input"
+    folder.mkdir()
+    rows = ["seen_on,store,kind,domain,model,price,regular_price,reason"]
+    for i, day in enumerate(["2026-09-06", "2026-09-27", "2026-10-18", "2026-11-08"]):
+        rows.append(f"{day},Best Buy,electronics,product,sony wh-1000xm6,{320 - i * 5},449,weekly sale")
+        rows.append(f"{day},Best Buy,electronics,product,sony wf-1000xm5,{199 - i * 5},299,coupon")
+    (folder / "deals.csv.gz").write_bytes(gzip.compress("\n".join(rows).encode()))
+    patterns.keep(memory, price_patterns.main(str(tmp_path)))
+    book = df.company(memory, "best buy", today=date(2026, 11, 14))["playbooks"][0]
+    assert book["as"] == "store" and book["runs_deals_every_days"] == 21 and book["usual_weekday"] == "Sunday"
+    assert book["why"] == {"weekly sale": 0.5, "coupon": 0.5} and book["next_deal_day_likely"] == "2026-11-29"
+    assert df.company(memory, "Sony", today=date(2026, 11, 14))["playbooks"][0]["as"] == "brand"
+    assert "No pattern learned" in df.company(memory, "Dyson")["note"]
+    preds = df.predictions(memory, 45, today=date(2026, 11, 14))
+    kinds = {p["type"] for p in preds}
+    assert kinds == {"product", "company", "sale"}
+    sony = next(p for p in preds if p["what"] == "sony wh-1000xm6")
+    assert sony["when"] == "2026-11-29" and sony["expect_price"] == 305.0
+    assert [p["when"] for p in preds] == sorted(p["when"] for p in preds)

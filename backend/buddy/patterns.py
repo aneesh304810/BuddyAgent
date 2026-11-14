@@ -205,6 +205,22 @@ def merge(months: list[dict]) -> dict:
             if k not in best or v.get("deals", 0) >= best[k].get("deals", 0):
                 best[k] = v
     out["store_rhythm"] = best
+    comps: dict = {}
+    for m in months:  # a company's playbook: deal days unioned, counts added, the latest rhythm kept
+        for k, v in (m.get("companies") or {}).items():
+            have = comps.setdefault(k, {"role": v["role"], "name": v["name"], "deal_days": [], "reasons": {},
+                                        "months": {}, "kinds": {}, "deals": 0})
+            new_days = [x for x in v.get("deal_days", []) if x not in have["deal_days"]]
+            share = len(new_days) / max(1, len(v.get("deal_days", [])))  # only the part not already counted
+            have["deal_days"] = sorted(have["deal_days"] + new_days)
+            have["deals"] += round(v.get("deals", 0) * share)
+            for field in ("reasons", "kinds"):
+                for r, n in (v.get(field) or {}).items():
+                    have[field][r] = have[field].get(r, 0) + round(n * share)
+            for x in new_days:
+                have["months"][str(int(x[5:7]))] = have["months"].get(str(int(x[5:7])), 0) + 1
+            have.update({f: v.get(f) for f in ("every_days", "weekday", "depth") if v.get(f) is not None})
+    out["companies"] = comps
     return out
 
 
