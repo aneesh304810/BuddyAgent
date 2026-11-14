@@ -120,4 +120,18 @@ decide each differently), and uses it whenever you ask about a purchase.
   Amazon's 90-day, 180-day and yearly averages. ShopSavvy (other stores) isn't connected yet: its documentation
   wasn't reachable when this was built, so it waits until it can be built against the real API.
 
+- **Daily deals collector:** every morning from 9 Buddy reads deal sites' public feeds (Slickdeals front page and
+  popular, DealNews, r/buildapcsales, r/deals, r/frugalmalefashion; add any other: "add the deal feed
+  https://..."), checking each site's robots rules first and skipping what they disallow. It also checks today's
+  price for everything you want (things you're thinking of buying, price watches, your wish list) at Google
+  Shopping, Best Buy and eBay, and keeps every price, so real history builds up for buy-or-wait. A deal that
+  names something you want, a new low (5% under the best seen) or a real sale is told that morning (up to three);
+  the rest that fit your kinds and brands (never brands you avoid) are in Reports as "Deals for you". Ask "any
+  deals today?", "find deals on 1440p monitors", or "how did the deal feeds do?". Store pages are never scraped.
+  Free keys that add sources (about 10 minutes):
+  - **Best Buy:** developer.bestbuy.com → get a key → `sudo bash /opt/buddy/deploy/set.sh BUDDY_BESTBUY_KEY`
+  - **eBay:** developer.ebay.com → create a production keyset → `sudo bash /opt/buddy/deploy/set.sh
+    BUDDY_EBAY_CLIENT_ID` and `... BUDDY_EBAY_CLIENT_SECRET`
+  Google Shopping uses the Serper key Buddy already has (about $0.001 a check).
+
 All of it stays on your server; only Claude sees it. Buddy still never buys or pays.

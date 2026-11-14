@@ -24,6 +24,7 @@ from .tools import format_local, local_now, user_tz
 log = logging.getLogger(__name__)
 CREDIT_DEALS = os.getenv("BUDDY_CREDIT_DEALS", "1") not in ("", "0")  # deal search before a credit runs out
 TREND_DIGEST = os.getenv("BUDDY_TRENDS", "1") not in ("", "0")  # morning trend digest and spike alerts (trends.py)
+DAILY_DEALS = os.getenv("BUDDY_DAILY_DEALS", "1") not in ("", "0")  # the morning deals collector (dealcollector.py)
 MARKET_SCHOOL = os.getenv("BUDDY_MARKET_SCHOOL", "1") not in ("", "0")  # the weekday morning lesson (market_school.py)
 MARKET_SCAN = os.getenv("BUDDY_MARKET_SCAN", "1") not in ("", "0")  # the daily trade-idea scan (markets.py)
 CARD_LOOKUP = os.getenv("BUDDY_CARD_LOOKUP", "1") not in ("", "0")  # published card benefits, from issuer sites
@@ -494,6 +495,17 @@ async def run(memory: Memory, deliver: Deliver, connected=None) -> None:
                         shopper.asked(memory, due_item["id"])
             except Exception:
                 log.exception("purchase history failed")
+            try:  # the daily deals collector: feeds, price checks for wanted things, matches told (code only)
+                from . import dealcollector  # noqa: PLC0415
+                if DAILY_DEALS and dealcollector.due(memory) and not in_quiet_hours():
+                    memory.set(dealcollector.DONE_KEY, local_now().date().isoformat())
+                    result = await asyncio.to_thread(dealcollector.run, memory)
+                    dealcollector.save_report(memory, result)
+                    dealcollector.prune(memory)
+                    for text, links in dealcollector.messages(result):
+                        await deliver("money", text, cards=links)
+            except Exception:
+                log.exception("daily deals failed")
             try:  # Market school: a short lesson every weekday morning (New York time), unless turned off
                 from . import market_school  # noqa: PLC0415
                 if MARKET_SCHOOL and market_school.due(memory) and not in_quiet_hours():
