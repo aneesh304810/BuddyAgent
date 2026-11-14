@@ -51,6 +51,10 @@ def calendar(year: int) -> list[dict]:
         ("Super Bowl TV deals", super_bowl - timedelta(days=14), super_bowl, "tv", (15, 30)),
         ("Presidents' Day sales", _nth_weekday(year, 2, 0, 3) - timedelta(days=4), _nth_weekday(year, 2, 0, 3),
          "appliance mattress home", (15, 30)),
+        ("Spring Black Friday (Home Depot, Lowe's)", date(year, 4, 3), date(year, 4, 27),
+         "tools garden grill home", (15, 35)),
+        ("Father's Day tool deals", _nth_weekday(year, 6, 6, 3) - timedelta(days=14), _nth_weekday(year, 6, 6, 3),
+         "tools grill", (15, 30)),
         ("Memorial Day sales", _nth_weekday(year, 5, 0, -1) - timedelta(days=4), _nth_weekday(year, 5, 0, -1),
          "appliance mattress home grill", (15, 35)),
         ("Prime Day", july_mid, july_mid + timedelta(days=1), "electronics home", (15, 30)),
@@ -61,14 +65,17 @@ def calendar(year: int) -> list[dict]:
          "appliance mattress home", (15, 35)),
         ("Prime Big Deal Days", october, october + timedelta(days=1), "electronics home", (10, 25)),
         ("Black Friday to Cyber Monday", thanksgiving + timedelta(days=1), thanksgiving + timedelta(days=4),
-         "electronics home clothing appliance tv laptop mattress", (20, 40)),
+         "electronics home clothing appliance tv laptop mattress tools", (20, 40)),
     ]
     return [{"name": n, "start": s, "end": e, "for": set(f.split()), "discount": d} for n, s, e, f, d in ev]
 
 
 TAGS = {"tv": r"\btv\b|television|oled|qled", "laptop": r"laptop|macbook|chromebook|notebook",
         "appliance": r"washer|dryer|dishwasher|fridge|refrigerator|oven|range|microwave|vacuum|appliance",
-        "mattress": r"mattress", "grill": r"grill|smoker"}
+        "mattress": r"mattress", "grill": r"grill|smoker",
+        "tools": r"drill|saw|sander|grinder|impact|wrench|tool|compressor|nailer|ladder|generator|dewalt|milwaukee|"
+                 r"makita|ryobi|ridgid|kobalt|craftsman",
+        "garden": r"mower|trimmer|blower|pressure washer|garden|patio|mulch|deck|fence"}
 
 
 def tags_for(what: str, kind: str) -> set[str]:

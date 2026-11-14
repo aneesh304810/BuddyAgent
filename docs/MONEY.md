@@ -168,4 +168,14 @@ decide each differently), and uses it whenever you ask about a purchase.
   for it" (or "alert me under $280") and Buddy tells you in the morning when a matching deal or price shows up in
   the feeds, the deals inbox or the daily price checks. Every Monday: "deals to watch for this month".
 
+- **Deal notifications from your phone's apps:** with Notification access on in the Buddy app, price-drop and
+  deal notifications from shopping and travel apps (Amazon, Best Buy, Target, Walmart, Costco, eBay, Home Depot,
+  Lowe's, Menards, Ace, Harbor Freight, Tractor Supply, Northern Tool, Google Shopping, Slickdeals, Hopper, Google
+  Flights, Kayak, airlines, Booking, Expedia, hotel chains...) are read every hour by text rules into the price
+  book, like the deals inbox. Order, delivery, payment and account notifications are skipped, and other apps'
+  notifications are never read for this. Turn on price-drop and deal notifications in each app (and "track
+  price" on the items you care about). Tools and building materials count as home: their sales (Spring Black
+  Friday in April, Father's Day tool deals, Memorial Day, Labor Day, Black Friday) are on the calendar, and
+  r/ToolDeals is among the feeds.
+
 All of it stays on your server; only Claude sees it. Buddy still never buys or pays.

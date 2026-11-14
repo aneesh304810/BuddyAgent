@@ -50,6 +50,7 @@ DEFAULT_FEEDS = [
     {"name": "r/frugalfemalefashion", "service": "reddit",
      "url": "https://www.reddit.com/r/frugalfemalefashion/new/.rss"},
     {"name": "r/GameDeals", "service": "reddit", "url": "https://www.reddit.com/r/GameDeals/new/.rss"},
+    {"name": "r/ToolDeals", "service": "reddit", "url": "https://www.reddit.com/r/ToolDeals/new/.rss"},
     {"name": "r/BuyItForLife", "service": "reddit", "url": "https://www.reddit.com/r/BuyItForLife/new/.rss"},
     # Addresses not confirmed when this was written: paused by themselves after 3 days of failing (see status).
     {"name": "Ben's Bargains", "service": "deal_feed", "url": "https://bensbargains.com/rss/"},
@@ -533,7 +534,9 @@ def run_tool(memory: Memory, args: dict) -> str:
         return remove_feed(memory, args.get("which", ""))
     if action == "status":
         return json.dumps({"feeds": json.loads(memory.get(STATUS_KEY) or "null") or "not run yet today",
-                           "deals_inbox": json.loads(memory.get("dealmail:status") or "null") or "not run yet"})
+                           "deals_inbox": json.loads(memory.get("dealmail:status") or "null") or "not run yet",
+                           "app_notifications": json.loads(memory.get("dealnotif:status") or "null")
+                           or "none read yet"})
     if action == "read_inbox":
         from . import dealmail  # noqa: PLC0415
         return dealmail.run(memory)

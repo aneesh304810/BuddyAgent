@@ -38,6 +38,8 @@ REGULAR = re.compile(r"(?:reg(?:ular)?\.?|was|list(?:\s+price)?|orig(?:inal)?\.?
 ENDS = re.compile(r"(?:ends|expires|through|thru|until|valid through|book by)\s*:?\s*"
                   r"((?:jan|feb|mar|apr|may|jun|jul|aug|sep|oct|nov|dec)[a-z]*\.?\s+\d{1,2}(?:,\s*\d{4})?|"
                   r"\d{1,2}/\d{1,2}(?:/\d{2,4})?)", re.I)
+SAVINGS = re.compile(r"(?:sav(?:e|ed|ings of)|extra|additional)\s+(?:up to\s+)?\$\s?(\d[\d,]*(?:\.\d{2})?)|"
+                     r"\$\s?(\d[\d,]*(?:\.\d{2})?)\s+(?:off|savings|cash ?back|back|credit)", re.I)  # not prices
 FLIGHT = re.compile(r"\b(fares?|flights?|airfare|round[- ]?trip|one[- ]?way|nonstop|economy|first class)\b", re.I)
 HOTEL = re.compile(r"\b(hotels?|resorts?|per night|/\s?night|nightly|suites?|stays?|inn)\b", re.I)
 ROUTE = re.compile(r"\b([A-Z]{3})\s*(?:to|-|–|→|>)\s*([A-Z]{3})\b")
@@ -147,7 +149,7 @@ def deals_in(message) -> list[dict]:
     cells = _cells(message)
     out, seen = [], set()
     for i, cell in enumerate(cells):
-        prices = [p for p in PRICE.findall(cell["text"]) if 0 < _num(p) < 100000]
+        prices = [p for p in PRICE.findall(SAVINGS.sub(" ", cell["text"])) if 0 < _num(p) < 100000]
         if not prices:
             continue
         before = cells[i - 1] if i else None
@@ -238,7 +240,7 @@ def fetch_new(memory: Memory, env=None, connect=None) -> list:
             pass
 
 
-def keep(memory: Memory, deals: list[dict], when: datetime | None = None) -> int:
+def keep(memory: Memory, deals: list[dict], when: datetime | None = None, source: str = "") -> int:
     """Into the price book: each deal (once) and its price as history."""
     from . import dealforecast, pricebook  # noqa: PLC0415
     pricebook.conn(memory)
@@ -251,13 +253,14 @@ def keep(memory: Memory, deals: list[dict], when: datetime | None = None) -> int
         got = pricebook.run(memory, "INSERT OR IGNORE INTO deals (seen_on, source, title, url, price, store, kind, posted, "
                                     "domain, item, regular_price, ends, reason, model) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, "
                                     "?, ?, ?, ?, ?) RETURNING id",
-                            (day, f"email: {d['store']}", d["title"], url, d["price"], d["store"],
+                            (day, source or f"email: {d['store']}", d["title"], url, d["price"], d["store"],
                              _kind(d), day, d["domain"], d["item"].lower(), d["regular"], d["ends"], d["reason"],
                              dealforecast.model_key(d["title"] if d["domain"] == "product" else d["item"])))
         if got:
             added += 1
             pricebook.observe(memory, d["domain"], d["item"], d["price"], seller=d["store"], url=d["url"],
-                              regular_price=d["regular"], on_sale=bool(d["regular"]), source="deal email",
+                              regular_price=d["regular"], on_sale=bool(d["regular"]),
+                              source="deal notification" if source.startswith("app:") else "deal email",
                               seen_at=when)
     return added
 

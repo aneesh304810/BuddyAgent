@@ -137,7 +137,12 @@ KIND_WORDS = {
     "home": r"vacuum|roomba|sofa|couch|chair|desk|table|lamp|mattress|pillow|sheets|bedding|towel|blender|"
             r"mixer|coffee maker|espresso|air fryer|instant pot|cookware|pan|knife|dishwasher|washer|dryer|"
             r"refrigerator|fridge|microwave|oven|air purifier|humidifier|fan|heater|rug|curtain|shelf|storage|"
-            r"tool|drill|garden|grill|thermostat",
+            r"tool|drill|garden|grill|thermostat|"
+            # building and home improvement
+            r"saw|sander|grinder|impact driver|wrench|hammer|ladder|compressor|nailer|generator|mower|trimmer|"
+            r"blower|pressure washer|lumber|plywood|drywall|flooring|tile|paint|primer|faucet|toilet|vanity|"
+            r"water heater|insulation|shingle|concrete|deck|fence|cabinet|countertop|dewalt|milwaukee|makita|"
+            r"ryobi|ridgid|bosch|kobalt|craftsman|husky|shop-?vac",
     "clothing": r"shirt|t-shirt|tee|jeans|pants|trousers|shorts|dress|skirt|jacket|coat|hoodie|sweater|"
                 r"sneaker|shoe|boot|sandal|sock|underwear|belt|hat|cap|scarf|glove|suit|blazer",
     "travel": r"flight|airline|boarding|itinerary|e-?ticket|hotel|booking|reservation|check-in|rental car|"
@@ -147,7 +152,8 @@ KIND_RE = {k: re.compile(rf"\b({v})", re.I) for k, v in KIND_WORDS.items()}
 STORE_KIND = {
     "electronics": r"best ?buy|apple|b&h|newegg|samsung|micro center|dell|lenovo|bose|sony",
     "home": r"home depot|lowe'?s|ikea|wayfair|bed bath|crate|pottery barn|west elm|williams.sonoma|overstock|"
-            r"container store|ashley",
+            r"container store|ashley|menards|ace hardware|harbor freight|tractor supply|northern tool|acme tools|"
+            r"grainger|floor ?& ?decor|build\.com|ferguson|sherwin|true value",
     "clothing": r"nike|adidas|uniqlo|h&m|zara|gap|old navy|banana republic|j\.?crew|macy'?s|nordstrom|"
                 r"lululemon|levi|under armour|new balance|asos|kohl'?s",
     "travel": r"airline|airways|delta|united|american air|jetblue|southwest|alaska air|spirit|frontier|expedia|"

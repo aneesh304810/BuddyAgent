@@ -488,6 +488,8 @@ async def run(memory: Memory, deliver: Deliver, connected=None) -> None:
                 if memory.get("shop:scan_hour") != hour:
                     memory.set("shop:scan_hour", hour)
                     await asyncio.to_thread(shopper.scan_orders, memory)
+                    from . import dealnotif  # noqa: PLC0415  deal notifications from shopping and travel apps
+                    await asyncio.to_thread(dealnotif.scan, memory)
                     from . import whentobuy  # noqa: PLC0415  buy-or-wait calls whose date passed: right or wrong
                     await asyncio.to_thread(whentobuy.settle, memory)
                 if not in_quiet_hours():  # "how's the new X?": one purchase a day, two to six weeks after
