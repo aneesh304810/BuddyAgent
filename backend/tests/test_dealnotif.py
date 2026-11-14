@@ -52,3 +52,9 @@ def test_construction_kinds_stores_and_sales():
     assert shopper.kind_of("", "Harbor Freight") == "home" and shopper.kind_of("", "Menards") == "home"
     sales = [s["name"] for s in whentobuy.next_sales("DEWALT table saw", "home", date(2027, 3, 20), 120)]
     assert sales[0].startswith("Spring Black Friday") and "Father's Day tool deals" in sales
+
+
+def test_off_switch(memory, monkeypatch):
+    notify(memory, "Amazon Shopping", "Price drop", 'The price of "Sony WH-1000XM6 Headphones" dropped to $289.99')
+    monkeypatch.setenv("BUDDY_DEAL_NOTIFICATIONS", "0")
+    assert dealnotif.scan(memory) == 0 and pricebook.deals_page(memory)["deals"] == []

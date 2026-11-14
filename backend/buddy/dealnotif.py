@@ -9,11 +9,12 @@ price and isn't about an order, delivery, payment or account. Each deal gets its
 and is checked against the "watch for it" alerts.
 
 Notifications from every other app (chats, banks, mail...) are never looked at here, and nothing personal goes
-into the price book: only the item, price, app and date. The phone only receives what the apps send it: nothing
+into the price book: only the item, price, app and date. Turn this source off with BUDDY_DEAL_NOTIFICATIONS=0. The phone only receives what the apps send it: nothing
 is browsed or scraped.
 """
 
 import json
+import os
 import re
 from datetime import datetime
 
@@ -82,6 +83,8 @@ def deal_in(title: str, text: str, app: str) -> dict | None:
 def scan(memory: Memory) -> int:
     """New notifications from shopping and travel apps, as deals into the price book. Returns how many were kept."""
     from . import dealforecast, dealmail  # noqa: PLC0415
+    if os.getenv("BUDDY_DEAL_NOTIFICATIONS", "1") in ("", "0", "off"):  # the owner turned this source off
+        return 0
     last = int(memory.get(LAST_KEY) or 0)
     try:
         rows = memory.db.execute("SELECT id, title, body, data, start_at FROM records WHERE kind = 'notification' "

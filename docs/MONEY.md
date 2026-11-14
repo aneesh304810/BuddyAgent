@@ -178,7 +178,7 @@ decide each differently), and uses it whenever you ask about a purchase.
   notifications are never read for this. Turn on price-drop and deal notifications in each app (and "track
   price" on the items you care about). Tools and building materials count as home: their sales (Spring Black
   Friday in April, Father's Day tool deals, Memorial Day, Labor Day, Black Friday) are on the calendar, and
-  r/ToolDeals is among the feeds.
+  r/ToolDeals is among the feeds. To turn this source off: `BUDDY_DEAL_NOTIFICATIONS=0` (set.sh).
 
 - **Deal playbooks and predictions up front:** the nightly learning also builds a playbook per company, each
   store and each brand: how often it runs deals, on which weekday, how deep, why (weekly sale, coupon, holiday,
