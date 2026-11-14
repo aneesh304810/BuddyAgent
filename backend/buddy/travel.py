@@ -774,6 +774,14 @@ class Travel:
         self._keep(f"hotels:{place.lower()}", q["check_in"], q["currency"],
                    [{**o, "true_total": o["true_total"] / o["nights"]} for o in ranked], [], "true_total")
         advice = hotel_advice(ranked, history)
+        try:  # check direct: the hotel's own price against the booking sites', for each hotel (hoteldirect.py)
+            from . import hoteldirect  # noqa: PLC0415
+            for o in ranked:
+                o["direct"] = hoteldirect.compare(self.memory, o, place)
+                hoteldirect.record(self.memory, o["direct"], place)
+            advice += hoteldirect.advice([o["direct"] for o in ranked], q["currency"])
+        except Exception:
+            log.warning("check direct failed", exc_info=True)
         pat = {}
         if ranked:
             cheap = min(ranked, key=lambda o: o["true_total"])
@@ -1443,7 +1451,10 @@ TRAVEL_TOOL = {
     "new low), watches (list), unwatch (what = route like MIA-LIM or its id). save_search (search_id, optional target): "
     "'save this search' / 'track this': the exact search (dates, route or hotel) is re-run live every morning and "
     "Buddy alerts on a deal (target hit, 5%+ drop since saved, a new low); use this, not watch_price, for flights and "
-    "hotels already searched. saved_searches (list), unsave_search (saved_id). Results show in the app's Travel screen with links "
+    "hotels already searched. saved_searches (list), unsave_search (saved_id). Each hotel carries 'direct': the "
+    "hotel's own price against the cheapest booking site, the call (book direct, or the site) and why, and a link "
+    "to check the member rate on the hotel's own site: say it for the hotel you recommend (hotel_direct notes what "
+    "the owner then saw). Results show in the app's Travel screen with links "
     "to book; you never book. Think like an experienced travel agent who works for the user: use 'advice' (the trade-offs "
     "worked out: headline traps, what flexibility or a nonstop costs, nearby airports, cheaper nearby dates, same "
     "flight cheaper elsewhere, how today's price compares) to recommend ONE option clearly with the reason, then the "
@@ -1468,7 +1479,7 @@ TRAVEL_TOOL = {
 
 def _for_claude(result: dict, top: int = 6) -> dict:
     keep = ("id", "source", "title", "summary", "price", "true_total", "currency", "estimated", "parts", "tags", "flags",
-            "also", "bookable", "test")
+            "also", "bookable", "test", "direct")
     return {"search_id": result["search_id"], "advice": result.get("advice", []),
             "offers": [{k: o[k] for k in keep if k in o} for o in result["offers"][:top]],
             "google_price_insight": result.get("google_price_insight"), "history": result.get("history"),

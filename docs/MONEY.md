@@ -195,4 +195,12 @@ decide each differently), and uses it whenever you ask about a purchase.
   messages for them: say "stop watching JFK-LIM" to drop one. Hotels have no free daily source: their patterns
   come from hotel emails, app notifications and your own hotel searches.
 
+- **Hotels: check direct.** Every hotel in a search gets a direct-or-booking-site call: Google Hotels lists each
+  seller's nightly price, often including the hotel's own site, so Buddy compares that with the cheapest booking
+  site. Direct at the same price, cheaper, or within 5% ("prefer direct within 8%" changes it) means book direct
+  (points and nights, better change terms, the chain's best-rate guarantee); a bigger gap means the booking site,
+  after checking the member rate through the link Buddy gives to the hotel's own site. Tell Buddy what you saw
+  ("Marriott direct was $189") and it keeps it; "is direct usually cheaper?" gives your own record per chain.
+  Buddy never opens hotel sites or books.
+
 All of it stays on your server; only Claude sees it. Buddy still never buys or pays.
