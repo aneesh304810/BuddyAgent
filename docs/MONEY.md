@@ -152,7 +152,9 @@ decide each differently), and uses it whenever you ask about a purchase.
   alerts for your keywords, Best Buy, Target, Walmart, Costco and Amazon newsletters, DealNews, Brad's Deals,
   airline fare sales, hotel and booking-site sales), then
   `sudo bash /opt/buddy/deploy/set.sh BUDDY_DEALS_EMAIL_ADDRESS` and `... BUDDY_DEALS_EMAIL_APP_PASSWORD`. Every
-  night at 1 AM Buddy reads the new emails there (read-only, code only: no AI cost), pulls out each deal (product,
+  night at 1 AM Buddy reads the new emails there (code only: no AI cost; once read, newsletters older than two
+  days are moved to Trash so the inbox stays clean: bulk mail only, never a personal email, and Trash keeps them
+  about 30 days; `BUDDY_DEALS_EMAIL_CLEAN_DAYS` changes the days, 0 keeps everything), pulls out each deal (product,
   flight or hotel; price, regular price, store, link, end date) and keeps it in the price book, where the nightly
   pattern learning uses it. See them all on the **Deals page** (☰ → Deals): products, flights and hotels, search,
   "lowest Buddy has seen" marks, % off, and each item's price history chart; tap "Open deal" to open it in your

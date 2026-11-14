@@ -1,7 +1,10 @@
 """The deals inbox: a separate email account the owner subscribes to deal alerts and store, airline and hotel
-newsletters. Every night Buddy reads the new emails there (read-only, code only, no AI), pulls each deal out
+newsletters. Every night Buddy reads the new emails there (code only, no AI), pulls each deal out
 (product, flight or hotel; price, regular price, store, link, when it ends) and keeps it in the price book, so the
 deals feed the Deals page (web/deals.html) and the nightly pattern learning.
+
+Once read, newsletters older than two days are moved to Trash so the inbox stays clean (clean(): bulk mail only,
+never a personal email; BUDDY_DEALS_EMAIL_CLEAN_DAYS, 0 to keep everything).
 
 Why a separate inbox: newsletters don't bury real mail or go through the AI email sorting (which costs money per
 email), and nothing personal is in it. Setup: a new free email account (2-step verification on, an app password),
@@ -240,6 +243,54 @@ def fetch_new(memory: Memory, env=None, connect=None) -> list:
             pass
 
 
+CLEAN_MAX = 500
+
+
+def clean_days(env=None) -> int:
+    """After how many days read newsletters are moved to Trash (BUDDY_DEALS_EMAIL_CLEAN_DAYS; 2 by default, 0 = never)."""
+    try:
+        return max(0, int(gateway._secret(env, "BUDDY_DEALS_EMAIL_CLEAN_DAYS") or 2))
+    except ValueError:
+        return 2
+
+
+def clean(memory: Memory, env=None, connect=None) -> int:
+    """Tidy the deals inbox: emails older than clean_days that Buddy has already read into the price book are moved
+    to Trash (the mail service empties Trash by itself, usually after 30 days, so a mistake can be undone). Only
+    bulk mail is touched: an email must carry the List-Unsubscribe header every newsletter has, so a personal email
+    that lands in this inbox is never removed. Returns how many were moved."""
+    days = clean_days(env)
+    last = int(memory.get(LAST_KEY) or 0)
+    if not days or not last:
+        return 0
+    imap = (connect or _imap)(env)
+    try:
+        imap.select("INBOX")
+        before = date.fromordinal(local_now().date().toordinal() - days)
+        _, found = imap.uid("search", None, f"(UID 1:{last} BEFORE {before:%d-%b-%Y})")
+        uids = [u for u in (found[0] or b"").split() if int(u) <= last][:CLEAN_MAX]
+        bulk = []
+        for uid in uids:
+            _, parts = imap.uid("fetch", uid.decode(), "(BODY.PEEK[HEADER.FIELDS (LIST-UNSUBSCRIBE)])")
+            header = next((p[1] for p in parts if isinstance(p, tuple)), b"") or b""
+            if b"list-unsubscribe" in header.lower():
+                bulk.append(uid.decode())
+        gmail = "gmail" in str(getattr(imap, "host", "")).lower()
+        for uid in bulk:
+            if gmail:  # Gmail: the Trash label moves it out of the inbox and into Trash
+                imap.uid("store", uid, "+X-GM-LABELS", "\\Trash")
+            else:
+                imap.uid("store", uid, "+FLAGS", "(\\Deleted)")
+        if bulk and not gmail:
+            imap.expunge()
+        return len(bulk)
+    finally:
+        try:
+            imap.logout()
+        except Exception:
+            pass
+
+
 def keep(memory: Memory, deals: list[dict], when: datetime | None = None, source: str = "") -> int:
     """Into the price book: each deal (once) and its price as history."""
     from . import dealforecast, pricebook  # noqa: PLC0415
@@ -283,8 +334,15 @@ def run(memory: Memory, env=None, connect=None) -> str:
         kept += keep(memory, deals)
         from . import dealforecast  # noqa: PLC0415  watched-for deals: told in the morning
         dealforecast.check(memory, [{**d, "source": f"email: {d['store']}"} for d in deals])
+    cleaned = 0
+    try:
+        cleaned = clean(memory, env, connect)
+    except (imaplib.IMAP4.error, OSError, ToolError) as e:
+        log.warning("deals inbox: cleaning failed: %s", e)
     return _status(memory, f"read {len(messages)} email{'s' if len(messages) != 1 else ''}: {found} deals, "
-                           f"{kept} new kept in the price book")
+                           f"{kept} new kept in the price book"
+                           + (f"; {cleaned} read newsletters older than {clean_days(env)} days moved to Trash"
+                              if cleaned else ""))
 
 
 def _kind(d: dict) -> str:

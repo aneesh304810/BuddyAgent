@@ -65,12 +65,13 @@ class FakeIMAP:
         self.peeked = []
 
     def select(self, box, readonly=False):
-        assert readonly  # nothing in the inbox is ever changed
+        self.readonly = readonly  # reading is read-only; only the tidy-up afterwards may change the inbox
         return "OK", [b"2"]
 
     def uid(self, cmd, *args):
         if cmd == "search":
             return "OK", [b" ".join(str(i + 1).encode() for i in range(len(self.messages)))]
+        assert cmd == "fetch"  # these emails have no List-Unsubscribe header: the tidy-up never removes them
         uid = int(args[0])
         self.peeked.append(args[1])
         return "OK", [(b"x", self.messages[uid - 1].as_bytes())]
@@ -85,6 +86,7 @@ def test_nightly_run_keeps_deals_once_and_feeds_the_page(memory):
     imap = FakeIMAP(msgs)
     status = dealmail.run(memory, env={}, connect=lambda env: imap)
     assert status.startswith("read 2 emails: 3 deals, 3 new") and all("PEEK" in p for p in imap.peeked)
+    assert imap.readonly is False  # the tidy-up ran after the reading, and found nothing to remove
     assert dealmail.run(memory, env={}, connect=lambda env: FakeIMAP([])).startswith("read 0 emails")
     page = pricebook.deals_page(memory, days=7)
     assert page["counts"] == {"product": 2, "flight": 1, "hotel": 0}
@@ -97,3 +99,36 @@ def test_nightly_run_keeps_deals_once_and_feeds_the_page(memory):
 
 def test_not_set_up_says_how():
     assert "BUDDY_DEALS_EMAIL_ADDRESS" in dealmail.run(Memory(":memory:"), env={})
+
+
+class CleanIMAP(FakeIMAP):
+    """Three old emails Buddy has read: two newsletters and one personal email."""
+    host = "imap.gmail.com"
+
+    def __init__(self):
+        super().__init__([])
+        self.stored, self.selected_readonly = [], None
+
+    def select(self, box, readonly=False):
+        self.selected_readonly = readonly
+        return "OK", [b"3"]
+
+    def uid(self, cmd, *args):
+        if cmd == "search":
+            assert "BEFORE" in args[1] and "UID 1:3" in args[1]
+            return "OK", [b"1 2 3"]
+        if cmd == "fetch":
+            header = b"" if args[0] == "2" else b"List-Unsubscribe: <https://x/unsub>\r\n"
+            return "OK", [(b"x", header)]
+        self.stored.append(args)
+        return "OK", [b""]
+
+
+def test_read_newsletters_go_to_trash_after_two_days_personal_mail_stays(memory):
+    memory.set(dealmail.LAST_KEY, "3")
+    imap = CleanIMAP()
+    assert dealmail.clean(memory, env={}, connect=lambda env: imap) == 2
+    assert [s[0] for s in imap.stored] == ["1", "3"] and all(s[1] == "+X-GM-LABELS" for s in imap.stored)
+    assert dealmail.clean(memory, env={"BUDDY_DEALS_EMAIL_CLEAN_DAYS": "0"}, connect=lambda env: CleanIMAP()) == 0
+    memory.set(dealmail.LAST_KEY, "")
+    assert dealmail.clean(memory, env={}, connect=lambda env: CleanIMAP()) == 0  # nothing read yet: nothing removed
