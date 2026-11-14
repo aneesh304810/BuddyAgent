@@ -119,3 +119,23 @@ def test_due_once_a_day_after_nine(memory):
     assert dc.due(memory, datetime(2026, 11, 14, 9, 0))
     memory.set(dc.DONE_KEY, "2026-11-14")
     assert not dc.due(memory, datetime(2026, 11, 14, 15, 0))
+
+
+def test_catalog_follows_what_keeps_showing_up(memory):
+    from buddy import pricebook
+    for day in ("2026-11-01", "2026-11-08"):
+        for model, title in (("sony wh-1000xm6", "Sony WH-1000XM6 Headphones"), ("dewalt dcd999", "DeWalt DCD999 Drill")):
+            pricebook.run(memory, "INSERT INTO deals (seen_on, source, title, url, price, store, kind, model) VALUES "
+                                  "(CURRENT_DATE - 3, 'x', ?, ?, 99, 'Shop', 'electronics', ?)",
+                          (title, f"https://x/{model}/{day}", model))
+    pricebook.run(memory, "UPDATE deals SET seen_on = CURRENT_DATE - 9 WHERE url LIKE '%2026-11-01'")
+    pricebook.run(memory, "INSERT INTO deals (seen_on, source, title, url, price, store, kind, model) VALUES "
+                          "(CURRENT_DATE, 'x', 'One-off Thing X100', 'https://x/once', 5, 'Shop', 'other', 'thing x100')")
+    assert [c["model"] for c in dc.catalog(memory)] == ["dewalt dcd999", "sony wh-1000xm6"]  # seen on 2 days
+    shopping = [{"title": "Sony WH-1000XM6 Wireless", "price": "$310.00", "source": "Target", "link": "https://t/x"},
+                {"title": "DeWalt DCD999 20V Drill", "price": "$179.00", "source": "Lowe's", "link": "https://l/x"}]
+    env = {"BUDDY_SERPER_KEY": "s"}
+    assert dc.check_catalog(memory, env, fetch_for([], shopping), budget=1) == 1  # today's share, in rotation
+    assert dc.check_catalog(memory, env, fetch_for([], shopping), budget=1) == 1
+    assert pricebook.lowest(memory, "sony wh-1000xm6") == 310.0 and pricebook.lowest(memory, "dewalt dcd999") == 179.0
+    assert dc.check_catalog(memory, {}, fetch_for([])) == 0  # no search key: nothing spent

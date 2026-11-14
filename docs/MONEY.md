@@ -185,4 +185,12 @@ decide each differently), and uses it whenever you ask about a purchase.
   the next 45 days, soonest first: products with a deal rhythm (seen on deal at least twice), companies' next
   deal days (seen on at least three days) and the coming sales, each with its reason and confidence.
 
+- **The catalog (followed without asking):** every product seen on deal on two or more days in the last 60 joins
+  a catalog (up to 150, `BUDDY_CATALOG_SIZE`); about 40 of them a day (`BUDDY_CATALOG_DAILY`, roughly $1.20 a month
+  of Google Shopping checks) get a price check in rotation, so each has a steady price history between deals.
+  Flight routes that keep appearing in fare emails and notifications (up to 10) are followed daily for this month
+  and the next two through Travelpayouts (free; needs `BUDDY_TRAVELPAYOUTS_TOKEN`); you may get "cheap fare"
+  messages for them: say "stop watching JFK-LIM" to drop one. Hotels have no free daily source: their patterns
+  come from hotel emails, app notifications and your own hotel searches.
+
 All of it stays on your server; only Claude sees it. Buddy still never buys or pays.

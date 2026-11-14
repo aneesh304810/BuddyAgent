@@ -20,6 +20,7 @@ Only feed addresses and product names go out; the owner's profile never does. Bu
 
 import json
 import logging
+import os
 import re
 import urllib.parse
 import urllib.robotparser
@@ -398,6 +399,76 @@ def _lowest(memory: Memory, name: str) -> float | None:
     return pricebook.lowest(memory, name)
 
 
+# --- the catalog: everything that keeps showing up, tracked without being asked -----------------------------------
+CATALOG_SIZE = int(os.getenv("BUDDY_CATALOG_SIZE", "150"))    # products followed
+CATALOG_DAILY = int(os.getenv("BUDDY_CATALOG_DAILY", "40"))   # price checks a day (about $0.001 each)
+AUTO_ROUTES = 10
+
+
+def catalog(memory: Memory, size: int = 0) -> list[dict]:
+    """Products worth following: every model seen on deal on 2 or more days in the last 60, most seen first."""
+    from . import pricebook  # noqa: PLC0415
+    since = (local_now().date() - timedelta(days=60)).isoformat()
+    return pricebook.run(memory, "SELECT model, MAX(title) AS title, COUNT(DISTINCT seen_on) AS days FROM deals "
+                                 "WHERE COALESCE(domain, 'product') = 'product' AND COALESCE(model, '') != '' "
+                                 "AND length(model) >= 5 AND seen_on >= ? GROUP BY model HAVING COUNT(DISTINCT seen_on) "
+                                 f">= 2 ORDER BY days DESC, model LIMIT {int(size or CATALOG_SIZE)}", (since,))
+
+
+def check_catalog(memory: Memory, env=None, fetch=None, budget: int = 0) -> int:
+    """Today's share of the catalog gets a price check (Google Shopping), in rotation, so every product is checked
+    every few days and has a steady price history, on deal or not. Returns how many were checked."""
+    from . import dealforecast, prices  # noqa: PLC0415
+    from .budgets import BudgetStop  # noqa: PLC0415
+    items = catalog(memory)
+    if not items or not gateway._secret(env, "BUDDY_SERPER_KEY"):
+        return 0
+    budget = budget or CATALOG_DAILY
+    start = int(memory.get("dealfeed:catalog_at") or 0) % len(items)
+    todo = (items[start:] + items[:start])[:budget]
+    memory.set("dealfeed:catalog_at", str((start + len(todo)) % len(items)))
+    done = 0
+    for it in todo:
+        try:
+            offers = [o for o in google_shopping(memory, it["model"], env, fetch) if _close(it["model"], o["title"])]
+        except (gateway.ConnectError, BudgetStop) as e:
+            log.info("catalog check stopped: %s", e)
+            break
+        done += 1
+        for o in offers[:6]:
+            prices.record(memory, it["model"], o["price"], "USD", o["store"], o["url"], source="catalog check")
+        if offers:
+            best = min(offers, key=lambda o: o["price"])
+            dealforecast.check(memory, [{"title": it["model"] + " " + best["title"], "price": best["price"],
+                                         "store": best["store"], "url": best["url"], "source": "catalog check"}])
+    return done
+
+
+def auto_routes(memory: Memory, env=None) -> int:
+    """Flight routes that keep showing up in fare emails and notifications are followed daily (free, through
+    Travelpayouts) for this month and the next two. Returns how many routes are followed this way."""
+    from . import pricebook  # noqa: PLC0415
+    from .travel import Travel  # noqa: PLC0415
+    trips = Travel(memory, env)
+    if not trips.tp.configured():
+        return 0
+    since = (local_now().date() - timedelta(days=45)).isoformat()
+    routes = pricebook.run(memory, "SELECT item, COUNT(*) AS n FROM deals WHERE domain = 'flight' AND seen_on >= ? "
+                                   "AND regexp_matches(item, '^[a-z]{3}-[a-z]{3}$') GROUP BY item ORDER BY n DESC "
+                                   f"LIMIT {AUTO_ROUTES}", (since,))
+    month = local_now().date().replace(day=1)
+    for r in routes:
+        o, d = r["item"].upper().split("-")
+        m = month
+        for _ in range(3):
+            try:
+                trips.watch(o, d, m.strftime("%Y-%m"))
+            except ToolError:
+                break
+            m = (m + timedelta(days=32)).replace(day=1)
+    return len(routes)
+
+
 # --- the daily run --------------------------------------------------------------------------------------------
 def due(memory: Memory, now: datetime | None = None) -> bool:
     now = now or local_now()
@@ -414,13 +485,21 @@ def run(memory: Memory, env=None, fetch=None) -> dict:
         if w:
             hits.append({**d, "want": w})
     price_news = check_prices(memory, env, fetch)
+    tracked = routes = 0
+    try:
+        tracked = check_catalog(memory, env, fetch)
+        routes = auto_routes(memory, env)
+    except Exception:
+        log.warning("catalog tracking failed", exc_info=True)
     from . import dealforecast  # noqa: PLC0415  watched-for deals, from the feeds and today's price checks
     dealforecast.check(memory, new + [{"title": n["want"]["name"] + " " + n["title"], "price": n["price"],
                                        "store": n["store"], "url": n["url"], "source": "daily price check",
                                        "reason": n["why"]} for n in price_news])
     picks = for_you(memory, [d for d in new if d not in hits])
     memory.set(STATUS_KEY, json.dumps({"day": local_now().date().isoformat(), "feeds": status,
-                                       "new_deals": len(new), "matches": len(hits), "price_news": len(price_news)}))
+                                       "new_deals": len(new), "matches": len(hits), "price_news": len(price_news),
+                                       "catalog": {"products_followed": len(catalog(memory)), "checked_today": tracked,
+                                                   "flight_routes_followed": routes}}))
     return {"matches": hits, "price_news": price_news, "for_you": picks, "status": status, "new": len(new)}
 
 
