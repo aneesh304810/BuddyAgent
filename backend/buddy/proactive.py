@@ -521,6 +521,8 @@ async def run(memory: Memory, deliver: Deliver, connected=None) -> None:
                     status = await patterns.learn(memory)
                     log.info("price patterns: %s", status)
                     from . import pricebook  # noqa: PLC0415
+                    from . import livewatch  # noqa: PLC0415
+                    await asyncio.to_thread(livewatch.prune, memory)
                     gone = await asyncio.to_thread(patterns.prune_raw, memory)
                     if gone:
                         log.info("price book: %d raw prices over a year old deleted (already learned)", gone)
@@ -583,6 +585,14 @@ async def run(memory: Memory, deliver: Deliver, connected=None) -> None:
                             await deliver("money", alert["text"])
             except Exception:
                 log.exception("markets failed")
+            try:  # live triggers: once a minute in US market hours, for the symbols being followed (code only)
+                from . import livewatch  # noqa: PLC0415
+                if livewatch.due(memory):
+                    memory.set(livewatch.MINUTE_KEY, datetime.now(timezone.utc).strftime("%Y-%m-%dT%H:%M"))
+                    for text in await asyncio.to_thread(livewatch.check, memory):
+                        await deliver("money", text)
+            except Exception:
+                log.exception("live triggers failed")
             if not in_quiet_hours():
                 if watch is not None:
                     for alert in watch.alerts():  # new hard inquiries, accounts, late payments; a score drop

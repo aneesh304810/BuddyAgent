@@ -241,4 +241,13 @@ decide each differently), and uses it whenever you ask about a purchase.
   next to Reddit each night, and earnings dates, insider buying and selling and analyst ratings for each signal.
   Only ticker symbols go to it.
 
+- **Live triggers (stocks and funds).** In US market hours Buddy checks the price of up to 20 followed symbols
+  once a minute: your watch list, this week's signals and the trade ideas being watched, in categories that are
+  on. It messages when one breaks its 20-day high or low, is up or down 3% on the day (then 6%; funds at 1.5%
+  and 3%), or moves 1.5% in five minutes; each is said once a day per symbol, eight alerts a day at most, and
+  every trigger is kept for a year for the pattern learner. Prices come from Finnhub (or Alpaca); the free feeds
+  cover part of the market, so they can lag slightly. Option prices on free data are 15 minutes late, so the
+  trigger is on the stock and the message says to check the live chain. Code only, no AI cost. Ask "are live
+  triggers on?"; turn off with `BUDDY_LIVE_SIGNALS=0`. Triggers, not advice.
+
 All of it stays on your server; only Claude sees it. Buddy still never buys or pays.

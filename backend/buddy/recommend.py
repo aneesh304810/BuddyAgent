@@ -272,10 +272,12 @@ TOOL = {
         "options (investing signals from Reddit attention, price trend and Finnhub facts, made each weekday "
         "morning and scored a week later). show: the recent signals and how each did. settings: which categories "
         "are on. switch (categories: names, or 'investing', 'shopping', 'all'; on): turn them on or off. "
-        "record (category?): how many were right. run: make today's signals now. Always say a signal is unproven "
+        "record (category?): how many were right. run: make today's signals now. live: the live triggers "
+        "(checked every minute in US market hours for the watch list, this week's signals and watched ideas: "
+        "breakouts, big days, fast moves): whether they are on, the price source and what is followed. Always say a signal is unproven "
         "when its record says so, that it is not advice, and that the owner decides and trades themselves."),
     "input_schema": {"type": "object", "properties": {
-        "action": {"type": "string", "enum": ["show", "settings", "switch", "record", "run"]},
+        "action": {"type": "string", "enum": ["show", "settings", "switch", "record", "run", "live"]},
         "categories": {"type": "array", "items": {"type": "string"}}, "on": {"type": "boolean"},
         "category": {"type": "string"}}, "required": ["action"], "additionalProperties": False},
 }
@@ -290,6 +292,9 @@ def run_tool(memory: Memory, args: dict) -> str:
     if a == "record":
         cats = [args["category"]] if args.get("category") else list(INVESTING)
         return json.dumps({c: track_record(memory, c) for c in cats})
+    if a == "live":
+        from . import livewatch  # noqa: PLC0415
+        return json.dumps(livewatch.status(memory))
     if a == "run":
         told = run(memory)
         return json.dumps({"signals": told or "No new signals: nothing got unusual attention with the trend and "
