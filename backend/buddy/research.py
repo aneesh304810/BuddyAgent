@@ -146,6 +146,9 @@ can find (Keepa, camelcamelcamel, Google Shopping's price insights), the sales c
 due soon usually drops the old one).
 - If what they told Buddy and what they actually do differ (e.g. they say they wait for \
 sales but usually pay full price), work from what they do and mention it kindly.
+- Find each finalist's life cycle: its launch date and launch price (MSRP), and whether a successor is out or \
+expected (and when). Put it in the report under "Model and timing": prices hold near launch \
+until the first big sale, and an older model drops when its successor arrives.
 - In the report: "My pick for you" in two sentences, tied to their own criteria; then a \
 table of the best 3 (what, price now and where, how it meets their must-haves, the main \
 catch); then "Why not the others" in one line each; then "Buy now or wait?" with a target \

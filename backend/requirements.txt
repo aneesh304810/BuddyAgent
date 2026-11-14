@@ -24,3 +24,4 @@ urllib3>=2.5.0
 requests>=2.32.4
 cryptography>=44.0.1
 python-multipart>=0.0.18
+duckdb>=1.1  # the price book (pricebook.py)

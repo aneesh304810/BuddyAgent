@@ -4,6 +4,7 @@ import asyncio
 import json
 import logging
 import os
+from pathlib import Path
 import time
 from datetime import datetime, timezone
 from collections.abc import Awaitable, Callable
@@ -495,6 +496,22 @@ async def run(memory: Memory, deliver: Deliver, connected=None) -> None:
                         shopper.asked(memory, due_item["id"])
             except Exception:
                 log.exception("purchase history failed")
+            try:  # nightly: patterns learned in the sandbox, raw prices over 90 days (already learned) deleted,
+                # and a copy of the price book for the backup
+                from . import patterns  # noqa: PLC0415
+                if patterns.due(memory):
+                    memory.set(patterns.DAY_KEY, local_now().date().isoformat())
+                    status = await patterns.learn(memory)
+                    log.info("price patterns: %s", status)
+                    from . import pricebook  # noqa: PLC0415
+                    gone = await asyncio.to_thread(patterns.prune_raw, memory)
+                    if gone:
+                        log.info("price book: %d raw prices over 90 days deleted (already learned)", gone)
+                    if not pricebook.path_for(memory).startswith(":memory:"):
+                        await asyncio.to_thread(pricebook.snapshot, memory,
+                                                str(Path(pricebook.path_for(memory)).with_name("pricebook-backup")))
+            except Exception:
+                log.exception("price patterns failed")
             try:  # the daily deals collector: feeds, price checks for wanted things, matches told (code only)
                 from . import dealcollector  # noqa: PLC0415
                 if DAILY_DEALS and dealcollector.due(memory) and not in_quiet_hours():

@@ -34,41 +34,26 @@ def _key(what: str) -> str:
 
 
 def record(memory: Memory, what: str, price: float, currency: str = "", seller: str = "", url: str = "",
-           seen_at: datetime | None = None) -> None:
+           seen_at: datetime | None = None, source: str = "", regular_price=None, on_sale=None) -> None:
+    """A product price seen: into the price book (pricebook.py), Buddy's separate market-price database."""
     if not what or price is None or float(price) <= 0:
         return
-    _ready(memory)
-    memory.db.execute("INSERT INTO price_seen (what, price, currency, seller, url, seen_at) VALUES (?, ?, ?, ?, ?, ?)",
-                      (_key(what), float(price), str(currency)[:8], str(seller)[:80], str(url)[:300],
-                       (seen_at or datetime.now(timezone.utc)).isoformat()))
-    memory.db.commit()
+    from . import pricebook  # noqa: PLC0415
+    pricebook.observe(memory, "product", what, float(price), currency=currency or "USD", seller=seller, url=url,
+                      source=source, regular_price=regular_price, on_sale=on_sale, seen_at=seen_at)
 
 
 def items(memory: Memory) -> list[dict]:
-    _ready(memory)
-    return [dict(r) for r in memory.db.execute(
-        "SELECT what, COUNT(*) AS seen, MIN(price) AS lowest, MAX(seen_at) AS last FROM price_seen "
-        "GROUP BY what ORDER BY last DESC LIMIT 30")]
+    from . import pricebook  # noqa: PLC0415
+    return [{"what": r["item"], "seen": r["seen"], "lowest": r["lowest"], "last": str(r["last"])} for r in pricebook.run(
+        memory, "SELECT item, COUNT(*) AS seen, MIN(price) AS lowest, MAX(seen_at) AS last FROM observations "
+                "WHERE domain = 'product' GROUP BY item ORDER BY last DESC LIMIT 30")]
 
 
 def history_csv(memory: Memory, what: str, days: int = 365) -> str:
     """The prices seen for `what` (exact name, else every item containing those words) as CSV."""
-    _ready(memory)
-    since = (datetime.now(timezone.utc) - timedelta(days=days)).isoformat()
-    key = _key(what)
-    rows = memory.db.execute("SELECT seen_at, price, currency, seller FROM price_seen WHERE what = ? AND seen_at >= ? "
-                             "ORDER BY seen_at", (key, since)).fetchall()
-    if not rows and key:
-        words = key.split()
-        rows = memory.db.execute(
-            "SELECT seen_at, price, currency, seller FROM price_seen WHERE " + " AND ".join(["what LIKE ?"] * len(words))
-            + " AND seen_at >= ? ORDER BY seen_at", (*[f"%{w}%" for w in words], since)).fetchall()
-    out = io.StringIO()
-    w = csv.writer(out)
-    w.writerow(["seen_at", "price", "currency", "where"])
-    for r in rows:
-        w.writerow([r["seen_at"], r["price"], r["currency"], r["seller"]])
-    return out.getvalue() if rows else ""
+    from . import pricebook  # noqa: PLC0415
+    return pricebook._csv_rows(pricebook.history(memory, what, "product", days))
 
 
 NOTE_PRICE_TOOL = {

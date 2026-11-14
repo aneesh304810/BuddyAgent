@@ -6,6 +6,9 @@ Each backup has a small companion, buddy-<stamp>.key.age: the database key, encr
 same age public key. So the age private key alone is enough to restore everything, even if this
 server is gone (deploy/restore.sh), while a stolen backup still opens for no one.
 
+The price book (market prices and learned patterns) goes in buddy-<stamp>.pricebook.tar.age, from the copy Buddy
+writes each night at 02:30.
+
 The library (uploaded documents, already encrypted on disk with a key derived from the database
 key) goes in a third file, buddy-<stamp>.library.tar.age; only the last 3 are kept, as it can be big.
 
@@ -61,13 +64,26 @@ def main() -> None:
         finally:
             archive.unlink(missing_ok=True)
 
-    for pattern, keep in (("buddy-*.db.age", KEEP), ("buddy-*.key.age", KEEP), ("buddy-*.library.tar.age", KEEP_LIBRARY)):
+    pricebook_target = BACKUP_DIR / f"buddy-{stamp}.pricebook.tar.age"
+    pricebook_dir = Path(os.getenv("BUDDY_PRICEBOOK", str(Path(source).parent / "pricebook.duckdb"))).with_name(
+        "pricebook-backup")  # Buddy writes this copy each night (only one program may open the price book)
+    if pricebook_dir.is_dir() and any(pricebook_dir.iterdir()):
+        archive = BACKUP_DIR / f".pricebook-{stamp}.tar"
+        try:
+            with tarfile.open(archive, "w") as tar:
+                tar.add(pricebook_dir, arcname="pricebook")
+            subprocess.run(["age", "-r", recipient, "-o", str(pricebook_target), str(archive)], check=True)
+        finally:
+            archive.unlink(missing_ok=True)
+
+    for pattern, keep in (("buddy-*.db.age", KEEP), ("buddy-*.key.age", KEEP), ("buddy-*.library.tar.age", KEEP_LIBRARY),
+                          ("buddy-*.pricebook.tar.age", KEEP)):
         for old in sorted(BACKUP_DIR.glob(pattern))[:-keep]:
             old.unlink()
 
     remote = os.getenv("BUDDY_BACKUP_REMOTE")
     if remote and shutil.which("rclone"):
-        for path in (target, key_target, library_target):
+        for path in (target, key_target, library_target, pricebook_target):
             if path.exists():
                 subprocess.run(["rclone", "copy", str(path), remote], check=True)
     print(f"backup written: {target}" + (f" (+ {key_target.name})" if key_target.exists() else ""))

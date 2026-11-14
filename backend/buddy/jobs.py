@@ -317,7 +317,8 @@ JOB_TOOLS = [
             "It also notes they're considering it, so Buddy learns how long they take to decide. Runs in the "
             "background like start_research (same costs). For the cheapest place to buy a known item use "
             "find_deals instead. Put the details in what: the item, use, size, budget if said. When the report "
-            "is back, call when_to_buy for the pick at its price now."
+            "is back, call when_to_buy for the pick at its price now, with the launch date, launch price and successor "
+            "date from the report's 'Model and timing'."
         ),
         "input_schema": {
             "type": "object",

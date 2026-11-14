@@ -134,4 +134,17 @@ decide each differently), and uses it whenever you ask about a purchase.
     BUDDY_EBAY_CLIENT_ID` and `... BUDDY_EBAY_CLIENT_SECRET`
   Google Shopping uses the Serper key Buddy already has (about $0.001 a check).
 
+- **The price book and learned patterns:** every price Buddy sees (products, flights, hotels) and every deal goes
+  into a separate database file next to Buddy's, `pricebook.duckdb` (DuckDB, built for history queries; not
+  encrypted, as it holds market data only, though the routes, dates and items show what was searched). Each
+  night at 02:30 Buddy hands it to the sandbox, which learns, offline: real sale discounts per kind of product
+  and per sale and year, the odds of a 10% drop within 14, 30 and 60 days, price against months since launch
+  (new launches hold their price; replaced models drop), flight fares against days before departure per route
+  (the cheapest booking window), hotel weekend and month patterns, and how Buddy's own calls did. The patterns are
+  kept for good and merged month by month; raw prices and deals are deleted after 90 days, but only once they've
+  been learned from. Buy-or-wait prefers what was learned (and says from how many items) over its rules of
+  thumb. Ask "what patterns have you learned?", "learn the price patterns now", "show the price history of X",
+  or "export the price book" (CSV or Parquet, for your own analysis). Needs the sandbox (deploy/sandbox.sh);
+  without it raw prices are simply kept until it's set up.
+
 All of it stays on your server; only Claude sees it. Buddy still never buys or pays.

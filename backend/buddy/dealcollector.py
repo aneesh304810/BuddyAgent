@@ -47,24 +47,20 @@ DEFAULT_FEEDS = [
     {"name": "r/buildapcsales", "service": "reddit", "url": "https://www.reddit.com/r/buildapcsales/new/.rss"},
     {"name": "r/deals", "service": "reddit", "url": "https://www.reddit.com/r/deals/new/.rss"},
     {"name": "r/frugalmalefashion", "service": "reddit", "url": "https://www.reddit.com/r/frugalmalefashion/new/.rss"},
+    {"name": "r/frugalfemalefashion", "service": "reddit",
+     "url": "https://www.reddit.com/r/frugalfemalefashion/new/.rss"},
+    {"name": "r/GameDeals", "service": "reddit", "url": "https://www.reddit.com/r/GameDeals/new/.rss"},
+    {"name": "r/BuyItForLife", "service": "reddit", "url": "https://www.reddit.com/r/BuyItForLife/new/.rss"},
+    # Addresses not confirmed when this was written: paused by themselves after 3 days of failing (see status).
+    {"name": "Ben's Bargains", "service": "deal_feed", "url": "https://bensbargains.com/rss/"},
+    {"name": "TechBargains", "service": "deal_feed", "url": "https://www.techbargains.com/rss.xml"},
+    {"name": "Brad's Deals", "service": "deal_feed", "url": "https://www.bradsdeals.com/deals/feed"},
+    {"name": "DealCatcher", "service": "deal_feed", "url": "https://www.dealcatcher.com/rss"},
+    {"name": "Woot", "service": "deal_feed", "url": "https://www.woot.com/blog/feed.rss"},
 ]
+FAIL_DAYS = 3  # a feed that fails this many days running is paused (shown in status; "add" it again to retry)
 
-SCHEMA_SQL = """
-CREATE TABLE IF NOT EXISTS deals (
-    id INTEGER PRIMARY KEY,
-    source TEXT NOT NULL,
-    title TEXT NOT NULL,
-    url TEXT NOT NULL UNIQUE,
-    price REAL,
-    store TEXT NOT NULL DEFAULT '',
-    kind TEXT NOT NULL DEFAULT 'other',
-    posted TEXT NOT NULL DEFAULT '',
-    seen_on TEXT NOT NULL,
-    matched TEXT NOT NULL DEFAULT '',   -- the wanted thing it matched, if any
-    told INTEGER NOT NULL DEFAULT 0
-);
-CREATE INDEX IF NOT EXISTS deals_seen ON deals (seen_on);
-"""
+
 
 PRICE = re.compile(r"\$\s?(\d[\d,]*(?:\.\d{2})?)")
 STORE = re.compile(r"(?:\bat|@|\bfrom)\s+([A-Z][\w&.'+-]*(?:\s[A-Z][\w&.'+-]*){0,3})\s*(?:\(|$|[-–,;|])")
@@ -72,7 +68,8 @@ PAREN_STORE = re.compile(r"\(([A-Z][\w&.' -]{1,30})\)\s*$")
 
 
 def _ready(memory: Memory) -> None:
-    memory.db.executescript(SCHEMA_SQL)
+    from . import pricebook  # noqa: PLC0415  deals live in the price book
+    pricebook.conn(memory)
 
 
 # --- feeds ----------------------------------------------------------------------------------------------------
@@ -98,7 +95,12 @@ def add_feed(memory: Memory, url: str, name: str = "") -> str:
         raise ToolError("Give the feed's full https address (the site's RSS or Atom link).")
     have = feeds(memory)
     if any(f["url"] == url for f in have):
-        return "That feed is already on the list."
+        fails = _failures(memory)
+        for f in have:
+            if f["url"] == url:
+                fails.pop(f["name"], None)
+        memory.set("dealfeed:failures", json.dumps(fails))
+        return "That feed is already on the list; I'll try it again tomorrow morning."
     have.append({"name": name or urllib.parse.urlparse(url).netloc, "service": _service_for(url), "url": url})
     memory.set(FEEDS_KEY, json.dumps(have))
     return f"Added {have[-1]['name']}: I'll read it every morning (if its robots rules allow)."
@@ -177,12 +179,35 @@ def deal_from(item: dict, source: str) -> dict:
             "posted": posted}
 
 
+def _failures(memory: Memory) -> dict:
+    try:
+        return json.loads(memory.get("dealfeed:failures") or "{}")
+    except ValueError:
+        return {}
+
+
+def _note_failures(memory: Memory, status: list[str]) -> None:
+    """Count days in a row each feed failed; a feed failing FAIL_DAYS days running is paused."""
+    fails = _failures(memory)
+    for line in status:
+        name, _, said = line.partition(": ")
+        if said.startswith("couldn't read it"):
+            fails[name] = fails.get(name, 0) + 1
+        elif said.endswith(" new"):
+            fails.pop(name, None)
+    memory.set("dealfeed:failures", json.dumps(fails))
+
+
 def read_feeds(memory: Memory, fetch=None) -> tuple[list[dict], list[str]]:
     """Today's new deals from every feed, and a status line per feed."""
     _ready(memory)
     today = local_now().date().isoformat()
     new, status = [], []
+    fails = _failures(memory)
     for f in feeds(memory):
+        if fails.get(f["name"], 0) >= FAIL_DAYS:
+            status.append(f"{f['name']}: paused after failing {FAIL_DAYS} days in a row (check its feed address)")
+            continue
         try:
             if not allowed(memory, f["service"], f["url"], fetch):
                 status.append(f"{f['name']}: skipped, the site's robots rules don't allow it")
@@ -192,16 +217,21 @@ def read_feeds(memory: Memory, fetch=None) -> tuple[list[dict], list[str]]:
             status.append(f"{f['name']}: couldn't read it ({str(e)[:80]})")
             continue
         added = 0
+        from . import pricebook  # noqa: PLC0415
         for it in items:
             d = deal_from(it, f["name"])
-            cur = memory.db.execute(
-                "INSERT OR IGNORE INTO deals (source, title, url, price, store, kind, posted, seen_on) "
-                "VALUES (:source, :title, :url, :price, :store, :kind, :posted, :seen_on)", {**d, "seen_on": today})
-            if cur.rowcount:
+            got = pricebook.run(memory, "INSERT OR IGNORE INTO deals (seen_on, source, title, url, price, store, kind, "
+                                        "posted) VALUES (?, ?, ?, ?, ?, ?, ?, ?) RETURNING id",
+                                (today, d["source"], d["title"], d["url"], d["price"], d["store"], d["kind"],
+                                 d["posted"]))
+            if got:
                 added += 1
-                new.append({**d, "id": cur.lastrowid})
+                new.append({**d, "id": got[0]["id"]})
+                if d["price"]:  # every deal's price is history too
+                    pricebook.observe(memory, "product", d["title"], d["price"], seller=d["store"], url=d["url"],
+                                      source=f["name"])
         status.append(f"{f['name']}: {added} new")
-    memory.db.commit()
+    _note_failures(memory, status)
     return new, status
 
 
@@ -345,7 +375,8 @@ def check_prices(memory: Memory, env=None, fetch=None) -> list[dict]:
             continue
         before = _lowest(memory, w["name"])
         for o in offers:
-            prices.record(memory, w["name"], o["price"], "USD", o["store"], o["url"])
+            prices.record(memory, w["name"], o["price"], "USD", o["store"], o["url"], source="daily check",
+                          regular_price=o.get("regular"), on_sale=o.get("on_sale"))
         best = min(offers, key=lambda o: o["price"])
         if before and best["price"] <= before * 0.95:
             news.append({**best, "want": w, "why": f"lowest yet: was ${before:,.2f}"})
@@ -360,12 +391,8 @@ def _close(name: str, title: str) -> bool:
 
 
 def _lowest(memory: Memory, name: str) -> float | None:
-    try:
-        from .prices import _key  # noqa: PLC0415
-        got = memory.db.execute("SELECT MIN(price) FROM price_seen WHERE what = ?", (_key(name),)).fetchone()[0]
-        return float(got) if got else None
-    except Exception:
-        return None
+    from . import pricebook  # noqa: PLC0415
+    return pricebook.lowest(memory, name)
 
 
 # --- the daily run --------------------------------------------------------------------------------------------
@@ -382,9 +409,7 @@ def run(memory: Memory, env=None, fetch=None) -> dict:
     for d in new:
         w = next((w for w in want if matches(d, w)), None)
         if w:
-            memory.db.execute("UPDATE deals SET matched = ? WHERE id = ?", (w["name"], d["id"]))
             hits.append({**d, "want": w})
-    memory.db.commit()
     price_news = check_prices(memory, env, fetch)
     picks = for_you(memory, [d for d in new if d not in hits])
     memory.set(STATUS_KEY, json.dumps({"day": local_now().date().isoformat(), "feeds": status,
@@ -444,10 +469,10 @@ def save_report(memory: Memory, result: dict) -> None:
 
 
 def prune(memory: Memory, days: int = 180) -> None:
-    """Deals older than six months go; the prices they showed stay in the price history."""
-    _ready(memory)
-    memory.db.execute("DELETE FROM deals WHERE seen_on < ?", ((date.today() - timedelta(days=days)).isoformat(),))
-    memory.db.commit()
+    """A safety cap: deals older than six months go even if the nightly learning never ran (normally they go at 90
+    days, once learned from: patterns.prune_raw)."""
+    from . import pricebook  # noqa: PLC0415  the deal list is trimmed; their prices stay as history
+    pricebook.run(memory, "DELETE FROM deals WHERE seen_on < ?", ((date.today() - timedelta(days=days)).isoformat(),))
 
 
 TOOL = {
@@ -470,12 +495,12 @@ TOOL = {
 
 
 def search(memory: Memory, query: str, days: int = 14) -> list[dict]:
-    _ready(memory)
+    from . import pricebook  # noqa: PLC0415
     since = (local_now().date() - timedelta(days=max(1, min(days, 180)))).isoformat()
     want = _words(query)
-    rows = [dict(r) for r in memory.db.execute(
-        "SELECT title, url, price, store, source, seen_on FROM deals WHERE seen_on >= ? ORDER BY id DESC LIMIT 2000",
-        (since,))]
+    rows = [{**r, "seen_on": str(r["seen_on"])} for r in pricebook.run(
+        memory, "SELECT title, url, price, store, source, seen_on FROM deals WHERE seen_on >= ? ORDER BY id DESC "
+                "LIMIT 2000", (since,))]
     return [r for r in rows if want and len(want & _words(r["title"])) >= max(1, min(len(want), 2))][:15]
 
 

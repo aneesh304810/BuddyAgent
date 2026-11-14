@@ -1,6 +1,6 @@
 # Buddy Privacy and Data Retention Policy
 
-Source: https://claude.ai/artifact/MJVGZ7pWQvi26tg1MS914P, revision 83
+Source: https://claude.ai/artifact/MJVGZ7pWQvi26tg1MS914P, revision 84
 
 Nov 1, 2026 · @Aneesh
 
@@ -83,6 +83,7 @@ The data is **never** sold, rented, shared for marketing, used for advertising, 
 All data is stored on one private server owned by the owner (a DigitalOcean virtual server).
 
 - **Encryption at rest:** the database is encrypted with SQLCipher; uploaded files are encrypted with AES-256-GCM using a key derived from the database key; keys and API secrets are sealed with systemd-creds and never stored in plain text.
+- **The price book (not encrypted):** market prices are kept in a separate file on the same server (pricebook.duckdb), not encrypted, so it can be analysed with other tools. It holds products, flight routes and travel dates searched, hotels and stay dates searched, deals from public feeds, product launch dates and prices, Buddy's buy-or-wait calls (the item, its price and how the call turned out), and the price patterns learned from all of it. It holds no names, contacts, messages, accounts or payments, but the routes, dates and items show what was searched or considered. Raw prices and deals are deleted after 90 days, once learned from; the learned patterns are kept. Each night the patterns are learned in Buddy's sandbox, an isolated container on the same server with no network access; nothing is sent to an outside service. The nightly backup includes an encrypted copy.
 - **Encryption in transit:** every connection uses HTTPS with TLS 1.2 or higher; traffic between the phone and the server also runs inside Tailscale's encrypted WireGuard tunnel.
 - **Network access:** the server is reachable only over the owner's Tailscale private network; new devices must be approved by the owner.
 - **Multi-factor authentication:** the Google account behind Tailscale uses 2-Step Verification (passkeys and Google prompt); the DigitalOcean account requires an authenticator app; the app also requires a secret access token.

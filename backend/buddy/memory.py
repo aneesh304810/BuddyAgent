@@ -111,6 +111,7 @@ def _now() -> str:
 
 class Memory:
     def __init__(self, path: Path | str):
+        self.path = str(path)  # the price book (pricebook.py) lives next to it
         self.db = connect(path)
         self.db.executescript(SCHEMA)
         self._add_columns("model_calls", {"turn": "TEXT NOT NULL DEFAULT ''",

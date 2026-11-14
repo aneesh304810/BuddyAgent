@@ -98,7 +98,8 @@ def test_price_checks_record_history_and_tell_new_lows(memory):
     seen = []
     news = dc.check_prices(memory, env, fetch_for(seen, shopping, bestbuy))
     assert news[0]["price"] == 569.99 and news[0]["store"] == "Walmart" and "lowest yet" in news[0]["why"]
-    rows = [r["price"] for r in memory.db.execute("SELECT price FROM price_seen WHERE what = 'dyson v15 vacuum'")]
+    from buddy import pricebook
+    rows = [r["price"] for r in pricebook.run(memory, "SELECT price FROM observations WHERE item = 'dyson v15 vacuum'")]
     assert sorted(rows) == [569.99, 599.99, 649.0]  # the Shark didn't count: not the same thing
     bb = next(u for u, _ in seen if "api.bestbuy.com" in u)
     assert "search=Dyson" in bb and "apiKey=b" in bb

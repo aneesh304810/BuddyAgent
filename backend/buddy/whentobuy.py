@@ -24,23 +24,7 @@ from datetime import date, datetime, timedelta, timezone
 from .memory import Memory
 from .tools import ToolError, local_now
 
-SCHEMA_SQL = """
-CREATE TABLE IF NOT EXISTS buy_predictions (
-    id INTEGER PRIMARY KEY,
-    what TEXT NOT NULL,
-    kind TEXT NOT NULL,
-    made_on TEXT NOT NULL,
-    price REAL NOT NULL,
-    decision TEXT NOT NULL,          -- buy_now | wait
-    chance REAL NOT NULL,            -- of a price at or under `target` by `by_date`
-    target REAL NOT NULL,            -- the price worth waiting for
-    event TEXT NOT NULL DEFAULT '',  -- the sale or launch it expects
-    by_date TEXT NOT NULL,
-    outcome TEXT NOT NULL DEFAULT '',  -- '' open | right | wrong | unknown
-    best_seen REAL,                  -- the lowest price seen (or paid) after the call, until by_date
-    settled_on TEXT
-);
-"""
+
 
 DAYS = 86400
 
@@ -105,17 +89,13 @@ def next_sales(what: str, kind: str, today: date, within_days: int) -> list[dict
 
 
 def _ready(memory: Memory) -> None:
-    memory.db.executescript(SCHEMA_SQL)
+    from . import pricebook  # noqa: PLC0415  predictions live in the price book
+    pricebook.conn(memory)
 
 
 def _history(memory: Memory, what: str, days: int = 365) -> list[float]:
-    try:
-        from .prices import _key  # noqa: PLC0415
-        since = (datetime.now(timezone.utc) - timedelta(days=days)).isoformat()
-        return [r["price"] for r in memory.db.execute(
-            "SELECT price FROM price_seen WHERE what = ? AND seen_at >= ? ORDER BY seen_at", (_key(what), since))]
-    except Exception:
-        return []
+    from . import pricebook  # noqa: PLC0415
+    return [r["price"] for r in pricebook.history(memory, what, "product", days)]
 
 
 def _patience(memory: Memory, kind: str) -> tuple[int, float | None]:
@@ -140,8 +120,113 @@ def _patience(memory: Memory, kind: str) -> tuple[int, float | None]:
     return max(3, min(days, 240)), (float(target) if target else None)
 
 
+# --- product life cycles: new launches and old models ----------------------------------------------------------
+AGE_BUCKETS = ((0, 60), (60, 180), (180, 365), (365, 730), (730, 100000))  # days since launch
+
+
+def note_launch(memory: Memory, item: str, launch_date: str = "", launch_price=None, brand: str = "",
+                kind: str = "", successor: str = "", successor_date: str = "", source: str = "") -> dict:
+    """Keep a product's life cycle in the price book: launch date and price, and its successor (out or expected)."""
+    from . import pricebook  # noqa: PLC0415
+    item = pricebook.key(item)
+    if not item:
+        raise ToolError("Which product?")
+    have = (pricebook.run(memory, "SELECT * FROM launches WHERE item = ?", (item,)) or [{}])[0]
+    row = {"item": item, "brand": brand or have.get("brand") or "", "kind": kind or have.get("kind") or "other",
+           "launch_date": pricebook._date(launch_date) or have.get("launch_date"),
+           "launch_price": float(launch_price) if launch_price else have.get("launch_price"),
+           "successor": successor or have.get("successor") or "",
+           "successor_date": pricebook._date(successor_date) or have.get("successor_date"),
+           "source": source or have.get("source") or "", "noted_on": local_now().date().isoformat()}
+    pricebook.run(memory, "INSERT OR REPLACE INTO launches VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?)",
+                  tuple(row[k] for k in ("item", "brand", "kind", "launch_date", "launch_price", "successor",
+                                         "successor_date", "source", "noted_on")))
+    return {k: str(v) if isinstance(v, date) else v for k, v in row.items()}
+
+
+def _bucket(days: int) -> int:
+    return next(i for i, (lo, hi) in enumerate(AGE_BUCKETS) if lo <= days < hi)
+
+
+def curve(memory: Memory, kind: str) -> dict:
+    """What the price book shows for this kind of product: the median price as a share of the launch price, by
+    age since launch. Only ages backed by at least 3 different products count."""
+    from statistics import median  # noqa: PLC0415
+    from . import pricebook  # noqa: PLC0415
+    rows = pricebook.run(memory, "SELECT o.item, o.price, CAST(o.seen_at AS DATE) - l.launch_date AS age, "
+                                 "l.launch_price FROM observations o JOIN launches l ON l.item = o.item "
+                                 "WHERE o.domain = 'product' AND l.kind = ? AND l.launch_price > 0 "
+                                 "AND l.launch_date IS NOT NULL", (kind or "other",))
+    by: dict[int, dict] = {}
+    for r in rows:
+        if r["age"] is None or r["age"] < 0:
+            continue
+        b = by.setdefault(_bucket(int(r["age"])), {"ratios": [], "items": set()})
+        b["ratios"].append(r["price"] / r["launch_price"])
+        b["items"].add(r["item"])
+    return {i: {"share_of_launch_price": round(median(b["ratios"]), 3), "products": len(b["items"])}
+            for i, b in sorted(by.items()) if len(b["items"]) >= 3}
+
+
+def lifecycle(memory: Memory, what: str, price: float, kind: str, today: date, until: date,
+              launch_date: str = "", launch_price=None, successor_date: str = "") -> dict:
+    """Where the product is in its life (just launched, mature, old, replaced) and what that means for its price:
+    {chance, drop, reasons, stage}. Rules of thumb, sharpened by the price book's own curve once it has data."""
+    from . import pricebook  # noqa: PLC0415
+    known = (pricebook.run(memory, "SELECT * FROM launches WHERE item = ?", (pricebook.key(what),)) or [{}])[0]
+    launch = pricebook._date(launch_date) or (str(known["launch_date"]) if known.get("launch_date") else None)
+    lprice = float(launch_price) if launch_price else known.get("launch_price")
+    succ = pricebook._date(successor_date) or (str(known["successor_date"]) if known.get("successor_date") else None)
+    out = {"chance": 0.0, "drop": 0.0, "reasons": [], "stage": ""}
+    if succ and date.fromisoformat(succ) <= today:
+        out["stage"] = "replaced"
+        out["reasons"].append(f"its successor is already out ({succ}): the old model usually sells 15–30% off while "
+                              "stock lasts, and the best colours and sizes go first")
+        out["chance"] += 0.2
+        out["drop"] = 0.2
+    if launch:
+        age = (today - date.fromisoformat(launch)).days
+        if age < 60 and out["stage"] != "replaced":
+            out["stage"] = "just launched"
+            out["reasons"].append(f"it launched only {age} days ago: new products rarely drop much before their "
+                                  "first big sale, and that first discount is usually small (around 10–15%)")
+            out["chance"] -= 0.1
+            out["drop"] = -0.15  # a cap: the first discount on a new product is small
+        elif age >= 365 and not out["stage"]:
+            out["stage"] = "mature"
+            out["reasons"].append(f"it's been out {age // 30} months: older products get the deepest sale discounts")
+            out["chance"] += 0.05
+        elif not out["stage"]:
+            out["stage"] = "early"
+        if lprice:
+            share = price / lprice
+            if share <= 0.85:
+                out["reasons"].append(f"${price:,.2f} is already {1 - share:.0%} under its launch price of "
+                                      f"${lprice:,.2f}")
+            bucket = _bucket(max(0, (until - date.fromisoformat(launch)).days))
+            from . import patterns  # noqa: PLC0415
+            later = ((patterns.get(memory).get("lifecycle") or {}).get(kind) or {}).get(str(bucket)) \
+                or curve(memory, kind).get(bucket)
+            if later:
+                expect = lprice * later["share_of_launch_price"]
+                months = (until - date.fromisoformat(launch)).days // 30
+                if expect < price * 0.97:
+                    out["reasons"].append(
+                        f"in your price book, {kind} products this age ({later['products']} of them) sold for about "
+                        f"{later['share_of_launch_price']:.0%} of launch price around month {months}: about "
+                        f"${expect:,.0f} for this one")
+                    out["chance"] += 0.1
+                    out["drop"] = max(out["drop"], 1 - expect / price)
+                else:
+                    out["reasons"].append(f"in your price book, {kind} products this age didn't usually get cheaper "
+                                          "than this")
+                    out["chance"] -= 0.1
+    return out
+
+
 def advise(memory: Memory, what: str, price: float, kind: str = "", lowest: float | None = None,
-           average: float | None = None, new_model: str = "", today: date | None = None, save: bool = True) -> dict:
+           average: float | None = None, new_model: str = "", today: date | None = None, save: bool = True,
+           launch_date: str = "", launch_price=None, successor_date: str = "") -> dict:
     """Buy now or wait for `what` at `price`: the chance of a better price within the owner's patience, the
     price worth waiting for, the sale or launch to wait for, and why."""
     what = " ".join(str(what or "").split())[:200]
@@ -160,9 +245,16 @@ def advise(memory: Memory, what: str, price: float, kind: str = "", lowest: floa
     sales = next_sales(what, kind or "electronics", today, days)
     event = ""
     by_date = today + timedelta(days=days)
+    from . import patterns  # noqa: PLC0415  what the sandbox learned from real prices, preferred when enough items
+    learned = patterns.get(memory)
     if sales:
         s = sales[0]
         lo, hi = s["discount"]
+        seen = ((learned.get("event_discounts") or {}).get(kind or "electronics") or {}).get(s["name"])
+        if seen and seen.get("items", 0) >= 5:
+            lo, hi = round(max(seen["p25"], 0) * 100), round(max(seen["p75"], 0) * 100)
+            s = {**s, "discount": (lo, hi), "learned": f"learned from {seen['items']} items in your price book"
+                                                         f" ({', '.join(map(str, seen.get('years', [])))})"}
         running = s["start"] <= today
         event = s["name"]
         by_date = s["end"]
@@ -171,7 +263,9 @@ def advise(memory: Memory, what: str, price: float, kind: str = "", lowest: floa
         else:
             wait_days = (s["start"] - today).days
             reasons.append(f"{s['name']} starts in {wait_days} days ({s['start']:%b %d}); it usually takes "
-                           f"{lo}–{hi}% off this kind of thing")
+                           f"{lo}–{hi}% off this kind of thing"
+                           + (f" ({s['learned']})" if s.get("learned") else " (a rule of thumb until Buddy has "
+                                                                             "learned it from real prices)"))
             chance += 0.45 if wait_days <= days else 0.2
             expected_drop = max(expected_drop, (lo + hi) / 2 / 100)
     if new_model:
@@ -186,6 +280,14 @@ def advise(memory: Memory, what: str, price: float, kind: str = "", lowest: floa
                     by_date, event = launch + timedelta(days=21), event or "the new model's launch"
         except ValueError:
             pass
+    life = lifecycle(memory, what, price, kind or "other", today, by_date, launch_date, launch_price,
+                     successor_date)
+    reasons += life["reasons"]
+    chance += life["chance"]
+    if life["drop"] < 0:  # just launched: the first discount is small
+        expected_drop = min(expected_drop, -life["drop"]) if expected_drop else 0.0
+    else:
+        expected_drop = max(expected_drop, life["drop"])
     if low:
         gap = (price - low) / price
         if gap <= 0.03:
@@ -202,8 +304,20 @@ def advise(memory: Memory, what: str, price: float, kind: str = "", lowest: floa
         elif price >= avg * 1.05:
             reasons.append(f"${price:,.2f} is above its usual ${avg:,.2f}")
             chance += 0.1
+    odds = (learned.get("drop_odds") or {}).get(kind or "electronics") or {}
+    horizon = next((h for h in ("14", "30", "60") if int(h) >= days), "60") if odds else ""
+    if horizon in odds and odds[horizon].get("items", 0) >= 5:
+        real = odds[horizon]["chance"]
+        chance = (chance + real) / 2
+        reasons.append(f"in your price book, {kind or 'electronics'} prices fell 10% or more within {horizon} days "
+                       f"{real:.0%} of the time ({odds[horizon]['items']} items)")
     if not (hist or lowest or average):
         reasons.append("Buddy has no price history for it yet (a price watch would start one)")
+    cal = (learned.get("calibration") or {}).get("wait") or {}
+    if cal.get("calls", 0) >= 10 and cal["right"] < cal["odds_given"] - 0.15:
+        chance -= 0.1
+        reasons.append(f"my past 'wait' calls were right {cal['right']:.0%} of the time over {cal['calls']} calls, "
+                       "so I'm more careful")
     chance = round(max(0.05, min(chance, 0.85)), 2)
     want = target_pct / 100 if target_pct else max(expected_drop, 0.1)
     target = round(price * (1 - want), 2)
@@ -213,17 +327,17 @@ def advise(memory: Memory, what: str, price: float, kind: str = "", lowest: floa
     out = {"what": what, "price_now": price, "decision": decision, "chance_of_better_price": chance,
            "price_worth_waiting_for": target, "expect_around": round(price * (1 - expected_drop), 2)
            if expected_drop else None, "wait_until": by_date.isoformat(), "for": event, "your_patience_days": days,
+           "life_stage": life["stage"],
            "reasons": reasons,
            "note": "Rough odds from the sales calendar, product cycles and the prices Buddy has seen, not a promise. "
                    "Offer a price watch at the target so Buddy sees what happens. Buddy never buys."}
     if save:
-        _ready(memory)
-        out["prediction_id"] = memory.db.execute(
-            "INSERT INTO buy_predictions (what, kind, made_on, price, decision, chance, target, event, by_date) "
-            "VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?)",
+        from . import pricebook  # noqa: PLC0415
+        out["prediction_id"] = pricebook.run(
+            memory, "INSERT INTO predictions (item, kind, made_on, price, decision, chance, target, event, by_date) "
+                    "VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?) RETURNING id",
             (what, kind or "other", today.isoformat(), price, decision, chance, target, event,
-             by_date.isoformat())).lastrowid
-        memory.db.commit()
+             by_date.isoformat()))[0]["id"]
     return out
 
 
@@ -233,23 +347,18 @@ def _words(text: str) -> set[str]:
 
 def settle(memory: Memory, today: date | None = None) -> int:
     """Close the predictions whose date has passed: right or wrong from the prices seen or paid since."""
-    _ready(memory)
+    from . import pricebook  # noqa: PLC0415
     today = today or local_now().date()
     done = 0
-    for p in memory.db.execute("SELECT * FROM buy_predictions WHERE outcome = '' AND by_date < ?",
-                               (today.isoformat(),)).fetchall():
-        seen = []
-        try:
-            from .prices import _key  # noqa: PLC0415
-            seen += [r["price"] for r in memory.db.execute(
-                "SELECT price FROM price_seen WHERE what = ? AND seen_at > ? AND seen_at <= ?",
-                (_key(p["what"]), p["made_on"], p["by_date"] + "T23:59:59"))]
-        except Exception:
-            pass
-        try:  # what they paid, from an order email for the same thing
-            want = _words(p["what"])
+    for p in pricebook.run(memory, "SELECT * FROM predictions WHERE outcome = '' AND by_date < ?", (today.isoformat(),)):
+        made, until = str(p["made_on"]), str(p["by_date"])
+        seen = [r["price"] for r in pricebook.run(
+            memory, "SELECT price FROM observations WHERE domain = 'product' AND item = ? AND seen_at > ? "
+                    "AND seen_at <= ?", (pricebook.key(p["item"]), made, until + " 23:59:59"))]
+        try:  # what they paid, from an order email for the same thing (Buddy's personal database)
+            want = _words(p["item"])
             for o in memory.db.execute("SELECT item, amount FROM shop_purchases WHERE event = 'order' AND day > ? "
-                                       "AND day <= ? AND amount IS NOT NULL", (p["made_on"], p["by_date"])):
+                                       "AND day <= ? AND amount IS NOT NULL", (made, until)):
                 got = _words(o["item"])
                 if want and len(want & got) >= max(1, min(2, len(want))):
                     seen.append(o["amount"])
@@ -264,16 +373,16 @@ def settle(memory: Memory, today: date | None = None) -> int:
                 outcome = "right" if best <= max(p["target"] * 1.03, p["price"] * 0.9) else "wrong"
             else:
                 outcome = "wrong" if best <= p["price"] * 0.92 else "right"
-        memory.db.execute("UPDATE buy_predictions SET outcome = ?, best_seen = ?, settled_on = ? WHERE id = ?",
-                          (outcome, best, today.isoformat(), p["id"]))
+        pricebook.run(memory, "UPDATE predictions SET outcome = ?, best_seen = ?, settled_on = ? WHERE id = ?",
+                      (outcome, best, today.isoformat(), p["id"]))
         done += 1
-    memory.db.commit()
     return done
 
 
 def track_record(memory: Memory) -> dict:
-    _ready(memory)
-    rows = [dict(r) for r in memory.db.execute("SELECT * FROM buy_predictions ORDER BY id DESC")]
+    from . import pricebook  # noqa: PLC0415
+    rows = [{**r, "made_on": str(r["made_on"]), "by_date": str(r["by_date"]), "what": r["item"]}
+            for r in pricebook.run(memory, "SELECT * FROM predictions ORDER BY id DESC")]
     judged = [r for r in rows if r["outcome"] in ("right", "wrong")]
 
     def rate(sub):
@@ -302,9 +411,16 @@ TOOL = {
         "for, the sale or launch to wait for and until when, and why; it's kept as a prediction and checked later. "
         "After a 'wait', offer watch_price at that target (it asks first). Use it after a shop_for report, or "
         "whenever they ask 'should I buy this now?'. track_record: how Buddy's past calls turned out. "
-        "calendar: the coming sales for a kind of thing. Rough odds, not promises; Buddy never buys."),
+        "calendar: the coming sales for a kind of thing. Product life cycles matter: pass launch_date and "
+        "launch_price (MSRP) when known, and successor_date when a newer model is out or expected (research finds "
+        "these); a just-launched product rarely drops much before its first big sale, a replaced one drops in "
+        "clearance while stock lasts. note_launch: keep a product's launch date, launch price, brand, kind and "
+        "successor in the price book. lifecycle: what the price book shows for a kind (price as a share of launch "
+        "price by age). Rough odds, not promises; Buddy never buys."),
     "input_schema": {"type": "object", "properties": {
-        "action": {"type": "string", "enum": ["advise", "track_record", "calendar"]},
+        "action": {"type": "string", "enum": ["advise", "track_record", "calendar", "note_launch", "lifecycle"]},
+        "launch_date": {"type": "string"}, "launch_price": {"type": "number"}, "successor_date": {"type": "string"},
+        "successor": {"type": "string"}, "brand": {"type": "string"},
         "what": {"type": "string"}, "price": {"type": "number"},
         "kind": {"type": "string", "enum": ["", "electronics", "home", "clothing", "other"]},
         "lowest": {"type": "number"}, "average": {"type": "number"}, "new_model": {"type": "string"}},
@@ -324,10 +440,25 @@ def run_tool(memory: Memory, args: dict) -> str:
                 price = price or found["price"]
                 average = average or found.get("avg365") or found.get("avg90")
                 source = found["where"]
-        got = advise(memory, what, price, args.get("kind", ""), args.get("lowest"), average, args.get("new_model", ""))
+        if args.get("launch_date") or args.get("launch_price") or args.get("successor_date"):
+            note_launch(memory, what, args.get("launch_date", ""), args.get("launch_price"),
+                        kind=args.get("kind", ""), successor_date=args.get("successor_date") or args.get("new_model", ""),
+                        source="research")
+        got = advise(memory, what, price, args.get("kind", ""), args.get("lowest"), average, args.get("new_model", ""),
+                     launch_date=args.get("launch_date", ""), launch_price=args.get("launch_price"),
+                     successor_date=args.get("successor_date", ""))
         if source:
             got["price_from"] = source
         return json.dumps(got, ensure_ascii=False)
+    if action == "note_launch":
+        return json.dumps(note_launch(memory, args.get("what", ""), args.get("launch_date", ""),
+                                      args.get("launch_price"), args.get("brand", ""), args.get("kind", ""),
+                                      args.get("successor", ""), args.get("successor_date", ""), "owner or research"))
+    if action == "lifecycle":
+        return json.dumps({"kind": args.get("kind") or "other", "by_age_since_launch": {
+            f"{AGE_BUCKETS[i][0]}–{AGE_BUCKETS[i][1] if AGE_BUCKETS[i][1] < 100000 else '+'} days": v
+            for i, v in curve(memory, args.get("kind") or "other").items()},
+            "note": "From the price book's own prices; ages with fewer than 3 products aren't shown."})
     if action == "track_record":
         settle(memory)
         return json.dumps(track_record(memory), ensure_ascii=False)
