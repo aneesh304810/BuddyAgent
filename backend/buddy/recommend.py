@@ -212,6 +212,22 @@ def build(memory: Memory, today: date | None = None, data=None, facts_for=None, 
         j = judge(c, bars.get(c["key"]) or [], facts, learned)
         if not j:
             continue
+        try:  # a trained model's odds, when one has passed its test on trades it never saw (modeltrain.py)
+            from . import modeltrain  # noqa: PLC0415
+            side = "long" if j["action"] == "buy" else "avoid"
+            m = modeltrain.predict(memory, "investing", simbook.features_of(
+                {"side": side, "parts": j["facts"]["parts"], "features": simbook.figures(j["facts"]),
+                 "read": (j["facts"].get("lenses") or {}).get("price", "")})) if j["action"] != "watch" else None
+        except Exception:
+            m = None
+        if m:
+            j["facts"]["model_p"] = m["p"]
+            j["reasons"].append(f"my trained model gives this call a {m['p']:.0%} chance of working (on "
+                                f"{m['tested_on']} paper trades it had never seen, the ones it liked won "
+                                f"{m['right_when_liked']:.0%} of the time)")
+            if j["action"] == "buy" and m["p"] < 0.45:
+                j["action"] = "caution"
+                j["reasons"].append("the model doesn't back this buy, so it's a caution")
         if pricebook.run(memory, "SELECT 1 FROM recs WHERE key = ? AND action = ? AND day >= ?",
                          (j["key"], j["action"], (today - timedelta(days=SCORE_AFTER_DAYS)).isoformat())):
             continue  # the same call on the same symbol this week: said once
@@ -330,7 +346,16 @@ def page(memory: Memory) -> dict:
     return {"categories": categories(memory), "investing": list(INVESTING), "shopping": list(SHOPPING),
             "signals": recent(memory, 30), "record": {c: track_record(memory, c) for c in INVESTING},
             "trending": signals.trending(memory, kind="ticker", days=1, limit=10), "note": NOTE,
-            "paper": _paper(memory)}
+            "paper": _paper(memory), "models": _models(memory)}
+
+
+def _models(memory: Memory) -> dict | None:
+    try:
+        from . import modeltrain  # noqa: PLC0415
+        return modeltrain.status(memory)["domains"]
+    except Exception:
+        log.info("recommend: model status failed", exc_info=True)
+        return None
 
 
 def _paper(memory: Memory) -> dict | None:
@@ -353,12 +378,14 @@ TOOL = {
         "record (category?): how many were right. run: make today's signals now. paper: Buddy's practice "
         "book: every signal is paper-traded automatically by fixed rules ($5,000, 7% stop, 14% target, 28 "
         "days), with results against the S&P 500 fund and the weights each reason has earned. scorecard: how "
-        "good Buddy's calls have been across investing, shopping and travel. live: the live triggers "
+        "good Buddy's calls have been across investing, shopping and travel. model: the trained models: how "
+        "many judged calls each domain has against the 200 needed, and for any model trained, what it was "
+        "tested on, whether it passed and whether it is in use. live: the live triggers "
         "(checked every minute in US market hours for the watch list, this week's signals and watched ideas: "
         "breakouts, big days, fast moves): whether they are on, the price source and what is followed. Always say a signal is unproven "
         "when its record says so, that it is not advice, and that the owner decides and trades themselves."),
     "input_schema": {"type": "object", "properties": {
-        "action": {"type": "string", "enum": ["show", "settings", "switch", "record", "run", "live", "paper", "scorecard"]},
+        "action": {"type": "string", "enum": ["show", "settings", "switch", "record", "run", "live", "paper", "scorecard", "model"]},
         "categories": {"type": "array", "items": {"type": "string"}}, "on": {"type": "boolean"},
         "category": {"type": "string"}}, "required": ["action"], "additionalProperties": False},
 }
@@ -373,6 +400,9 @@ def run_tool(memory: Memory, args: dict) -> str:
     if a == "record":
         cats = [args["category"]] if args.get("category") else list(INVESTING)
         return json.dumps({c: track_record(memory, c) for c in cats})
+    if a == "model":
+        from . import modeltrain  # noqa: PLC0415
+        return json.dumps(modeltrain.status(memory), default=str)
     if a == "paper":
         from . import simbook  # noqa: PLC0415
         return json.dumps(simbook.stats(memory), default=str)

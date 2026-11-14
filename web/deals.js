@@ -64,6 +64,19 @@ function paperCard(p) {
     <div><small>${esc(p.note)}</small></div></section>`;
 }
 
+// Trained models: how close each kind of call is to having enough data, and whether a model is in use.
+function modelCard(models) {
+  if (!models) return "";
+  const row = ([name, m]) => {
+    const state = m.model_in_use ? "✅ model in use" : m.last_run ? `❌ last model ${esc(m.last_run.status)} (${esc(m.last_run.on)})` : "⏳ collecting";
+    const test = m.last_run && m.last_run.tested_on ? ` · tested on ${m.last_run.tested_on} unseen` : "";
+    return `<div>${esc(name)}: <b>${m.rows} of ${m.needed}</b> judged calls · ${state}${test}</div>`;
+  };
+  return `<section class="card"><b>Trained models</b><br>
+    <small>Each week Buddy checks whether a kind of call has enough judged results to train a model. A model is tested on calls it never saw and used only if it passes.</small>
+    ${Object.entries(models).map(row).join("")}</section>`;
+}
+
 // Signals: a switch per category, the recent buy and sell signals with how each did, and Buddy's record.
 async function renderSignals(fresh) {
   try {
@@ -75,7 +88,7 @@ async function renderSignals(fresh) {
       <section class="card"><b>Alerts on for</b><br><small>Tap a category to turn its buy and sell alerts on or off.</small>
         <p><small>Shopping and travel</small></p><div class="chips" style="flex-wrap:wrap">${s.shopping.map(sw).join("")}</div>
         <p><small>Investing</small></p><div class="chips" style="flex-wrap:wrap">${s.investing.map(sw).join("")}</div></section>
-      <section class="card"><b>Buddy's record</b><br>${s.investing.map(rec).join(" ")}</section>` + paperCard(s.paper) +
+      <section class="card"><b>Buddy's record</b><br>${s.investing.map(rec).join(" ")}</section>` + paperCard(s.paper) + modelCard(s.models) +
       (s.signals.length ? s.signals.map((g) => `
       <section class="card"><div class="deal"><div class="what">
         <b>${g.action === "buy" ? "📈" : g.action === "sell" ? "📉" : "⚠️"} ${esc(g.key)} · ${esc(g.action === "sell" ? "sell or avoid" : g.action)}</b>

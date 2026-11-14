@@ -42,7 +42,7 @@ CREATE INDEX IF NOT EXISTS alerts_topic ON alerts (topic, at);
 DEFAULT = {  # topic: starting level (anything not listed starts at alert, as before)
     "investing:live": "alert", "investing:ideas": "alert", "investing:signals": "notify",
     "investing:scan": "notify", "investing:funds": "quiet", "investing:school": "notify",
-    "deals:watched": "alert", "deals:daily": "notify", "deals:weekly": "quiet",
+    "deals:watched": "alert", "deals:daily": "notify", "deals:weekly": "quiet", "investing:model": "notify",
 }
 PROTECTED = re.compile(r"remind|approval|ride|email|mail|bill|security|fraud|call|alarm|timer|safety")
 CATEGORIES = (  # (label, what the topic or kind contains), first match wins
@@ -57,7 +57,7 @@ TITLES = {"investing:live": "live price triggers", "investing:signals": "buy and
           "investing:funds": "fund filings", "investing:scan": "the daily market scan",
           "investing:ideas": "trade ideas triggering", "investing:school": "Market school lessons",
           "deals:watched": "deals you asked to watch for", "deals:daily": "daily deal picks",
-          "deals:weekly": "the weekly deals outlook"}
+          "deals:weekly": "the weekly deals outlook", "investing:model": "model training results"}
 
 
 def _ready(memory: Memory) -> None:

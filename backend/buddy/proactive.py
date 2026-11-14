@@ -540,6 +540,12 @@ async def run(memory: Memory, deliver: Deliver, connected=None) -> None:
                     dealcollector.prune(memory)
                     for text, links in dealcollector.messages(result):
                         await deliver("money", text, cards=links, topic="deals:daily")
+                from . import modeltrain  # noqa: PLC0415  weekly: train a model for any domain with enough data
+                if modeltrain.due(memory):
+                    y, wk, _ = local_now().isocalendar()
+                    memory.set(modeltrain.WEEK_KEY, f"{y}-{wk}")
+                    for text in await modeltrain.weekly(memory):
+                        await deliver("money", text, topic="investing:model")
                 from . import funds  # noqa: PLC0415  new 13F filings from the funds followed, checked weekly
                 if funds.due(memory) and os.getenv("BUDDY_SEC_CONTACT") and not in_quiet_hours():
                     y, wk, _ = local_now().isocalendar()

@@ -337,4 +337,18 @@ decide each differently), and uses it whenever you ask about a purchase.
   Hotels through SerpApi, three searches a day at most): the named hotel's rate when the call names one, else
   the area's cheapest. So hotel calls get an outcome and can teach, like flight and shopping calls.
 
+- **Trained models, when there is enough data.** Once a week Buddy counts its judged calls in four domains:
+  investing (the practice book's closed paper trades), shopping, flights and hotels. When a domain reaches 200
+  judged calls with at least 30 of each outcome, it trains a small model (a logistic regression on the reasons
+  and figures kept with every call) in the sandbox, offline. The model learns from the oldest 70% and is tested
+  on the newest 30%, which it never saw. It is used only if, on those unseen calls, its odds beat always saying
+  the average AND the calls it liked were right at least 5 points more often than calls overall. You get a
+  message after every training with what was tested and whether it passed. A passed investing model adds its
+  odds to each signal and turns a buy it gives under 45% into a caution; a passed shopping or travel model is
+  averaged with the rule-based chance. It retrains after 50 more judged calls, and a model that stops passing
+  is retired, with the simple learned weights back in charge. Paper trades now also keep the figures behind
+  each signal (RSI, tone, attention, daily range, insiders) so the model has them to learn from. The Signals
+  tab shows how many judged calls each domain has against the 200 needed. Ask "how are the models doing?".
+  Needs the sandbox (`sudo bash /opt/buddy/deploy/sandbox.sh`).
+
 All of it stays on your server; only Claude sees it. Buddy still never buys or pays.

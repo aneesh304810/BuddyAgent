@@ -98,6 +98,15 @@ def advise(memory: Memory, domain: str, item: str, price: float, travel_date: st
         reasons.append(f"it's at or near the lowest Buddy has seen (${low:,.0f})")
     if not hist and not known:
         reasons.append("Buddy has no price history for it yet: this call rests on rules of thumb")
+    try:  # a trained model, when one has passed its test for this kind of trip (modeltrain.py)
+        from . import modeltrain  # noqa: PLC0415
+        m = modeltrain.predict(memory, domain, whentobuy.features_of(parts, domain))
+    except Exception:
+        m = None
+    if m:
+        chance = (chance + m["p"]) / 2
+        reasons.append(f"my trained model puts the chance of a lower price at {m['p']:.0%} (tested on "
+                       f"{m['tested_on']} calls it had never seen)")
     chance = round(max(0.05, min(chance, 0.85)), 2)
     by_date = min(today + timedelta(days=21), trip - timedelta(days=14))
     decision = "wait" if chance >= 0.5 and by_date > today else "buy_now"

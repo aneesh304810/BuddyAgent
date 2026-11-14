@@ -59,6 +59,31 @@ def _ready(memory: Memory) -> None:
                           "spy_entry DOUBLE, status VARCHAR DEFAULT 'open', closed DATE, exit DOUBLE, "
                           "why VARCHAR, ret DOUBLE, spy_ret DOUBLE)")
     pricebook.run(memory, "ALTER TABLE sim_trades ADD COLUMN IF NOT EXISTS risk DOUBLE")
+    pricebook.run(memory, "ALTER TABLE sim_trades ADD COLUMN IF NOT EXISTS features VARCHAR")
+
+
+FIGURES = ("score", "rsi", "tone", "mentions", "times_usual", "atr_pct", "insiders")
+
+
+def figures(facts: dict) -> dict:
+    """The numbers behind a signal, kept with its paper trade so a model can learn from them later."""
+    out = {k: facts[k] for k in FIGURES if isinstance(facts.get(k), (int, float))}
+    lens = facts.get("lenses") or {}
+    out["business"] = {"strong": 1, "weak": -1}.get(lens.get("business"), 0)
+    return out
+
+
+def features_of(t: dict) -> dict:
+    """A trade's features for training and for the model's odds: the reasons' signs (turned to point the
+    trade's way), the figures, and the checklists' read of the price. `t`: a sim_trades row, or the same keys."""
+    way = 1 if t.get("side", "long") == "long" else -1
+    x = {f"reason_{k}": v * way for k, v in (json.loads(t["parts"]) if isinstance(t.get("parts"), str)
+                                             else t.get("parts") or {}).items()}
+    x.update(json.loads(t["features"]) if isinstance(t.get("features"), str) else t.get("features") or {})
+    x["is_buy"] = 1 if way == 1 else 0
+    for name in ("cheap", "expensive", "no profits to value"):
+        x[f"price_{name.split()[0]}"] = 1 if t.get("read") == name else 0
+    return x
 
 
 def money(memory: Memory) -> dict:
@@ -116,12 +141,13 @@ def open_from(memory: Memory, signals: list[dict], today: date, spy: float | Non
         else:  # an avoid puts no money on: it is wrong 7% up, right 7% down
             plan, stop, target, shares, risk = {"skipped": ""}, price * (1 + STOP), price * (1 - STOP), 0.0, 0.0
         pricebook.run(memory, "INSERT INTO sim_trades (opened, symbol, category, side, entry, shares, stop, target, "
-                              "parts, read, spy_entry, risk, status, why) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, "
-                              "?, ?)",
+                              "parts, read, spy_entry, risk, status, why, features) VALUES (?, ?, ?, ?, ?, ?, ?, ?, "
+                              "?, ?, ?, ?, ?, ?, ?)",
                       (today.isoformat(), j["key"], j["category"], side, price, shares, round(stop, 4),
                        round(target, 4), json.dumps(facts.get("parts") or {}),
                        (facts.get("lenses") or {}).get("price", ""), spy, risk,
-                       "skipped" if plan["skipped"] else "open", plan["skipped"] or None))
+                       "skipped" if plan["skipped"] else "open", plan["skipped"] or None,
+                       json.dumps(figures(facts))))
         opened += 0 if plan["skipped"] else 1
     return opened
 

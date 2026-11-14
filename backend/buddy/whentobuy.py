@@ -347,6 +347,15 @@ def advise(memory: Memory, what: str, price: float, kind: str = "", lowest: floa
         chance -= 0.1
         reasons.append(f"my past 'wait' calls were right {cal['right']:.0%} of the time over {cal['calls']} calls, "
                        "so I'm more careful")
+    try:  # a trained model, when one has passed its test on calls it never saw (modeltrain.py)
+        from . import modeltrain  # noqa: PLC0415
+        m = modeltrain.predict(memory, "product", features_of(parts, kind))
+    except Exception:
+        m = None
+    if m:
+        chance = (chance + m["p"]) / 2
+        reasons.append(f"my trained model puts the chance of a lower price at {m['p']:.0%} (on {m['tested_on']} "
+                       f"calls it had never seen, the ones it liked were right {m['right_when_liked']:.0%} of the time)")
     chance = round(max(0.05, min(chance, 0.85)), 2)
     want = target_pct / 100 if target_pct else max(expected_drop, 0.1)
     target = round(price * (1 - want), 2)
@@ -407,6 +416,14 @@ def learn(memory: Memory, domain: str = "product") -> dict:
                                                 "note": f"needs {MIN_TO_LEARN} judged calls"})
     memory.set(f"whentobuy:weights:{domain}", json.dumps({"on": local_now().date().isoformat(), "parts": out}))
     return out
+
+
+def features_of(parts: dict, kind: str = "") -> dict:
+    """A call's features for training and for the model's odds: each reason's push, and the kind of thing."""
+    x = {f"reason_{k}": v for k, v in (parts or {}).items()}
+    for k in ("electronics", "home", "clothing"):
+        x[f"kind_{k}"] = 1 if kind == k else 0
+    return x
 
 
 def weights(memory: Memory, domain: str = "product") -> dict:
