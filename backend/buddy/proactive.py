@@ -496,6 +496,13 @@ async def run(memory: Memory, deliver: Deliver, connected=None) -> None:
                         shopper.asked(memory, due_item["id"])
             except Exception:
                 log.exception("purchase history failed")
+            try:  # nightly (01:00): the deals inbox read into the price book, by code (no AI)
+                from . import dealmail  # noqa: PLC0415
+                if dealmail.configured() and dealmail.due(memory):
+                    memory.set(dealmail.DAY_KEY, local_now().date().isoformat())
+                    log.info("deals inbox: %s", await asyncio.to_thread(dealmail.run, memory))
+            except Exception:
+                log.exception("deals inbox failed")
             try:  # nightly: patterns learned in the sandbox, raw prices over 90 days (already learned) deleted,
                 # and a copy of the price book for the backup
                 from . import patterns  # noqa: PLC0415

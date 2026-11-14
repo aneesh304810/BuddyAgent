@@ -131,6 +131,9 @@ def conn(memory):
             c = duckdb.connect(":memory:" if where.startswith(":memory:") else where,
                                config={"memory_limit": "256MB", "threads": 1})
             c.execute(SCHEMA)
+            for column in ("domain VARCHAR DEFAULT 'product'", "item VARCHAR DEFAULT ''", "regular_price DOUBLE",
+                           "ends VARCHAR DEFAULT ''"):  # deals from the deals inbox carry these too
+                c.execute(f"ALTER TABLE deals ADD COLUMN IF NOT EXISTS {column}")
             _open[where] = c
             try:
                 import_old(memory, c)
@@ -263,6 +266,43 @@ def snapshot(memory, folder: str) -> str:
     shutil.rmtree(target, ignore_errors=True)
     tmp.rename(target)
     return str(target)
+
+
+def deals_page(memory, days: int = 7, domain: str = "", query: str = "", limit: int = 300) -> dict:
+    """The Deals page's list: recent deals (feeds and the deals inbox) with the lowest price seen for each item, so a
+    deal at or under it is marked. Market data only."""
+    since = (datetime.now(timezone.utc).date() - timedelta(days=max(1, min(days, 90)))).isoformat()
+    where, args = ["seen_on >= ?"], [since]
+    if domain in ("product", "flight", "hotel"):
+        where.append("COALESCE(domain, 'product') = ?")
+        args.append(domain)
+    for w in [w for w in re.findall(r"[a-z0-9]{2,}", (query or "").lower())][:6]:
+        where.append("lower(title || ' ' || COALESCE(store, '') || ' ' || COALESCE(item, '')) LIKE ?")
+        args.append(f"%{w}%")
+    rows = run(memory, "SELECT d.id, d.seen_on, d.source, d.title, d.url, d.price, d.store, "
+                       "COALESCE(d.domain, 'product') AS domain, COALESCE(NULLIF(d.item, ''), lower(d.title)) AS item, "
+                       "d.regular_price, d.ends FROM deals d WHERE " + " AND ".join(where)
+               + f" ORDER BY d.seen_on DESC, d.id DESC LIMIT {int(limit)}", tuple(args))
+    lows = {(r["domain"], r["item"]): r["low"] for r in run(
+        memory, "SELECT domain, item, MIN(price) AS low, COUNT(*) AS n FROM observations GROUP BY domain, item")}
+    out = []
+    for r in rows:
+        low = lows.get((r["domain"], key(r["item"])))
+        out.append({**r, "seen_on": str(r["seen_on"]), "lowest_seen": low,
+                    "is_lowest": bool(r["price"] and low and r["price"] <= low * 1.001),
+                    "off": round(1 - r["price"] / r["regular_price"], 2) if r["price"] and r["regular_price"] else None,
+                    "url": r["url"] if str(r["url"]).startswith("https://") else ""})
+    counts = {d: sum(1 for r in out if r["domain"] == d) for d in ("product", "flight", "hotel")}
+    return {"deals": out, "counts": counts, "days": days}
+
+
+def chart(memory, item: str, domain: str = "product", days: int = 365) -> dict:
+    """One item's price history for the Deals page's chart: the day's lowest price, per day."""
+    rows = run(memory, "SELECT CAST(seen_at AS DATE) AS day, MIN(price) AS price FROM observations WHERE domain = ? "
+                       "AND item = ? AND seen_at >= ? GROUP BY day ORDER BY day",
+               (domain, key(item), utc(datetime.now(timezone.utc) - timedelta(days=days))))
+    return {"item": item, "domain": domain, "points": [{"day": str(r["day"]), "price": r["price"]} for r in rows],
+            "lowest": min((r["price"] for r in rows), default=None)}
 
 
 def close_all() -> None:

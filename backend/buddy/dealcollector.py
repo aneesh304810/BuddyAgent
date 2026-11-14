@@ -484,10 +484,12 @@ TOOL = {
         "tells them about matches and new lows. today: run it now and give the results (also kept in Reports). "
         "search: deals seen in the last days matching words (query, days). feeds: list the feeds; add_feed: url "
         "(and name) of a deal site's RSS or Atom feed; remove_feed: which. status: how each feed did today. "
-        "on/off. Deals come from public feeds: suggest checking the price and seller; never buy for them."),
+        "on/off. read_inbox: read the deals inbox now (the separate email for deal newsletters; normally every "
+        "night at 1 AM). All deals, with their price history, are on the Deals page (Buddy's menu → Deals). "
+        "Deals come from public feeds and newsletters: suggest checking the price and seller; never buy for them."),
     "input_schema": {"type": "object", "properties": {
         "action": {"type": "string", "enum": ["today", "search", "feeds", "add_feed", "remove_feed", "status",
-                                              "on", "off"]},
+                                              "on", "off", "read_inbox"]},
         "query": {"type": "string"}, "days": {"type": "integer"}, "url": {"type": "string"},
         "name": {"type": "string"}, "which": {"type": "string"}},
         "required": ["action"], "additionalProperties": False},
@@ -524,7 +526,11 @@ def run_tool(memory: Memory, args: dict) -> str:
     if action == "remove_feed":
         return remove_feed(memory, args.get("which", ""))
     if action == "status":
-        return memory.get(STATUS_KEY) or "It hasn't run yet today."
+        return json.dumps({"feeds": json.loads(memory.get(STATUS_KEY) or "null") or "not run yet today",
+                           "deals_inbox": json.loads(memory.get("dealmail:status") or "null") or "not run yet"})
+    if action == "read_inbox":
+        from . import dealmail  # noqa: PLC0415
+        return dealmail.run(memory)
     if action == "off":
         memory.set(OFF_KEY, "1")
         return "The daily deals collector is off."

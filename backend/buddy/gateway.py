@@ -129,6 +129,13 @@ CATALOG: dict[str, dict] = {
     "deal_feed": {"group": "Shopping", "title": "Other deal feeds you added", "hosts": [], "auth": {"type": "none"},
                   "cost": 0.0, "per_minute": 10, "privacy": "public", "no_backup": True,
                   "used_for": "deal sites' RSS feeds you added, read once a day", "moved": True},
+    "deals_inbox": {"group": "Shopping", "title": "Deals inbox (deal emails and newsletters)", "hosts": [],
+                    "auth": {"type": "basic", "fields": {"user": "BUDDY_DEALS_EMAIL_ADDRESS",
+                                                         "password": "BUDDY_DEALS_EMAIL_APP_PASSWORD"}},
+                    "cost": 0.0, "per_minute": 10, "privacy": "personal", "no_backup": True,
+                    "used_for": "deal alerts and store, airline and hotel newsletters in a separate inbox, read each "
+                                "night by code into the price book",
+                    "health": {"custom": "dealmail.check"}, "moved": True},
     "bestbuy": {"group": "Shopping", "title": "Best Buy Products API", "hosts": ["https://api.bestbuy.com"],
                 "auth": {"type": "param", "secret": "BUDDY_BESTBUY_KEY"}, "cost": 0.0, "per_minute": 5,
                 "privacy": "public", "no_backup": True,

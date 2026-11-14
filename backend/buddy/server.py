@@ -1525,6 +1525,19 @@ async def api_cards_action(body: dict) -> dict:
     return {"ok": True, "text": text}
 
 
+# --- deals (web/deals.html): deals from the feeds and the deals inbox, with each item's price history
+@app.get("/api/deals", dependencies=[Depends(require_admin)])
+async def api_deals(days: int = 7, domain: str = "", q: str = "") -> dict:
+    from . import pricebook  # noqa: PLC0415
+    return await asyncio.to_thread(pricebook.deals_page, memory, days, domain, q)
+
+
+@app.get("/api/deals/history", dependencies=[Depends(require_admin)])
+async def api_deals_history(item: str, domain: str = "product") -> dict:
+    from . import pricebook  # noqa: PLC0415
+    return await asyncio.to_thread(pricebook.chart, memory, item, domain)
+
+
 # --- money dashboard (web/money.html): numbers per period, and the transactions behind any slice
 @app.get("/api/money/dashboard", dependencies=[Depends(require_admin)])
 async def api_money_dashboard(period: str = "last_month") -> dict:

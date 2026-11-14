@@ -136,6 +136,7 @@ sealed interface Screen {
     data object Dashboard : Screen
     data object News : Screen
     data object Investments : Screen
+    data object Deals : Screen
     data object Travel : Screen
     data object Connections : Screen
     data class LibraryItem(val id: String) : Screen
@@ -342,7 +343,7 @@ private fun BuddyScreen(
                 Box {
                     TextButton(onClick = { menuOpen = true }) { Text("☰", fontSize = 24.sp, color = Pal.text) }
                     DropdownMenu(expanded = menuOpen, onDismissRequest = { menuOpen = false }) {
-                        listOf("✈  Travel" to Screen.Travel, "💳  Dashboard" to Screen.Dashboard, "💹  Investments" to Screen.Investments, "📰  News" to Screen.News,
+                        listOf("✈  Travel" to Screen.Travel, "💳  Dashboard" to Screen.Dashboard, "💹  Investments" to Screen.Investments, "🏷️  Deals" to Screen.Deals, "📰  News" to Screen.News,
                             "📎  Library" to Screen.Library,
                             "📊  Insights" to Screen.Insights, "🔌  Connections" to Screen.Connections,
                             "📄  Reports" to Screen.Reports, "⚙  Settings" to Screen.Settings)
@@ -405,6 +406,10 @@ private fun BuddyScreen(
             }
             Screen.Investments -> {  // trade strategy, market trends, Plaid accounts, watchlist (web/invest.html)
                 BuddyPage(prefs.link, "invest.html")
+                return@Column
+            }
+            Screen.Deals -> {  // deals from the feeds and the deals inbox, with price history (web/deals.html)
+                BuddyPage(prefs.link, "deals.html")
                 return@Column
             }
             Screen.News -> {  // topics you picked, and what's trending on them (web/news.html)
