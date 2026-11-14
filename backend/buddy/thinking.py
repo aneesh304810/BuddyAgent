@@ -83,9 +83,26 @@ def _entities_named(brain: Brain, text: str) -> list[str]:
     return names[:3]
 
 
+# A question about how Buddy itself is built or works: answered from the running code (buddy_code), never from a
+# document in the library, which may be months out of date.
+ABOUT_BUDDY = re.compile(
+    r"(?i)\b(?:your|buddy'?s?)\s+(?:own\s+|whole\s+|full\s+|system\s+)?(?:architecture|design|code|internals?|"
+    r"technical (?:design|details)|features|modules|diagram)\b"
+    r"|\bhow (?:do|does|are|is) (?:you|buddy)\b[^?]{0,40}\b(?:work|built|made|designed)"
+    r"|\bhow (?:do|does) (?:your|the|buddy'?s?) [\w' -]{3,50} work"
+    r"|\b(?:architecture|diagram|technical design|design) (?:of|for) (?:you|buddy|your|the)\b"
+    r"|\b(?:explain|show|describe)\b[^?]{0,30}\b(?:architecture|technical design|how [\w' -]{3,40} works)")
+ABOUT_BUDDY_NOTE = ("\n\n(This asks how Buddy itself works. Answer from the running code with the buddy_code tool: "
+                    "action 'architecture' for the whole system, or 'feature' with the part asked about; both put "
+                    "the diagram in the chat. Don't answer from a document in the library or from memory: those "
+                    "can be out of date.)")
+
+
 def prepare(brain: Brain, text: str, via: str = "user") -> Prep:
     """Understand, recall, maybe answer, else pack. Runs on the server in milliseconds, never calls an AI."""
     text = str(text or "").strip()
+    if ABOUT_BUDDY.search(text):
+        return Prep(pack=ABOUT_BUDDY_NOTE)
     if len(text.split()) < 3 or SMALL_TALK.match(text) or CLOSER.match(text):
         return Prep()
     named = _entities_named(brain, text)

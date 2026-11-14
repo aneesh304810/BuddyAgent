@@ -106,3 +106,20 @@ def test_without_graphviz_the_flow_is_given_in_words(tmp_path, monkeypatch):
     monkeypatch.setattr(makers, "render_diagram", no_dot)
     got = json.loads(cf.show(memory, "phone calls"))
     assert "couldn't draw it" in got["diagram"] and got["flow"].startswith("You -> tools (") and "calls.py" in got["flow"]
+
+
+def test_a_question_about_buddy_itself_goes_to_the_live_code_not_the_library(tmp_path):
+    """Live: 'show me your architecture' was answered from an old document in the library."""
+    from buddy import thinking
+    from buddy.brain import Brain
+    memory = Memory(tmp_path / "buddy.db")
+    ConnectorHub(memory)
+    brain = Brain(memory)
+    for q in ('"show me your architecture".', "show me your architecture", "how does the deals collector work?",
+              "explain the technical design of the alerts", "what is Buddy's architecture",
+              "how do you work", "diagram of the investing signals", "how does your practice book work"):
+        prep = thinking.prepare(brain, q)
+        assert "buddy_code tool" in prep.pack and not prep.direct and not prep.lookup, q
+    for q in ("when does my passport expire?", "what did I spend at Costco", "how does my insurance work",
+              "show me my flights"):
+        assert "buddy_code" not in thinking.prepare(brain, q).pack, q
