@@ -507,7 +507,10 @@ async def run(memory: Memory, deliver: Deliver, connected=None) -> None:
                 log.exception("deals inbox failed")
             try:  # nightly: patterns learned in the sandbox, raw prices over 90 days (already learned) deleted,
                 # and a copy of the price book for the backup
-                from . import patterns  # noqa: PLC0415
+                from . import patterns, seasons  # noqa: PLC0415
+                if seasons.due(memory) and os.getenv("BUDDY_FRED_KEY"):  # monthly: seasonal patterns by category
+                    memory.set(seasons.MONTH_KEY, local_now().strftime("%Y-%m"))
+                    log.info("seasonal prices: %s", await asyncio.to_thread(seasons.refresh, memory))
                 if patterns.due(memory):
                     memory.set(patterns.DAY_KEY, local_now().date().isoformat())
                     status = await patterns.learn(memory)

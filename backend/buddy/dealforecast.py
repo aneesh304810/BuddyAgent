@@ -145,9 +145,21 @@ def forecast(memory: Memory, what: str, kind: str = "", price: float | None = No
                     "expect_price": round(price * 0.8, 2) if price else None, "depth": 0.2,
                     "why": life["reasons"][0] if life["reasons"] else "a newer model is out or coming",
                     "confidence": "medium", "source": "life cycle"})
+    try:  # 4. the season for its category, from government price data
+        from . import seasons  # noqa: PLC0415
+        s = seasons.outlook(memory, what, kind, today, 180)
+    except Exception:
+        s = None
+    if s and s["better_month_ahead"]:
+        m = seasons.MONTHS.index(s["better_month_ahead"]) + 1
+        first = date(today.year + (m < today.month), m, 1)
+        out.append({"when": first.isoformat(), "window": [first.isoformat(), (first + timedelta(days=27)).isoformat()],
+                    "expect_price": round(price * (1 - s["gain_pct"] / 100), 2) if price else None,
+                    "depth": round(s["gain_pct"] / 100, 3), "why": seasons.reason(s), "confidence": "medium",
+                    "source": "season (government data)"})
     out.sort(key=lambda f: f["when"])
     rhythm = store_rhythm(memory, kind)
-    return {"what": what, "model": model, "kind": kind, "next_deals": out[:4], "how_deals_happen": rhythm,
+    return {"what": what, "model": model, "kind": kind, "next_deals": out[:5], "how_deals_happen": rhythm,
             "note": "Learned from the deals and prices Buddy has seen (more history, better forecasts); rough, "
                     "not promises. Offer 'watch for it' to get an alert when one comes."}
 

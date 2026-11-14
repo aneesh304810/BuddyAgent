@@ -203,4 +203,13 @@ decide each differently), and uses it whenever you ask about a purchase.
   ("Marriott direct was $189") and it keeps it; "is direct usually cheaper?" gives your own record per chain.
   Buddy never opens hotel sites or books.
 
+- **Seasonal prices from government data.** Once a month Buddy fetches about ten years of the US government's
+  monthly price index (BLS, through the free FRED key) for 14 categories: televisions, audio equipment, computers,
+  major appliances, furniture and bedding, tools and outdoor equipment, household furnishings, clothing, footwear,
+  toys, sporting goods, airline fares, hotels and car rental. For each it works out which months usually run
+  cheapest and dearest against the year's trend, so inflation doesn't count as a season. Buy-or-wait advice and
+  deal forecasts use it ("TVs usually run about 3% lower in December than now"). Ask "when are TVs cheapest?" or
+  "refresh the seasonal prices". It is a national average for a whole category, so it shows the season, not one
+  product's or one route's price; Buddy's own price book covers the item. Needs `BUDDY_FRED_KEY`; no AI cost.
+
 All of it stays on your server; only Claude sees it. Buddy still never buys or pays.

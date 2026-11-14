@@ -311,6 +311,18 @@ def advise(memory: Memory, what: str, price: float, kind: str = "", lowest: floa
         elif price >= avg * 1.05:
             reasons.append(f"${price:,.2f} is above its usual ${avg:,.2f}")
             chance += 0.1
+    try:  # the season, from ten years of government price data for the category (seasons.py)
+        from . import seasons  # noqa: PLC0415
+        season = seasons.outlook(memory, what, kind, today, days)
+    except Exception:
+        season = None
+    if season:
+        reasons.append(seasons.reason(season))
+        if season["better_month_ahead"]:
+            chance += 0.1
+            expected_drop = max(expected_drop, season["gain_pct"] / 100)
+        elif season["now_vs_trend_pct"] <= -0.5 and not sales:
+            chance -= 0.05
     odds = (learned.get("drop_odds") or {}).get(kind or "electronics") or {}
     horizon = next((h for h in ("14", "30", "60") if int(h) >= days), "60") if odds else ""
     if horizon in odds and odds[horizon].get("items", 0) >= 5:
