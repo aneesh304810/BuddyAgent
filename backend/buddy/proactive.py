@@ -80,7 +80,13 @@ async def morning_briefing(memory: Memory) -> str:
         body = await asyncio.to_thread(coach.morning_line, memory)  # '' without a health plan
     except Exception:
         body = ""
-    return await compose(
+    try:  # the news on their interests, the finance headlines and newly listed events (daybrief.py)
+        from . import daybrief  # noqa: PLC0415
+        world = await asyncio.to_thread(daybrief.facts, memory)
+    except Exception:
+        log.exception("briefing news failed")
+        world = {"say": "", "shown": ""}
+    spoken = await compose(
         system,
         f"It's {local_now().strftime('%A %d %B, %I:%M %p')}. Give the user a short, upbeat "
         "morning briefing, about four spoken sentences: greet them, mention what's "
@@ -98,9 +104,14 @@ async def morning_briefing(memory: Memory) -> str:
         f"{health.morning_line(memory) or 'nothing'}. "
         f"{thinking.morning_note(memory)}"
         + (f" They asked for these in every briefing, say them briefly: {topics}" if (topics := await _topics_line(memory))
-           else ""),
+           else "")
+        + (" Then, in up to three more short sentences, the most notable news on their interests, the main finance "
+           "headline and any new event, from these only (skip a part that has nothing, never add news of your "
+           f"own): {world['say']}" if world["say"] else ""),
         memory, label="briefing", model=settings.fast_model,  # quick model: a few spoken sentences from given facts
     )
+    # spoken || shown: the same words on screen, with the headlines, links and events listed under them
+    return f"{spoken} || {spoken}\n\n{world['shown']}" if spoken and world["shown"] else spoken
 
 
 def _no_events(memory: Memory) -> str:
@@ -570,9 +581,20 @@ async def run(memory: Memory, deliver: Deliver, connected=None) -> None:
                             await deliver("money", note, topic="deals:weekly")
             except Exception:
                 log.exception("daily deals failed")
+            try:  # the morning tutors: a ten-minute investing lesson and a short English lesson (morning_tutor.py)
+                from . import morning_tutor  # noqa: PLC0415
+                for kind, make in (("investing", morning_tutor.investing), ("english", morning_tutor.english)):
+                    if online and morning_tutor.due(memory, kind) and not in_quiet_hours():
+                        morning_tutor.mark(memory, kind)
+                        await deliver("lesson", await make(memory), topic=f"tutor:{kind}")
+            except Exception:
+                log.exception("morning tutors failed")
             try:  # Market school: a short lesson every weekday morning (New York time), unless turned off
                 from . import market_school  # noqa: PLC0415
-                if MARKET_SCHOOL and market_school.due(memory) and not in_quiet_hours():
+                from . import morning_tutor  # noqa: PLC0415  the ten-minute lesson replaces the short one when on
+                if morning_tutor.on(memory, "investing") and market_school.due(memory):
+                    memory.set(market_school.DONE_KEY, market_school.school_day())
+                elif MARKET_SCHOOL and market_school.due(memory) and not in_quiet_hours():
                     memory.set(market_school.DONE_KEY, market_school.school_day())
                     _, text = await market_school.lesson(memory)
                     await deliver("money", text, topic="investing:school")

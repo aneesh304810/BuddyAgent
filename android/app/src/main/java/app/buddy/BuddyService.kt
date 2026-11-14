@@ -365,6 +365,20 @@ class BuddyService : Service() {
         mouth.speak("This is how fast I'll talk.")
     }
 
+    /** Read a message aloud (a lesson, a long alert), a sentence at a time; tap again to stop. */
+    fun readAloud(text: String) {
+        if (!::mouth.isInitialized) return
+        if (mouth.speaking) {
+            mouth.stop()
+            return
+        }
+        text.replace("**", "").replace(Regex("""https://\S+"""), "")
+            .split(Regex("""(?<=[.!?])\s+|\n+"""))
+            .map { it.trim().trimStart('-', '•', ' ') }
+            .filter { it.isNotBlank() }
+            .forEach { mouth.speak(it) }
+    }
+
     /** Thumbs on something Buddy said on its own (null clears): Buddy learns which kinds of message matter. */
     fun rateNudge(id: String, rating: Int?) {
         val message = JSONObject().put("type", "rate_nudge").put("id", id)

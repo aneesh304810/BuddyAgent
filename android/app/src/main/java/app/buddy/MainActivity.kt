@@ -531,7 +531,7 @@ private fun nudgeLabel(line: Line): String = when {
     line.category.isNotEmpty() && line.category != "Other" -> when (line.category) {
         "Investing" -> "💹 Investing"; "Deals" -> "🏷️ Deals"; "Travel" -> "✈️ Travel"; "Email" -> "✉️ Email"
         "Reminders" -> "⏰ Reminder"; "Health" -> "🩺 Health"; "Money" -> "💳 Money"; "Tasks" -> "✅ Tasks"
-        "Messages" -> "🔔 Messages"; "Briefing" -> "☀️ Briefing"; "Home" -> "🏠 Home"
+        "Messages" -> "🔔 Messages"; "Briefing" -> "☀️ Briefing"; "Home" -> "🏠 Home"; "Learning" -> "🎓 Learning"
         else -> "💬 ${line.category}"
     }
     line.kind.contains("remind") -> "⏰ Reminder"
@@ -575,6 +575,10 @@ private fun BuddyBubble(line: Line, onOpenInsights: () -> Unit, onOpenReport: (I
                 else if (line.from == Speaker.NUDGE && nudgeId != null)  // Buddy learns which kinds of message matter
                     Thumbs(line.rating) { BuddyService.instance?.rateNudge(nudgeId, it) }
                 CopyButton(line.text)
+                if (line.text.length > 200)  // a lesson or a long alert: hear it instead of reading it
+                    Text("Listen", fontSize = 12.sp, color = Muted,
+                        modifier = Modifier.clickable { BuddyService.instance?.readAloud(line.text) }
+                            .padding(horizontal = 8.dp, vertical = 4.dp))
             }
         }
     }

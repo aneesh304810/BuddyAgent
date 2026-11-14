@@ -46,6 +46,7 @@ DEFAULT = {  # topic: starting level (anything not listed starts at alert, as be
 }
 PROTECTED = re.compile(r"remind|approval|ride|email|mail|bill|security|fraud|call|alarm|timer|safety")
 CATEGORIES = (  # (label, what the topic or kind contains), first match wins
+    ("Learning", r"tutor|lesson"),
     ("Investing", r"invest|market|stock|signal|fund|school"), ("Deals", r"deal|price|shop"),
     ("Travel", r"travel|trip|flight|hotel|ride|commute|transit"), ("Email", r"mail"),
     ("Reminders", r"remind|alarm|timer|calendar|promise"), ("Health", r"health|sleep|oura|habit"),
@@ -57,7 +58,8 @@ TITLES = {"investing:live": "live price triggers", "investing:signals": "buy and
           "investing:funds": "fund filings", "investing:scan": "the daily market scan",
           "investing:ideas": "trade ideas triggering", "investing:school": "Market school lessons",
           "deals:watched": "deals you asked to watch for", "deals:daily": "daily deal picks",
-          "deals:weekly": "the weekly deals outlook", "investing:model": "model training results"}
+          "deals:weekly": "the weekly deals outlook", "investing:model": "model training results",
+          "tutor:investing": "the morning investing lesson", "tutor:english": "the morning English lesson"}
 
 
 def _ready(memory: Memory) -> None:

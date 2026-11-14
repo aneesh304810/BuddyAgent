@@ -351,4 +351,14 @@ decide each differently), and uses it whenever you ask about a purchase.
   tab shows how many judged calls each domain has against the 200 needed. Ask "how are the models doing?".
   Needs the sandbox (`sudo bash /opt/buddy/deploy/sandbox.sh`).
 
+- **The morning investing lesson (about ten minutes).** Every morning at 8 (say "investing lesson at 7" to
+  move it), in five parts: today's markets and the likely reason; one idea explained simply; what Buddy's signal
+  engine and practice book did yesterday and how, walked through with the arithmetic (how the stop was set, how
+  the position was sized, what the result means, what the results have taught it); a principle from the
+  investor library with its question; and two check questions with answers. It arrives as a short spoken line
+  with the full lesson on screen: tap **Listen** under it to hear it, and it is kept in Reports. It is written
+  from Buddy's own numbers only, by a free model when one is set up, else Claude's quick model; with neither
+  (or the budget paused) the lesson is assembled from the numbers, shorter but complete. It replaces the short
+  Market school message while it is on. Education, never advice.
+
 All of it stays on your server; only Claude sees it. Buddy still never buys or pays.
