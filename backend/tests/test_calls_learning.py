@@ -120,3 +120,26 @@ def test_a_flight_call_is_judged_on_the_same_trip_and_taught_back(memory):
     assert row == {"outcome": "right", "best_seen": 540.0}                                # 13% lower: waiting paid
     w = whentobuy.weights(memory, "flight")
     assert w["window"]["calls"] == 1 and w["window"]["weight"] == 1.0                     # one call teaches nothing yet
+
+
+def test_a_hotel_call_is_followed_every_three_days_and_judged_on_that_hotel(memory):
+    today = date(2026, 3, 10)
+    made = travelcall.advise(memory, "hotel", "Hyatt Centric Lima", 220.0, "2026-06-01", today, place="Lima", nights=3)
+    area = travelcall.advise(memory, "hotel", "Miraflores, Lima", 150.0, "2026-06-01", today, place="Miraflores, Lima")
+    asked = []
+
+    def search(place, check_in, check_out):
+        asked.append((place, check_in, check_out))
+        return [{"name": "Hotel Cheap Lima", "per_night": 90.0}, {"name": "Hyatt Centric San Isidro Lima",
+                                                                  "per_night": 185.0}, {"name": "No rate"}]
+
+    assert whentobuy.follow_hotels(memory, {}, search, today) == 2
+    assert asked[0] == ("Lima", "2026-06-01", "2026-06-04") and asked[1][2] == "2026-06-02"
+    assert pricebook.lowest(memory, "Hyatt Centric Lima", "hotel") == 185.0       # that hotel, not the cheapest in town
+    assert pricebook.lowest(memory, "Miraflores, Lima", "hotel") == 90.0          # a call about the area: its cheapest
+    assert whentobuy.follow_hotels(memory, {}, search, today + timedelta(days=1)) == 0   # not again for three days
+    assert whentobuy.follow_hotels(memory, {}, search, today + timedelta(days=3)) == 2
+    assert whentobuy.settle(memory, date(2026, 4, 5)) == 2
+    row = pricebook.run(memory, "SELECT outcome, best_seen FROM predictions WHERE id = ?", (made["prediction_id"],))[0]
+    assert row == {"outcome": "wrong", "best_seen": 185.0}     # "book now" was the call, and it came down 16%
+    assert area["decision"] == "book now" and whentobuy.follow_hotels(memory, {}, None, today) == 0  # no SerpApi key

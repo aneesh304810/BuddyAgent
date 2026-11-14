@@ -381,6 +381,7 @@ def _ready(memory: Memory) -> None:
     pricebook.conn(memory)
     pricebook.run(memory, "ALTER TABLE predictions ADD COLUMN IF NOT EXISTS parts VARCHAR")
     pricebook.run(memory, "ALTER TABLE predictions ADD COLUMN IF NOT EXISTS travel_date DATE")
+    pricebook.run(memory, "ALTER TABLE predictions ADD COLUMN IF NOT EXISTS nights INTEGER")
 
 
 def learn(memory: Memory, domain: str = "product") -> dict:
@@ -416,10 +417,67 @@ def weights(memory: Memory, domain: str = "product") -> dict:
         return {}
 
 
+HOTEL_EVERY_DAYS, HOTELS_A_DAY = 3, 3
+NOT_A_NAME = {"hotel", "hotels", "the", "inn", "resort", "suites", "and", "by", "at", "in"}
+
+
+def _hotel_rate(offers: list[dict], item: str, place: str) -> float | None:
+    """The nightly rate that answers a hotel call: the named hotel's when the call names one, else the place's
+    cheapest."""
+    named = {w for w in re.findall(r"[a-z0-9]{3,}", item.lower())} - NOT_A_NAME - set(
+        re.findall(r"[a-z0-9]{3,}", place.lower()))
+    rates = [o["per_night"] for o in offers if o.get("per_night")
+             and (not named or named <= set(re.findall(r"[a-z0-9]{3,}", str(o.get("name", "")).lower())))]
+    return min(rates) if rates else None
+
+
+def follow_hotels(memory: Memory, env=None, search=None, today: date | None = None) -> int:
+    """Open hotel calls get their rate re-checked every three days (Google Hotels through SerpApi, three searches
+    a day at most), so they get an outcome. `search(place, check_in, check_out)` -> offers. Returns the checks."""
+    from . import pricebook  # noqa: PLC0415
+    _ready(memory)
+    seen_at = datetime(today.year, today.month, today.day, 12, tzinfo=timezone.utc) if today else None  # now
+    today = today or local_now().date()
+    if search is None:
+        from .travel import Travel  # noqa: PLC0415
+        trips = Travel(memory, env)
+        if not trips.google.configured():
+            return 0
+        search = lambda place, a, b: trips.google.hotels(  # noqa: E731
+            {"place": place, "check_in": a, "check_out": b, "adults": 2, "currency": "USD"}, {})[0]
+    done = 0
+    for p in pricebook.run(memory, "SELECT id, item, event, travel_date, nights FROM predictions WHERE domain = "
+                                   "'hotel' AND outcome = '' AND by_date >= ? AND travel_date > ? ORDER BY id",
+                           (today.isoformat(), today.isoformat())):
+        key = f"whentobuy:hotel_checked:{p['id']}"
+        last = memory.get(key)
+        if done >= HOTELS_A_DAY or (last and (today - date.fromisoformat(last)).days < HOTEL_EVERY_DAYS):
+            continue
+        memory.set(key, today.isoformat())
+        check_in = date.fromisoformat(str(p["travel_date"]))
+        try:
+            offers = search(p["event"] or p["item"], check_in.isoformat(),
+                            (check_in + timedelta(days=max(1, p["nights"] or 1))).isoformat())
+        except Exception as e:
+            log.info("following hotel call %s: %s", p["id"], e)
+            continue
+        done += 1
+        rate = _hotel_rate(offers, p["item"], p["event"] or "")
+        if rate:
+            pricebook.observe(memory, "hotel", p["item"], rate, source="call follow-up", travel_date=check_in,
+                              seen_at=seen_at)
+    return done
+
+
 def follow_open(memory: Memory, env=None, fetch=None, budget: int = 15) -> int:
     """So that every call gets an outcome: the products with an open call get a price check today (Google
-    Shopping, about $0.001 each, the oldest-checked first), and the routes with an open flight call are followed
-    through Travelpayouts (free). Returns how many products were checked."""
+    Shopping, about $0.001 each, the oldest-checked first), the routes with an open flight call are followed
+    through Travelpayouts (free), and open hotel calls are re-checked every three days (follow_hotels). Returns
+    how many products were checked."""
+    try:
+        follow_hotels(memory, env)
+    except Exception:
+        log.info("following hotel calls failed", exc_info=True)
     from . import dealcollector, gateway, prices, pricebook  # noqa: PLC0415
     _ready(memory)
     today = local_now().date().isoformat()

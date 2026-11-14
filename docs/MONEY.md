@@ -301,8 +301,8 @@ decide each differently), and uses it whenever you ask about a purchase.
   Copy button. A fund's old filing (over 60 days) is read for the record but not announced.
 
 - **Buddy's practice book (it paper-trades its own signals).** Every buy signal automatically opens a pretend
-  position of $5,000 at that day's close, with a stop 7% below, a target 14% above, and a 28-day limit; a later
-  sell signal closes it. Sell and caution signals are scored as "avoids": right if the price then falls 7%,
+  position at that day's close, sized by the money rules below, with a stop, a target twice as far away, and a
+  28-day limit; a later sell signal closes it. Sell and caution signals are scored as "avoids": right if the price then falls 7%,
   wrong if it rises 7%. Each close keeps the result, the S&P 500 fund's move over the same days, and the reasons
   the signal was made on. From those, Buddy re-weighs each reason (tone, trend, insiders, analysts): once a
   reason has 15 closed trades behind it, its weight in the signal score moves between 0.5 and 1.5, so a reason
@@ -325,5 +325,16 @@ decide each differently), and uses it whenever you ask about a purchase.
   same trip date, and learned from in the same way. For hotels it also says what usually beats waiting: a
   free-cancellation rate booked now and re-checked. "Show the scorecard" lists what each reason has earned in
   shopping, flights, hotels and investing. It takes months of calls before the weights mean much.
+
+- **Money management in the practice book.** The book starts at $100,000 of pretend money. The stop is set
+  from how much the stock usually moves in a day: twice its average daily range below the entry, never under 4%
+  or over 12% (7% when the range isn't known). Each trade risks 1% of the book, so the position is sized to
+  lose that much if stopped out: a jumpy stock with a wide stop gets a smaller position. No position is over
+  20% of the book or more than the cash left, and all open positions together may not risk more than 6% of the
+  book; a signal that would break that is written down as skipped. The Signals tab shows the book's value, its
+  worst fall from a peak, what is at risk now, and the average result per trade in units of the amount risked.
+- **Hotel calls are followed too.** An open hotel call has its rate looked up again every three days (Google
+  Hotels through SerpApi, three searches a day at most): the named hotel's rate when the call names one, else
+  the area's cheapest. So hotel calls get an outcome and can teach, like flight and shopping calls.
 
 All of it stays on your server; only Claude sees it. Buddy still never buys or pays.

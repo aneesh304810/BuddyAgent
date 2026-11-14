@@ -10,7 +10,7 @@ judged later against the prices Buddy then sees, so the reasons can be re-weighe
     near_lowest    at or near the lowest Buddy has seen for it
   The call is "wait" when the chance of a price 8% or more lower, before two weeks ahead of the trip, is a half
   or more. It is saved with its reasons; the route is then followed (free, through Travelpayouts) so the outcome
-  is known, and whentobuy.learn("flight" / "hotel") re-weighs each reason once it has 15 judged calls.
+  is known (a hotel's rate is looked up again every three days through Google Hotels), and whentobuy.learn("flight" / "hotel") re-weighs each reason once it has 15 judged calls.
 
 For hotels the better advice is often neither: book a rate with free cancellation now and let Buddy re-check,
 and the call says so. Buddy never books.
@@ -32,8 +32,9 @@ def _bucket(days: int) -> str:
 
 
 def advise(memory: Memory, domain: str, item: str, price: float, travel_date: str, today: date | None = None,
-           save: bool = True) -> dict:
-    """domain: flight (item: a route like EWR-LIM) or hotel (item: the place or hotel). travel_date: YYYY-MM-DD."""
+           save: bool = True, place: str = "", nights: int = 1) -> dict:
+    """domain: flight (item: a route like EWR-LIM) or hotel (item: the hotel, or the place; price: per night;
+    place: where to search for it again; nights: the stay). travel_date: YYYY-MM-DD."""
     from . import patterns, pricebook  # noqa: PLC0415
     if domain not in ("flight", "hotel"):
         raise ToolError("Flight or hotel?")
@@ -111,9 +112,10 @@ def advise(memory: Memory, domain: str, item: str, price: float, travel_date: st
         whentobuy._ready(memory)
         out["prediction_id"] = pricebook.run(
             memory, "INSERT INTO predictions (domain, item, kind, made_on, price, decision, chance, target, event, "
-                    "by_date, parts, travel_date) VALUES (?, ?, ?, ?, ?, ?, ?, ?, '', ?, ?, ?) RETURNING id",
+                    "by_date, parts, travel_date, nights) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?) RETURNING id",
             (domain, item, domain, today.isoformat(), price, decision, chance, round(price * 0.9, 2),
-             by_date.isoformat(), json.dumps(parts), trip.isoformat()))[0]["id"]
+             " ".join(str(place or "").split())[:120] if domain == "hotel" else "",
+             by_date.isoformat(), json.dumps(parts), trip.isoformat(), max(1, int(nights or 1))))[0]["id"]
     return out
 
 
@@ -121,15 +123,18 @@ TOOL = {
     "name": "travel_timing",
     "description": (
         "Book now or wait, for a flight or a hotel stay at today's price. kind: flight (what: the route as two "
-        "airport codes, like EWR-LIM) or hotel (what: the hotel or the place). price: today's price in dollars. "
-        "date: the departure or check-in date (YYYY-MM-DD). Gives the call, the chance of a lower price, the date "
+        "airport codes, like EWR-LIM) or hotel (what: the hotel's name, or the place when it's about the "
+        "area's rates; place: the city or area, so Buddy can look the rate up again; nights: the length of the "
+        "stay). price: today's price in dollars (per night for a hotel). date: the departure or check-in date "
+        "(YYYY-MM-DD). Gives the call, the chance of a lower price, the date "
         "to re-check by, and the reasons (how far ahead the trip is, what Buddy has learned for the route, today's "
         "price against the usual and the lowest seen). The call is saved and judged later, so Buddy learns which "
         "reasons hold. Use it for 'should I book this flight now' or 'will this hotel get cheaper'. Say it is "
         "rough odds, and for hotels suggest a free-cancellation rate. Buddy never books."),
     "input_schema": {"type": "object", "properties": {
         "kind": {"type": "string", "enum": ["flight", "hotel"]}, "what": {"type": "string"},
-        "price": {"type": "number"}, "date": {"type": "string"}},
+        "price": {"type": "number"}, "date": {"type": "string"}, "place": {"type": "string"},
+        "nights": {"type": "integer"}},
         "required": ["kind", "what", "price", "date"], "additionalProperties": False},
 }
 
@@ -139,4 +144,5 @@ def run_tool(memory: Memory, args: dict) -> str:
     if args.get("kind") == "flight":
         m = re.search(r"\b([A-Za-z]{3})\s*(?:-|–|to|→)\s*([A-Za-z]{3})\b", what)
         what = f"{m.group(1)}-{m.group(2)}".upper() if m else what
-    return json.dumps(advise(memory, args.get("kind", ""), what, args.get("price") or 0, args.get("date", "")))
+    return json.dumps(advise(memory, args.get("kind", ""), what, args.get("price") or 0, args.get("date", ""),
+                             place=args.get("place") or "", nights=args.get("nights") or 1))

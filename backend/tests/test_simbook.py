@@ -40,7 +40,7 @@ def test_a_buy_opens_a_position_and_the_target_or_stop_closes_it(memory):
     assert simbook.open_from(memory, [sig("WIN"), sig("LOSE"), sig("WAIT"), sig("X", "watch")], DAY, 500.0) == 3
     assert simbook.open_from(memory, [sig("WIN")], DAY, 500.0) == 0          # already held: not doubled
     row = pricebook.run(memory, "SELECT shares, stop, target FROM sim_trades WHERE symbol = 'WIN'")[0]
-    assert row == {"shares": 50.0, "stop": 93.0, "target": 114.0}
+    assert row == {"shares": 142.8571, "stop": 93.0, "target": 114.0}        # $1,000 at risk: 1% of the book
     data = Days({"WIN": [(105, 99, 104), (115, 103, 113)], "LOSE": [(101, 92, 94)], "WAIT": [(103, 98, 101)],
                  "SPY": [(0, 0, 505), (0, 0, 510)]})
     assert simbook.update(memory, DAY + timedelta(days=2), data) == 2
@@ -48,7 +48,10 @@ def test_a_buy_opens_a_position_and_the_target_or_stop_closes_it(memory):
     assert done["WIN"]["why"] == "reached the target" and done["WIN"]["ret"] == 0.14
     assert done["WIN"]["spy_ret"] == 0.02 and done["LOSE"]["why"] == "stopped out" and done["LOSE"]["ret"] == -0.07
     s = simbook.stats(memory)
-    assert s["buys"]["trades"] == 2 and s["buys"]["win_rate"] == 0.5 and s["paper_profit"] == 350.0
+    assert s["buys"]["trades"] == 2 and s["buys"]["win_rate"] == 0.5 and s["paper_profit"] == 1000.0
+    m = s["money"]
+    assert m["equity"] == 101000.0 and m["return_pct"] == 0.01 and m["average_result_in_r"] == 0.5   # +2R and -1R
+    assert m["open_risk"] == 1000.0 and m["cash"] == round(101000 - 142.8571 * 100, 2)
     assert s["buys"]["average_vs_spy"] == round(((0.14 - 0.02) + (-0.07 - 0.01)) / 2, 4)
     assert [o["symbol"] for o in s["open"]] == ["WAIT"] and "far too few to judge" in s["note"]
 
@@ -119,3 +122,32 @@ def test_a_morning_paper_trades_its_signals_and_the_scorecard_shows_it(memory):
     card = recommend.scorecard(memory)
     assert card["investing_paper_trades"]["closed"] == 0 and "shopping_and_travel_calls" in card
     assert recommend.page(memory)["paper"]["weights"]["tone"]["weight"] == 1.0
+
+
+def test_position_size_follows_the_stop_and_the_caps(memory):
+    book = {"equity": 100_000.0, "cash": 100_000.0, "open_risk": 0.0}
+    calm = simbook.size(100.0, 0.01, book)       # a calm stock: 2 x 1% is under the 4% floor
+    assert calm["stop"] == 96.0 and calm["target"] == 108.0
+    assert calm["shares"] == 200.0 and calm["risk"] == 800.0             # capped at 20% of the book ($20,000)
+    jumpy = simbook.size(100.0, 0.05, book)      # a jumpy one: 10% stop, so a smaller position
+    assert jumpy["stop"] == 90.0 and jumpy["target"] == 120.0 and jumpy["shares"] == 100.0 and jumpy["risk"] == 1000.0
+    assert simbook.size(100.0, 0.2, book)["stop"] == 88.0                # never wider than 12%
+    assert simbook.size(100.0, None, book)["stop"] == 93.0               # range unknown: 7%
+    low_cash = simbook.size(100.0, 0.05, {**book, "cash": 2_000.0})
+    assert low_cash["shares"] == 20.0 and low_cash["risk"] == 200.0      # only what the cash allows
+    broke = simbook.size(100.0, 0.05, {**book, "cash": 50.0})
+    assert broke["shares"] == 0.0 and "enough cash" in broke["skipped"]
+    full = simbook.size(100.0, 0.05, {**book, "open_risk": 5_500.0})
+    assert full["shares"] == 0.0 and "6%" in full["skipped"]
+
+
+def test_the_book_stops_adding_risk_at_six_percent_and_tracks_drawdown(memory):
+    names = [f"S{i}" for i in range(8)]
+    assert simbook.open_from(memory, [sig(n) for n in names], DAY, 500.0) == 6      # six risk 1% each; two skipped
+    s = simbook.stats(memory)
+    assert s["money"]["open_risk"] == 6000.0 and s["money"]["skipped_for_risk"] == 2 and len(s["open"]) == 6
+    data = Days({n: [(101, 92, 93)] for n in names[:3]} | {n: [(115, 100, 114)] for n in names[3:6]})
+    assert simbook.update(memory, DAY + timedelta(days=2), data) == 6
+    m = simbook.stats(memory)["money"]
+    assert m["equity"] == 103000.0 and m["worst_drawdown_pct"] <= 0 and m["open_risk"] == 0.0
+    assert simbook.open_from(memory, [sig("S6")], DAY + timedelta(days=3), 500.0) == 1   # room again

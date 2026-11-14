@@ -111,10 +111,11 @@ def candidates(memory: Memory, today: date) -> list[dict]:
 def judge(t: dict, bars: list[dict], facts: dict | None = None, weights: dict | None = None) -> dict | None:
     """One symbol: the action and its reasons, from attention, trend and facts. None without enough prices.
     `weights`: how much each reason counts (simbook.weights: learned from the paper trades; 1.0 until then)."""
-    from .markets import rsi, sma  # noqa: PLC0415
+    from .markets import atr, rsi, sma  # noqa: PLC0415
     closes = [b["c"] for b in bars or []]
     if len(closes) < 60:
         return None
+    swing = atr(bars)  # the average daily range: how far it usually moves in a day (sizes the paper stop)
     price, avg50 = closes[-1], sma(closes, 50)
     strength = (rsi(closes) or [50.0])[-1]
     week = price / closes[-6] - 1
@@ -167,7 +168,8 @@ def judge(t: dict, bars: list[dict], facts: dict | None = None, weights: dict | 
         for p in library.lessons(tags, 1):
             why.append(library.line(p))
     return {"key": t["key"], "category": t["category"], "action": action, "price": round(price, 2),
-            "reasons": why, "facts": {"score": round(score, 2), "parts": parts, "rsi": round(strength, 1), "tone": t["tone"],
+            "reasons": why, "facts": {"score": round(score, 2), "parts": parts,
+                                      "atr_pct": round(swing / closes[-1], 4) if swing else None, "rsi": round(strength, 1), "tone": t["tone"],
                                       "mentions": t["mentions"], "times_usual": t["times_usual"], **facts}}
 
 

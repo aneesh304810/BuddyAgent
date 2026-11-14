@@ -56,7 +56,8 @@ function paperCard(p) {
   const line = (label, g) => g ? `<div>${esc(label)}: <b>${g.won} of ${g.trades} won</b>, average ${pct(g.average_result)}${g.average_vs_spy != null ? ` (${pct(g.average_vs_spy)} against the S&P 500 fund)` : ""}</div>` : "";
   const w = ["tone", "trend", "insiders", "analysts"].map((k) => `${k} ×${p.weights[k].weight}${p.weights[k].trades ? ` (${p.weights[k].trades} trades)` : ""}`).join(" · ");
   return `<section class="card"><b>Practice book</b> <span class="pill">pretend money</span><br>
-    <small>Every signal is paper-traded automatically: $5,000, 7% stop, 14% target, 28 days.</small>
+    <small>Every signal is paper-traded automatically: ${esc(p.money.rules)}.</small>
+    <div>Book: <b>${money(p.money.equity)}</b> (${pct(p.money.return_pct)} from ${money(p.money.started_with)}) · worst fall ${pct(p.money.worst_drawdown_pct)} · at risk now ${money(p.money.open_risk)}${p.money.skipped_for_risk ? ` · ${p.money.skipped_for_risk} skipped at the risk cap` : ""}</div>
     ${p.closed ? line("Buys", p.buys) + line("Avoids", p.avoids) : `<div class="muted">No paper trades have closed yet.</div>`}
     <div><small>${p.open.length} open${p.open.length ? ": " + p.open.map((o) => esc(o.symbol)).join(", ") : ""}</small></div>
     <div><small>How much each reason counts now: ${esc(w)}</small></div>

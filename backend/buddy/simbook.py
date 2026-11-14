@@ -4,12 +4,25 @@ honest record of what following the signals would have done, and the signal engi
 This is Buddy's own test of its own signals, separate from the owner's paper portfolio (paper.py). No real
 money, no real orders.
 
-  A buy signal        opens a paper position of $5,000 at that day's close: stop 7% below, target 14% above,
-                      closed after 28 days if neither is reached, or when Buddy signals sell on it
+  A buy signal        opens a paper position at that day's close, sized by risk (see Money management), with a
+                      stop below, a target twice as far above, closed after 28 days if neither is reached, or
+                      when Buddy signals sell on it
   A sell or caution   is scored as an "avoid": right if the price then falls 7%, wrong if it rises 7%, else
                       judged by where it stands after 28 days
   Every close         keeps the result, the S&P 500 fund's move over the same days (the honest comparison), and
                       the reasons the signal was made on (tone, trend, insiders, analysts, the checklists' read)
+
+  Money management, the same rules a careful trader would write down first:
+    the book          starts at $100,000 of pretend money; its value is that plus the closed trades' results
+    the stop          twice the stock's average daily range below the entry (a calm stock gets a tight stop, a
+                      jumpy one a wide stop), never under 4% or over 12%; 7% when the range isn't known
+    risk per trade    1% of the book: the position is sized so that being stopped out loses that much, so a
+                      wide stop means a smaller position
+    position cap      no position over 20% of the book, and never more than the cash left
+    total risk cap    all open positions together may not risk more than 6% of the book; a signal that would
+                      break it is written down as skipped, not traded
+  The results show the book's value, its worst fall from a peak (drawdown), and each trade's result in units of
+  the amount risked (R), which is how the rules are judged.
 
   Learning: for each reason, how often trades won when that reason pointed the trade's way. Once a reason has
   15 closed trades behind it, its weight in the signal score moves between 0.5 and 1.5 (a reason that keeps
@@ -29,7 +42,9 @@ from .tools import local_now
 
 log = logging.getLogger(__name__)
 
-SIZE, STOP, TARGET, HOLD_DAYS = 5_000.0, 0.07, 0.14, 28
+START, RISK, MAX_POSITION, MAX_OPEN_RISK = 100_000.0, 0.01, 0.20, 0.06
+STOP, HOLD_DAYS = 0.07, 28  # the stop when the stock's daily range isn't known; avoids are judged at 7% either way
+STOP_MIN, STOP_MAX = 0.04, 0.12
 MIN_TO_LEARN, MIN_TO_TRUST = 15, 30
 PARTS = ("tone", "trend", "insiders", "analysts")
 WEIGHTS_KEY = "simbook:weights"
@@ -43,6 +58,37 @@ def _ready(memory: Memory) -> None:
                           "shares DOUBLE, stop DOUBLE, target DOUBLE, parts VARCHAR, read VARCHAR, "
                           "spy_entry DOUBLE, status VARCHAR DEFAULT 'open', closed DATE, exit DOUBLE, "
                           "why VARCHAR, ret DOUBLE, spy_ret DOUBLE)")
+    pricebook.run(memory, "ALTER TABLE sim_trades ADD COLUMN IF NOT EXISTS risk DOUBLE")
+
+
+def money(memory: Memory) -> dict:
+    """The book now: its value, the cash not in positions, and what the open positions risk."""
+    from . import pricebook  # noqa: PLC0415
+    _ready(memory)
+    longs = pricebook.run(memory, "SELECT status, shares, entry, exit, stop FROM sim_trades WHERE side = 'long' "
+                                  "AND status IN ('open', 'closed')")
+    equity = START + sum(t["shares"] * (t["exit"] - t["entry"]) for t in longs if t["status"] == "closed")
+    held = [t for t in longs if t["status"] == "open"]
+    return {"equity": round(equity, 2), "cash": round(equity - sum(t["shares"] * t["entry"] for t in held), 2),
+            "open_risk": round(sum(t["shares"] * (t["entry"] - t["stop"]) for t in held), 2)}
+
+
+def size(price: float, atr_pct: float | None, book: dict) -> dict:
+    """The stop, target and number of shares for a buy at `price`, by the rules above. shares 0 with a reason
+    when the rules say not to take it."""
+    stop_pct = max(STOP_MIN, min(2 * atr_pct, STOP_MAX)) if atr_pct else STOP
+    risk = book["equity"] * RISK
+    out = {"stop_pct": round(stop_pct, 4), "stop": round(price * (1 - stop_pct), 4),
+           "target": round(price * (1 + 2 * stop_pct), 4), "shares": 0.0, "risk": 0.0, "skipped": ""}
+    if book["open_risk"] + risk > book["equity"] * MAX_OPEN_RISK + 0.005:
+        out["skipped"] = "the open positions already risk the most the book allows (6%)"
+        return out
+    shares = min(risk / (price * stop_pct), book["equity"] * MAX_POSITION / price, max(book["cash"], 0) / price)
+    if shares * price < 100:
+        out["skipped"] = "there isn't enough cash left in the book"
+        return out
+    out["shares"], out["risk"] = round(shares, 4), round(shares * price * stop_pct, 2)
+    return out
 
 
 def open_from(memory: Memory, signals: list[dict], today: date, spy: float | None) -> int:
@@ -63,15 +109,20 @@ def open_from(memory: Memory, signals: list[dict], today: date, spy: float | Non
         if any(h["side"] == side for h in held):
             continue
         price = j["price"]
-        stop, target = (price * (1 - STOP), price * (1 + TARGET)) if side == "long" \
-            else (price * (1 + STOP), price * (1 - STOP))  # an avoid is wrong 7% up, right 7% down
         facts = j.get("facts") or {}
+        if side == "long":
+            plan = size(price, facts.get("atr_pct"), money(memory))
+            stop, target, shares, risk = plan["stop"], plan["target"], plan["shares"], plan["risk"]
+        else:  # an avoid puts no money on: it is wrong 7% up, right 7% down
+            plan, stop, target, shares, risk = {"skipped": ""}, price * (1 + STOP), price * (1 - STOP), 0.0, 0.0
         pricebook.run(memory, "INSERT INTO sim_trades (opened, symbol, category, side, entry, shares, stop, target, "
-                              "parts, read, spy_entry) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)",
-                      (today.isoformat(), j["key"], j["category"], side, price, round(SIZE / price, 4), round(stop, 4),
+                              "parts, read, spy_entry, risk, status, why) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, "
+                              "?, ?)",
+                      (today.isoformat(), j["key"], j["category"], side, price, shares, round(stop, 4),
                        round(target, 4), json.dumps(facts.get("parts") or {}),
-                       (facts.get("lenses") or {}).get("price", ""), spy))
-        opened += 1
+                       (facts.get("lenses") or {}).get("price", ""), spy, risk,
+                       "skipped" if plan["skipped"] else "open", plan["skipped"] or None))
+        opened += 0 if plan["skipped"] else 1
     return opened
 
 
@@ -147,7 +198,21 @@ def stats(memory: Memory) -> dict:
                                       for r in sorted({t["read"] for t in done if t["read"]})},
            "paper_profit": round(sum(t["shares"] * (t["exit"] - t["entry"]) for t in done if t["side"] == "long"), 2),
            "weights": weights(memory)}
-    out["note"] = ("Buddy's own paper test of its signals: $5,000 a trade, 7% stop, 14% target, 28 days; no costs. "
+    longs = [t for t in done if t["side"] == "long"]
+    value, peak, worst = START, START, 0.0
+    for t in longs:  # the book's value after each close, and its deepest fall from a peak
+        value += t["shares"] * (t["exit"] - t["entry"])
+        peak = max(peak, value)
+        worst = min(worst, value / peak - 1)
+    rs = [t["shares"] * (t["exit"] - t["entry"]) / t["risk"] for t in longs if t.get("risk")]
+    skipped = pricebook.run(memory, "SELECT COUNT(*) AS n FROM sim_trades WHERE status = 'skipped'")[0]["n"]
+    out["money"] = {**money(memory), "started_with": START, "return_pct": round(value / START - 1, 4),
+                    "worst_drawdown_pct": round(worst, 4),
+                    "average_result_in_r": round(sum(rs) / len(rs), 2) if rs else None,
+                    "skipped_for_risk": int(skipped),
+                    "rules": "1% of the book risked per trade; stop at twice the daily range (4% to 12%); target "
+                             "twice the stop; no position over 20%; at most 6% at risk in total"}
+    out["note"] = ("Buddy's own paper test of its signals, sized by risk, held up to 28 days; no costs. "
                    + (f"Only {len(done)} closed so far: far too few to judge." if len(done) < MIN_TO_TRUST
                       else "Enough trades to start reading, not to rely on."))
     return out
