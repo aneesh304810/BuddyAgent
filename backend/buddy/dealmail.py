@@ -240,17 +240,20 @@ def fetch_new(memory: Memory, env=None, connect=None) -> list:
 
 def keep(memory: Memory, deals: list[dict], when: datetime | None = None) -> int:
     """Into the price book: each deal (once) and its price as history."""
-    from . import pricebook  # noqa: PLC0415
+    from . import dealforecast, pricebook  # noqa: PLC0415
     pricebook.conn(memory)
     added = 0
     day = (when or datetime.now(timezone.utc)).date().isoformat()
     for d in deals:
+        d.setdefault("reason", dealforecast.reason_of(d["title"], d.get("subject", ""), kind=_kind(d)))
+    for d in deals:
         url = d["url"] or "email:" + hashlib.sha1(f"{d['store']}|{d['title']}|{d['price']}|{day}".encode()).hexdigest()
         got = pricebook.run(memory, "INSERT OR IGNORE INTO deals (seen_on, source, title, url, price, store, kind, posted, "
-                                    "domain, item, regular_price, ends) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?) "
-                                    "RETURNING id",
+                                    "domain, item, regular_price, ends, reason, model) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, "
+                                    "?, ?, ?, ?, ?) RETURNING id",
                             (day, f"email: {d['store']}", d["title"], url, d["price"], d["store"],
-                             d["domain"], day, d["domain"], d["item"].lower(), d["regular"], d["ends"]))
+                             _kind(d), day, d["domain"], d["item"].lower(), d["regular"], d["ends"], d["reason"],
+                             dealforecast.model_key(d["title"] if d["domain"] == "product" else d["item"])))
         if got:
             added += 1
             pricebook.observe(memory, d["domain"], d["item"], d["price"], seller=d["store"], url=d["url"],
@@ -275,8 +278,17 @@ def run(memory: Memory, env=None, connect=None) -> str:
             continue
         found += len(deals)
         kept += keep(memory, deals)
+        from . import dealforecast  # noqa: PLC0415  watched-for deals: told in the morning
+        dealforecast.check(memory, [{**d, "source": f"email: {d['store']}"} for d in deals])
     return _status(memory, f"read {len(messages)} email{'s' if len(messages) != 1 else ''}: {found} deals, "
                            f"{kept} new kept in the price book")
+
+
+def _kind(d: dict) -> str:
+    if d["domain"] != "product":
+        return d["domain"]
+    from .shopper import kind_of  # noqa: PLC0415
+    return kind_of(d["title"], d.get("store", ""))
 
 
 def _status(memory: Memory, text: str) -> str:

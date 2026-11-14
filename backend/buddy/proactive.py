@@ -528,6 +528,16 @@ async def run(memory: Memory, deliver: Deliver, connected=None) -> None:
                     dealcollector.prune(memory)
                     for text, links in dealcollector.messages(result):
                         await deliver("money", text, cards=links)
+                from . import dealforecast  # noqa: PLC0415  deals watched for (found overnight or this morning)
+                if not in_quiet_hours() and local_now().hour >= dealcollector.START_HOUR:
+                    for text, links in dealforecast.take_pending(memory):
+                        await deliver("money", text, cards=links)
+                    if dealforecast.weekly_due(memory):
+                        y, wk, _ = local_now().isocalendar()
+                        memory.set(dealforecast.WEEKLY_KEY, f"{y}-{wk}")
+                        note = await asyncio.to_thread(dealforecast.weekly, memory)
+                        if note:
+                            await deliver("money", note)
             except Exception:
                 log.exception("daily deals failed")
             try:  # Market school: a short lesson every weekday morning (New York time), unless turned off

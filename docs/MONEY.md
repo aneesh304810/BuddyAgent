@@ -158,4 +158,14 @@ decide each differently), and uses it whenever you ask about a purchase.
   "lowest Buddy has seen" marks, % off, and each item's price history chart; tap "Open deal" to open it in your
   browser. Buddy never opens store pages itself. "Read the deals inbox now" runs it on demand.
 
+- **Why deals happen, and an alert when the next one comes:** every deal Buddy reads gets a reason (a holiday
+  sale, clearance or end of season, a new model, a flash deal, a coupon, a member sale, the store's weekly sale,
+  or just a price drop). The nightly learning finds the rhythms: each product's deal dates and prices (kept for
+  good, so "on deal about every 45 days, usually ~$299" survives the 90-day deletion), and per store and kind how
+  often deals come, on which weekday and how deep, and what usually causes them. Ask "when will the Sony XM6 go
+  on sale again?" for the next likely deals (its own rhythm, the coming sales with the discounts really seen, its
+  life cycle), each with a date window, expected price and why; "why do TVs go on sale?" for the pattern; "watch
+  for it" (or "alert me under $280") and Buddy tells you in the morning when a matching deal or price shows up in
+  the feeds, the deals inbox or the daily price checks. Every Monday: "deals to watch for this month".
+
 All of it stays on your server; only Claude sees it. Buddy still never buys or pays.

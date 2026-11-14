@@ -59,6 +59,9 @@ def export(memory: Memory, folder: Path, days: int = 730) -> dict[str, Path]:
                         f"WHERE seen_at >= TIMESTAMP '{cut}'",
         "launches": "SELECT item, kind, launch_date, launch_price, successor_date FROM launches",
         "predictions": "SELECT item, kind, decision, chance, outcome FROM predictions",
+        "deals": f"SELECT seen_on, store, COALESCE(NULLIF(kind, ''), 'other') AS kind, COALESCE(domain, 'product') "
+                 f"AS domain, COALESCE(NULLIF(model, ''), lower(title)) AS model, price, regular_price, "
+                 f"COALESCE(NULLIF(reason, ''), 'price drop') AS reason FROM deals WHERE seen_on >= DATE '{cut}'",
     }
     for name, sql in queries.items():
         target = folder / f"{name}.csv.gz"
@@ -176,6 +179,32 @@ def merge(months: list[dict]) -> dict:
                     best[k] = v
         out[field] = best
     out["calibration"] = newest.get("calibration") or {}  # predictions are kept whole: the newest run sees them all
+    # deal rhythms: an item's deal dates and prices are unioned across months, so its rhythm outlives the raw data
+    items: dict = {}
+    for m in months:
+        for k, v in (m.get("item_deals") or {}).items():
+            have = items.setdefault(k, {"dates": [], "prices": [], "depths": [], "stores": []})
+            for d, p, dep in zip(v.get("dates", []), v.get("prices", []), v.get("depths", [None] * 999)):
+                if d not in have["dates"]:
+                    have["dates"].append(d)
+                    have["prices"].append(p)
+                    have["depths"].append(dep or 0)
+            have["stores"] = sorted(set(have["stores"]) | set(v.get("stores", [])))
+    out["item_deals"] = items
+    reasons: dict = {}
+    for m in months:
+        for kind, shares in (m.get("deal_reasons") or {}).items():
+            for r, v in shares.items():
+                reasons.setdefault(kind, {}).setdefault(r, 0)
+                reasons[kind][r] += v.get("deals", 0)
+    out["deal_reasons"] = {k: {r: {"deals": n, "share": round(n / sum(rs.values()), 2)} for r, n in rs.items()}
+                           for k, rs in reasons.items()}
+    best: dict = {}
+    for m in months:  # a store's rhythm: the month that saw the most of its deals
+        for k, v in (m.get("store_rhythm") or {}).items():
+            if k not in best or v.get("deals", 0) >= best[k].get("deals", 0):
+                best[k] = v
+    out["store_rhythm"] = best
     return out
 
 

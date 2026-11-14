@@ -181,11 +181,42 @@ def calibration(preds: pd.DataFrame) -> dict:
     return out
 
 
+def deal_rhythms(deals: pd.DataFrame) -> dict:
+    """item_deals: each model's deal dates, lowest prices and depths (merged across runs by Buddy); store_rhythm: per
+    store and kind, how many deals, how often (median days between deal days), which weekday, how deep; deal_reasons:
+    per kind, how many deals each reason explains."""
+    out = {"item_deals": {}, "store_rhythm": {}, "deal_reasons": {}}
+    if deals.empty:
+        return out
+    d = deals.dropna(subset=["price"]).copy()
+    d["day"] = pd.to_datetime(d["seen_on"])
+    d["depth"] = (1 - d["price"] / d["regular_price"]).where(d["regular_price"] > d["price"])
+    for model, g in d.groupby("model"):
+        days = g.groupby("day").agg(price=("price", "min"), depth=("depth", "max")).reset_index()
+        out["item_deals"][str(model)[:80]] = {
+            "dates": [x.date().isoformat() for x in days["day"]], "prices": [round(float(p), 2) for p in days["price"]],
+            "depths": [round(float(x), 3) if x == x else 0 for x in days["depth"]],
+            "stores": sorted(set(str(s) for s in g["store"].dropna()))[:5]}
+    for (store, kind), g in d.groupby(["store", "kind"]):
+        days = sorted(g["day"].unique())
+        if len(days) < 3:
+            continue
+        gaps = pd.Series(pd.to_datetime(days)).diff().dt.days.dropna()
+        out["store_rhythm"][f"{store}|{kind}"] = {
+            "kind": kind, "deals": int(len(g)), "every_days": float(gaps.median()) if len(gaps) else None,
+            "weekday": pd.Series(pd.to_datetime(days)).dt.day_name().mode().iloc[0],
+            "depth": round(float(g["depth"].median()), 3) if g["depth"].notna().any() else None}
+    for (kind, reason), g in d.groupby(["kind", "reason"]):
+        out["deal_reasons"].setdefault(kind, {})[reason] = {"deals": int(len(g))}
+    return out
+
+
 def main(base: str = ".") -> dict:
     root = Path(base)
     folder = root / "input"
     obs, items = _read(folder, "observations"), _read(folder, "items")
     launches, preds = _read(folder, "launches"), _read(folder, "predictions")
+    deals = _read(folder, "deals")
     events = json.loads((folder / "events.json").read_text()) if (folder / "events.json").exists() else []
     daily = daily_products(obs, items) if not obs.empty else pd.DataFrame()
     patterns = {
@@ -194,6 +225,7 @@ def main(base: str = ".") -> dict:
         "event_discounts": event_discounts(daily, events), "drop_odds": drop_odds(daily),
         "lifecycle": lifecycle(daily, launches), "flights": flights(obs) if not obs.empty else {},
         "hotels": hotels(obs) if not obs.empty else {}, "calibration": calibration(preds),
+        **deal_rhythms(deals),
     }
     (root / "output").mkdir(exist_ok=True)
     (root / "output" / "patterns.json").write_text(json.dumps(patterns, indent=1))

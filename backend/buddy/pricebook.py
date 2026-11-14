@@ -132,7 +132,7 @@ def conn(memory):
                                config={"memory_limit": "256MB", "threads": 1})
             c.execute(SCHEMA)
             for column in ("domain VARCHAR DEFAULT 'product'", "item VARCHAR DEFAULT ''", "regular_price DOUBLE",
-                           "ends VARCHAR DEFAULT ''"):  # deals from the deals inbox carry these too
+                           "ends VARCHAR DEFAULT ''", "reason VARCHAR DEFAULT ''", "model VARCHAR DEFAULT ''"):  # deals from the deals inbox carry these too
                 c.execute(f"ALTER TABLE deals ADD COLUMN IF NOT EXISTS {column}")
             _open[where] = c
             try:

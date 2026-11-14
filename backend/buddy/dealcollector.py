@@ -218,12 +218,14 @@ def read_feeds(memory: Memory, fetch=None) -> tuple[list[dict], list[str]]:
             continue
         added = 0
         from . import pricebook  # noqa: PLC0415
+        from . import dealforecast  # noqa: PLC0415
         for it in items:
             d = deal_from(it, f["name"])
+            d["reason"] = dealforecast.reason_of(d["title"], it.get("summary", ""), kind=d["kind"])
             got = pricebook.run(memory, "INSERT OR IGNORE INTO deals (seen_on, source, title, url, price, store, kind, "
-                                        "posted) VALUES (?, ?, ?, ?, ?, ?, ?, ?) RETURNING id",
+                                        "posted, reason, model) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?) RETURNING id",
                                 (today, d["source"], d["title"], d["url"], d["price"], d["store"], d["kind"],
-                                 d["posted"]))
+                                 d["posted"], d["reason"], dealforecast.model_key(d["title"])))
             if got:
                 added += 1
                 new.append({**d, "id": got[0]["id"]})
@@ -411,6 +413,10 @@ def run(memory: Memory, env=None, fetch=None) -> dict:
         if w:
             hits.append({**d, "want": w})
     price_news = check_prices(memory, env, fetch)
+    from . import dealforecast  # noqa: PLC0415  watched-for deals, from the feeds and today's price checks
+    dealforecast.check(memory, new + [{"title": n["want"]["name"] + " " + n["title"], "price": n["price"],
+                                       "store": n["store"], "url": n["url"], "source": "daily price check",
+                                       "reason": n["why"]} for n in price_news])
     picks = for_you(memory, [d for d in new if d not in hits])
     memory.set(STATUS_KEY, json.dumps({"day": local_now().date().isoformat(), "feeds": status,
                                        "new_deals": len(new), "matches": len(hits), "price_news": len(price_news)}))
