@@ -1,4 +1,4 @@
-"""The price book (DuckDB), the pattern learner, the nightly sandbox job, merging months and 90-day retention."""
+"""The price book (DuckDB), the pattern learner, the nightly sandbox job, merging months and one-year retention."""
 
 import asyncio
 import base64
@@ -155,8 +155,9 @@ def test_months_merge_and_sales_survive_raw_deletion():
     assert m["drop_odds"]["electronics"]["30"] == {"chance": 0.25, "items": 20}
 
 
-def test_raw_prices_over_90_days_go_only_once_learned(memory):
-    old = datetime.now(timezone.utc) - timedelta(days=120)
+def test_raw_prices_over_a_year_go_only_once_learned(memory):
+    old = datetime.now(timezone.utc) - timedelta(days=400)
+    pricebook.observe(memory, "product", "last spring", 10.0, seen_at=datetime.now(timezone.utc) - timedelta(days=120))
     pricebook.observe(memory, "product", "old thing", 10.0, seen_at=old)
     pricebook.observe(memory, "product", "new thing", 10.0)
     assert patterns.prune_raw(memory) == 0  # never learned: nothing deleted
@@ -164,6 +165,7 @@ def test_raw_prices_over_90_days_go_only_once_learned(memory):
     patterns.keep(memory, {"fitted_at": "now", "prices": 2})
     assert patterns.prune_raw(memory) == 1
     assert pricebook.lowest(memory, "old thing") is None and pricebook.lowest(memory, "new thing") == 10.0
+    assert pricebook.lowest(memory, "last spring") == 10.0  # four months old: kept now (a year, not 90 days)
 
 
 def test_learning_waits_without_the_sandbox(memory, monkeypatch):

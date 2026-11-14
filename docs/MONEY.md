@@ -141,7 +141,7 @@ decide each differently), and uses it whenever you ask about a purchase.
   and per sale and year, the odds of a 10% drop within 14, 30 and 60 days, price against months since launch
   (new launches hold their price; replaced models drop), flight fares against days before departure per route
   (the cheapest booking window), hotel weekend and month patterns, and how Buddy's own calls did. The patterns are
-  kept for good and merged month by month; raw prices and deals are deleted after 90 days, but only once they've
+  kept for good and merged month by month; raw prices and deals are deleted after a year, but only once they've
   been learned from. Buy-or-wait prefers what was learned (and says from how many items) over its rules of
   thumb. Ask "what patterns have you learned?", "learn the price patterns now", "show the price history of X",
   or "export the price book" (CSV or Parquet, for your own analysis). Needs the sandbox (deploy/sandbox.sh);
@@ -163,7 +163,7 @@ decide each differently), and uses it whenever you ask about a purchase.
 - **Why deals happen, and an alert when the next one comes:** every deal Buddy reads gets a reason (a holiday
   sale, clearance or end of season, a new model, a flash deal, a coupon, a member sale, the store's weekly sale,
   or just a price drop). The nightly learning finds the rhythms: each product's deal dates and prices (kept for
-  good, so "on deal about every 45 days, usually ~$299" survives the 90-day deletion), and per store and kind how
+  good, so "on deal about every 45 days, usually ~$299" survives the yearly deletion), and per store and kind how
   often deals come, on which weekday and how deep, and what usually causes them. Ask "when will the Sony XM6 go
   on sale again?" for the next likely deals (its own rhythm, the coming sales with the discounts really seen, its
   life cycle), each with a date window, expected price and why; "why do TVs go on sale?" for the pattern; "watch
@@ -212,5 +212,18 @@ decide each differently), and uses it whenever you ask about a purchase.
   "refresh the seasonal prices". It is a national average for a whole category, so it shows the season, not one
   product's or one route's price; Buddy's own price book covers the item. No key needed (the FRED key is used
   when set); no AI cost.
+
+- **What people are saying (Reddit).** Each night Buddy reads the communities you follow for deals, travel,
+  reviews and investing (25 to start; "follow r/Bogleheads", "stop following r/wallstreetbets", "turn travel
+  communities off"). Each post is tagged in code with its ticker or product, its category and a rough tone; deal
+  posts with a price also go into the price book. A free AI model then reads the investing and review titles for
+  a better tone and a theme: public titles only, never your watch list, holdings or purchases, and never Claude's
+  paid API. Buddy counts mentions per day, so it can say "NVDA got 8 times its usual attention today, tone
+  positive". Ask "what's trending in stocks?" or "what are people saying about the Sony XM5?". It is opinion,
+  often late or wrong: a signal of attention, never a reason to buy or sell by itself. With your own Reddit app
+  set up it uses Reddit's official API; without one it reads the public feeds, which Reddit may block and which
+  you can turn off with `BUDDY_REDDIT_FEEDS=0`. "Test Reddit" says which route works.
+- **A year of history.** Raw prices, deals and posts are kept 365 days (`BUDDY_KEEP_RAW_DAYS`); the learned
+  patterns and the daily counts are kept for good.
 
 All of it stays on your server; only Claude sees it. Buddy still never buys or pays.

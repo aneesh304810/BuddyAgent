@@ -507,7 +507,12 @@ async def run(memory: Memory, deliver: Deliver, connected=None) -> None:
                 log.exception("deals inbox failed")
             try:  # nightly: patterns learned in the sandbox, raw prices over 90 days (already learned) deleted,
                 # and a copy of the price book for the backup
-                from . import patterns, seasons  # noqa: PLC0415
+                from . import patterns, seasons, signals  # noqa: PLC0415
+                if signals.due(memory):  # nightly: what Reddit says about deals, travel, products and markets
+                    memory.set(signals.DAY_KEY, local_now().date().isoformat())
+                    got = await signals.run(memory)
+                    log.info("signals: %s posts (%s new) by %s; failed: %s", got["posts"], got["new"], got["route"],
+                             len(got["failed"]))
                 if seasons.due(memory):  # monthly: seasonal patterns by category
                     memory.set(seasons.MONTH_KEY, local_now().strftime("%Y-%m"))
                     log.info("seasonal prices: %s", await asyncio.to_thread(seasons.refresh, memory))

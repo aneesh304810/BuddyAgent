@@ -554,7 +554,7 @@ def save_report(memory: Memory, result: dict) -> None:
     memory.db.commit()
 
 
-def prune(memory: Memory, days: int = 180) -> None:
+def prune(memory: Memory, days: int = 365) -> None:
     """A safety cap: deals older than six months go even if the nightly learning never ran (normally they go at 90
     days, once learned from: patterns.prune_raw)."""
     from . import pricebook  # noqa: PLC0415  the deal list is trimmed; their prices stay as history

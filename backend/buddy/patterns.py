@@ -9,10 +9,10 @@
   keep     output/patterns.json goes into the price book's patterns table; when_to_buy reads it and prefers what
            was learned (with how many items stand behind it) over its rules of thumb
 
-Raw prices are kept 90 days; the patterns are kept for good. Each month's learning is saved (the latest run of
+Raw prices are kept a year; the patterns are kept for good. Each month's learning is saved (the latest run of
 the month wins) and merge() combines the months, weighting each by how many items or prices stood behind it; a
 sale's discounts are kept per sale and year, so Black Friday 2026 is still known long after its raw prices are
-gone, and Black Friday 2027 adds to it. Prices older than 90 days are deleted only once a successful run has
+gone, and Black Friday 2027 adds to it. Prices older than a year are deleted only once a successful run has
 learned from them, so nothing is thrown away unlearned (without the sandbox, raw prices simply wait).
 
 Runs once a night (02:30, before the backup) when the sandbox is set up (deploy/sandbox.sh); without it, the
@@ -20,6 +20,7 @@ patterns simply wait, and buy-or-wait keeps using its rules of thumb.
 """
 
 import base64
+import os
 import json
 import logging
 import tempfile
@@ -36,7 +37,7 @@ WORKSPACE = "price-patterns"
 SCRIPT = Path(__file__).parent / "sandbox_jobs" / "price_patterns.py"
 MAX_UPLOAD = 14_000_000
 DAY_KEY, STATUS_KEY, LEARNED_KEY = "patterns:day", "patterns:status", "patterns:learned_on"
-KEEP_RAW_DAYS = 90
+KEEP_RAW_DAYS = int(os.getenv("BUDDY_KEEP_RAW_DAYS", "365"))  # raw prices and deals; patterns are kept for good
 MONTHS = 36  # how far back learned months still count
 HOUR = 2
 _cache: dict = {}
@@ -242,7 +243,7 @@ def get(memory: Memory) -> dict:
 
 
 def prune_raw(memory: Memory) -> int:
-    """Delete raw prices and deals older than 90 days, but only what a successful run has already learned from."""
+    """Delete raw prices and deals older than a year (KEEP_RAW_DAYS), but only what a successful run has already learned from."""
     from datetime import timedelta  # noqa: PLC0415
     from . import pricebook  # noqa: PLC0415
     learned_on = memory.get(LEARNED_KEY)
