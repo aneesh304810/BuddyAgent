@@ -300,4 +300,16 @@ decide each differently), and uses it whenever you ask about a purchase.
   too). Long messages are now a short spoken line plus a formatted version on screen, and every message has a
   Copy button. A fund's old filing (over 60 days) is read for the record but not announced.
 
+- **Buddy's practice book (it paper-trades its own signals).** Every buy signal automatically opens a pretend
+  position of $5,000 at that day's close, with a stop 7% below, a target 14% above, and a 28-day limit; a later
+  sell signal closes it. Sell and caution signals are scored as "avoids": right if the price then falls 7%,
+  wrong if it rises 7%. Each close keeps the result, the S&P 500 fund's move over the same days, and the reasons
+  the signal was made on. From those, Buddy re-weighs each reason (tone, trend, insiders, analysts): once a
+  reason has 15 closed trades behind it, its weight in the signal score moves between 0.5 and 1.5, so a reason
+  that keeps being right counts for more and one that keeps being wrong counts for less. The Signals tab shows
+  the practice book and the weights; "how is your practice book doing?" and "show the scorecard" (investing
+  signals, paper trades, and the shopping and travel buy-or-wait calls together) work by voice. This is
+  separate from your own paper portfolio. Stops and targets are judged on daily highs and lows and no costs are
+  taken off, so real results would be worse; a few dozen trades prove little, and it says so.
+
 All of it stays on your server; only Claude sees it. Buddy still never buys or pays.

@@ -49,6 +49,20 @@ async function renderPredicted() {
   } catch (e) { $("main").innerHTML = `<p class="err">${esc(e.message)}</p>`; }
 }
 
+// Buddy's practice book: its own signals paper-traded by fixed rules, and what each reason has earned.
+function paperCard(p) {
+  if (!p) return "";
+  const pct = (v) => v == null ? "–" : `${v >= 0 ? "+" : ""}${(v * 100).toFixed(1)}%`;
+  const line = (label, g) => g ? `<div>${esc(label)}: <b>${g.won} of ${g.trades} won</b>, average ${pct(g.average_result)}${g.average_vs_spy != null ? ` (${pct(g.average_vs_spy)} against the S&P 500 fund)` : ""}</div>` : "";
+  const w = ["tone", "trend", "insiders", "analysts"].map((k) => `${k} ×${p.weights[k].weight}${p.weights[k].trades ? ` (${p.weights[k].trades} trades)` : ""}`).join(" · ");
+  return `<section class="card"><b>Practice book</b> <span class="pill">pretend money</span><br>
+    <small>Every signal is paper-traded automatically: $5,000, 7% stop, 14% target, 28 days.</small>
+    ${p.closed ? line("Buys", p.buys) + line("Avoids", p.avoids) : `<div class="muted">No paper trades have closed yet.</div>`}
+    <div><small>${p.open.length} open${p.open.length ? ": " + p.open.map((o) => esc(o.symbol)).join(", ") : ""}</small></div>
+    <div><small>How much each reason counts now: ${esc(w)}</small></div>
+    <div><small>${esc(p.note)}</small></div></section>`;
+}
+
 // Signals: a switch per category, the recent buy and sell signals with how each did, and Buddy's record.
 async function renderSignals(fresh) {
   try {
@@ -60,7 +74,7 @@ async function renderSignals(fresh) {
       <section class="card"><b>Alerts on for</b><br><small>Tap a category to turn its buy and sell alerts on or off.</small>
         <p><small>Shopping and travel</small></p><div class="chips" style="flex-wrap:wrap">${s.shopping.map(sw).join("")}</div>
         <p><small>Investing</small></p><div class="chips" style="flex-wrap:wrap">${s.investing.map(sw).join("")}</div></section>
-      <section class="card"><b>Buddy's record</b><br>${s.investing.map(rec).join(" ")}</section>` +
+      <section class="card"><b>Buddy's record</b><br>${s.investing.map(rec).join(" ")}</section>` + paperCard(s.paper) +
       (s.signals.length ? s.signals.map((g) => `
       <section class="card"><div class="deal"><div class="what">
         <b>${g.action === "buy" ? "📈" : g.action === "sell" ? "📉" : "⚠️"} ${esc(g.key)} · ${esc(g.action === "sell" ? "sell or avoid" : g.action)}</b>

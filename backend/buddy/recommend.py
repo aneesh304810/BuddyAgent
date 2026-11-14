@@ -108,8 +108,9 @@ def candidates(memory: Memory, today: date) -> list[dict]:
     return out[:12]
 
 
-def judge(t: dict, bars: list[dict], facts: dict | None = None) -> dict | None:
-    """One symbol: the action and its reasons, from attention, trend and facts. None without enough prices."""
+def judge(t: dict, bars: list[dict], facts: dict | None = None, weights: dict | None = None) -> dict | None:
+    """One symbol: the action and its reasons, from attention, trend and facts. None without enough prices.
+    `weights`: how much each reason counts (simbook.weights: learned from the paper trades; 1.0 until then)."""
     from .markets import rsi, sma  # noqa: PLC0415
     closes = [b["c"] for b in bars or []]
     if len(closes) < 60:
@@ -118,24 +119,29 @@ def judge(t: dict, bars: list[dict], facts: dict | None = None) -> dict | None:
     strength = (rsi(closes) or [50.0])[-1]
     week = price / closes[-6] - 1
     facts = facts or {}
-    score, why = 0.0, []
+    score, why, parts = 0.0, [], {}
+    w = lambda p: float(((weights or {}).get(p) or {}).get("weight", 1.0))  # noqa: E731
     times = f"{t['times_usual']:g} times its usual" if t["times_usual"] else "more than Buddy has seen before"
     why.append(f"{t['mentions']} Reddit posts last night ({times}), tone "
                f"{'positive' if t['tone'] > 0.25 else 'negative' if t['tone'] < -0.25 else 'mixed'}")
-    score += 1 if t["tone"] > 0.25 else -1 if t["tone"] < -0.25 else 0
-    score += 1 if price > avg50 else -1
+    parts["tone"] = 1 if t["tone"] > 0.25 else -1 if t["tone"] < -0.25 else 0
+    parts["trend"] = 1 if price > avg50 else -1
+    score += parts["tone"] * w("tone") + parts["trend"] * w("trend")
     why.append(f"price ${price:,.2f} is {'above' if price > avg50 else 'below'} its 50-day average "
                f"(${avg50:,.2f}), {week:+.1%} this week, RSI {strength:.0f}")
     ins = facts.get("insiders")
     if ins is not None and abs(ins) >= 20:
-        score += 1 if ins > 0 else -1
+        parts["insiders"] = 1 if ins > 0 else -1
+        score += parts["insiders"] * w("insiders")
         why.append(f"insiders have been net {'buying' if ins > 0 else 'selling'} for three months")
     an = facts.get("analysts")
     if an and an["buy_share"] >= 0.6:
-        score += 0.5
+        parts["analysts"] = 1
+        score += 0.5 * w("analysts")
         why.append(f"{an['buy']} of {an['buy'] + an['hold'] + an['sell']} analysts rate it buy")
     elif an and an["buy_share"] <= 0.25:
-        score -= 0.5
+        parts["analysts"] = -1
+        score -= 0.5 * w("analysts")
         why.append(f"only {an['buy']} of {an['buy'] + an['hold'] + an['sell']} analysts rate it buy")
     if facts.get("earnings_on"):
         why.append(f"earnings on {facts['earnings_on']}: the price can jump either way that day")
@@ -161,7 +167,7 @@ def judge(t: dict, bars: list[dict], facts: dict | None = None) -> dict | None:
         for p in library.lessons(tags, 1):
             why.append(library.line(p))
     return {"key": t["key"], "category": t["category"], "action": action, "price": round(price, 2),
-            "reasons": why, "facts": {"score": score, "rsi": round(strength, 1), "tone": t["tone"],
+            "reasons": why, "facts": {"score": round(score, 2), "parts": parts, "rsi": round(strength, 1), "tone": t["tone"],
                                       "mentions": t["mentions"], "times_usual": t["times_usual"], **facts}}
 
 
@@ -182,6 +188,8 @@ def build(memory: Memory, today: date | None = None, data=None, facts_for=None, 
         lens_for = lambda s, p, a, c: lenses.brief(memory, s, p, a, c)  # noqa: E731
     if facts_for is None and finnhub.configured():
         facts_for = lambda s: finnhub.facts(memory, s, today=today)  # noqa: E731
+    from . import simbook  # noqa: PLC0415  what the paper trades taught about each reason
+    learned = simbook.weights(memory)
     out = []
     for c in cands:
         try:
@@ -199,7 +207,7 @@ def build(memory: Memory, today: date | None = None, data=None, facts_for=None, 
                     facts = {**facts, "lenses": lens}
             except Exception:
                 log.info("recommend: checklists for %s failed", c["key"], exc_info=True)
-        j = judge(c, bars.get(c["key"]) or [], facts)
+        j = judge(c, bars.get(c["key"]) or [], facts, learned)
         if not j:
             continue
         if pricebook.run(memory, "SELECT 1 FROM recs WHERE key = ? AND action = ? AND day >= ?",
@@ -280,6 +288,11 @@ def run(memory: Memory, today: date | None = None, data=None, facts_for=None, le
     except Exception:
         log.warning("recommend: scoring failed", exc_info=True)
     made = [j for j in build(memory, today, data, facts_for, lens_for) if j["action"] != "watch"]
+    try:  # Buddy paper-trades its own signals, and learns from how they end (simbook.py)
+        from . import simbook  # noqa: PLC0415
+        simbook.run(memory, made, today, data)
+    except Exception:
+        log.warning("recommend: the practice book failed", exc_info=True)
     made.sort(key=lambda j: -abs(j["facts"]["score"]))
     return [message(j, track_record(memory, j["category"])) for j in made[:MAX_TOLD]]
 
@@ -293,11 +306,34 @@ def recent(memory: Memory, days: int = 14, today: date | None = None) -> list[di
     return [{**r, "day": str(r["day"]), "reasons": json.loads(r["reasons"] or "[]")} for r in rows]
 
 
+def scorecard(memory: Memory) -> dict:
+    """How good Buddy's calls have been, in one place: investing signals, their paper trades, and the shopping
+    and travel buy-or-wait calls."""
+    from . import simbook, whentobuy  # noqa: PLC0415
+    shop = whentobuy.track_record(memory)
+    return {"investing_signals": {c: track_record(memory, c) for c in INVESTING},
+            "investing_paper_trades": simbook.stats(memory),
+            "shopping_and_travel_calls": {k: shop[k] for k in ("calls", "open", "right_overall", "wait_calls_right",
+                                                               "buy_now_calls_right")},
+            "note": "Each call is written down when made and judged later against what prices did. Small counts "
+                    "prove little: read the numbers of calls, not only the rates."}
+
+
 def page(memory: Memory) -> dict:
     """For the Deals page's Signals tab: the switches, the recent signals and the record per category."""
     return {"categories": categories(memory), "investing": list(INVESTING), "shopping": list(SHOPPING),
             "signals": recent(memory, 30), "record": {c: track_record(memory, c) for c in INVESTING},
-            "trending": signals.trending(memory, kind="ticker", days=1, limit=10), "note": NOTE}
+            "trending": signals.trending(memory, kind="ticker", days=1, limit=10), "note": NOTE,
+            "paper": _paper(memory)}
+
+
+def _paper(memory: Memory) -> dict | None:
+    try:
+        from . import simbook  # noqa: PLC0415
+        return simbook.stats(memory)
+    except Exception:
+        log.info("recommend: practice book stats failed", exc_info=True)
+        return None
 
 
 TOOL = {
@@ -308,12 +344,15 @@ TOOL = {
         "options (investing signals from Reddit attention, price trend and Finnhub facts, made each weekday "
         "morning and scored a week later). show: the recent signals and how each did. settings: which categories "
         "are on. switch (categories: names, or 'investing', 'shopping', 'all'; on): turn them on or off. "
-        "record (category?): how many were right. run: make today's signals now. live: the live triggers "
+        "record (category?): how many were right. run: make today's signals now. paper: Buddy's practice "
+        "book: every signal is paper-traded automatically by fixed rules ($5,000, 7% stop, 14% target, 28 "
+        "days), with results against the S&P 500 fund and the weights each reason has earned. scorecard: how "
+        "good Buddy's calls have been across investing, shopping and travel. live: the live triggers "
         "(checked every minute in US market hours for the watch list, this week's signals and watched ideas: "
         "breakouts, big days, fast moves): whether they are on, the price source and what is followed. Always say a signal is unproven "
         "when its record says so, that it is not advice, and that the owner decides and trades themselves."),
     "input_schema": {"type": "object", "properties": {
-        "action": {"type": "string", "enum": ["show", "settings", "switch", "record", "run", "live"]},
+        "action": {"type": "string", "enum": ["show", "settings", "switch", "record", "run", "live", "paper", "scorecard"]},
         "categories": {"type": "array", "items": {"type": "string"}}, "on": {"type": "boolean"},
         "category": {"type": "string"}}, "required": ["action"], "additionalProperties": False},
 }
@@ -328,6 +367,11 @@ def run_tool(memory: Memory, args: dict) -> str:
     if a == "record":
         cats = [args["category"]] if args.get("category") else list(INVESTING)
         return json.dumps({c: track_record(memory, c) for c in cats})
+    if a == "paper":
+        from . import simbook  # noqa: PLC0415
+        return json.dumps(simbook.stats(memory), default=str)
+    if a == "scorecard":
+        return json.dumps(scorecard(memory), default=str)
     if a == "live":
         from . import livewatch  # noqa: PLC0415
         return json.dumps(livewatch.status(memory))
