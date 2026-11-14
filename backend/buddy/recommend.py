@@ -315,6 +315,10 @@ def scorecard(memory: Memory) -> dict:
             "investing_paper_trades": simbook.stats(memory),
             "shopping_and_travel_calls": {k: shop[k] for k in ("calls", "open", "right_overall", "wait_calls_right",
                                                                "buy_now_calls_right")},
+            "what_each_reason_has_earned": {"shopping": whentobuy.weights(memory, "product"),
+                                            "flights": whentobuy.weights(memory, "flight"),
+                                            "hotels": whentobuy.weights(memory, "hotel"),
+                                            "investing": simbook.weights(memory)},
             "note": "Each call is written down when made and judged later against what prices did. Small counts "
                     "prove little: read the numbers of calls, not only the rates."}
 

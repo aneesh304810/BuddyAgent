@@ -312,4 +312,18 @@ decide each differently), and uses it whenever you ask about a purchase.
   separate from your own paper portfolio. Stops and targets are judged on daily highs and lows and no costs are
   taken off, so real results would be worse; a few dozen trades prove little, and it says so.
 
+- **Shopping and travel calls that learn.** Every buy-or-wait call now keeps the reasons it was made on (a
+  sale ahead, a new model due, the product's life cycle, at its lowest, was lower before, under or above its
+  usual price, the season). So that each call gets an outcome, the products with an open call get a daily price
+  check (up to 15 a day, about $0.001 each) and flight routes are followed free through Travelpayouts. When a
+  call is judged, each reason is re-weighed: a reason that pushed towards waiting was right if the price then
+  fell 8% or more, one that pushed towards buying was right if it didn't. With 15 judged calls behind it, a
+  reason's weight moves between 0.5 and 1.5 and the next call uses it. **Flights and hotels** have their own
+  call now: "should I book EWR to LIM for $620 on September 10?" gives book now or wait, the chance of a lower
+  price, a date to re-check by, and the reasons (how far ahead the trip is, what Buddy has learned for the
+  route, today's price against the usual and the lowest seen). It is saved, judged against later prices for the
+  same trip date, and learned from in the same way. For hotels it also says what usually beats waiting: a
+  free-cancellation rate booked now and re-checked. "Show the scorecard" lists what each reason has earned in
+  shopping, flights, hotels and investing. It takes months of calls before the weights mean much.
+
 All of it stays on your server; only Claude sees it. Buddy still never buys or pays.

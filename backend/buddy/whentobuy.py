@@ -18,11 +18,14 @@ own patterns.
 """
 
 import json
+import logging
 import re
 from datetime import date, datetime, timedelta, timezone
 
 from .memory import Memory
 from .tools import ToolError, local_now
+
+log = logging.getLogger(__name__)
 
 
 
@@ -248,6 +251,13 @@ def advise(memory: Memory, what: str, price: float, kind: str = "", lowest: floa
     low = min([p for p in [lowest, *hist] if p] or [0]) or None
     avg = average or (sum(hist) / len(hist) if len(hist) >= 3 else None)
     reasons, chance, expected_drop = [], 0.15, 0.0
+    parts, learned_w = {}, weights(memory, "product")
+
+    def bump(name: str, delta: float) -> float:
+        """A reason's push on the chance, times what that reason has earned from past calls (1.0 until learned);
+        remembered with the call so it can be judged later."""
+        parts[name] = round(parts.get(name, 0) + delta, 3)
+        return delta * float((learned_w.get(name) or {}).get("weight", 1.0))
 
     sales = next_sales(what, kind or "electronics", today, days)
     event = ""
@@ -273,7 +283,7 @@ def advise(memory: Memory, what: str, price: float, kind: str = "", lowest: floa
                            f"{lo}–{hi}% off this kind of thing"
                            + (f" ({s['learned']})" if s.get("learned") else " (a rule of thumb until Buddy has "
                                                                              "learned it from real prices)"))
-            chance += 0.45 if wait_days <= days else 0.2
+            chance += bump("sale_ahead", 0.45 if wait_days <= days else 0.2)
             expected_drop = max(expected_drop, (lo + hi) / 2 / 100)
     if new_model:
         try:
@@ -281,7 +291,7 @@ def advise(memory: Memory, what: str, price: float, kind: str = "", lowest: floa
             if 0 <= (launch - today).days <= days + 30:
                 reasons.append(f"a new model is due around {launch:%b %d}: the current one usually drops 15–30% "
                                "after the launch")
-                chance += 0.25
+                chance += bump("new_model", 0.25)
                 expected_drop = max(expected_drop, 0.2)
                 if launch + timedelta(days=21) > by_date:
                     by_date, event = launch + timedelta(days=21), event or "the new model's launch"
@@ -290,7 +300,7 @@ def advise(memory: Memory, what: str, price: float, kind: str = "", lowest: floa
     life = lifecycle(memory, what, price, kind or "other", today, by_date, launch_date, launch_price,
                      successor_date)
     reasons += life["reasons"]
-    chance += life["chance"]
+    chance += bump("life_cycle", life["chance"]) if life["chance"] else 0
     if life["drop"] < 0:  # just launched: the first discount is small
         expected_drop = min(expected_drop, -life["drop"]) if expected_drop else 0.0
     else:
@@ -299,18 +309,18 @@ def advise(memory: Memory, what: str, price: float, kind: str = "", lowest: floa
         gap = (price - low) / price
         if gap <= 0.03:
             reasons.append(f"${price:,.2f} is at or near the lowest price seen (${low:,.2f})")
-            chance -= 0.2
+            chance += bump("near_lowest", -0.2)
         elif gap >= 0.10:
             reasons.append(f"it has been ${low:,.2f} before, {gap:.0%} lower than now")
-            chance += 0.15
+            chance += bump("was_lower", 0.15)
             expected_drop = max(expected_drop, gap * 0.8)
     if avg:
         if price <= avg * 0.9:
             reasons.append(f"${price:,.2f} is already well under its usual ${avg:,.2f}")
-            chance -= 0.15
+            chance += bump("under_usual", -0.15)
         elif price >= avg * 1.05:
             reasons.append(f"${price:,.2f} is above its usual ${avg:,.2f}")
-            chance += 0.1
+            chance += bump("above_usual", 0.1)
     try:  # the season, from ten years of government price data for the category (seasons.py)
         from . import seasons  # noqa: PLC0415
         season = seasons.outlook(memory, what, kind, today, days)
@@ -319,10 +329,10 @@ def advise(memory: Memory, what: str, price: float, kind: str = "", lowest: floa
     if season:
         reasons.append(seasons.reason(season))
         if season["better_month_ahead"]:
-            chance += 0.1
+            chance += bump("season", 0.1)
             expected_drop = max(expected_drop, season["gain_pct"] / 100)
         elif season["now_vs_trend_pct"] <= -0.5 and not sales:
-            chance -= 0.05
+            chance += bump("season", -0.05)
     odds = (learned.get("drop_odds") or {}).get(kind or "electronics") or {}
     horizon = next((h for h in ("14", "30", "60") if int(h) >= days), "60") if odds else ""
     if horizon in odds and odds[horizon].get("items", 0) >= 5:
@@ -352,12 +362,96 @@ def advise(memory: Memory, what: str, price: float, kind: str = "", lowest: floa
                    "Offer a price watch at the target so Buddy sees what happens. Buddy never buys."}
     if save:
         from . import pricebook  # noqa: PLC0415
+        _ready(memory)
         out["prediction_id"] = pricebook.run(
-            memory, "INSERT INTO predictions (item, kind, made_on, price, decision, chance, target, event, by_date) "
-                    "VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?) RETURNING id",
+            memory, "INSERT INTO predictions (item, kind, made_on, price, decision, chance, target, event, by_date, "
+                    "parts) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?) RETURNING id",
             (what, kind or "other", today.isoformat(), price, decision, chance, target, event,
-             by_date.isoformat()))[0]["id"]
+             by_date.isoformat(), json.dumps(parts)))[0]["id"]
     return out
+
+
+# --- learning from how the calls turned out ------------------------------------------------------------------
+MIN_TO_LEARN = 15
+DROPPED = 0.92  # "the price did come down": 8% or more under the price at the call
+
+
+def _ready(memory: Memory) -> None:
+    from . import pricebook  # noqa: PLC0415
+    pricebook.conn(memory)
+    pricebook.run(memory, "ALTER TABLE predictions ADD COLUMN IF NOT EXISTS parts VARCHAR")
+    pricebook.run(memory, "ALTER TABLE predictions ADD COLUMN IF NOT EXISTS travel_date DATE")
+
+
+def learn(memory: Memory, domain: str = "product") -> dict:
+    """Re-weigh each reason from the calls it took part in whose outcome Buddy saw. A reason that pushed towards
+    waiting was right when the price then fell 8% or more; one that pushed towards buying now was right when it
+    didn't. With 15 such calls behind it, a reason's weight moves between 0.5 and 1.5."""
+    from . import pricebook  # noqa: PLC0415
+    _ready(memory)
+    rows = pricebook.run(memory, "SELECT price, best_seen, parts FROM predictions WHERE COALESCE(domain, 'product') "
+                                 "= ? AND outcome IN ('right', 'wrong') AND best_seen IS NOT NULL AND parts IS NOT "
+                                 "NULL", (domain,))
+    tally: dict[str, list[bool]] = {}
+    for r in rows:
+        fell = r["best_seen"] <= r["price"] * DROPPED
+        for name, delta in (json.loads(r["parts"] or "{}")).items():
+            if delta:
+                tally.setdefault(name, []).append((delta > 0) == fell)
+    out = {}
+    for name, hits in sorted(tally.items()):
+        n, right = len(hits), sum(hits)
+        out[name] = ({"weight": round(max(0.5, min(1.5, 1 + (right / n - 0.5))), 2), "calls": n, "right": right}
+                     if n >= MIN_TO_LEARN else {"weight": 1.0, "calls": n, "right": right,
+                                                "note": f"needs {MIN_TO_LEARN} judged calls"})
+    memory.set(f"whentobuy:weights:{domain}", json.dumps({"on": local_now().date().isoformat(), "parts": out}))
+    return out
+
+
+def weights(memory: Memory, domain: str = "product") -> dict:
+    """{reason: {"weight", "calls", "right"}}: what each reason has earned so far (missing = 1.0)."""
+    try:
+        return json.loads(memory.get(f"whentobuy:weights:{domain}") or "{}").get("parts") or {}
+    except ValueError:
+        return {}
+
+
+def follow_open(memory: Memory, env=None, fetch=None, budget: int = 15) -> int:
+    """So that every call gets an outcome: the products with an open call get a price check today (Google
+    Shopping, about $0.001 each, the oldest-checked first), and the routes with an open flight call are followed
+    through Travelpayouts (free). Returns how many products were checked."""
+    from . import dealcollector, gateway, prices, pricebook  # noqa: PLC0415
+    _ready(memory)
+    today = local_now().date().isoformat()
+    open_ = pricebook.run(memory, "SELECT id, COALESCE(domain, 'product') AS domain, item, travel_date FROM "
+                                  "predictions WHERE outcome = '' AND by_date >= ? ORDER BY id", (today,))
+    for p in open_:
+        if p["domain"] == "flight" and re.fullmatch(r"[A-Za-z]{3}-[A-Za-z]{3}", p["item"]) and p["travel_date"]:
+            try:
+                from .travel import Travel  # noqa: PLC0415
+                o, d = p["item"].upper().split("-")
+                Travel(memory, env).watch(o, d, str(p["travel_date"])[:7])
+            except Exception as e:
+                log.info("following %s: %s", p["item"], e)
+    products = [p for p in open_ if p["domain"] == "product"]
+    if not products or not gateway._secret(env, "BUDDY_SERPER_KEY"):
+        return 0
+    start = int(memory.get("whentobuy:follow_at") or 0) % len(products)
+    todo = (products[start:] + products[:start])[:budget]
+    memory.set("whentobuy:follow_at", str((start + len(todo)) % len(products)))
+    done = 0
+    for p in todo:
+        try:
+            offers = [o for o in dealcollector.google_shopping(memory, p["item"], env, fetch)
+                      if dealcollector._close(p["item"], o["title"])]
+        except Exception as e:  # the budget, the network: try again tomorrow
+            log.info("following calls stopped: %s", e)
+            break
+        done += 1
+        if offers:
+            best = min(offers, key=lambda o: o["price"])
+            prices.record(memory, p["item"], best["price"], "USD", best["store"], best["url"], source="call follow-up")
+    return done
 
 
 def _words(text: str) -> set[str]:
@@ -369,15 +463,21 @@ def settle(memory: Memory, today: date | None = None) -> int:
     from . import pricebook  # noqa: PLC0415
     today = today or local_now().date()
     done = 0
+    _ready(memory)
     for p in pricebook.run(memory, "SELECT * FROM predictions WHERE outcome = '' AND by_date < ?", (today.isoformat(),)):
         made, until = str(p["made_on"]), str(p["by_date"])
+        domain = p.get("domain") or "product"
+        same_trip = " AND travel_date = ?" if p.get("travel_date") else ""
         seen = [r["price"] for r in pricebook.run(
-            memory, "SELECT price FROM observations WHERE domain = 'product' AND item = ? AND seen_at > ? "
-                    "AND seen_at <= ?", (pricebook.key(p["item"]), made, until + " 23:59:59"))]
+            memory, f"SELECT price FROM observations WHERE domain = ? AND item = ? AND seen_at > ? "
+                    f"AND seen_at <= ?{same_trip}",
+            (domain, pricebook.key(p["item"]), made, until + " 23:59:59",
+             *([str(p["travel_date"])] if same_trip else [])))]
         try:  # what they paid, from an order email for the same thing (Buddy's personal database)
             want = _words(p["item"])
-            for o in memory.db.execute("SELECT item, amount FROM shop_purchases WHERE event = 'order' AND day > ? "
-                                       "AND day <= ? AND amount IS NOT NULL", (made, until)):
+            for o in (memory.db.execute("SELECT item, amount FROM shop_purchases WHERE event = 'order' AND day > ? "
+                                        "AND day <= ? AND amount IS NOT NULL", (made, until))
+                      if domain == "product" else []):
                 got = _words(o["item"])
                 if want and len(want & got) >= max(1, min(2, len(want))):
                     seen.append(o["amount"])
@@ -395,6 +495,12 @@ def settle(memory: Memory, today: date | None = None) -> int:
         pricebook.run(memory, "UPDATE predictions SET outcome = ?, best_seen = ?, settled_on = ? WHERE id = ?",
                       (outcome, best, today.isoformat(), p["id"]))
         done += 1
+    if done:  # what the newly judged calls teach about each reason
+        for d in ("product", "flight", "hotel"):
+            try:
+                learn(memory, d)
+            except Exception:
+                log.info("learning from %s calls failed", d, exc_info=True)
     return done
 
 

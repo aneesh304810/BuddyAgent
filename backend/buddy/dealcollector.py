@@ -491,6 +491,11 @@ def run(memory: Memory, env=None, fetch=None) -> dict:
         routes = auto_routes(memory, env)
     except Exception:
         log.warning("catalog tracking failed", exc_info=True)
+    try:  # every open buy-or-wait call gets its price followed, so its outcome is known and Buddy can learn
+        from . import whentobuy  # noqa: PLC0415
+        whentobuy.follow_open(memory, env, fetch)
+    except Exception:
+        log.warning("following open calls failed", exc_info=True)
     from . import dealforecast  # noqa: PLC0415  watched-for deals, from the feeds and today's price checks
     dealforecast.check(memory, new + [{"title": n["want"]["name"] + " " + n["title"], "price": n["price"],
                                        "store": n["store"], "url": n["url"], "source": "daily price check",
