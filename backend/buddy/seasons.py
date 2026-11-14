@@ -28,7 +28,8 @@ YEARS = 10
 MONTHS = ("Jan", "Feb", "Mar", "Apr", "May", "Jun", "Jul", "Aug", "Sep", "Oct", "Nov", "Dec")
 
 # category: (FRED series id: CPI for All Urban Consumers, US city average, not seasonally adjusted; the words that
-# put an item in it). A series FRED doesn't have is skipped and named in the status, never guessed around.
+# put an item in it). If FRED doesn't have that id, Buddy looks the series up by its official name (TITLES); one
+# it still can't find is skipped and named in the status.
 SERIES = {
     "televisions": ("CUUR0000SERA01", r"\btv\b|television|oled|qled"),
     "audio equipment": ("CUUR0000SERA05", r"headphone|earbud|speaker|soundbar|airpods"),
@@ -47,6 +48,21 @@ SERIES = {
     "hotels": ("CUUR0000SEHB", r"hotel|motel|lodging|resort|per night"),
     "car rental": ("CUUR0000SETA04", r"rental car|car rental|rent a car"),
 }
+# the government's own name for each category's index: used to find the series when the id above isn't FRED's
+TITLES = {'televisions': 'Televisions',
+          'audio equipment': 'Audio Equipment',
+          'computers': 'Computers, Peripherals, and Smart Home Assistants',
+          'major appliances': 'Major Appliances',
+          'furniture and bedding': 'Furniture and Bedding',
+          'tools and outdoor equipment': 'Tools, Hardware, Outdoor Equipment and Supplies',
+          'household furnishings': 'Household Furnishings and Operations',
+          'clothing': 'Apparel',
+          'footwear': 'Footwear',
+          'toys': 'Toys',
+          'sporting goods': 'Sporting Goods',
+          'airline fares': 'Airline Fares',
+          'hotels': 'Lodging Away from Home',
+          'car rental': 'Car and Truck Rental'}
 KIND_DEFAULT = {"clothing": "clothing", "home": "household furnishings"}
 
 
@@ -78,28 +94,55 @@ def seasonal(rows: list[tuple[str, float]]) -> dict | None:
             "through": rows[-1][0]}
 
 
+def find_series(memory: Memory, category: str, env=None, fetch=None) -> str:
+    """The FRED id for a category's index, by its official name: the monthly, not seasonally adjusted, US city
+    average series. '' when FRED's search has none."""
+    import urllib.parse  # noqa: PLC0415
+    from . import gateway  # noqa: PLC0415
+    want = f"consumer price index for all urban consumers: {TITLES[category]} in u.s. city average".lower()
+    q = urllib.parse.urlencode({"search_text": want, "api_key": gateway._secret(env, "BUDDY_FRED_KEY"),
+                                "file_type": "json", "limit": 50})
+    got = gateway.call(memory, "fred", "/fred/series/search?" + q, env=env, fetch=fetch, purpose="seasons") or {}
+    for s in got.get("seriess") or []:
+        if (str(s.get("title", "")).lower() == want and s.get("frequency_short") == "M"
+                and s.get("seasonal_adjustment_short") == "NSA"):
+            return s["id"]
+    return ""
+
+
 def refresh(memory: Memory, env=None, fetch=None) -> str:
-    """Fetch every category from FRED and keep its seasonal pattern. Returns a status line."""
-    from . import market_school, pricebook  # noqa: PLC0415
+    """Fetch every category from FRED and keep its seasonal pattern. Returns a status line. One category failing
+    never stops the others."""
+    from . import gateway, market_school, pricebook  # noqa: PLC0415
+    if not gateway._secret(env, "BUDDY_FRED_KEY"):
+        return _status(memory, "FRED isn't set up: get a free key at fred.stlouisfed.org, then "
+                               "sudo bash /opt/buddy/deploy/set.sh BUDDY_FRED_KEY")
     _ready(memory)
+    known = {r["category"]: r["series"] for r in pricebook.run(memory, "SELECT category, series FROM seasons")}
     done, failed = [], []
     for category, (series, _) in SERIES.items():
-        try:
-            rows = market_school.fred(memory, series, YEARS * 12 + 13, env, fetch)
-            got = seasonal(rows)
-        except ToolError as e:
-            return _status(memory, str(e))
-        except Exception as e:
-            log.info("seasons %s: %s", category, e)
-            failed.append(f"{category} ({series}: {str(e)[:60]})")
-            continue
+        got, why, used = None, "", ""
+        for attempt in ("known", "search"):
+            try:
+                used = (known.get(category) or series) if attempt == "known" \
+                    else find_series(memory, category, env, fetch)
+                if not used:
+                    why = why or "FRED has no series by that name"
+                    continue
+                got = seasonal(market_school.fred(memory, used, YEARS * 12 + 13, env, fetch))
+                if got:
+                    break
+                why = "not enough monthly data"
+            except Exception as e:  # a wrong id, a rate limit, the network: note it and go on
+                log.info("seasons %s (%s): %s", category, used, e)
+                why = str(e)[:80]
         if not got:
-            failed.append(f"{category} ({series}: not enough monthly data)")
+            failed.append(f"{category} ({why})")
             continue
         pricebook.run(memory, "INSERT OR REPLACE INTO seasons VALUES (?, ?, ?, ?)",
-                      (category, series, json.dumps(got), local_now().date().isoformat()))
+                      (category, used, json.dumps(got), local_now().date().isoformat()))
         done.append(category)
-    return _status(memory, f"seasonal patterns for {len(done)} categories"
+    return _status(memory, f"seasonal patterns for {len(done)} of {len(SERIES)} categories"
                            + (f"; not available: {'; '.join(failed)}" if failed else ""))
 
 

@@ -31,11 +31,24 @@ def series(months=133, low_month=12, depth=4.0, growth=0.002):
     return rows[::-1]
 
 
-def fake_fetch(missing=()):
+def fake_fetch(missing=(), renamed=None):
+    """FRED: observations for the ids it has; 400 for the rest; a search by title for renamed ones."""
+    renamed = renamed or {}  # category: the id FRED really uses
+
     def fetch(url, data=None, headers=None):
+        if "/series/search" in url:
+            import urllib.parse
+            text = urllib.parse.parse_qs(urllib.parse.urlparse(url).query)["search_text"][0]
+            hits = [{"id": "CUSR0000X", "title": text, "frequency_short": "M", "seasonal_adjustment_short": "SA"}]
+            hits += [{"id": sid, "title": text.upper(), "frequency_short": "M", "seasonal_adjustment_short": "NSA"}
+                     for c, sid in renamed.items() if seasons.TITLES[c].lower() in text]
+            return json.dumps({"seriess": hits})
         sid = url.split("series_id=")[1].split("&")[0]
-        if sid in missing:
-            raise RuntimeError("HTTP 400: The series does not exist.")
+        if sid in missing or sid in {seasons.SERIES[c][0] for c in renamed}:
+            import io
+            import urllib.error
+            raise urllib.error.HTTPError(url, 400, "Bad Request", {}, io.BytesIO(
+                b'{"error_message": "Bad Request. The series does not exist."}'))
         low = 7 if sid == seasons.SERIES["airline fares"][0] else 12
         low = 1 if sid == seasons.SERIES["hotels"][0] else low
         return json.dumps({"observations": [{"date": d, "value": str(v)} for d, v in series(low_month=low)]})
@@ -54,10 +67,19 @@ def test_the_seasonal_shape_ignores_inflation():
 
 def test_refresh_keeps_what_fred_has_and_names_what_it_doesnt(memory):
     status = seasons.refresh(memory, ENV, fake_fetch(missing={seasons.SERIES["toys"][0]}))
-    assert "13 categories" in status and "toys" in status
+    assert "13 of 14 categories" in status and "toys" in status
     assert seasons.get(memory, "televisions")["cheapest"][0] == 12
     assert seasons.get(memory, "toys") is None
     assert "toys" in json.loads(memory.get(seasons.STATUS_KEY))["status"]
+
+
+def test_a_wrong_first_id_never_stops_the_rest_and_is_found_by_name(memory):
+    """What happened live: the first series id didn't exist, and the whole refresh stopped."""
+    fetch = fake_fetch(renamed={"televisions": "CUUR0000SERA99"})
+    assert "14 of 14 categories" in seasons.refresh(memory, ENV, fetch)
+    assert pricebook.run(memory, "SELECT series FROM seasons WHERE category = 'televisions'")[0]["series"] == \
+        "CUUR0000SERA99"
+    assert "14 of 14" in seasons.refresh(memory, ENV, fetch)  # next month it uses the id it found
 
 
 def test_no_key_says_so(memory):
