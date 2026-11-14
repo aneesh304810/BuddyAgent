@@ -188,8 +188,10 @@ def check(memory: Memory, now: datetime | None = None, data=None, quote=None, en
         told["sent"] += 1
         options = (" Option prices on free data are 15 minutes late: check the live chain before acting."
                    if recommend.enabled(memory, "options") and category_of(s) == "stocks" else "")
-        out.append(f"⚡ {s} ${price:,.2f} ({change:+.1%} today) " + " and ".join(w for _, w in new)
-                   + f". It's {f['why']}.{options} A live trigger, not advice: Buddy never trades.")
+        shown = "\n".join([f"**⚡ {s} ${price:,.2f}** ({change:+.1%} today)", *[f"- It {w}" for _, w in new],
+                           f"- It's {f['why']}", *([f"-{options}"] if options else []),
+                           "A live trigger, not advice: Buddy never trades."])
+        out.append(f"⚡ {s} ${price:,.2f} {new[0][1]}. || {shown}")
     memory.set(TOLD_KEY, json.dumps(told))
     memory.set(STATUS_KEY, f"Following {len(symbols)} symbols by {'Finnhub' if quote or source(env) == 'finnhub' else 'Alpaca'}; "
                            f"{told['sent']} alerts today; last check {now.astimezone(NY):%H:%M} New York.")

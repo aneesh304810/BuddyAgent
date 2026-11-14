@@ -137,6 +137,7 @@ object Notes {
     private const val APPROVAL_ID = 2
     private const val STATUS = "buddy_status"
     const val NUDGES = "buddy_nudges"
+    private const val UPDATES = "buddy_updates"  // worth knowing, not worth interrupting: no sound, no pop-up
     private var nextId = 100
 
     fun createChannels(context: Context) {
@@ -146,6 +147,9 @@ object Notes {
         )
         manager.createNotificationChannel(
             NotificationChannel(NUDGES, "Reminders and nudges", NotificationManager.IMPORTANCE_HIGH)
+        )
+        manager.createNotificationChannel(
+            NotificationChannel(UPDATES, "Quiet updates", NotificationManager.IMPORTANCE_LOW)
         )
     }
 
@@ -173,13 +177,14 @@ object Notes {
     }
 
     /** [link]: an https page the notification can open, e.g. the urgent email in Gmail. */
-    fun nudge(context: Context, text: String, jobId: Int? = null, link: String? = null, linkLabel: String = "Open") {
+    fun nudge(context: Context, text: String, jobId: Int? = null, link: String? = null, linkLabel: String = "Open",
+              quiet: Boolean = false) {
         if (context.checkSelfPermission(Manifest.permission.POST_NOTIFICATIONS) !=
             PackageManager.PERMISSION_GRANTED
         ) return
         context.getSystemService(NotificationManager::class.java).notify(
             nextId++,
-            Notification.Builder(context, NUDGES)
+            Notification.Builder(context, if (quiet) UPDATES else NUDGES)
                 .setSmallIcon(R.drawable.ic_stat_buddy)
                 .setContentTitle("Buddy")
                 .setContentText(text)

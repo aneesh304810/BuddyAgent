@@ -287,4 +287,17 @@ decide each differently), and uses it whenever you ask about a purchase.
   gain, the cash, the total return, and the same money in the S&P 500 fund since your first trade, which is the
   honest comparison. No costs or taxes are taken off. Nothing is a real order.
 
+- **Alerts that learn what matters.** Every message Buddy sends on its own has a kind (live triggers, buy and
+  sell signals, fund filings, deals you watch for, daily deal picks, reminders...) and a level: **alert** (pops
+  up and is spoken), **notify** (a silent notification), **quiet** (in the chat only) or **muted** (kept on the
+  Alerts page only). Tap 👍 or 👎 under any of them. After three ratings on a kind, mostly thumbs-down makes
+  that kind one level quieter (two when nearly all are down), mostly thumbs-up one level louder; one tap never
+  silences anything, and thumbs older than 90 days stop counting. Reminders, approvals, rides, urgent email,
+  bills, security and calls never go below a silent notification. Live triggers and watched deals start as
+  alerts, signals and daily picks as silent notifications, fund filings as quiet. The **Alerts** page (☰ menu)
+  groups everything by category (Investing, Deals, Travel, Email, Reminders...), with copy and thumbs on each
+  and, under "What matters", a level per kind you can set yourself ("make fund filings quiet" works by voice
+  too). Long messages are now a short spoken line plus a formatted version on screen, and every message has a
+  Copy button. A fund's old filing (over 60 days) is read for the record but not announced.
+
 All of it stays on your server; only Claude sees it. Buddy still never buys or pays.

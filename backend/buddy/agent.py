@@ -74,6 +74,7 @@ from .funds import TOOL as FUND_HOLDINGS_TOOL
 from .journal import TOOL as INVESTMENT_JOURNAL_TOOL
 from .paper import TOOL as PAPER_PORTFOLIO_TOOL
 from .investors import TOOL as INVESTOR_LIBRARY_TOOL
+from .attention import TOOL as ALERT_SETTINGS_TOOL
 from .nest import TOOL as THERMOSTAT_TOOL
 from .calls import TOOL as PHONE_CALL_TOOL
 from .convolog import TOOL as RECALL_CONVO_TOOL
@@ -812,7 +813,7 @@ class Conversation:
                      WEATHER_TOOL, PACKAGES_TOOL, MESSAGE_TOOL, BUDGET_TOOL, COSTWATCH_TOOL, ADVICE_TOOL, EDIT_TOOL,
                      RECALL_CONVO_TOOL, CLAUDE_FIX_TOOL, COMMUTE_TOOL, ROUTINE_TOOL, CALENDAR_ADD_TOOL,
                      CONNECTIONS_TOOL, AMAZON_TOOL, MY_HEALTH_TOOL, HEALTH_INFO_TOOL, HEALTH_PLAN_TOOL, RESTAURANTS_TOOL, ENTERTAINMENT_TOOL, SELF_CHECK_TOOL, MARKET_SCHOOL_TOOL, SHOPPING_PROFILE_TOOL, WHEN_TO_BUY_TOOL, DAILY_DEALS_TOOL, PRICE_BOOK_TOOL, DEAL_FORECAST_TOOL, HOTEL_DIRECT_TOOL, SEASONAL_PRICES_TOOL, COMMUNITY_SIGNALS_TOOL, RECOMMENDATIONS_TOOL, INVESTOR_CHECKS_TOOL,
-    FUND_HOLDINGS_TOOL, INVESTMENT_JOURNAL_TOOL, PAPER_PORTFOLIO_TOOL, INVESTOR_LIBRARY_TOOL,
+    FUND_HOLDINGS_TOOL, INVESTMENT_JOURNAL_TOOL, PAPER_PORTFOLIO_TOOL, INVESTOR_LIBRARY_TOOL, ALERT_SETTINGS_TOOL,
                      THERMOSTAT_TOOL, PHONE_CALL_TOOL]
         spending += [BROWSE_TOOL] if self.jobs else []  # listed even when the sandbox is down: it says what to fix
         if self.memory.get("forms:phone") != "1":  # the owner's choice: forms always in Buddy's own browser
@@ -980,6 +981,9 @@ class Conversation:
         if name == "thermostat":  # the owner's home: changes only after a yes (nest.run_tool asks)
             from . import nest  # noqa: PLC0415
             return await nest.run_tool(self.memory, self.thrift, args)
+        if name == "alert_settings":  # how loud each kind of message is, and what the thumbs taught
+            from . import attention  # noqa: PLC0415
+            return await asyncio.to_thread(attention.run_tool, self.memory, args)
         if name in ("fund_holdings", "investment_journal", "paper_portfolio", "investor_library"):
             from . import funds, investors, journal, paper  # noqa: PLC0415  13F; journal; paper money; library
             mod = {"fund_holdings": funds, "investment_journal": journal, "paper_portfolio": paper,

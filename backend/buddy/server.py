@@ -24,7 +24,10 @@ Protocol (JSON messages):
                                                       (filler: "hang on, checking" while tools run)
                    {"type": "cards", "turn": "a1b2c3", "cards": [...]}  results to show under the reply
                    {"type": "done", "turn": "a1b2c3"} reply finished (turn: for a thumbs rating)
-                   {"type": "nudge", "kind": "...", "text": "...", "job_id": 3}
+                   {"type": "nudge", "kind": "...", "text": "...", "job_id": 3, "id": "ab12", "category":
+                    "Investing", "level": "alert" | "notify" | "quiet"}   (level: pop up and speak / silent
+                                                      notification / chat only; id: for a thumbs rating, sent
+                                                      back as {"type": "rate_nudge", "id": "ab12", "up": true})
                                                       Buddy speaking up (job_id: a finished
                                                       background job; see GET /api/jobs/{id})
                    {"type": "whisper", "kind": "...", "text": "..."}
@@ -242,10 +245,23 @@ async def deliver(kind: str, text: str, **extra) -> bool:
     spoken, sep, shown = text.partition("||")  # "spoken || shown": short when read aloud, structured on screen
     display = shown.strip() if sep and spoken.strip() and shown.strip() else ""
     text = spoken.strip() if display else text.replace("||", " ").strip()
+    # How loud this one is (attention.py): learned from the owner's thumbs per kind of message. A kind they've
+    # shown they don't want is kept for the Alerts page and not sent.
+    topic = extra.pop("topic", "")
+    try:
+        from . import attention  # noqa: PLC0415
+        plan = attention.plan(memory, kind, text, display, topic)
+    except Exception:
+        log.exception("attention: planning a %s message failed", kind)
+        plan = {"id": "", "category": "", "level": "alert"}
+    if plan["level"] == "muted":
+        log.info("a %s message kept for the Alerts page only (muted by the owner's thumbs)", plan.get("topic", kind))
+        return True
     for ws, convo in list(connections.items()):
         with contextlib.suppress(Exception):
             trace("→", {"type": "nudge", "kind": kind, "text": text})
-            message = {"type": "nudge", "kind": kind, "text": text, **extra}
+            message = {"type": "nudge", "kind": kind, "text": text, "id": plan["id"],
+                       "category": plan["category"], "level": plan["level"], **extra}
             if display:
                 message["display"] = display
             if extra.get("cards"):
@@ -1538,6 +1554,33 @@ async def api_deals_predicted(days: int = 45) -> dict:
     return {"predictions": await asyncio.to_thread(dealforecast.predictions, memory, max(7, min(days, 120)))}
 
 
+# --- alerts (web/alerts.html): what Buddy sent on its own, grouped by category, with thumbs and levels
+@app.get("/api/alerts", dependencies=[Depends(require_admin)])
+async def api_alerts(days: int = 14) -> dict:
+    from . import attention  # noqa: PLC0415
+    return await asyncio.to_thread(attention.inbox, memory, max(1, min(days, 60)))
+
+
+@app.post("/api/alerts/rate", dependencies=[Depends(require_admin)])
+async def api_alerts_rate(body: dict) -> dict:
+    from . import attention  # noqa: PLC0415
+    try:
+        up = body.get("up")
+        return await asyncio.to_thread(attention.rate, memory, str(body.get("id", "")), None if up is None else bool(up))
+    except ToolError as e:
+        raise HTTPException(status_code=400, detail=str(e)) from e
+
+
+@app.post("/api/alerts/level", dependencies=[Depends(require_admin)])
+async def api_alerts_level(body: dict) -> dict:
+    from . import attention  # noqa: PLC0415
+    try:
+        said = await asyncio.to_thread(attention.set_level, memory, str(body.get("topic", "")), str(body.get("level", "")))
+    except ToolError as e:
+        raise HTTPException(status_code=400, detail=str(e)) from e
+    return {"said": said, "topics": attention.topics(memory)}
+
+
 @app.get("/api/deals/signals", dependencies=[Depends(require_admin)])
 async def api_deals_signals() -> dict:
     from . import recommend  # noqa: PLC0415
@@ -2136,6 +2179,11 @@ async def talk(ws: WebSocket) -> None:
             elif msg.get("type") == "voice_timing":  # how long each step of one utterance took, for Insights
                 with contextlib.suppress(Exception):
                     insights.record_voice_timing(memory, msg)
+            elif msg.get("type") == "rate_nudge" and msg.get("id"):  # thumbs on something Buddy sent on its own
+                from . import attention  # noqa: PLC0415
+                with contextlib.suppress(Exception):
+                    up = msg.get("up")
+                    attention.rate(memory, str(msg["id"]), None if up is None else bool(up))
             elif msg.get("type") == "rate" and msg.get("turn"):
                 up = msg.get("up")
                 usage.rate_turn(memory, str(msg["turn"])[:32], None if up is None else bool(up))

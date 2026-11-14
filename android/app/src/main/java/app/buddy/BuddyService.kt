@@ -365,6 +365,14 @@ class BuddyService : Service() {
         mouth.speak("This is how fast I'll talk.")
     }
 
+    /** Thumbs on something Buddy said on its own (null clears): Buddy learns which kinds of message matter. */
+    fun rateNudge(id: String, rating: Int?) {
+        val message = JSONObject().put("type", "rate_nudge").put("id", id)
+            .put("up", if (rating == null) JSONObject.NULL else rating > 0)
+        if (sendQuietly(message)) BuddyState.ratedNudge(id, rating)
+        else BuddyState.add(Line("Not connected, so the rating wasn't saved.", Speaker.ERROR))
+    }
+
     /** Thumbs on a reply (null clears): shown per model and purpose in Insights. */
     fun rate(turn: String, rating: Int?) {
         val message = JSONObject().put("type", "rate").put("turn", turn)
@@ -600,10 +608,13 @@ class BuddyService : Service() {
             }
             is ServerEvent.Nudge -> {
                 BuddyState.add(Line(event.display ?: event.text, Speaker.NUDGE, event.jobId, opensInsights = event.kind == "health",
-                    kind = event.kind, cards = event.cards))
+                    kind = event.kind, cards = event.cards, nudgeId = event.id, category = event.category))
                 val link = if (event.kind == "email") firstLink(event.cards) else null  // the urgent email, in Gmail
-                if (event.kind != "ride") Notes.nudge(this, event.text, event.jobId, link, "Open in Gmail")  // Uber / Lyft show their own
-                if (!BuddyState.ui.value.onCall) mouth.speak(event.text)
+                // How loud (learned from your thumbs): alert pops up and is spoken, notify is a silent
+                // notification, quiet stays in the chat.
+                if (event.kind != "ride" && event.level != "quiet")  // Uber / Lyft show their own
+                    Notes.nudge(this, event.text, event.jobId, link, "Open in Gmail", quiet = event.level == "notify")
+                if (event.level == "alert" && !BuddyState.ui.value.onCall) mouth.speak(event.text)
             }
             is ServerEvent.Whisper -> {
                 val label = when (event.kind) {

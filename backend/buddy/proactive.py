@@ -539,29 +539,29 @@ async def run(memory: Memory, deliver: Deliver, connected=None) -> None:
                     dealcollector.save_report(memory, result)
                     dealcollector.prune(memory)
                     for text, links in dealcollector.messages(result):
-                        await deliver("money", text, cards=links)
+                        await deliver("money", text, cards=links, topic="deals:daily")
                 from . import funds  # noqa: PLC0415  new 13F filings from the funds followed, checked weekly
                 if funds.due(memory) and os.getenv("BUDDY_SEC_CONTACT") and not in_quiet_hours():
                     y, wk, _ = local_now().isocalendar()
                     memory.set(funds.WEEK_KEY, f"{y}-{wk}")
                     note = await asyncio.to_thread(funds.weekly, memory)
                     if note:
-                        await deliver("money", note)
+                        await deliver("money", note, topic="investing:funds")
                 from . import recommend  # noqa: PLC0415  investing signals, weekday mornings
                 if recommend.due(memory) and not in_quiet_hours():
                     memory.set(recommend.DAY_KEY, local_now().date().isoformat())
                     for text in await asyncio.to_thread(recommend.run, memory):
-                        await deliver("money", text)
+                        await deliver("money", text, topic="investing:signals")
                 from . import dealforecast  # noqa: PLC0415  deals watched for (found overnight or this morning)
                 if not in_quiet_hours() and local_now().hour >= dealcollector.START_HOUR:
                     for text, links in dealforecast.take_pending(memory):
-                        await deliver("money", text, cards=links)
+                        await deliver("money", text, cards=links, topic="deals:watched")
                     if dealforecast.weekly_due(memory):
                         y, wk, _ = local_now().isocalendar()
                         memory.set(dealforecast.WEEKLY_KEY, f"{y}-{wk}")
                         note = await asyncio.to_thread(dealforecast.weekly, memory)
                         if note:
-                            await deliver("money", note)
+                            await deliver("money", note, topic="deals:weekly")
             except Exception:
                 log.exception("daily deals failed")
             try:  # Market school: a short lesson every weekday morning (New York time), unless turned off
@@ -569,7 +569,7 @@ async def run(memory: Memory, deliver: Deliver, connected=None) -> None:
                 if MARKET_SCHOOL and market_school.due(memory) and not in_quiet_hours():
                     memory.set(market_school.DONE_KEY, market_school.school_day())
                     _, text = await market_school.lesson(memory)
-                    await deliver("money", text)
+                    await deliver("money", text, topic="investing:school")
             except Exception:
                 log.exception("market school failed")
             try:  # markets: the daily scan after the US close (or when asked), and ideas checked in market hours
@@ -583,13 +583,13 @@ async def run(memory: Memory, deliver: Deliver, connected=None) -> None:
                     for alert in await asyncio.to_thread(trader.close_check):
                         text += " " + alert["text"]
                     if asked or not in_quiet_hours():
-                        await deliver("money", text)
+                        await deliver("money", text, topic="investing:scan")
                 if (trader.positions() or memory.get("markets:scanned")) and \
                         memory.get("markets:checked") != local_now().strftime("%Y-%m-%dT%H:") + str(local_now().minute // 15):
                     memory.set("markets:checked", local_now().strftime("%Y-%m-%dT%H:") + str(local_now().minute // 15))
                     for alert in await asyncio.to_thread(trader.check):
                         if not in_quiet_hours():
-                            await deliver("money", alert["text"])
+                            await deliver("money", alert["text"], topic="investing:ideas")
             except Exception:
                 log.exception("markets failed")
             try:  # live triggers: once a minute in US market hours, for the symbols being followed (code only)
@@ -597,7 +597,7 @@ async def run(memory: Memory, deliver: Deliver, connected=None) -> None:
                 if livewatch.due(memory):
                     memory.set(livewatch.MINUTE_KEY, datetime.now(timezone.utc).strftime("%Y-%m-%dT%H:%M"))
                     for text in await asyncio.to_thread(livewatch.check, memory):
-                        await deliver("money", text)
+                        await deliver("money", text, topic="investing:live")
             except Exception:
                 log.exception("live triggers failed")
             if not in_quiet_hours():

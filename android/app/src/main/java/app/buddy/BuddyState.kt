@@ -19,6 +19,8 @@ data class Line(
     val opensInsights: Boolean = false,  // the daily health digest: tap for the dashboard
     val cards: String? = null,           // JSON array: places, stays, flights, news... under the reply
     val kind: String = "",               // nudges: reminder, job_done, health...
+    val nudgeId: String? = null,         // nudges: lets you rate it, so Buddy learns which kinds matter
+    val category: String = "",           // nudges: Investing, Deals, Travel, Reminders...
     val at: Long = System.currentTimeMillis(),
 )
 
@@ -69,6 +71,10 @@ object BuddyState {
         } else {
             it.copy(lines = (it.lines + Line("", Speaker.BUDDY, cards = json)).takeLast(200))
         }
+    }
+
+    fun ratedNudge(id: String, rating: Int?) = update {
+        it.copy(lines = it.lines.map { line -> if (line.nudgeId == id) line.copy(rating = rating) else line })
     }
 
     fun rated(turn: String, rating: Int?) = update {

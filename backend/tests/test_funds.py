@@ -3,7 +3,7 @@
 import io
 import json
 import urllib.error
-from datetime import datetime
+from datetime import date, datetime
 
 import pytest
 
@@ -103,9 +103,17 @@ def test_following_and_the_weekly_note(memory):
     assert "Broken Fund" not in funds.followed(memory)
     assert "Oakmark" in funds.follow(memory, "Oakmark", "0000872323") and funds.followed(memory)["Oakmark"] == "872323"
     funds.unfollow(memory, "Oakmark")
-    note = funds.weekly(memory, ENV, sec([(A3, "2026-09-30", "2026-11-13", Q3)]))
-    assert "Berkshire Hathaway (quarter to 2026-09-30, filed 2026-11-13)" in note and "already weeks old" in note
-    assert funds.weekly(memory, ENV, sec([(A3, "2026-09-30", "2026-11-13", Q3)])) == ""   # nothing new: silent
+    day = date(2026, 11, 16)
+    note = funds.weekly(memory, ENV, sec([(A3, "2026-09-30", "2026-11-13", Q3)]), day)
+    spoken, shown = note.split(" || ")
+    assert spoken == "🏦 New quarterly filing from Berkshire Hathaway. The details are on screen."
+    assert "**Berkshire Hathaway** · quarter to 2026-09-30, filed 2026-11-13" in shown
+    assert "- Largest: Apple Inc, Coca Cola Co, New Idea Inc" in shown and "already weeks old" in shown
+    assert funds.weekly(memory, ENV, sec([(A3, "2026-09-30", "2026-11-13", Q3)]), day) == ""  # nothing new: silent
+    funds.follow(memory, "Old Fund", "1067983")   # a fund whose newest filing is years old: read, not announced
+    funds.unfollow(memory, "Berkshire")
+    assert funds.weekly(memory, ENV, sec([("0000950123-23-000009", "2023-12-31", "2024-02-14", Q2)]), day) == ""
+    assert funds.show(memory, "Old Fund")["quarter_ending"] == "2023-12-31"
     assert funds.due(memory, datetime(2026, 11, 16, 10, 0))
     memory.set(funds.WEEK_KEY, "2026-47")
     assert not funds.due(memory, datetime(2026, 11, 17, 10, 0)) and funds.due(memory, datetime(2026, 11, 23, 10, 0))

@@ -21,7 +21,10 @@ sealed interface ServerEvent {
     data object Thinking : ServerEvent
     /** text is spoken (and the notification); display, if any, is the structured version shown in the chat. */
     data class Nudge(val kind: String, val text: String, val jobId: Int? = null, val cards: String? = null,
-                     val display: String? = null) : ServerEvent
+                     val display: String? = null,
+                     /** id: for a thumbs rating. category: what it's about. level: alert (pop up and speak),
+                      *  notify (silent notification) or quiet (chat only), learned from your thumbs. */
+                     val id: String? = null, val category: String = "", val level: String = "alert") : ServerEvent
     data class Whisper(val kind: String, val text: String) : ServerEvent
     data class Error(val text: String) : ServerEvent
     data class Approval(val question: String) : ServerEvent
@@ -69,6 +72,9 @@ sealed interface ServerEvent {
                     if (msg.has("job_id")) msg.getInt("job_id") else null,
                     msg.optJSONArray("cards")?.takeIf { it.length() > 0 }?.toString(),
                     msg.optString("display").takeIf { it.isNotBlank() },
+                    msg.optString("id").takeIf { it.isNotBlank() },
+                    msg.optString("category"),
+                    msg.optString("level").ifBlank { "alert" },
                 )
                 "whisper" -> Whisper(msg.optString("kind"), msg.getString("text"))
                 "error" -> Error(msg.getString("text"))

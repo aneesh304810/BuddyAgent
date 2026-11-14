@@ -259,7 +259,9 @@ def message(j: dict, record: dict) -> str:
              if record["proven"] else
              f"UNPROVEN: only {record['scored']} of Buddy's {j['category']} signals scored so far"
              + (f" ({record['right']} right)" if record["scored"] else ""))
-    return f"{icon} {j['key']} ({j['category']}): {verb}. Why: {'; '.join(j['reasons'])}. {proof}. {NOTE}"
+    shown = "\n".join([f"**{icon} {j['key']} · {verb}** ({j['category']})", *[f"- {r}" for r in j["reasons"]],
+                       f"**Record:** {proof}.", NOTE])
+    return f"{icon} {j['key']} ({j['category']}): {verb}. The reasons are on screen. || {shown}"
 
 
 # --- the morning ----------------------------------------------------------------------------------------------

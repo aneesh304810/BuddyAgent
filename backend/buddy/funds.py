@@ -18,7 +18,7 @@ import json
 import logging
 import re
 import xml.etree.ElementTree as ET
-from datetime import datetime
+from datetime import date, datetime
 
 from . import gateway
 from .memory import Memory
@@ -250,20 +250,30 @@ def due(memory: Memory, now: datetime | None = None) -> bool:
     return now.hour >= 9 and memory.get(WEEK_KEY) != f"{year}-{week}"
 
 
-def weekly(memory: Memory, env=None, fetch=None) -> str:
+FRESH_DAYS = 60  # a filing older than this isn't announced
+
+
+def weekly(memory: Memory, env=None, fetch=None, today=None) -> str:
     """Read new filings; a short note when a fund filed, '' otherwise."""
     got = refresh(memory, env, fetch)
-    lines = []
+    today, blocks, names = (today or local_now().date()), [], []
     for fund, text in got.items():
         if not text.startswith("new filing"):
             continue
         s = show(memory, fund, 3)
-        bits = [f"top holdings {', '.join(t['holding'] for t in s['top'])}"]
-        bits += [f"{label} {', '.join(s[key][:4])}" for key, label in (("new", "new:"), ("sold_out", "sold out of:"))
-                 if s.get(key)]
-        lines.append(f"{fund} (quarter to {s['quarter_ending']}, filed {s['filed']}): " + "; ".join(bits))
-    return ("🏦 New fund filings. " + " | ".join(lines) + ". These are quarter-end positions, already weeks old: "
-            "not what they own now.") if lines else ""
+        if (today - date.fromisoformat(s["filed"])).days > FRESH_DAYS:
+            continue  # read for the record, but an old filing (or a fund's first read) is not news
+        names.append(fund)
+        blocks.append(f"**{fund}** · quarter to {s['quarter_ending']}, filed {s['filed']}")
+        blocks.append(f"- Largest: {', '.join(t['holding'] for t in s['top'])}")
+        blocks += [f"- {label}: {', '.join(s[key][:4])}" for key, label in
+                   (("new", "New"), ("sold_out", "Sold out of"), ("added", "Added to"), ("trimmed", "Trimmed"))
+                   if s.get(key)]
+    if not blocks:
+        return ""
+    who = names[0] if len(names) == 1 else f"{len(names)} funds"
+    return (f"🏦 New quarterly filing from {who}. The details are on screen. || **🏦 New fund filings**\n"
+            + "\n".join(blocks) + "\nQuarter-end positions, already weeks old: not what they own now.")
 
 
 

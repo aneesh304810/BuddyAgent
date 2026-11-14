@@ -137,6 +137,7 @@ sealed interface Screen {
     data object News : Screen
     data object Investments : Screen
     data object Deals : Screen
+    data object Alerts : Screen
     data object Travel : Screen
     data object Connections : Screen
     data class LibraryItem(val id: String) : Screen
@@ -343,7 +344,7 @@ private fun BuddyScreen(
                 Box {
                     TextButton(onClick = { menuOpen = true }) { Text("☰", fontSize = 24.sp, color = Pal.text) }
                     DropdownMenu(expanded = menuOpen, onDismissRequest = { menuOpen = false }) {
-                        listOf("✈  Travel" to Screen.Travel, "💳  Dashboard" to Screen.Dashboard, "💹  Investments" to Screen.Investments, "🏷️  Deals" to Screen.Deals, "📰  News" to Screen.News,
+                        listOf("✈  Travel" to Screen.Travel, "💳  Dashboard" to Screen.Dashboard, "💹  Investments" to Screen.Investments, "🏷️  Deals" to Screen.Deals, "🔔  Alerts" to Screen.Alerts, "📰  News" to Screen.News,
                             "📎  Library" to Screen.Library,
                             "📊  Insights" to Screen.Insights, "🔌  Connections" to Screen.Connections,
                             "📄  Reports" to Screen.Reports, "⚙  Settings" to Screen.Settings)
@@ -410,6 +411,10 @@ private fun BuddyScreen(
             }
             Screen.Deals -> {  // deals from the feeds and the deals inbox, with price history (web/deals.html)
                 BuddyPage(prefs.link, "deals.html")
+                return@Column
+            }
+            Screen.Alerts -> {  // what Buddy sent on its own, by category, with thumbs and levels (web/alerts.html)
+                BuddyPage(prefs.link, "alerts.html")
                 return@Column
             }
             Screen.News -> {  // topics you picked, and what's trending on them (web/news.html)
@@ -523,6 +528,12 @@ private fun nudgeLabel(line: Line): String = when {
     line.opensInsights -> "🩺 Daily check · tap for Insights"
     line.jobId != null && line.kind == "job_done" && line.text.startsWith("Done:") -> "\u2705 Task done \u00B7 tap for the report"
     line.jobId != null -> "📄 Report ready · tap to open"
+    line.category.isNotEmpty() && line.category != "Other" -> when (line.category) {
+        "Investing" -> "💹 Investing"; "Deals" -> "🏷️ Deals"; "Travel" -> "✈️ Travel"; "Email" -> "✉️ Email"
+        "Reminders" -> "⏰ Reminder"; "Health" -> "🩺 Health"; "Money" -> "💳 Money"; "Tasks" -> "✅ Tasks"
+        "Messages" -> "🔔 Messages"; "Briefing" -> "☀️ Briefing"; "Home" -> "🏠 Home"
+        else -> "💬 ${line.category}"
+    }
     line.kind.contains("remind") -> "⏰ Reminder"
     line.kind.contains("brief") || line.kind.contains("morning") -> "☀️ Briefing"
     line.kind.contains("mail") -> "✉️ Email"
@@ -555,8 +566,16 @@ private fun BuddyBubble(line: Line, onOpenInsights: () -> Unit, onOpenReport: (I
             }
         }
         line.cards?.let { Box(Modifier.padding(start = 36.dp)) { CardsRow(it, onOpenCard) } }
-        if (line.from == Speaker.BUDDY && line.turn != null && line.text.isNotEmpty()) {
-            Box(Modifier.padding(start = 30.dp)) { Thumbs(line.turn, line.rating) }
+        if (line.text.isNotEmpty() && (line.from == Speaker.BUDDY || line.from == Speaker.NUDGE)) {
+            val turn = line.turn
+            val nudgeId = line.nudgeId
+            Row(Modifier.padding(start = 30.dp), verticalAlignment = Alignment.CenterVertically) {
+                if (line.from == Speaker.BUDDY && turn != null)
+                    Thumbs(line.rating) { BuddyService.instance?.rate(turn, it) }
+                else if (line.from == Speaker.NUDGE && nudgeId != null)  // Buddy learns which kinds of message matter
+                    Thumbs(line.rating) { BuddyService.instance?.rateNudge(nudgeId, it) }
+                CopyButton(line.text)
+            }
         }
     }
 }
@@ -602,9 +621,27 @@ private fun RichText(text: String, italic: Boolean = false) {
     }
 }
 
-/** Was this reply good? Tap again to take it back. */
+/** Copy a message's words (without the bold marks). */
 @Composable
-private fun Thumbs(turn: String, rating: Int?) {
+private fun CopyButton(text: String) {
+    val clipboard = androidx.compose.ui.platform.LocalClipboardManager.current
+    var copied by remember { mutableStateOf(false) }
+    Text(
+        if (copied) "Copied" else "Copy",
+        fontSize = 12.sp,
+        color = Muted,
+        modifier = Modifier
+            .clickable {
+                clipboard.setText(androidx.compose.ui.text.AnnotatedString(text.replace("**", "")))
+                copied = true
+            }
+            .padding(horizontal = 8.dp, vertical = 4.dp),
+    )
+}
+
+/** Was this good? Tap again to take it back. */
+@Composable
+private fun Thumbs(rating: Int?, onRate: (Int?) -> Unit) {
     Row(Modifier.padding(start = 6.dp, top = 2.dp), horizontalArrangement = Arrangement.spacedBy(2.dp)) {
         listOf(1 to "👍", -1 to "👎").forEach { (value, icon) ->
             val on = rating == value
@@ -614,7 +651,7 @@ private fun Thumbs(turn: String, rating: Int?) {
                 color = if (rating == null || on) Pal.text else Pal.text.copy(alpha = 0.3f),
                 modifier = Modifier
                     .background(if (on) Accent.copy(alpha = 0.35f) else Color.Transparent, RoundedCornerShape(10.dp))
-                    .clickable { BuddyService.instance?.rate(turn, if (on) null else value) }
+                    .clickable { onRate(if (on) null else value) }
                     .padding(horizontal = 6.dp, vertical = 2.dp)
                     .then(if (rating == null) Modifier.alpha(0.6f) else Modifier),
             )
