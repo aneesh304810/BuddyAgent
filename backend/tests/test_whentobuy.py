@@ -78,3 +78,13 @@ def test_predictions_settle_from_prices_and_order_emails(memory):
 def test_calendar_action_lists_sales():
     out = json.loads(w.run_tool(Memory(":memory:"), {"action": "calendar", "kind": "home", "what": "washer"}))
     assert out and all("usual_discount" in s for s in out)
+
+
+def test_amazon_items_get_price_and_keepa_average(memory, monkeypatch):
+    from buddy import amazon
+    monkeypatch.setattr(amazon, "lookup", lambda m, what, env=None, fetch=None: {
+        "found": True, "price": 278.0, "where": "Amazon (Keepa)", "avg90": 310.0, "avg365": 330.0})
+    got = json.loads(w.run_tool(memory, {"action": "advise", "what": "https://www.amazon.com/dp/B09XS7JWHH",
+                                         "kind": "electronics"}))
+    assert got["price_now"] == 278.0 and got["price_from"] == "Amazon (Keepa)"
+    assert any("well under its usual $330.00" in r for r in got["reasons"])

@@ -295,7 +295,8 @@ TOOL = {
     "name": "when_to_buy",
     "description": (
         "Buy now or wait, for a product at today's price (not flights or hotels: the travel tools do those). "
-        "advise: what, price (now), kind (electronics, home, clothing, other), optionally lowest and average "
+        "advise: what, price (now; for an Amazon link or ASIN it's looked up, with Keepa's yearly average when "
+        "connected), kind (electronics, home, clothing, other), optionally lowest and average "
         "(e.g. from the amazon tool's Keepa 90-day average) and new_model (YYYY-MM-DD if a newer model is due). "
         "Gives the decision, the chance of a better price within the owner's patience, the price worth waiting "
         "for, the sale or launch to wait for and until when, and why; it's kept as a prediction and checked later. "
@@ -314,9 +315,19 @@ TOOL = {
 def run_tool(memory: Memory, args: dict) -> str:
     action = args.get("action")
     if action == "advise":
-        return json.dumps(advise(memory, args.get("what", ""), float(args.get("price") or 0), args.get("kind", ""),
-                                 args.get("lowest"), args.get("average"), args.get("new_model", "")),
-                          ensure_ascii=False)
+        what, price, average = args.get("what", ""), float(args.get("price") or 0), args.get("average")
+        source = ""
+        from . import amazon  # noqa: PLC0415  Amazon items: today's price and Keepa's averages, when connected
+        if amazon.is_amazon(what) and (not price or not average):
+            found = amazon.lookup(memory, what)
+            if found:
+                price = price or found["price"]
+                average = average or found.get("avg365") or found.get("avg90")
+                source = found["where"]
+        got = advise(memory, what, price, args.get("kind", ""), args.get("lowest"), average, args.get("new_model", ""))
+        if source:
+            got["price_from"] = source
+        return json.dumps(got, ensure_ascii=False)
     if action == "track_record":
         settle(memory)
         return json.dumps(track_record(memory), ensure_ascii=False)

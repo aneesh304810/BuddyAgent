@@ -53,7 +53,7 @@ def keepa(memory, asin: str, env=None, fetch=None) -> dict | None:
     if not key or not asin:
         return None
     url = "https://api.keepa.com/product?" + urllib.parse.urlencode(
-        {"key": key, "domain": 1, "asin": asin, "stats": 90})
+        {"key": key, "domain": 1, "asin": asin, "stats": 365})  # stats over a year: avg90, avg180, avg365
     got = gateway.call_url(memory, "keepa", [url], purpose="shopping", endpoint="/product", fetch=fetch)
     try:
         product = (got.get("products") or [])[0]
@@ -61,13 +61,16 @@ def keepa(memory, asin: str, env=None, fetch=None) -> dict | None:
         current = stats.get("current") or []
         cents = next((c for c in current[:2] if isinstance(c, (int, float)) and c > 0), 0)
         avg = (stats.get("avg90") or [0])[0]
+        longer = {k: (stats.get(k) or [0])[0] for k in ("avg180", "avg365")}
     except (AttributeError, IndexError, TypeError):
         return None
     if not cents:
         return None
     note = f"90-day average ${avg / 100:.2f}" if isinstance(avg, (int, float)) and avg > 0 else ""
+    dollars = {k: round(v / 100, 2) for k, v in {"avg90": avg, **longer}.items() if isinstance(v, (int, float)) and v > 0}
     return {"found": True, "price": round(cents / 100, 2), "where": "Amazon (Keepa)",
-            "url": f"https://www.amazon.com/dp/{asin}", "note": note, "title": str(product.get("title") or "")[:120]}
+            "url": f"https://www.amazon.com/dp/{asin}", "note": note, "title": str(product.get("title") or "")[:120],
+            **dollars}
 
 
 def google_shopping(memory, query: str, env=None, fetch=None) -> dict | None:
@@ -95,6 +98,12 @@ def lookup(memory, what: str, env=None, fetch=None) -> dict | None:
         except gateway.ConnectError:
             found = None
         if found:
+            try:  # every price looked up builds Buddy's own history for the item (buy-or-wait reads it)
+                from . import prices  # noqa: PLC0415
+                prices.record(memory, name_of(what) or found.get("title") or what, found["price"], "USD",
+                              found["where"], found.get("url", ""))
+            except Exception:
+                pass
             return found
     return None
 

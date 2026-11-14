@@ -111,5 +111,13 @@ decide each differently), and uses it whenever you ask about a purchase.
   prices Buddy saw (a price watch) or what you paid (the order email): ask "how good are your buy-or-wait calls?"
   for the track record. Flights and hotels stay with the travel tools.
 
-All of it stays on your server; only Claude sees it. Buddy still never buys or pays. Next steps (not built yet):
-better price history (Keepa, ShopSavvy) and after-purchase check-ins.
+- **After you buy:** two to six weeks after an order (a week for clothes; not for small things under $40,
+  trips, or anything you returned), Buddy asks once, in the daytime and at most one a day: "how's the new vacuum
+  working out?" Say happy, okay or regret it and why. A regret goes into your profile so the next research
+  watches for the same problem, and if the order is recent Buddy reminds you to check the return window.
+- **Price history:** every Amazon price Buddy looks up is kept, so its history for the item grows. With a Keepa
+  key (`sudo bash /opt/buddy/deploy/set.sh BUDDY_KEEPA_KEY`, a paid plan at keepa.com) buy-or-wait also uses
+  Amazon's 90-day, 180-day and yearly averages. ShopSavvy (other stores) isn't connected yet: its documentation
+  wasn't reachable when this was built, so it waits until it can be built against the real API.
+
+All of it stays on your server; only Claude sees it. Buddy still never buys or pays.

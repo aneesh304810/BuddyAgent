@@ -46,6 +46,13 @@ CREATE TABLE IF NOT EXISTS shop_purchases (
     on_sale INTEGER NOT NULL DEFAULT 0,
     event TEXT NOT NULL DEFAULT 'order'   -- order | return
 );
+CREATE TABLE IF NOT EXISTS shop_reviews (
+    purchase_id INTEGER PRIMARY KEY, -- shop_purchases.id
+    asked_on TEXT NOT NULL,
+    verdict TEXT NOT NULL DEFAULT '', -- happy | okay | regret ('' = not answered yet)
+    note TEXT NOT NULL DEFAULT '',
+    answered_on TEXT
+);
 CREATE TABLE IF NOT EXISTS shop_considering (
     id INTEGER PRIMARY KEY,
     item TEXT NOT NULL,
@@ -375,6 +382,7 @@ def learned(memory: Memory, kind: str, days: int = 365) -> dict:
         "brands_bought": sorted(brands, key=lambda b: -brands[b])[:6],
         "days_to_decide_median": median(decided) if decided else None,
         "thinking_about": waiting[:5],
+        "after_buying": satisfaction(memory, kind),
         "recent": [f"{r['day']}: {r['item'] or 'an order'} from {r['merchant']}"
                    + (f" (${r['amount']:,.2f})" if r["amount"] else "") + (" on sale" if r["on_sale"] else "")
                    + (" RETURNED" if r["event"] == "return" else "") for r in rows[:6]],
@@ -439,6 +447,101 @@ def brief(memory: Memory, kind: str) -> str:
                                 "shopping interview at the end."
 
 
+# --- after the purchase: "how's the new X?" ---------------------------------------------------------------------
+CHECKIN_AFTER = {"clothing": (7, 30), "default": (14, 45)}  # days after the order: ask in this window
+CHECKIN_HOURS = (10, 20)
+CHECKIN_DAY_KEY = "shop:checkin_day"
+
+
+def _returned(memory: Memory, p: dict) -> bool:
+    want = _words(p["item"])
+    for r in memory.db.execute("SELECT item, merchant FROM shop_purchases WHERE event = 'return' AND day >= ?",
+                               (p["day"],)):
+        if (want and len(want & _words(r["item"])) >= max(1, min(2, len(want)))) or \
+                (not r["item"] and r["merchant"] == p["merchant"]):
+            return True
+    return False
+
+
+def checkin_due(memory: Memory, now: datetime | None = None) -> dict | None:
+    """One purchase worth asking about today (at most one a day, daytime only), or None."""
+    _ready(memory)
+    now = now or local_now()
+    if memory.get(CHECKIN_DAY_KEY) == now.date().isoformat() or not CHECKIN_HOURS[0] <= now.hour < CHECKIN_HOURS[1]:
+        return None
+    rows = memory.db.execute(
+        "SELECT p.* FROM shop_purchases p LEFT JOIN shop_reviews r ON r.purchase_id = p.id WHERE p.event = 'order' "
+        "AND r.purchase_id IS NULL AND p.item != '' AND p.kind != 'travel' AND (p.amount IS NULL OR p.amount >= 40) "
+        "ORDER BY p.amount DESC").fetchall()
+    for row in rows:
+        p = dict(row)
+        lo, hi = CHECKIN_AFTER.get(p["kind"], CHECKIN_AFTER["default"])
+        age = (now.date() - date.fromisoformat(p["day"])).days
+        if lo <= age <= hi and not _returned(memory, p):
+            return p
+    return None
+
+
+def checkin_text(p: dict, now: datetime | None = None) -> str:
+    age = ((now or local_now()).date() - date.fromisoformat(p["day"])).days
+    name = p["item"] if len(p["item"]) <= 60 else p["item"][:57].rsplit(" ", 1)[0] + "…"
+    text = (f"🛍️ Quick one: how's the {name} from {p['merchant']} working out? Happy with it, just okay, or do you "
+            "regret it? Your answer helps me pick better next time.")
+    if age <= 25:
+        text += " If it's not right, the return window is probably still open (often 30 days; check the store's policy)."
+    return text
+
+
+def asked(memory: Memory, purchase_id: int, now: datetime | None = None) -> None:
+    now = now or local_now()
+    memory.db.execute("INSERT OR IGNORE INTO shop_reviews (purchase_id, asked_on) VALUES (?, ?)",
+                      (purchase_id, now.date().isoformat()))
+    memory.set(CHECKIN_DAY_KEY, now.date().isoformat())
+    memory.db.commit()
+
+
+def review(memory: Memory, item: str, verdict: str, note: str = "") -> str:
+    """The owner's verdict on something they bought: kept, and a regret also goes into their profile."""
+    verdict = (verdict or "").strip().lower()
+    if verdict not in ("happy", "okay", "regret"):
+        raise ToolError("Verdict: happy, okay or regret.")
+    _ready(memory)
+    want = _words(item)
+    cands = [dict(r) for r in memory.db.execute(
+        "SELECT p.*, r.verdict AS done FROM shop_purchases p LEFT JOIN shop_reviews r ON r.purchase_id = p.id "
+        "WHERE p.event = 'order' AND p.item != '' ORDER BY (r.asked_on IS NOT NULL AND r.verdict = '') DESC, "
+        "p.day DESC LIMIT 200")]
+    hit = next((c for c in cands if want and len(want & _words(c["item"])) >= max(1, min(2, len(want)))), None)
+    if not hit and not want:
+        hit = next((c for c in cands if c["done"] == ""), None)  # the one Buddy just asked about
+    if not hit:
+        raise ToolError("I can't find that purchase in your order history; say the item as the order email had it.")
+    memory.db.execute("INSERT INTO shop_reviews (purchase_id, asked_on, verdict, note, answered_on) VALUES "
+                      "(?, ?, ?, ?, ?) ON CONFLICT(purchase_id) DO UPDATE SET verdict = excluded.verdict, "
+                      "note = excluded.note, answered_on = excluded.answered_on",
+                      (hit["id"], local_now().date().isoformat(), verdict, note.strip()[:300],
+                       local_now().date().isoformat()))
+    memory.db.commit()
+    kind = hit["kind"] if hit["kind"] in KINDS else "general"
+    if verdict == "regret":
+        save(memory, kind if kind != "other" else "general",
+             {"regrets": f"{hit['item'][:80]}" + (f": {note.strip()[:120]}" if note.strip() else "")})
+    return (f"Noted: {verdict} with the {hit['item'][:60]}."
+            + (" I added it to your regrets so I'll watch for the same problem next time." if verdict == "regret"
+               else ""))
+
+
+def satisfaction(memory: Memory, kind: str) -> dict:
+    _ready(memory)
+    rows = [dict(r) for r in memory.db.execute(
+        "SELECT p.item, p.merchant, r.verdict, r.note FROM shop_reviews r JOIN shop_purchases p ON p.id = r.purchase_id "
+        "WHERE p.kind = ? AND r.verdict != ''", (kind,))]
+    return {"happy": sum(r["verdict"] == "happy" for r in rows), "okay": sum(r["verdict"] == "okay" for r in rows),
+            "regret": sum(r["verdict"] == "regret" for r in rows),
+            "regretted": [f"{r['item'][:60]} ({r['merchant']})" + (f": {r['note']}" if r["note"] else "")
+                          for r in rows if r["verdict"] == "regret"][:5]}
+
+
 TOOL = {
     "name": "shopping_profile",
     "description": (
@@ -452,9 +555,14 @@ TOOL = {
         "stores, regrets, loyalty, notes are lists; patience, buy_trigger, budget, refurbished are text; "
         "target_discount_pct a number) and answered (question ids); also whenever they mention a preference in "
         "passing. considering: item (and kind) when they say they're thinking of buying something. "
-        "learn: re-read recent order and return emails now. forget: a kind, or everything."),
+        "learn: re-read recent order and return emails now. forget: a kind, or everything. "
+        "review: their verdict on something they bought (item, verdict happy|okay|regret, note: why, in their "
+        "words), when they answer Buddy's 'how's the new X?' or mention it themselves; a regret also goes into "
+        "their profile. If they regret it and it's recent, remind them to check the return window."),
     "input_schema": {"type": "object", "properties": {
-        "action": {"type": "string", "enum": ["show", "interview", "save", "considering", "learn", "forget"]},
+        "action": {"type": "string", "enum": ["show", "interview", "save", "considering", "learn", "forget",
+                                              "review"]},
+        "verdict": {"type": "string", "enum": ["", "happy", "okay", "regret"]}, "note": {"type": "string"},
         "kind": {"type": "string", "enum": ["", *KINDS]},
         "fields": {"type": "object"},
         "answered": {"type": "array", "items": {"type": "string"}},
@@ -482,4 +590,6 @@ def run_tool(memory: Memory, args: dict) -> str:
         return f"Read your recent order emails: {n} new purchase{'s' if n != 1 else ''} or return{'s' if n != 1 else ''}."
     if action == "forget":
         return forget(memory, kind)
-    raise ToolError("Use show, interview, save, considering, learn or forget.")
+    if action == "review":
+        return review(memory, args.get("item", ""), args.get("verdict", ""), args.get("note", ""))
+    raise ToolError("Use show, interview, save, considering, learn, forget or review.")

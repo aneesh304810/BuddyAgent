@@ -122,3 +122,41 @@ def test_shop_for_researches_the_owners_way(memory):
 
 def test_brief_without_a_profile_suggests_the_interview(memory):
     assert "shopping interview" in shopper.brief(memory, "home")
+
+
+def test_checkin_two_weeks_after_once_a_day_and_review(memory):
+    from datetime import datetime as dt
+    email(memory, 'Ordered: "Dyson V15 Detect vacuum"', "Amazon.com <auto-confirm@amazon.com>",
+          "Order Total: $649.00", days_ago=16)
+    email(memory, 'Ordered: "USB-C cable 2-pack"', "Amazon.com <auto-confirm@amazon.com>", "Order Total: $12.99",
+          days_ago=16)
+    email(memory, 'Ordered: "Levi\'s 501 jeans"', "Levi's <orders@levi.com>", "Order Total: $79.50", days_ago=3)
+    shopper.scan_orders(memory)
+    noon = dt.combine(local_now().date(), dt.min.time()).replace(hour=12)
+    p = shopper.checkin_due(memory, noon)
+    assert p["item"] == "Dyson V15 Detect vacuum"  # cheap things and too-recent ones wait
+    assert shopper.checkin_due(memory, noon.replace(hour=22)) is None  # daytime only
+    text = shopper.checkin_text(p, noon)
+    assert "how's the Dyson V15 Detect vacuum" in text and "return window" in text
+    shopper.asked(memory, p["id"], noon)
+    assert shopper.checkin_due(memory, noon) is None  # one a day
+    out = shopper.run_tool(memory, {"action": "review", "item": "", "verdict": "regret",
+                                    "note": "loses suction on carpet"})
+    assert "regret" in out and "regrets" in out
+    prof, _ = shopper.profile(memory, "home")
+    assert prof["regrets"] == ["Dyson V15 Detect vacuum: loses suction on carpet"]
+    sat = shopper.learned(memory, "home")["after_buying"]
+    assert sat["regret"] == 1 and "Dyson" in sat["regretted"][0]
+    with pytest.raises(ToolError):
+        shopper.review(memory, "Dyson", "meh")
+
+
+def test_returned_items_are_not_checked_in(memory):
+    from datetime import datetime as dt
+    email(memory, 'Ordered: "Bose QuietComfort Ultra headphones"', "Amazon.com <auto-confirm@amazon.com>",
+          "Order Total: $429.00", days_ago=20)
+    email(memory, "Your return received: Bose QuietComfort Ultra headphones", "Amazon.com <return@amazon.com>",
+          "", days_ago=2)
+    shopper.scan_orders(memory)
+    noon = dt.combine(local_now().date(), dt.min.time()).replace(hour=12)
+    assert shopper.checkin_due(memory, noon) is None
