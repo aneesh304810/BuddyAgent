@@ -10,6 +10,7 @@ from buddy.connectors.hub import ConnectorHub
 from buddy.memory import Memory
 
 DAY = date(2026, 11, 16)  # a Monday
+NO_LENS = lambda s, p, a, c: None  # noqa: E731  no SEC in these tests
 
 
 @pytest.fixture
@@ -100,15 +101,15 @@ def test_a_morning_writes_signals_down_and_says_unproven(memory):
     attention(memory, "QUIET", 1, 0.9)             # one mention: not unusual
     attention(memory, "BUSY", 6, 0.6, history=5)   # always talked about: 1.2 times usual
     data = FakeData({"NVDA": wavy(True), "SPY": wavy(True), "QUIET": wavy(True), "BUSY": wavy(True)})
-    told = recommend.run(memory, DAY, data, lambda s: {"insiders": 30.0})
+    told = recommend.run(memory, DAY, data, lambda s: {"insiders": 30.0}, NO_LENS)
     assert len(told) == 2 and all("UNPROVEN" in t and "not advice" in t for t in told)
     assert {r["key"] for r in recommend.recent(memory, today=DAY)} == {"NVDA", "SPY"}
-    assert recommend.run(memory, DAY + timedelta(days=1), data, lambda s: {}) == []  # the same call isn't repeated
+    assert recommend.run(memory, DAY + timedelta(days=1), data, lambda s: {}, NO_LENS) == []  # the same call isn't repeated
     recommend.switch(memory, ["etfs"], False)
     pricebook.run(memory, "DELETE FROM recs")
-    assert len(recommend.run(memory, DAY, data, lambda s: {"insiders": 30.0})) == 1  # etfs off: only NVDA
+    assert len(recommend.run(memory, DAY, data, lambda s: {"insiders": 30.0}, NO_LENS)) == 1  # etfs off: only NVDA
     recommend.switch(memory, ["investing"], False)
-    assert recommend.run(memory, DAY, data, lambda s: {}) == []
+    assert recommend.run(memory, DAY, data, lambda s: {}, NO_LENS) == []
 
 
 def test_signals_are_scored_a_week_later_and_the_record_becomes_proven(memory):
@@ -164,3 +165,34 @@ def test_finnhub_reads_and_only_sends_symbols(memory):
     assert all(h.get("X-Finnhub-Token") == "k" and "k" not in u.split("?")[1] for u, h in seen)
     with pytest.raises(Exception, match="isn't set up"):
         finnhub.quote(memory, "NVDA", {}, fetch)
+
+
+def test_the_checklists_turn_an_expensive_buy_into_a_caution(memory):
+    hot = {"key": "NVDA", "category": "stocks", "mentions": 8, "times_usual": 8.0, "tone": 0.6}
+    rich = {"price": "expensive", "business": "strong", "line": "investor checklists: the price looks expensive"}
+    j = recommend.judge(hot, wavy(True), {"insiders": 40.0, "lenses": rich})
+    assert j["action"] == "caution" and any("already assumes a lot" in r for r in j["reasons"])
+    none = {"price": "no profits to value", "business": "weak", "line": "x"}
+    assert recommend.judge(hot, wavy(True), {"insiders": 40.0, "lenses": none})["action"] == "caution"
+    fair = {"price": "fair", "business": "strong", "line": "checklists fine"}
+    j = recommend.judge(hot, wavy(True), {"insiders": 40.0, "lenses": fair})
+    assert j["action"] == "buy" and "checklists fine" in j["reasons"]
+    cheap = {"price": "cheap", "business": "strong", "line": "x"}
+    assert recommend.judge({**hot, "tone": -0.7}, wavy(False), {"insiders": -50.0, "lenses": cheap})[
+        "action"] == "watch"  # a good business sold off isn't a sell signal
+
+
+def test_a_morning_runs_the_checklists_for_companies_not_funds(memory):
+    attention(memory, "NVDA", 8, 0.6)
+    attention(memory, "SPY", 9, 0.5, "etfs")
+    asked = []
+
+    def lens(symbol, price, above, crowd):
+        asked.append((symbol, crowd))
+        return {"price": "expensive", "business": "strong", "line": "the price looks expensive"}
+
+    data = FakeData({"NVDA": wavy(True, 260), "SPY": wavy(True, 260)})
+    told = recommend.run(memory, DAY, data, lambda s: {"insiders": 30.0}, lens)
+    assert asked == [("NVDA", 8.0)]
+    assert any(t.startswith("⚠️ NVDA") and "expensive" in t for t in told)
+    assert any(t.startswith("📈 SPY") for t in told)

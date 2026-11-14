@@ -6,6 +6,9 @@
   Investing signals, each weekday morning, from everything Buddy has on a symbol:
     attention  it got unusual attention on Reddit last night (signals.py: times its own usual), and the tone
     trend      the price against its 50-day average, and RSI (stretched or not), from daily prices
+    value      the investor checklists from the company's own SEC filings (lenses.py): a buy that the checklists
+               call expensive, or that has no profits, becomes a caution; a strong, cheap business being sold
+               off is not called a sell
     facts      Finnhub, when its key is set: earnings coming, insiders buying or selling, analysts' ratings
   -> buy (attention up, tone and trend agree), sell or avoid (they agree the other way), caution (a crowd piling
      into something already stretched: usually late), or nothing. Code only: no AI decides a signal.
@@ -140,13 +143,25 @@ def judge(t: dict, bars: list[dict], facts: dict | None = None) -> dict | None:
     action = "caution" if crowded else "buy" if score >= 2 else "sell" if score <= -2 else "watch"
     if crowded:
         why.append("a crowd piling into something already stretched is usually late")
+    lens = facts.get("lenses")  # the investor checklists, from the company's own filings (lenses.py)
+    if lens:
+        why.append(lens["line"])
+        if action == "buy" and lens["price"] in ("expensive", "no profits to value"):
+            action = "caution"  # attention and trend agree, but the fundamentals don't back the price
+            why.append("the checklists don't back a buy at this price: "
+                       + ("there are no profits to value it on" if lens["price"] != "expensive"
+                          else "it already assumes a lot of growth"))
+        elif action == "sell" and lens["price"] == "cheap" and lens["business"] == "strong":
+            action = "watch"  # a strong business at a low price, sold off: not a sell signal
+            why.append("a strong business at a low price being sold off is not a sell signal")
     return {"key": t["key"], "category": t["category"], "action": action, "price": round(price, 2),
             "reasons": why, "facts": {"score": score, "rsi": round(strength, 1), "tone": t["tone"],
                                       "mentions": t["mentions"], "times_usual": t["times_usual"], **facts}}
 
 
-def build(memory: Memory, today: date | None = None, data=None, facts_for=None) -> list[dict]:
-    """Today's investing signals, written down. `data`: markets.Data (daily prices). `facts_for(symbol)`: Finnhub."""
+def build(memory: Memory, today: date | None = None, data=None, facts_for=None, lens_for=None) -> list[dict]:
+    """Today's investing signals, written down. `data`: markets.Data (daily prices). `facts_for(symbol)`: Finnhub.
+    `lens_for(symbol, price, above_200day, crowd)`: the investor checklists (lenses.brief), for companies."""
     from . import finnhub, pricebook  # noqa: PLC0415
     from .markets import Data  # noqa: PLC0415
     today = today or local_now().date()
@@ -155,7 +170,10 @@ def build(memory: Memory, today: date | None = None, data=None, facts_for=None) 
     if not cands:
         return []
     data = data or Data(memory)
-    bars = data.bars("us", [c["key"] for c in cands], days=200)
+    bars = data.bars("us", [c["key"] for c in cands], days=320)
+    if lens_for is None:
+        from . import lenses  # noqa: PLC0415
+        lens_for = lambda s, p, a, c: lenses.brief(memory, s, p, a, c)  # noqa: E731
     if facts_for is None and finnhub.configured():
         facts_for = lambda s: finnhub.facts(memory, s, today=today)  # noqa: E731
     out = []
@@ -165,6 +183,16 @@ def build(memory: Memory, today: date | None = None, data=None, facts_for=None) 
         except Exception:
             log.info("recommend: facts for %s failed", c["key"], exc_info=True)
             facts = {}
+        closes = [b["c"] for b in bars.get(c["key"]) or []]
+        if closes and c["category"] in ("stocks", "options"):  # funds have no filings to check
+            try:
+                from .markets import sma  # noqa: PLC0415
+                above = closes[-1] / sma(closes, 200) - 1 if len(closes) >= 200 else None
+                lens = lens_for(c["key"], closes[-1], above, c["times_usual"])
+                if lens:
+                    facts = {**facts, "lenses": lens}
+            except Exception:
+                log.info("recommend: checklists for %s failed", c["key"], exc_info=True)
         j = judge(c, bars.get(c["key"]) or [], facts)
         if not j:
             continue
@@ -234,7 +262,7 @@ def due(memory: Memory, now: datetime | None = None) -> bool:
     return now.weekday() < 5 and now.hour >= HOUR and memory.get(DAY_KEY) != now.date().isoformat()
 
 
-def run(memory: Memory, today: date | None = None, data=None, facts_for=None) -> list[str]:
+def run(memory: Memory, today: date | None = None, data=None, facts_for=None, lens_for=None) -> list[str]:
     """Score last week's signals, make today's, and return the messages worth sending (at most three)."""
     today = today or local_now().date()
     if not any(enabled(memory, c) for c in INVESTING):
@@ -243,7 +271,7 @@ def run(memory: Memory, today: date | None = None, data=None, facts_for=None) ->
         settle(memory, today, data)
     except Exception:
         log.warning("recommend: scoring failed", exc_info=True)
-    made = [j for j in build(memory, today, data, facts_for) if j["action"] != "watch"]
+    made = [j for j in build(memory, today, data, facts_for, lens_for) if j["action"] != "watch"]
     made.sort(key=lambda j: -abs(j["facts"]["score"]))
     return [message(j, track_record(memory, j["category"])) for j in made[:MAX_TOLD]]
 

@@ -250,4 +250,16 @@ decide each differently), and uses it whenever you ask about a purchase.
   trigger is on the stock and the message says to check the live chain. Code only, no AI cost. Ask "are live
   triggers on?"; turn off with `BUDDY_LIVE_SIGNALS=0`. Triggers, not advice.
 
+- **Investor checklists.** "Run the investor checks on MSFT": from the company's own SEC filings (up to ten
+  years of 10-K figures) and today's price, Buddy runs five checklists in code. Graham: the defensive investor's
+  tests (price under 15 times three-year earnings, price-to-book, twice the current assets, debt under working
+  capital, profits every year, a dividend, growth). Quality, in the Buffett and Munger tradition: return on
+  equity over 15%, steady margins, free cash flow every year, debt a few years of profit could repay. Lynch:
+  the P/E against the growth rate. Greenblatt: earnings yield and return on capital. Marks: how much optimism
+  is already in the price. Each test shows pass, fail or "not reported" (banks don't report some figures) with
+  the number. They are in the spirit of each investor's published method, not what that person would say today.
+  The buy and sell signals use them: a buy on a company the checklists call expensive, or with no profits,
+  becomes a caution, and a strong, cheap business being sold off is not called a sell. Funds have no filings to
+  check. Needs `BUDDY_SEC_CONTACT`; no AI cost.
+
 All of it stays on your server; only Claude sees it. Buddy still never buys or pays.
