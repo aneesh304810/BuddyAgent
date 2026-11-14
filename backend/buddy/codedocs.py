@@ -160,40 +160,76 @@ def guide_sections(rel: str, text: str) -> list[dict]:
 
 # --- components: the big parts, each explained from its own modules' descriptions --------------------------------
 # (name, what it is in one line, its modules: the first one's whole description explains it)
-COMPONENTS = [
+COMPONENTS = [  # every server module belongs to one feature (tests check none is left out)
     ("Claude: the brain", "Understands you, decides what to do, picks the cheapest Claude model that does the job well, "
-     "and asks before spending more", ["agent.py", "router.py", "reasoning.py", "expert.py", "persona.py", "thrift.py",
-                                       "budgets.py", "usage.py"]),
+     "thinks from memory before calling the AI, follows your standing instructions, and asks before spending more",
+     ["agent.py", "router.py", "reasoning.py", "expert.py", "persona.py", "thrift.py", "budgets.py", "usage.py",
+      "thinking.py", "tools.py", "config.py", "customize.py"]),
     ("Free AI models (Groq, Gemini, Mistral, Cerebras, GitHub Models, OpenRouter)", "Do general work for free, never "
      "with your personal data: translating, summarising public text, brainstorming, general code questions",
      ["free_models.py", "openrouter_catalog.py", "model_advisor.py"]),
     ("Buddy Connect", "One catalog and one way of calling every outside service: keys, backup hosts, rate limits, the "
      "personal-data check, logging and costs", ["gateway.py", "keytest.py"]),
-    ("Memory", "What Buddy knows and remembers: facts, the conversation log and its search, the documents library, and "
-     "connecting what it knows", ["memory.py", "convolog.py", "brain.py", "connect.py", "library.py", "lifelog.py"]),
+    ("Memory", "What Buddy knows and remembers: facts, the conversation log and its search, the documents library, "
+     "your taste and daily routine, and connecting what it knows",
+     ["memory.py", "convolog.py", "brain.py", "connect.py", "library.py", "lifelog.py", "companydocs.py", "taste.py",
+      "routine.py"]),
     ("Voice: Talk mode and Listen-in", "Hearing you (Whisper on your server or Groq), knowing when you talk to Buddy, "
-     "your voice match, and Listen-in's whispers", ["whisper.py", "ambient.py", "addressee.py", "voiceprint.py",
-                                                     "tutor.py"]),
-    ("Phone calls", "Calls businesses for you after your yes: Plivo, Pipecat on your server, Deepgram, Claude and "
-     "ElevenLabs", ["calls.py"]),
-    ("Speaking up on its own", "The morning briefing, reminders, commute alerts, and nudges when something matters",
-     ["proactive.py", "commute.py", "organiser.py", "health.py"]),
-    ("Money", "Bank and card feeds (read-only), bills, the money advisor and card choices; never moves money",
-     ["money.py", "bankfeed.py", "plaid.py", "finance.py", "advisor.py", "credit.py", "card_optimizer.py", "finops.py"]),
-    ("Travel and getting around", "Flights, hotels, transit alerts, maps and rides", ["travel.py", "flights.py",
-                                                                                      "transit.py", "maps.py",
-                                                                                      "routing.py", "rides.py"]),
-    ("Email, messages and apps", "Gmail, other accounts, messages and the connected apps", ["mailbrain.py",
-                                                                                           "email_accounts.py",
-                                                                                           "messaging.py"]),
-    ("Home and health", "Your Nest thermostat, and your phone's health data with public medical sources",
-     ["nest.py", "health_data.py"]),
+     "your voice match, how you pause, the words it should hear right, and Listen-in's whispers",
+     ["whisper.py", "ambient.py", "addressee.py", "voiceprint.py", "pausehabit.py", "transcripts.py", "vocabulary.py"]),
+    ("Phone calls", "Calls businesses for you after your yes and answers calls: Plivo, Pipecat on your server, "
+     "Deepgram, Claude and ElevenLabs; your contacts and meeting proposals",
+     ["calls.py", "contacts.py", "scheduling.py"]),
+    ("Speaking up on its own: briefing, reminders and alerts", "The morning briefing with news, finance and events "
+     "that follows what you talk about; reminders; and alerts whose loudness is learned from your thumbs",
+     ["proactive.py", "attention.py", "daybrief.py", "commute.py", "organiser.py", "health.py"]),
+    ("Learning: the English and investing tutors", "The morning investing lesson, the morning English lesson, the "
+     "evening English review and live tips, and Market school",
+     ["morning_tutor.py", "tutor.py", "market_school.py"]),
+    ("Money", "Bank and card feeds (read-only), bills, the money advisor and review, card choices and benefits, "
+     "cancelling subscriptions; never moves money",
+     ["money.py", "bankfeed.py", "plaid.py", "finance.py", "advisor.py", "credit.py", "card_optimizer.py", "finops.py",
+      "benefits.py", "cancelling.py", "merchants.py", "review.py"]),
+    ("Shopping and deals", "Your shopping profile, buy now or wait, the daily deals collector, the deals inbox, deal "
+     "forecasts and watches, price history, Amazon prices and seasonal prices; never buys",
+     ["shopper.py", "whentobuy.py", "dealcollector.py", "dealmail.py", "dealnotif.py", "dealforecast.py", "deals.py",
+      "prices.py", "amazon.py", "seasons.py"]),
+    ("The price book, pattern learning and trained models", "A separate market-price database, nightly pattern "
+     "learning in the sandbox, and models trained on judged calls once there is enough data",
+     ["pricebook.py", "patterns.py", "modeltrain.py"]),
+    ("Investing: signals, research and practice", "Chart setups and trade ideas, Reddit and news signals, buy and sell "
+     "signals with a track record, live triggers, investor checklists, fund holdings, the committee and journal, a "
+     "paper portfolio and Buddy's own practice book; never trades",
+     ["recommend.py", "signals.py", "simbook.py", "markets.py", "livewatch.py", "lenses.py", "funds.py", "journal.py",
+      "paper.py", "investors.py", "finnhub.py", "invest.py"]),
+    ("Travel and getting around", "Flights and hotels with book now or wait, checking the hotel direct, saved "
+     "searches, seats, transit alerts, maps, rides, weather and where you are",
+     ["travel.py", "travelcall.py", "hoteldirect.py", "travel_saved.py", "flights.py", "seats.py", "transit.py",
+      "maps.py", "routing.py", "rides.py", "location.py", "weather.py"]),
+    ("Going out: restaurants and events", "Finding and booking a table after your yes; events and films with links "
+     "to buy tickets yourself", ["dining.py", "events.py"]),
+    ("News, trends and research", "The topics you follow with a daily digest, what's trending, searching beyond the "
+     "web index, reading pages on Buddy's side, and the background research agent",
+     ["trends.py", "social.py", "research.py", "webread.py"]),
+    ("Email, messages and apps", "Gmail and other accounts sorted and summarised, messages, and package tracking",
+     ["mailbrain.py", "email_accounts.py", "messaging.py", "packages.py"]),
+    ("Home and health", "Your Nest thermostat, your phone's health data and Oura Ring, and your health plan with "
+     "public medical sources", ["nest.py", "health_data.py", "oura.py", "coach.py"]),
+    ("Making and doing things", "Diagrams, charts, images, Word, PowerPoint, PDF and Excel; data crunching in the "
+     "sandbox; a real browser Buddy drives; filling forms; rich cards in the chat; background jobs",
+     ["makers.py", "docedit.py", "datatools.py", "browse.py", "formfill.py", "cards.py", "jobs.py"]),
+    ("Agents and skills", "Specialist agents Buddy can connect or build, and its registry of tools and skills",
+     ["agents.py", "builder.py", "registry.py"]),
     ("Security and privacy", "Who can reach Buddy, lockouts, secrets kept out of logs and prompts, the encrypted "
      "database", ["guard.py", "privacy.py", "db.py", "compliance.py"]),
-    ("Fixing and explaining itself", "Reads its own code and these docs, and fixes itself on a branch you review",
-     ["selfcode.py", "codedocs.py", "codejob.py", "sandbox.py", "selfdeploy.py", "claudefix.py"]),
-    ("Insights and costs", "What Buddy spends and how well it does, model by model and service by service",
-     ["insights.py", "trace.py", "costwatch.py"]),
+    ("Fixing and explaining itself", "Reads its own code and these docs, draws its own architecture, checks its own "
+     "server, and fixes itself on a branch you review",
+     ["selfcode.py", "codedocs.py", "codedocs_features.py", "codedocs_qa.py", "codedocs_visual.py", "codejob.py",
+      "sandbox.py", "selfdeploy.py", "claudefix.py", "selfcheck.py"]),
+    ("Insights and costs", "What Buddy spends and how well it does, model by model and service by service, and what "
+     "makes it feel slow", ["insights.py", "trace.py", "costwatch.py", "diagnostics.py"]),
+    ("The server and the app", "The one server the phone talks to: the chat connection, the app's pages and their "
+     "data", ["server.py"]),
 ]
 
 

@@ -127,12 +127,19 @@ CODE_TOOL = {
     "tests, how to test it) and wait). deploy (job?: the fix's job id, default the latest): only when the owner asks "
     "to push or deploy a fix they reviewed; it asks their yes, then pushes, and with self-deploy on the server "
     "re-tests, merges and deploys it (rolling back if unhealthy). Use it when the user asks how you or the app work, why you did something, or to "
-    "fix or improve you. Read before you explain; quote file:line.",
+    "fix or improve you. Read before you explain; quote file:line. "
+    "feature (query): ALWAYS use this first when the owner asks how a feature or part of you works, for its "
+    "design, technical details or architecture, or for a diagram of it (e.g. 'how does the deals collector work', "
+    "'explain the investing signals', 'diagram of the alerts'): it returns that feature's technical design from "
+    "the code (modules, tools, tables, outside services, what it relies on) and puts its architecture diagram in "
+    "the chat as an image. architecture: the whole of you in one diagram with every feature listed. Answer from "
+    "what it returns, in plain words, and say the diagram is on screen.",
     "input_schema": {"type": "object", "properties": {
-        "action": {"type": "string", "enum": ["design", "docs", "doc", "export_docs", "overview", "search", "read",
-                                              "recent", "fix", "deploy"]},
+        "action": {"type": "string", "enum": ["feature", "architecture", "design", "docs", "doc", "export_docs",
+                                              "overview", "search", "read", "recent", "fix", "deploy"]},
         "job": {"type": "integer", "description": "deploy: which fix (job id)"},
-        "query": {"type": "string", "description": "search: words or a regex; docs: what to look up"},
+        "query": {"type": "string", "description": "search: words or a regex; docs: what to look up; feature: the "
+                                                    "feature or part asked about, in the owner's words"},
         "path": {"type": "string", "description": "read: the file; search: limit to this folder; doc: the page key"},
         "start": {"type": "integer"}, "lines": {"type": "integer"},
         "task": {"type": "string", "description": "fix: what to change and why, with the file:line you found"}},
@@ -179,6 +186,12 @@ async def run_tool(args: dict, start_task=None, deploy=None, memory=None) -> str
         if deploy is None:
             raise ToolError("Deploying a fix needs the code sandbox (sudo bash /opt/buddy/deploy/sandbox.sh).")
         return deploy(args.get("job"))
+    if action in ("feature", "architecture"):
+        import asyncio  # noqa: PLC0415
+
+        from . import codedocs_features  # noqa: PLC0415
+        return UNTRUSTED + await asyncio.to_thread(
+            codedocs_features.show, memory, "" if action == "architecture" else str(args.get("query", "")))
     if action == "overview":
         return UNTRUSTED + overview()
     if action == "export_docs":
