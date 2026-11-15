@@ -66,7 +66,7 @@ The diagram reads left to right: what you ask, the tools Buddy uses, the modules
 
 | Tool | What it is for | Actions | Module |
 |---|---|---|---|
-| `maestro` | Buddy Maestro: the AI providers Buddy can use and which one does each job | show, set_model, set_limit, test_model, add_provider, remove_provider, find_models, setup, check_key, spending | maestro.py |
+| `maestro` | Buddy Maestro: the AI providers Buddy can use and which one does each job | show, set_model, set_limit, test_model, add_provider, remove_provider, find_models, setup, check_key, spending, reset_spending | maestro.py |
 | `general_task` | Hand a GENERAL task to a free AI model chosen for the job, to save money: translate a public text, summarize a public article or web page, rewrite or polish gen | - | free_models.py |
 | `free_answer_verdict` | After using a general_task answer, record your review of it, in the same response as your reply: used (good as it was), fixed (you corrected it), redone (you di | - | free_models.py |
 | `model_scout` | Keeps the free AI models working | status, scan, use | modelscout.py |
@@ -133,11 +133,16 @@ masked). Nothing here calls a model.
   Drill down  a component -> its purposes -> one purpose's models, days and latest requests
   By provider and by model, for the whole period or for the part drilled into
 
+  Since reset "Reset now" marks this moment. "Since reset" then shows only what was spent after it: useful after
+              changing a model or a setting, to see what it costs from here. Nothing is deleted and the budget
+              limits are not touched; it only changes where this view starts counting. If the budgets were
+              started fresh more recently (budgets.py), that moment is used instead.
+
 The month-end figure is this month's spending so far divided by the days elapsed, times the days in the
 month. It is arithmetic on the pace so far, not a prediction of what you will do.
 ```
 
-- Uses: insights.py, memory.py, tools.py
+- Uses: budgets.py, insights.py, memory.py, tools.py
 
 ### free_models.py
 

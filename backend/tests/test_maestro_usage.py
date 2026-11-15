@@ -97,3 +97,42 @@ def test_the_endpoint_needs_the_owner_and_the_chat_tool_reports_spending(memory,
     assert client.get("/api/maestro/usage?component=nope", headers=ok).status_code == 400
     out = json.loads(asyncio.run(maestro.run_tool(memory, {"action": "spending", "days": 7})))
     assert "month" in out and "by_day" not in out
+
+
+def test_reset_shows_only_what_was_spent_after_it_and_deletes_nothing(memory):
+    call(memory, "chat", 5.0, days_ago=3)
+    assert mu.reset_at(memory) == "" and mu.view(memory, 30, now=NOW, since_reset=True)["since_reset"] is False
+    said = mu.reset(memory, NOW - timedelta(days=2))
+    assert "Nothing was deleted" in said and "limits are unchanged" in said
+    call(memory, "chat", 0.30, days_ago=1)
+    call(memory, "mail", 0.10, days_ago=0)
+    after = mu.view(memory, 30, now=NOW, since_reset=True)
+    assert after["since_reset"] and after["totals"]["usd"] == 0.4 and after["totals"]["requests"] == 2
+    assert after["days"] == 3 and len(after["by_day"]) == 3 and after["reset_at"] == (NOW - timedelta(days=2)).isoformat()
+    assert [c["id"] for c in after["components"]] == ["conversation", "email"]
+    assert mu.view(memory, 30, now=NOW)["totals"]["usd"] == 5.4  # the usual periods still show everything
+    assert mu.view(memory, 30, "conversation", now=NOW, since_reset=True)["scope"]["usd"] == 0.3  # drill-down too
+    assert memory.db.execute("SELECT COUNT(*) FROM model_calls").fetchone()[0] == 3  # nothing deleted
+    memory.set("budget:since", (NOW - timedelta(hours=12)).isoformat())  # the budgets were started fresh later
+    assert mu.view(memory, 30, now=NOW, since_reset=True)["totals"]["usd"] == 0.1
+    memory.set("budget:since", "")
+    assert "cleared" in mu.clear_reset(memory) and mu.reset_at(memory) == ""
+
+
+def test_reset_through_the_endpoint_and_chat(memory, monkeypatch):
+    import asyncio
+
+    from fastapi.testclient import TestClient
+
+    from buddy import maestro, server
+    monkeypatch.setattr(server, "memory", memory)
+    monkeypatch.setattr(server, "authorized", lambda t: t == "owner-token")
+    client = TestClient(server.app)
+    assert client.post("/api/maestro/usage", json={"reset": True}).status_code == 401
+    ok = {"Authorization": "Bearer owner-token"}
+    out = client.post("/api/maestro/usage", json={"reset": True}, headers=ok).json()
+    assert out["since_reset"] and out["reset_at"] and out["totals"]["requests"] == 0
+    assert client.get("/api/maestro/usage?since_reset=1", headers=ok).json()["since_reset"] is True
+    assert client.post("/api/maestro/usage", json={}, headers=ok).status_code == 400
+    assert client.post("/api/maestro/usage", json={"clear": True}, headers=ok).json()["reset_at"] == ""
+    assert "Since reset" in asyncio.run(maestro.run_tool(memory, {"action": "reset_spending"}))

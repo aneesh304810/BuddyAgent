@@ -1669,13 +1669,26 @@ async def api_orchestra() -> dict:
 
 
 @app.get("/api/maestro/usage", dependencies=[Depends(require_admin)])
-async def api_maestro_usage(days: int = 30, component: str = "", purpose: str = "") -> dict:
+async def api_maestro_usage(days: int = 30, component: str = "", purpose: str = "", since_reset: int = 0) -> dict:
     """Buddy Maestro's spending view: totals, by day, by component, and the drill-down to single requests."""
     from . import maestro_usage
     try:
-        return await asyncio.to_thread(maestro_usage.view, memory, days, component, purpose)
+        return await asyncio.to_thread(maestro_usage.view, memory, days, component, purpose, None, bool(since_reset))
     except ToolError as e:
         raise HTTPException(400, str(e)) from None
+
+
+@app.post("/api/maestro/usage", dependencies=[Depends(require_admin)])
+async def api_maestro_usage_reset(body: dict) -> dict:
+    """{reset: true} marks now as the start of 'since reset'; {clear: true} removes the mark. Nothing is deleted."""
+    from . import maestro_usage
+    if body.get("reset"):
+        text = maestro_usage.reset(memory)
+    elif body.get("clear"):
+        text = maestro_usage.clear_reset(memory)
+    else:
+        raise HTTPException(400, "Nothing to do.")
+    return {"text": text, **await asyncio.to_thread(maestro_usage.view, memory, 30, "", "", None, bool(body.get("reset")))}
 
 
 @app.get("/api/maestro/models", dependencies=[Depends(require_admin)])

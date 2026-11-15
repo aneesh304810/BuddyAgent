@@ -15,6 +15,11 @@ masked). Nothing here calls a model.
   Drill down  a component -> its purposes -> one purpose's models, days and latest requests
   By provider and by model, for the whole period or for the part drilled into
 
+  Since reset "Reset now" marks this moment. "Since reset" then shows only what was spent after it: useful after
+              changing a model or a setting, to see what it costs from here. Nothing is deleted and the budget
+              limits are not touched; it only changes where this view starts counting. If the budgets were
+              started fresh more recently (budgets.py), that moment is used instead.
+
 The month-end figure is this month's spending so far divided by the days elapsed, times the days in the
 month. It is arithmetic on the pace so far, not a prediction of what you will do.
 """
@@ -52,6 +57,25 @@ COMPONENTS = (  # id, title, what it covers, the purposes that belong to it
 _RULES = [(cid, re.compile(f"^(?:{pattern})$")) for cid, _t, _w, pattern in COMPONENTS]
 OTHER = ("other", "Other", "Purposes no rule above knows yet, listed by their own names")
 PERIODS = (7, 30, 90)
+RESET_KEY = "maestro:spend_since"
+
+
+def reset_at(memory: Memory) -> str:
+    """The moment 'since reset' counts from: the later of this view's own reset and the budgets' fresh start."""
+    from . import budgets  # noqa: PLC0415
+    return max(memory.get(RESET_KEY) or "", budgets.last_reset(memory) or "")
+
+
+def reset(memory: Memory, now: datetime | None = None) -> str:
+    """Mark now as the start of 'since reset'. Deletes nothing and changes no limit."""
+    now = now or datetime.now(timezone.utc)
+    memory.set(RESET_KEY, now.isoformat())
+    return "Reset. \"Since reset\" now counts from this moment. Nothing was deleted and your budget limits are unchanged."
+
+
+def clear_reset(memory: Memory) -> str:
+    memory.set(RESET_KEY, "")
+    return "The reset point is cleared."
 
 
 def component_of(purpose: str) -> str:
@@ -94,14 +118,20 @@ def _month(memory: Memory, now: datetime) -> dict:
             "heading_for_usd": round(spent / now.day * days_in, 2), "day": now.day, "days_in_month": days_in}
 
 
-def view(memory: Memory, days: int = 30, component: str = "", purpose: str = "", now: datetime | None = None) -> dict:
-    """The spending view for a period, optionally drilled into one component or one purpose."""
+def view(memory: Memory, days: int = 30, component: str = "", purpose: str = "", now: datetime | None = None,
+         since_reset: bool = False) -> dict:
+    """The spending view for a period (or since the last reset), optionally drilled into one component or one
+    purpose."""
     now = now or datetime.now(timezone.utc)
     days = days if days in PERIODS else 30
+    marker = reset_at(memory)
+    since_reset = bool(since_reset and marker)
+    if since_reset:  # as many whole days as have passed, for the chart (the log keeps 90)
+        days = max(1, min(90, (now.date() - datetime.fromisoformat(marker).astimezone(timezone.utc).date()).days + 1))
     known = {c[0]: c for c in (*COMPONENTS, OTHER)}
     if component and component not in known:
         raise ToolError("Components are: " + ", ".join(known))
-    since = (now - timedelta(days=days)).isoformat()
+    since = marker if since_reset else (now - timedelta(days=days)).isoformat()
     every = [dict(r) for r in memory.db.execute(
         "SELECT id, at, provider, model, purpose, input_tokens, output_tokens, cache_read_tokens, cache_write_tokens, "
         "cost_usd, seconds, ok, stop, request FROM model_calls WHERE at >= ? ORDER BY id DESC", (since,))]
@@ -122,6 +152,7 @@ def view(memory: Memory, days: int = 30, component: str = "", purpose: str = "",
             per_day[r["at"][:10]]["requests"] += 1
     out = {
         "days": days, "periods": list(PERIODS), "month": _month(memory, now),
+        "reset_at": marker, "since_reset": since_reset,
         "totals": {**_sum(every), "free_share": round(sum(1 for r in every if r["provider"] != "claude") / len(every), 3)
                    if every else 0.0},
         "scope": {"component": component, "purpose": purpose,

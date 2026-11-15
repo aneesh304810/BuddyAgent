@@ -126,11 +126,11 @@ function models() {
 
 // --- Spending: totals and trend, which part of Buddy spends it, and the drill-down to single requests --------
 let view = params.get("view") === "usage" ? "usage" : "providers", inApp = params.has("view");
-let spend = null, spendBusy = false, spendDays = 30, spendComponent = "", spendPurpose = "";
+let spend = null, spendBusy = false, spendDays = 30, spendComponent = "", spendPurpose = "", spendReset = false, resetArmed = false;
 async function loadSpend() {
   if (spendBusy) return;
   spendBusy = true;
-  try { spend = await api(`/api/maestro/usage?days=${spendDays}&component=${encodeURIComponent(spendComponent)}&purpose=${encodeURIComponent(spendPurpose)}`); }
+  try { spend = await api(`/api/maestro/usage?days=${spendDays}&since_reset=${spendReset ? 1 : 0}&component=${encodeURIComponent(spendComponent)}&purpose=${encodeURIComponent(spendPurpose)}`); }
   catch (e) { spend = { failed: e.message }; }
   spendBusy = false; render();
 }
@@ -153,17 +153,22 @@ function spending() {
   if (!spend) { loadSpend(); return `<p class="muted">Loading…</p>`; }
   if (spend.failed) return `<p class="err">${esc(spend.failed)}</p>`;
   const t = spend.totals, m = spend.month, sc = spend.scope, change = m.last_month_usd ? (m.heading_for_usd / m.last_month_usd - 1) : null;
-  const periods = spend.periods.map((d) => `<button class="chip${d === spend.days ? " on" : ""}" data-days="${d}">${d} days</button>`).join("");
+  const when = spend.reset_at ? new Date(spend.reset_at).toLocaleString(undefined, { month: "short", day: "numeric", hour: "numeric", minute: "2-digit" }) : "";
+  const periods = spend.periods.map((d) => `<button class="chip${!spend.since_reset && d === spend.days ? " on" : ""}" data-days="${d}">${d} days</button>`).join("")
+    + (spend.reset_at ? `<button class="chip${spend.since_reset ? " on" : ""}" data-since="1">Since reset</button>` : "");
+  const span = spend.since_reset ? `since the reset on ${when}` : `in the last ${spend.days} days`;
+  const resetRow = `<p style="margin-top:12px"><button class="btn" id="spendreset">${resetArmed ? "Tap again to reset" : "Reset now"}</button>${spend.reset_at ? ` <button class="btn" id="spendclear">Clear the reset</button>` : ""}</p>
+    <p class="note">${spend.reset_at ? `Last reset: ${esc(when)}. ` : ""}Reset marks this moment, so "Since reset" shows only what is spent from here. Nothing is deleted and your budget limits are not changed.</p>`;
   const crumbs = `<div class="crumbs"><button class="link" data-up="all">All of Buddy</button>${sc.component ? ` › <button class="link" data-up="component">${esc((spend.purposes ? sc.purpose ? "" : sc.title : "") || componentTitle(sc.component))}</button>` : ""}${sc.purpose ? ` › <b>${esc(sc.title)}</b>` : ""}</div>`;
   const summary = card("AI spending", `<div class="chips">${periods}</div><div class="kpis" style="margin-top:10px">
       ${kpi(dollars(m.usd), "this month so far")}${kpi(dollars(m.heading_for_usd), "heading for by month end")}
       ${kpi(dollars(m.last_month_usd), "last month")}${kpi(change == null ? "–" : (change > 0 ? "▲ " : change < 0 ? "▼ " : "") + Math.abs(Math.round(change * 100)) + "%", "this month's pace against last month")}
-      ${kpi(dollars(t.usd), `in the last ${spend.days} days`)}${kpi(esc(t.requests), "requests")}
+      ${kpi(dollars(t.usd), span)}${kpi(esc(t.requests), "requests")}
       ${kpi(dollars(t.per_request, 4), "an average request")}${kpi(share(t.requests ? t.failed / t.requests : 0), "failed")}
-      ${kpi(share(t.free_share), "answered by a free model")}</div>`,
+      ${kpi(share(t.free_share), "answered by a free model")}</div>${resetRow}`,
     `Day ${esc(m.day)} of ${esc(m.days_in_month)}. "Heading for" is this month's spending so far at the same daily pace to the end of the month: arithmetic, not a prediction.`);
   const scopeCard = card(sc.component ? esc(sc.title) : "Spending per day", `${crumbs}${sc.covers ? `<p class="muted">${esc(sc.covers)}</p>` : ""}
-      ${sc.component ? `<div class="kpis">${kpi(dollars(sc.usd), `in ${spend.days} days`)}${kpi(share(sc.share), "of all spending")}${kpi(esc(sc.requests), "requests")}${kpi(dollars(sc.per_request, 4), "an average request")}${kpi(sc.median_seconds == null ? "–" : sc.median_seconds + "s", "typical time")}</div>` : ""}
+      ${sc.component ? `<div class="kpis">${kpi(dollars(sc.usd), spend.since_reset ? "since the reset" : `in ${spend.days} days`)}${kpi(share(sc.share), "of all spending")}${kpi(esc(sc.requests), "requests")}${kpi(dollars(sc.per_request, 4), "an average request")}${kpi(sc.median_seconds == null ? "–" : sc.median_seconds + "s", "typical time")}</div>` : ""}
       ${dayChart(spend.by_day)}`);
   const parts = spend.components ? card("Which part of Buddy spends it", spend.components.length ? spend.components.map((c) => barRow(c.title, c.covers, c, `data-component="${esc(c.id)}"`)).join("") : `<p class="muted">No requests in this period yet.</p>`, "Tap a part to see what inside it spends.")
     : card(`Inside ${esc(componentTitle(sc.component))}`, (spend.purposes || []).map((p) => barRow(p.name, p.purpose, p, `data-purpose="${esc(p.purpose)}"`)).join("") || `<p class="muted">Nothing here in this period.</p>`, "Tap a line to see its models and latest requests. Shares are of this part.");
@@ -180,7 +185,18 @@ function render() {
   const switcher = inApp ? "" : `<div class="chips" style="margin-bottom:10px"><button class="chip${view === "providers" ? " on" : ""}" data-view="providers">Providers &amp; models</button><button class="chip${view === "usage" ? " on" : ""}" data-view="usage">Spending</button></div>`;
   $("main").innerHTML = switcher + (view === "usage" ? spending() : models());
   document.querySelectorAll("[data-view]").forEach((b) => b.onclick = () => { view = b.dataset.view; render(); });
-  document.querySelectorAll("[data-days]").forEach((b) => b.onclick = () => { spendDays = Number(b.dataset.days); spend = null; render(); });
+  document.querySelectorAll("[data-days]").forEach((b) => b.onclick = () => { spendDays = Number(b.dataset.days); spendReset = false; spend = null; render(); });
+  document.querySelectorAll("[data-since]").forEach((b) => b.onclick = () => { spendReset = true; spend = null; render(); });
+  if ($("spendreset")) $("spendreset").onclick = async () => {
+    if (!resetArmed) { resetArmed = true; render(); setTimeout(() => { if (resetArmed) { resetArmed = false; render(); } }, 5000); return; }
+    resetArmed = false;
+    try { const out = await api("/api/maestro/usage", { reset: true }); spendReset = true; spendComponent = ""; spendPurpose = ""; spend = out; render(); notice(out.text); }
+    catch (e) { notice(e.message); render(); }
+  };
+  if ($("spendclear")) $("spendclear").onclick = async () => {
+    try { const out = await api("/api/maestro/usage", { clear: true }); spendReset = false; spend = out; render(); notice(out.text); }
+    catch (e) { notice(e.message); }
+  };
   document.querySelectorAll("[data-component]").forEach((b) => b.onclick = () => { spendComponent = b.dataset.component; spendPurpose = ""; spend = null; render(); scrollTo(0, 0); });
   document.querySelectorAll("[data-purpose]").forEach((b) => b.onclick = () => { spendPurpose = b.dataset.purpose; spend = null; render(); scrollTo(0, 0); });
   document.querySelectorAll("[data-up]").forEach((b) => b.onclick = () => { if (b.dataset.up === "all") spendComponent = ""; spendPurpose = ""; spend = null; render(); });

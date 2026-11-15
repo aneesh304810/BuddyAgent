@@ -91,6 +91,12 @@ or "what does email cost me".
   the pace against last month, spending and requests in the period, the cost of an average request, how
   many failed, and the share a free model answered. "Heading for" is this month's spending so far at the
   same daily pace to the end of the month: arithmetic, not a prediction.
+- **Reset.** "Reset now" (tap twice to confirm) marks this moment. A "Since reset" choice then appears
+  beside 7, 30 and 90 days and shows only what was spent after it, through every level of the drill-down.
+  Use it after changing a model or a setting to see what things cost from here. Nothing is deleted, the
+  other periods still show everything, and your budget limits are not changed. "Clear the reset" removes
+  the mark. If you started the budgets fresh more recently, that moment is used instead. In chat: "reset
+  the AI spending view" and "what have I spent on AI since the reset".
 - **Spending per day**, as a chart. Tap a bar for that day's cost and requests.
 - **Which part of Buddy spends it.** Every request belongs to one component:
 
