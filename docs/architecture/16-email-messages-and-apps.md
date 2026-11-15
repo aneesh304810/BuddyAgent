@@ -20,6 +20,7 @@ flowchart LR
         mailbrain_py["mailbrain.py<br/>reads new mail from every account, sorts it by priority against your…"]
         mailorganizer_py["mailorganizer.py<br/>marketing, newsletters and app notifications are moved out of the…"]
         lifemail_py["lifemail.py<br/>Buddy reads the email that is about the owner's own life and…"]
+        mailfiles_py["mailfiles.py<br/>the PDFs, pictures and documents attached to the owner's life email…"]
         email_accounts_py["email_accounts.py<br/>All of the user's email accounts, read from the settings file"]
         messaging_py["messaging.py<br/>reply to WhatsApp (and other chat apps) from your own account,…"]
         packages_py["packages.py<br/>from shipping emails and notifications (free, no key), and 17TRACK…"]
@@ -40,10 +41,13 @@ flowchart LR
     t_packages --> packages_py
     mailbrain_py --> email_accounts_py
     mailorganizer_py --> email_accounts_py
-    db[("Your database<br/>life_circle, life_events, mail_moves, mail_rules, mail_triage, msg_autoreply, msg_autoreply_log, packages")]
+    lifemail_py --> mailfiles_py
+    mailfiles_py --> email_accounts_py
+    db[("Your database<br/>mail_circle, mail_files, mail_life, mail_moves, mail_routine, mail_rules, mail_triage, msg_autoreply and more")]
     mailbrain_py --> db
     mailorganizer_py --> db
     lifemail_py --> db
+    mailfiles_py --> db
     messaging_py --> db
     packages_py --> db
     o_0["Claude"]
@@ -70,7 +74,7 @@ The diagram reads left to right: what you ask, the tools Buddy uses, the modules
 | `add_email_rule` | Add one of the user's email rules, in their words | - | mailbrain.py |
 | `email_rules` | List the user's email rules (with ids), or remove one with remove_id. | - | mailbrain.py |
 | `email_organizer` | Keeps the inbox for real email by moving marketing, newsletters and app notifications into their own folders (Buddy Promotions, Buddy Newsletters, Buddy Notific | preview, organize, undo, keep, always, forget, auto, status | mailorganizer.py |
-| `life_memory` | What Buddy remembers about the owner's life from their own email: family and the people around them, children's school and daycare, health appointments (logisti | show, teach, ignore, forget, catch_up | lifemail.py |
+| `life_memory` | What Buddy remembers about the owner's life from their own email: family and the people around them, children's school and daycare, health appointments (logisti | show, teach, ignore, forget, catch_up, attachments, trips, providers, routines | lifemail.py |
 | `messages` | Reply to WhatsApp, Messages, Telegram or Signal from the user's own account, through the phone's notification (free; works for chats with a recent notification) | chats, reply, auto_reply, auto_replies, stop_auto_reply | messaging.py |
 | `packages` | The user's packages: from shipping emails and notifications (Amazon, UPS, FedEx, USPS, DHL), and 17TRACK live status when its key is set | list, track, remove, test | packages.py |
 
@@ -141,13 +145,13 @@ so it knows the people, the places and the dates without being told twice.
                   words that mark an appointment, a child's school or daycare, the home or building, a travel
                   document, an insurer, a payment that was made, or a real person writing. Mail the email
                   manager sorted as low (newsletters, promotions) is skipped unless it is from the circle.
-  What is kept    for each such email, at most one dated entry (life_events): its category (health, school,
+  What is kept    for each such email, at most one dated entry (mail_life): its category (health, school,
                   childcare, home, travel, money, insurance, family, work), what it is (appointment, document,
                   notice, payment, update), the date and time, who it concerns, the organisation, a reference
                   number when there is one, and one plain sentence worth remembering. The sentence is also kept
                   as a searchable note in the brain, so "what's the reference on Ishaan's Kenya eTA?" or "when
                   is my doctor's visit?" can be answered later.
-  The circle      the people and organisations that keep appearing (life_circle): a sender, a name, and what
+  The circle      the people and organisations that keep appearing (mail_circle): a sender, a name, and what
                   they are to the owner. Buddy only guesses a relation ("travels with you; a school writes to
                   you both: family?") and asks once; nothing is treated as fact until the owner confirms or
                   says it ("Neha Sareen is my wife"). Confirmed people go into the brain as people.
@@ -163,8 +167,31 @@ All of it is personal: it is read by Claude only, never by a free model, and sta
 The owner can see it, correct it and delete it (the life_memory tool). Kept 400 days after its date.
 ```
 
-- Tables: `life_circle`, `life_events`
-- Uses: brain.py, config.py, memory.py, thinking.py, tools.py
+- Tables: `mail_circle`, `mail_life`, `mail_routine`
+- Uses: brain.py, config.py, mailfiles.py, memory.py, money.py, thinking.py, tools.py
+
+### mailfiles.py
+
+```text
+Email attachments, read: the PDFs, pictures and documents attached to the owner's life email are opened,
+understood and remembered, instead of only their file names being seen.
+
+  Which ones      attachments on email that life memory kept (lifemail.py): a travel authorisation, a school's
+                  weekly letter, an insurer's receipt, an invitation that is only a picture. Never attachments
+                  on marketing mail. PDFs, pictures, Word and Excel files and text, up to 10 MB each and four
+                  per email. A picture inside the email body counts only when the email has almost no text
+                  (an invitation sent as an image), not logos and signatures.
+  How             the email is fetched again from the owner's own mailbox, read-only, by its Message-ID; each
+                  attachment goes into the library (library.py), which reads it (Claude reads scans and
+                  pictures), summarises it, indexes it for search and keeps the original encrypted.
+  Private ones    documents from travel, official, health, tax, insurance and money email go into the vault:
+                  their summary is known, the full text opens only after the owner's yes.
+
+Read by Claude only, kept in the encrypted library. The owner can open or delete each one there.
+```
+
+- Tables: `mail_files`
+- Uses: email_accounts.py, library.py, memory.py
 
 ### email_accounts.py
 

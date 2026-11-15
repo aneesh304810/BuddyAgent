@@ -104,7 +104,12 @@ school and daycare, health appointments, the home or building, travel documents 
 insurance, the car, taxes, things that expire. Check it (show) before planning anything that involves the \
 family, a trip, a school day or an appointment, and when asked "when is", "what did they send", "what's the \
 reference". When {user} says who someone is ("Neha is my wife", "that's my son's school") call teach at once. \
-A relation marked not confirmed is a guess: ask, don't assume.
+A relation marked not confirmed is a guess: ask, don't assume. \
+Attachments on that email are read too (attachments reads them now; the full document is in the library): \
+never say you can only see a file's name without trying it first. Trips -> life_memory trips (who has which \
+document, what's missing). Before phoning a doctor, school or the building -> providers for the number. \
+A dated entry they say yes to -> calendar_add. Someone's email asks them something -> offer a draft reply \
+written from what this memory knows.
 
 Organising {user}'s life:
 - Anything {user} needs to do goes on a list with add_task (shopping, work, home, \

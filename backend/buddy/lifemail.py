@@ -104,6 +104,16 @@ SCHEMA = {
             "reference": {"type": "string", "description": "booking, application or confirmation reference, if any"},
             "expires": {"type": "string", "description": "YYYY-MM-DD a document, visa, policy, registration, warranty "
                                                          "or return window ends, if the email states it"},
+            "place": {"type": "string", "description": "travel: the destination country or city, e.g. 'Kenya'"},
+            "amount": {"type": "number", "description": "payment: the amount paid"},
+            "payee": {"type": "string", "description": "payment: who was paid, e.g. 'American Express'"},
+            "asks": {"type": "string", "description": "what a real person asks the owner to do or answer, in one "
+                                                      "sentence; '' if nothing or if the sender is a company"},
+            "sign_in": {"type": "string", "description": "childcare daily summary: HH:MM the child was signed in"},
+            "sign_out": {"type": "string", "description": "childcare daily summary: HH:MM the child was signed out"},
+            "contact": {"type": "object", "additionalProperties": False, "properties": {
+                "phone": {"type": "string"}, "address": {"type": "string"}, "website": {"type": "string"}},
+                "description": "the organisation's own phone, street address and website, only if written in the email"},
             "remember": {"type": "string", "description": "one plain sentence worth remembering later; '' if none"},
             "people": {"type": "array", "items": {
                 "type": "object", "additionalProperties": False, "required": ["name", "kind", "guess"],
@@ -125,7 +135,10 @@ For kept emails give the category, what it is, a short title, the date it happen
 it), who it concerns, the organisation, any reference number, the date something ends if stated (expires: a \
 visa, passport, policy, registration, warranty or return window), and one plain sentence worth remembering later \
 (remember). Health: only who, when and where; never results, diagnoses or medicines. A patient-portal notice \
-is just "new message from <provider> in MyChart". Never include card or account numbers beyond the last four \
+is just "new message from <provider> in MyChart". Travel: give the destination as place. A payment the owner \
+made: amount and payee. A childcare daily summary: the child's sign-in and sign-out times. When a real person \
+(not a company) asks {user} for something, put it in asks. When the email gives the organisation's own phone \
+number, street address or website, put them in contact. Never include card or account numbers beyond the last four \
 digits, passwords or one-time codes.
 people: the people and organisations in the email that matter to {user}'s life, each with a careful guess of \
 what they are to {user} and the evidence ("forwards the family's travel documents; a school writes to both: \
@@ -134,9 +147,24 @@ live in"). Guess only from what is written; say "unclear" rather than invent. Sk
 What is already known about their circle: {circle}"""
 
 
+ROUTINE_SQL = """
+CREATE TABLE IF NOT EXISTS mail_routine (
+    id INTEGER PRIMARY KEY,
+    day TEXT NOT NULL, who TEXT NOT NULL, org TEXT NOT NULL DEFAULT '',
+    sign_in TEXT NOT NULL DEFAULT '', sign_out TEXT NOT NULL DEFAULT '',
+    UNIQUE (day, who)
+);
+"""
+
+
 def _ready(memory: Memory) -> None:
-    memory.db.executescript(SCHEMA_SQL)
-    memory._add_columns("mail_life", {"expires": "TEXT NOT NULL DEFAULT ''"})
+    memory.db.executescript(SCHEMA_SQL + ROUTINE_SQL)
+    memory._add_columns("mail_life", {"expires": "TEXT NOT NULL DEFAULT ''", "place": "TEXT NOT NULL DEFAULT ''",
+                                      "amount": "REAL", "payee": "TEXT NOT NULL DEFAULT ''",
+                                      "asks": "TEXT NOT NULL DEFAULT ''", "dated": "INTEGER NOT NULL DEFAULT 0",
+                                      "files": "TEXT NOT NULL DEFAULT ''"})  # files: '' | pending | none | JSON list
+    memory._add_columns("mail_circle", {"phone": "TEXT NOT NULL DEFAULT ''", "address": "TEXT NOT NULL DEFAULT ''",
+                                        "website": "TEXT NOT NULL DEFAULT ''"})
 
 
 def _sender(meta: dict) -> tuple[str, str]:
@@ -258,6 +286,7 @@ def candidates(memory: Memory, since_days: int = 0) -> list[dict]:
         if not mine and (r["id"] in low or MARKETING.search(text[:2500]) or not LIFE.search(text[:2500])):
             continue
         out.append({"id": r["id"], "from": name or address, "address": address, "subject": r["title"] or "",
+                    "attachments": meta.get("attachments"),
                     "received": (r["start_at"] or "")[:10], "text": (r["body"] or "")[:900]})
         if len(out) >= MAX_PER_RUN:
             break
@@ -301,6 +330,19 @@ def _remind(memory: Memory, item: dict) -> None:
                 memory.add_reminder(f"In two hours ({item['time']}): {label}.", start - timedelta(hours=2))
 
 
+FILE_CATEGORIES = {"travel", "official", "tax", "insurance", "school", "childcare", "event", "home", "health",
+                   "vehicle", "family", "work"}
+
+
+def _wants_files(email: dict, item: dict) -> bool:
+    """Whether this email's attachments are worth opening: it has some (or it is an older record where that
+    wasn't noted), and it is a document or from a part of life where attachments carry the substance."""
+    attached = email.get("attachments")
+    if attached is not None and not attached:
+        return False
+    return item.get("kind") == "document" or (bool(attached) and item.get("category") in FILE_CATEGORIES)
+
+
 def _remind_expiry(memory: Memory, row: dict) -> None:
     """A reminder ahead of something ending: 30 days before (7 for a return window or anything closer)."""
     now = local_now()
@@ -321,13 +363,18 @@ def save(memory: Memory, email: dict, item: dict) -> dict | None:
            "day": _day(item.get("date")) or email["received"], "time": str(item.get("time") or "")[:5],
            "who": str(item.get("who") or "")[:80], "org": str(item.get("org") or "")[:80],
            "reference": str(item.get("reference") or "")[:60], "remember": str(item.get("remember") or "")[:400],
-           "expires": _day(item.get("expires")),
+           "expires": _day(item.get("expires")), "place": str(item.get("place") or "")[:60],
+           "amount": item.get("amount") if isinstance(item.get("amount"), (int, float)) else None,
+           "payee": str(item.get("payee") or "")[:80], "asks": str(item.get("asks") or "")[:300],
+           "files": "pending" if _wants_files(email, item) else "",
            "dated": bool(_day(item.get("date")))}
     cur = memory.db.execute(
         "INSERT OR IGNORE INTO mail_life (category, kind, title, day, time, who, org, reference, remember, "
-        "expires, record_id, sender, created_at) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)",
+        "expires, place, amount, payee, asks, dated, files, record_id, sender, created_at) VALUES "
+        "(?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)",
         (row["category"], row["kind"], title, row["day"], row["time"], row["who"], row["org"], row["reference"],
-         row["remember"], row["expires"], email["id"], email["from"][:80], datetime.now(timezone.utc).isoformat()))
+         row["remember"], row["expires"], row["place"], row["amount"], row["payee"], row["asks"], int(row["dated"]),
+         row["files"], email["id"], email["from"][:80], datetime.now(timezone.utc).isoformat()))
     if not cur.rowcount:
         return None
     if row["remember"]:
@@ -344,16 +391,49 @@ def save(memory: Memory, email: dict, item: dict) -> dict | None:
     return {**row, "id": cur.lastrowid}
 
 
-def message(row: dict) -> str:
+def calendar_check(memory: Memory, row: dict) -> dict:
+    """Against the owner's calendar: {"on_calendar": it is already there, "clash": the title of another event
+    within an hour of it}."""
+    out = {"on_calendar": False, "clash": ""}
+    try:
+        tz = local_now().tzinfo
+        start = datetime.combine(date.fromisoformat(row["day"]), datetime.min.time(), tz)
+        timed = bool(re.fullmatch(r"\d{1,2}:\d{2}", row.get("time") or ""))
+        if timed:
+            hour, minute = (int(x) for x in row["time"].split(":"))
+            start = start.replace(hour=min(hour, 23), minute=min(minute, 59))
+        lo, hi = (start - timedelta(hours=1), start + timedelta(hours=1)) if timed else (start, start + timedelta(days=1))
+        events = memory.db.execute("SELECT title, start_at FROM records WHERE kind = 'event' AND start_at >= ? AND "
+                                   "start_at < ?", (lo.astimezone(timezone.utc).isoformat(),
+                                                    hi.astimezone(timezone.utc).isoformat())).fetchall()
+    except Exception:
+        return out
+    words = {w for w in re.findall(r"[a-z]{4,}", f"{row['title']} {row.get('org', '')}".lower())}
+    for e in events:
+        if words & set(re.findall(r"[a-z]{4,}", (e["title"] or "").lower())):
+            out["on_calendar"] = True
+        elif timed and not out["clash"]:
+            out["clash"] = (e["title"] or "another event")[:60]
+    return out
+
+
+def message(row: dict, memory: Memory | None = None) -> str:
     """What to say at once about a new item; '' for the ones kept quietly."""
     today = local_now().date().isoformat()
     when = f"{date.fromisoformat(row['day']):%A %b %d}" + (f" at {row['time']}" if row["time"] else "")
     whom = f" for {row['who']}" if row["who"] else ""
+    cal = calendar_check(memory, row) if memory is not None and row["dated"] and row["day"] >= today else {}
+    offer = ("" if not cal else " It's already on your calendar." if cal["on_calendar"] else
+             (f" It clashes with \"{cal['clash']}\" on your calendar." if cal["clash"] else "")
+             + " Shall I add it to your calendar?")
     if row["kind"] == "appointment" and row["dated"] and row["day"] >= today:
         return (f"From your email: {row['title']}{whom}, {when}"
                 + (f" ({row['org']})" if row["org"] and row["org"].lower() not in row["title"].lower() else "")
                 + ". I'll remind you the evening before"
-                + (" and two hours ahead." if row["time"] else "."))
+                + (" and two hours ahead." if row["time"] else ".") + offer)
+    if row["category"] in ("school", "childcare", "event", "family") and row["dated"] and row["day"] >= today and \
+            row["kind"] != "payment":
+        return (f"From {row['org'] or 'your email'}: {row['title']}{whom}, {when}." + offer)
     if row["category"] == "home" and row["kind"] == "notice" and row["day"] >= today and \
             re.search(r"(?i)deliver|package|parcel|front desk", f"{row['title']} {row['remember']}"):
         return f"From your building: {row['title']}."
@@ -385,12 +465,136 @@ async def scan(memory: Memory, extract=None, since_days: int = 0) -> list[str]:
                 _remind(memory, row)
             if row["expires"] and row["expires"] > local_now().date().isoformat():
                 _remind_expiry(memory, row)
-            text = message(row)
+            if row["kind"] == "payment" and row["payee"]:
+                _settle(memory, row)
+            _routine(memory, row, item)
+            _contact(memory, row, item)
+            text = message(row, memory)
+            if not text and row["asks"] and _confirmed_person(memory, email):
+                text = f"{email['from']} asks: {row['asks']} Shall I draft a reply?"
             if text and not since_days:
                 told.append(text)
                 memory.db.execute("UPDATE mail_life SET told = 1 WHERE id = ?", (row["id"],))
     memory.db.commit()
+    told += await read_files(memory, limit=20 if since_days else 6, announce=not since_days)
     return told + (questions(memory) if emails else [])
+
+
+def _confirmed_person(memory: Memory, email: dict) -> bool:
+    return any(c["kind"] == "person" and email["address"] in c["senders"] for c in circle(memory, "confirmed"))
+
+
+def _settle(memory: Memory, row: dict) -> None:
+    """A payment the owner made settles the matching open bill (money.py), so it isn't chased again."""
+    try:
+        from .money import Money  # noqa: PLC0415
+        paid = Money(memory).mark_paid(row["payee"])
+        if paid:
+            memory.db.execute("UPDATE mail_life SET remember = remember || ? WHERE id = ?",
+                              (f" This settled the open {paid['biller']} bill due {paid['due_date']}.", row["id"]))
+    except Exception:
+        log.info("lifemail: settling a bill failed", exc_info=True)
+
+
+def _clock(text) -> str:
+    found = re.fullmatch(r"(\d{1,2}):(\d{2})", str(text or "").strip())
+    return f"{int(found.group(1)):02d}:{found.group(2)}" if found and int(found.group(1)) < 24 else ""
+
+
+def _routine(memory: Memory, row: dict, item: dict) -> None:
+    """A childcare day's sign-in and sign-out, kept so the usual times are known."""
+    came, left = _clock(item.get("sign_in")), _clock(item.get("sign_out"))
+    if row["category"] == "childcare" and row["who"] and (came or left):
+        memory.db.execute("INSERT OR REPLACE INTO mail_routine (day, who, org, sign_in, sign_out) VALUES "
+                          "(?, ?, ?, ?, ?)", (row["day"], row["who"], row["org"], came, left))
+
+
+def _contact(memory: Memory, row: dict, item: dict) -> None:
+    """The organisation's own phone, address and website from its email: the provider book."""
+    c = item.get("contact") or {}
+    if not row["org"] or not any(c.get(k) for k in ("phone", "address", "website")):
+        return
+    _see(memory, row["org"], "organisation", "")
+    for field, size in (("phone", 30), ("address", 160), ("website", 120)):
+        value = " ".join(str(c.get(field) or "").split())[:size]
+        if value:
+            memory.db.execute(f"UPDATE mail_circle SET {field} = ? WHERE key = ?",  # nosec B608: fixed names
+                              (value, row["org"].lower()))
+
+
+# --- attachments --------------------------------------------------------------------------------------------
+async def read_files(memory: Memory, limit: int = 6, announce: bool = True, reader=None) -> list[str]:
+    """Open the attachments of kept emails that are waiting (mailfiles.py), add what they say to the entry, and
+    return what to tell the owner. `reader`: mailfiles.read, or a stand-in for tests."""
+    from . import mailfiles  # noqa: PLC0415
+    _ready(memory)
+    told = []
+    for e in [dict(r) for r in memory.db.execute("SELECT * FROM mail_life WHERE files = 'pending' ORDER BY id "
+                                                 "LIMIT ?", (limit,))]:
+        try:
+            got = await (reader or mailfiles.read)(memory, e["record_id"], vault=e["category"] in mailfiles.VAULT)
+        except Exception as err:  # the mailbox is unreachable: try again on a later run
+            log.info("lifemail: attachments of %s: %s", e["id"], type(err).__name__)
+            continue
+        if not got:
+            memory.db.execute("UPDATE mail_life SET files = 'none' WHERE id = ?", (e["id"],))
+            continue
+        said = " ".join(f"{g['title']}: {g['summary']}" for g in got)[:1200]
+        memory.db.execute("UPDATE mail_life SET files = ?, remember = substr(remember || ' Attached: ' || ?, 1, 1600) "
+                          "WHERE id = ?", (json.dumps([{"name": g["name"], "item_id": g["item_id"],
+                                                        "title": g["title"]} for g in got]), said, e["id"]))
+        try:
+            from .brain import Brain  # noqa: PLC0415
+            Brain(memory, embed=lambda t: None).add_note("life", f"{e['category'].title()}: {e['title']} (attached)",
+                                                         said, f"an attachment in an email from {e['sender']}")
+        except Exception:
+            log.info("lifemail: attachment note failed", exc_info=True)
+        fresh = await _refine(memory, e, said)
+        if announce:
+            important = [f for g in got for f in g.get("important") or []][:3]
+            told.append(f"I read the attachment on \"{e['title']}\""
+                        + (f" ({e['sender']})" if e["sender"] else "") + f": {got[0]['summary'][:300]}"
+                        + (" Worth knowing: " + "; ".join(important) + "." if important else "")
+                        + (f" {fresh}" if fresh else ""))
+    memory.db.commit()
+    return told
+
+
+async def _refine(memory: Memory, entry: dict, attached: str, extract=None) -> str:
+    """With the attachment read, fill in what the email alone didn't say (a date on an invitation that was only
+    a picture, a reference, an end date). Returns a line to say when a new date was found."""
+    email = {"id": entry["record_id"], "from": entry["sender"], "address": "", "received": entry["day"],
+             "subject": entry["title"], "text": f"{entry['remember']}\n\nThe attachment says: {attached}"[:2500]}
+    try:
+        got = await (extract or _extract)(memory, [email])
+    except Exception:
+        return ""
+    item = next((i for i in (got or {}).get("items") or [] if i.get("keep")), None)
+    if not item:
+        return ""
+    fields = {}
+    if _day(item.get("date")) and not entry["dated"]:
+        fields.update(day=_day(item["date"]), dated=1, time=_clock(item.get("time")) or entry["time"])
+    for key, value in (("reference", str(item.get("reference") or "")[:60]), ("expires", _day(item.get("expires"))),
+                       ("place", str(item.get("place") or "")[:60]), ("who", str(item.get("who") or "")[:80])):
+        if value and not entry[key]:
+            fields[key] = value
+    if not fields:
+        return ""
+    try:
+        memory.db.execute(f"UPDATE mail_life SET {', '.join(k + ' = ?' for k in fields)} WHERE id = ?",  # nosec B608
+                          (*fields.values(), entry["id"]))
+    except Exception:  # the same title already exists on that day
+        return ""
+    row = {**entry, **fields, "dated": bool(fields.get("dated", entry["dated"]))}
+    today = local_now().date().isoformat()
+    if fields.get("expires", "") > today:
+        _remind_expiry(memory, row)
+    if "day" in fields and fields["day"] >= today:
+        if row["kind"] == "appointment":
+            _remind(memory, row)
+        return message(row, memory) or f"It's on {date.fromisoformat(fields['day']):%A %b %d}."
+    return ""
 
 
 # --- recall -------------------------------------------------------------------------------------------------
@@ -412,6 +616,88 @@ def briefing_line(memory: Memory) -> str:
         + (f" ({r['who']})" if r["who"] else "") for r in rows[:6]) + "."
 
 
+def trips(memory: Memory) -> list[dict]:
+    """Trip folders: the travel documents, flights and stays for one place, with what each traveller has and
+    what looks missing."""
+    _ready(memory)
+    today = local_now().date()
+    rows = [dict(r) for r in memory.db.execute(
+        "SELECT * FROM mail_life WHERE category = 'travel' AND place != '' AND day >= ? ORDER BY day",
+        ((today - timedelta(days=120)).isoformat(),))]
+    plans = []
+    try:
+        plans = [dict(r) for r in memory.db.execute("SELECT kind, title, starts, ends, details FROM brain_plans "
+                                                    "WHERE starts >= ? ORDER BY starts", (today.isoformat(),))]
+    except Exception:
+        log.debug("lifemail: no plans table yet")
+    out = {}
+    for r in rows:
+        t = out.setdefault(r["place"].lower(), {"place": r["place"], "travellers": {}, "documents": [],
+                                                "flights": [], "stays": [], "dates": []})
+        doc = {"title": r["title"], "who": r["who"], "reference": r["reference"], "expires": r["expires"],
+               "read": r["files"].startswith("[")}
+        t["documents"].append(doc)
+        if r["who"]:
+            t["travellers"].setdefault(r["who"], []).append(r["title"])
+        if r["dated"]:
+            t["dates"].append(r["day"])
+    for t in out.values():
+        place = t["place"].lower()
+        for p in plans:
+            if place in f"{p['title']} {p['details']}".lower():
+                t["flights" if p["kind"] == "flight" else "stays" if p["kind"] == "hotel" else "documents"].append(
+                    {"title": p["title"], "starts": p["starts"], "ends": p["ends"]} if p["kind"] in ("flight", "hotel")
+                    else {"title": p["title"], "who": "", "reference": "", "expires": "", "read": False})
+        missing = []
+        if len(t["travellers"]) > 1:
+            kinds = {w: len(d) for w, d in t["travellers"].items()}
+            most = max(kinds.values())
+            missing += [f"{w} has fewer documents than the others" for w, n in kinds.items() if n < most]
+        if not t["flights"]:
+            missing.append("no flight for this trip is in your email or plans yet")
+        if not t["stays"]:
+            missing.append("no hotel or stay for this trip is in your email or plans yet")
+        t["travellers"] = sorted(t["travellers"])
+        t["to_check"] = missing
+        t["dates"] = sorted(set(t["dates"]))[:6]
+    return list(out.values())
+
+
+def providers(memory: Memory) -> list[dict]:
+    """The provider book: organisations in the owner's life with the contact details their own email gave."""
+    return [{"name": c["name"], "what": c["relation"] or (c["guess"] and f"not confirmed: {c['guess']}") or "",
+             **{k: c[k] for k in ("phone", "address", "website") if c.get(k)}}
+            for c in circle(memory) if c["kind"] == "organisation" and c["status"] != "ignored"]
+
+
+def _minutes(clock: str) -> int:
+    return int(clock[:2]) * 60 + int(clock[3:])
+
+
+def routines(memory: Memory) -> list[dict]:
+    """The usual childcare times per child, from the daily summaries, and the days that were unusual."""
+    import statistics  # noqa: PLC0415
+    _ready(memory)
+    since = (local_now().date() - timedelta(days=60)).isoformat()
+    by = {}
+    for r in memory.db.execute("SELECT * FROM mail_routine WHERE day >= ? ORDER BY day", (since,)):
+        by.setdefault(r["who"], []).append(dict(r))
+    out = []
+    for who, days in by.items():
+        entry = {"who": who, "at": days[-1]["org"], "days_seen": len(days), "unusual": []}
+        for field, label in (("sign_in", "usual_drop_off"), ("sign_out", "usual_pick_up")):
+            times = [_minutes(d[field]) for d in days if d[field]]
+            if len(times) >= 5:
+                usual = int(statistics.median(times))
+                entry[label] = f"{usual // 60:02d}:{usual % 60:02d}"
+                entry["unusual"] += [f"{d['day']}: {field.replace('_', ' ')} at {d[field]} (usually {entry[label]})"
+                                     for d in days[-10:] if d[field] and abs(_minutes(d[field]) - usual) >= 60]
+        if "usual_drop_off" not in entry and "usual_pick_up" not in entry:
+            entry["note"] = "not enough days yet to know the usual times (five needed)"
+        out.append(entry)
+    return out
+
+
 def show(memory: Memory, category: str = "", query: str = "", limit: int = 40) -> dict:
     _ready(memory)
     sql, args = "SELECT * FROM mail_life WHERE 1 = 1", []
@@ -421,9 +707,16 @@ def show(memory: Memory, category: str = "", query: str = "", limit: int = 40) -
         sql += " AND lower(title || ' ' || who || ' ' || org || ' ' || remember || ' ' || reference) LIKE ?"
         args.append(f"%{word}%")
     rows = [dict(r) for r in memory.db.execute(sql + " ORDER BY day DESC LIMIT ?", args + [limit])]
-    return {"entries": [{k: r[k] for k in ("id", "category", "kind", "title", "day", "time", "who", "org",
-                                           "reference", "expires", "remember", "sender") if r[k] not in ("", None)}
-                        for r in rows],
+    def view(r: dict) -> dict:
+        out = {k: r[k] for k in ("id", "category", "kind", "title", "day", "time", "who", "org", "reference",
+                                 "expires", "place", "amount", "payee", "asks", "remember", "sender")
+               if r[k] not in ("", None)}
+        if r["files"].startswith("["):
+            out["attachments_read"] = [f"{f['title']} (library id {f['item_id']})" for f in json.loads(r["files"])]
+        elif r["files"] == "pending":
+            out["attachments"] = "not read yet"
+        return out
+    return {"entries": [view(r) for r in rows],
             "upcoming": upcoming(memory, 14),
             "circle": [{"name": c["name"], "kind": c["kind"],
                         "relation": c["relation"] or f"not confirmed (my guess: {c['guess'] or 'unclear'})",
@@ -458,10 +751,19 @@ TOOL = {
         "planning anything that involves the family. teach (name, relation; kind person or organisation): the "
         "owner says who someone is ('Neha Sareen is my wife', 'Nine on the Hudson is my building'): always call "
         "it when they tell you. ignore (name): stop asking about or keeping someone. forget (query): delete "
-        "entries. catch_up (days, default 30): read older email again for what was missed. Relations marked not "
-        "confirmed are guesses: say so, never state them as fact.",
+        "entries. catch_up (days, default 30): read older email again for what was missed, attachments included. "
+        "attachments (query): open and read the PDFs and pictures attached to matching kept emails now (they "
+        "are also read by themselves a few at a time); what they say is then in the entry, and the full "
+        "document is in the library. trips: a folder per destination with each traveller's documents and "
+        "references, flights, stays, and what looks missing. providers: the organisations in their life with "
+        "the phone, address and website their own email gave (use it before calling one). routines: the usual "
+        "childcare drop-off and pick-up times and the days that differed. When an entry has a date and the owner "
+        "says yes to adding it, use calendar_add. When someone's email asks the owner something, draft the "
+        "reply from what this memory knows. Relations marked not confirmed are guesses: say so, never state "
+        "them as fact.",
     "input_schema": {"type": "object", "properties": {
-        "action": {"type": "string", "enum": ["show", "teach", "ignore", "forget", "catch_up"]},
+        "action": {"type": "string", "enum": ["show", "teach", "ignore", "forget", "catch_up", "attachments", "trips", "providers",
+                                              "routines"]},
         "category": {"type": "string", "enum": list(CATEGORIES)}, "query": {"type": "string"},
         "name": {"type": "string"}, "relation": {"type": "string"},
         "kind": {"type": "string", "enum": ["person", "organisation"]},
@@ -486,4 +788,27 @@ async def run_tool(memory: Memory, args: dict) -> str:
         after = memory.db.execute("SELECT COUNT(*) FROM mail_life").fetchone()[0]
         return json.dumps({"read_back_days": days, "new_entries": after - before, **show(memory, limit=25)},
                           ensure_ascii=False)
+    if action == "trips":
+        found = trips(memory)
+        return json.dumps(found, ensure_ascii=False) if found else (
+            "No trips in your email yet. I build one when travel documents or bookings name a destination.")
+    if action == "providers":
+        found = providers(memory)
+        return json.dumps(found, ensure_ascii=False) if found else "No organisations in your email memory yet."
+    if action == "routines":
+        found = routines(memory)
+        return json.dumps(found, ensure_ascii=False) if found else (
+            "No childcare daily summaries read yet, so I don't know the usual times.")
+    if action == "attachments":
+        _ready(memory)
+        words = re.findall(r"\w{3,}", str(args.get("query") or "").lower())[:4]
+        sql = "".join(" AND lower(title || ' ' || who || ' ' || org || ' ' || sender || ' ' || remember) LIKE ?"
+                      for _ in words)
+        memory.db.execute("UPDATE mail_life SET files = 'pending' WHERE files IN ('', 'none') AND day >= ?" + sql,
+                          [(local_now().date() - timedelta(days=60)).isoformat(), *[f"%{w}%" for w in words]])
+        memory.db.commit()
+        read = await read_files(memory, limit=12, announce=True)
+        left = memory.db.execute("SELECT COUNT(*) FROM mail_life WHERE files = 'pending'").fetchone()[0]
+        return json.dumps({"read_now": read or "No readable attachment was found on those emails.",
+                           "still_waiting": left}, ensure_ascii=False)
     return json.dumps(show(memory, str(args.get("category") or ""), str(args.get("query") or "")), ensure_ascii=False)

@@ -67,6 +67,24 @@ places and the dates without being told twice.
   with an end date (a visa, a policy, a registration, a warranty, a return window) gets a reminder ahead of
   it. The week's dates appear in the morning briefing. Buddy checks this memory when planning a trip, a school
   day or anything involving the family.
+- **Attachments are read.** PDFs, pictures and documents attached to that email are opened and read into
+  your library, a few at a time: a travel authorisation, the school's weekly letter, an invitation that is
+  only a picture. What they say is added to the entry (a date found on an invitation gets its reminder), and
+  the full document can be opened from the library. Travel, official, health, tax, insurance and money
+  documents go into the vault. "Read the attachments on the Kenya emails" does it right away. Attachments on
+  marketing mail are never opened.
+- **Trip folders.** "Show my trips" groups a destination's documents, flights and stays: each traveller, their
+  reference numbers, and what looks missing (a traveller with fewer documents, no flight or hotel found yet).
+- **Family calendar.** A dated school event, family event or appointment is said once with an offer to add it
+  to your calendar; Buddy says if it clashes with something already there, and skips the offer when it is
+  already on the calendar. Nothing is added without your yes.
+- **Routines.** From the daycare's daily summaries Buddy learns the usual drop-off and pick-up times (after
+  five days) and can show the days that were an hour or more off. "What time is Ishaan usually picked up?"
+- **Provider book.** The phone number, address and website an organisation's own email gives are kept, so
+  "call the doctor's office" has the number. "Show my providers".
+- **Reply help.** When someone you've confirmed as family or a friend asks you something by email, Buddy tells
+  you and offers to draft the reply from what it knows. It never sends without your yes.
+- **Bills settled.** A "payment processed" email marks the matching open bill as paid.
 - **Catching up.** "Catch up on my email from the last 30 days" reads older mail for what was missed.
 - **Private.** Health email is kept to who, when and where: never results, diagnoses or medicines. Only Claude
   reads this mail, never a free model; it stays in the encrypted database, 400 days after its date. "What do

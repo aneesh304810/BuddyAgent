@@ -40,6 +40,12 @@ def _text_of(message) -> str:
     return " ".join(text.split())[:MAX_TEXT]
 
 
+def _attached(message) -> list[str]:
+    """The names of the readable attachments (their content is read later, only for email that matters)."""
+    from ..mailfiles import names  # noqa: PLC0415
+    return names(message)
+
+
 def to_record(raw: bytes, folder: str, account: str = "") -> Record | None:
     message = email.message_from_bytes(raw, policy=email.policy.default)
     message_id = str(message.get("Message-ID", "")).strip()
@@ -57,7 +63,7 @@ def to_record(raw: bytes, folder: str, account: str = "") -> Record | None:
         title=str(message.get("Subject", "") or "(no subject)"),
         body=f"From: {sender}\n" + (f"To: {account}\n" if account else "") + _text_of(message),
         start_at=sent,
-        data={"from": sender, "folder": folder, "account": account},
+        data={"from": sender, "folder": folder, "account": account, "attachments": _attached(message)},
     )
 
 
