@@ -333,6 +333,15 @@ decide each differently), and uses it whenever you ask about a purchase.
   20% of the book or more than the cash left, and all open positions together may not risk more than 6% of the
   book; a signal that would break that is written down as skipped. The Signals tab shows the book's value, its
   worst fall from a peak, what is at risk now, and the average result per trade in units of the amount risked.
+- **The Practice tab (Investments page).** Shows the practice book as it happens: the book's value now, each
+  open paper position with its price now and the reasons it was bought, each closed trade with what it was
+  bought and sold at, why it was sold, its result and what the S&P 500 did over the same days, the signals the
+  risk rules skipped, a day-by-day log, and what the trades have taught (each reason's weight, the trained
+  model's state). Below it: the day, week and month moves of stock indexes, sectors, commodity funds, bond
+  funds and bitcoin, ether and solana, and how closely bitcoin and ether have moved with stocks, tech stocks,
+  gold, oil and long bonds over 30 and 90 trading days, including whether one side's move tended to show up in
+  the other the next day. That is correlation: what moved together, not what caused what. Paper trades are US
+  stocks and funds only; crypto is in the market view, not in the trades.
 - **Hotel calls are followed too.** An open hotel call has its rate looked up again every three days (Google
   Hotels through SerpApi, three searches a day at most): the named hotel's rate when the call names one, else
   the area's cheapest. So hotel calls get an outcome and can teach, like flight and shopping calls.

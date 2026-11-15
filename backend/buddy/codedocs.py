@@ -200,7 +200,7 @@ COMPONENTS = [  # every server module belongs to one feature (tests check none i
     ("Investing: signals, research and practice", "Chart setups and trade ideas, Reddit and news signals, buy and sell "
      "signals with a track record, live triggers, investor checklists, fund holdings, the committee and journal, a "
      "paper portfolio and Buddy's own practice book; never trades",
-     ["recommend.py", "signals.py", "simbook.py", "markets.py", "livewatch.py", "lenses.py", "funds.py", "journal.py",
+     ["recommend.py", "signals.py", "simbook.py", "crossmarket.py", "markets.py", "livewatch.py", "lenses.py", "funds.py", "journal.py",
       "paper.py", "investors.py", "finnhub.py", "invest.py"]),
     ("Travel and getting around", "Flights and hotels with book now or wait, checking the hotel direct, saved "
      "searches, seats, transit alerts, maps, rides, weather and where you are",

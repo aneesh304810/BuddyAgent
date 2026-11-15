@@ -21,6 +21,7 @@ flowchart LR
         recommend_py["recommend.py<br/>Buy and sell signals by category, each with its reasons and Buddy's…"]
         signals_py["signals.py<br/>what people are saying on Reddit about deals, travel, products and…"]
         simbook_py["simbook.py<br/>every signal Buddy makes is paper-traded automatically, by fixed…"]
+        crossmarket_py["crossmarket.py<br/>The Practice tab of the Investments page: Buddy's paper trades (what…"]
         markets_py["markets.py<br/>Buddy scans for chart setups, finds entry and exit levels, reads what…"]
         livewatch_py["livewatch.py<br/>during US market hours Buddy checks the price of each symbol being…"]
         lenses_py["lenses.py<br/>what each school of investing would check about a company, computed…"]
@@ -57,6 +58,8 @@ flowchart LR
     signals_py --> finnhub_py
     signals_py --> markets_py
     simbook_py --> markets_py
+    crossmarket_py --> markets_py
+    crossmarket_py --> simbook_py
     livewatch_py --> finnhub_py
     livewatch_py --> markets_py
     livewatch_py --> recommend_py
@@ -217,6 +220,28 @@ not taken off. A few dozen trades prove little: results say so until there are e
 
 - Tables: `sim_trades`
 - Uses: markets.py, memory.py, pricebook.py, tools.py
+
+### crossmarket.py
+
+```text
+The Practice tab of the Investments page: Buddy's paper trades (what was bought and sold, and why) beside the
+day's activity across markets, and how crypto and the other markets have been moving together.
+
+  the practice book   from simbook.py: the book's value, open positions marked to the latest close, closed trades
+                      with the reasons each was opened on and why it was closed, skipped signals, a day-by-day
+                      log, and what the learning has made of them (the reason weights, the trained model's state)
+  across markets      the day, week and month moves of stock indexes, sectors, commodity funds, bond funds and
+                      the main cryptocurrencies, from daily prices
+  moving together     for bitcoin and ether against stocks, tech stocks, gold, oil and long bonds: how closely
+                      their daily moves have matched over about 30 and 90 trading days (correlation, -1 to 1),
+                      and whether one side's move tended to show up in the other the next day
+
+Correlation says two things moved together, not that one caused the other; the reading says so. Paper trades are
+US stocks and funds only (the signals come from tickers people discuss): crypto appears in the market activity
+and the links, not in the trades. Market prices are public data; nothing here is personal. Cached for 30 minutes.
+```
+
+- Uses: market_school.py, markets.py, memory.py, modeltrain.py, pricebook.py, simbook.py, tools.py
 
 ### markets.py
 

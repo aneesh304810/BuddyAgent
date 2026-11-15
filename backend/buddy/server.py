@@ -1478,6 +1478,13 @@ async def api_invest() -> dict:
     return await asyncio.to_thread(invest.dashboard, memory)
 
 
+@app.get("/api/invest/practice", dependencies=[Depends(require_admin)])
+async def api_invest_practice(fresh: int = 0) -> dict:
+    """Buddy's paper trades with their reasons, the day's moves across markets, and how crypto moves with them."""
+    from . import crossmarket
+    return await asyncio.to_thread(crossmarket.dashboard, memory, None, bool(fresh))
+
+
 @app.post("/api/invest/watch", dependencies=[Depends(require_admin)])
 async def api_invest_watch(body: dict) -> dict:
     """add (symbol) · remove (symbol): the watchlist, scanned every weekday."""
