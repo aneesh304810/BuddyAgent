@@ -572,7 +572,7 @@ page("intelligence.html", f"Buddy Intelligence Platform · {CO}", "Buddy Intelli
   <h2>What it is</h2>
   <p class="lead">A shared intelligence layer. It collects dated public records every night, organises them by sector and technology, and answers three questions: what is emerging, what is converging, and what stage is it at.</p>
   <div class="grid">
-    <div class="card"><h3>Evidence, labelled</h3><p>Research papers, registered clinical studies, company filings, government awards, published code and public discussion. Each record keeps its source, its date and a label for the kind of evidence it is.</p></div>
+    <div class="card"><h3>Evidence, labelled</h3><p>Research papers, registered clinical studies, company filings, government awards and research grants, private fundraising notices, published code, news and public discussion. Each record keeps its source, its date and a label for the kind of evidence it is.</p></div>
     <div class="card"><h3>Convergence</h3><p>Finds technologies from different industries that keep appearing in the same records, the early sign of a new field.</p></div>
     <div class="card"><h3>Stage, by rule</h3><p>From scientific research to scaling, decided by fixed rules on the evidence, with the rule shown. Research is never presented as an established market.</p></div>
     <div class="card"><h3>Early signals</h3><p>Tells you when several independent kinds of evidence for a technology rise at the same time, and when a sector you aren't following starts to move.</p></div>

@@ -12,16 +12,27 @@ converging, and the rest of Buddy reads from it. Open it from the app menu: **ðŸ
   Sectors tab or by saying "follow robotics".
 - **Collects evidence every night** from free, official or first-hand sources, through Buddy Connect:
 
-  | Source | Kind of evidence | What it means |
-  |---|---|---|
-  | arXiv, Europe PMC | published research | its authors' claim; not yet proven in use |
-  | ClinicalTrials.gov | official record | a registered study exists; nothing about the result |
-  | SEC EDGAR full-text search | company disclosure | the company's own statement in a filing |
-  | USAspending.gov | official record | a US federal contract or grant was awarded |
-  | GitHub | code published | working code exists; not proof anyone uses it |
-  | Hacker News | reported | a story people discussed; check what it links to |
+  | Source | Kind of evidence | Standing | What it means |
+  |---|---|---|---|
+  | arXiv, Europe PMC, OpenAlex | published research | reported | its authors' claim; not yet proven in use |
+  | ClinicalTrials.gov | official record | verified | a registered study exists; nothing about the result |
+  | SEC EDGAR full-text search | company disclosure | verified | the company's own statement in a filing |
+  | SEC Form D | company disclosure | verified | a private company told the SEC it is raising money |
+  | USAspending.gov | official record | verified | a US federal contract or grant was awarded |
+  | NIH RePORTER, NSF, SBIR.gov | official record | verified | a US research grant was awarded; funded research, not a product |
+  | GitHub | code published | verified | working code exists; not proof anyone uses it |
+  | GDELT | reported | reported | a news report; check the outlet and what it cites |
+  | Hacker News | reported | reported | a story people discussed; check what it links to |
 
-  Only a technology's search phrase is sent. No paid databases, nothing scraped.
+  Only a technology's search phrase is sent. No paid databases, nothing scraped, no keys needed for any of them.
+  **Standing** says how far a record can be relied on. *Verified* means the record itself exists in an official
+  register (what it claims is still its author's claim). *Reported* means published by its authors or a third
+  party. What the platform works out from many records (stages, convergences) is marked *inferred*, and
+  anything an AI writes is *interpretation*. One never silently becomes another.
+- **Counts an organisation once.** "Oklo Inc. (OKLO)" in a filing and "OKLO INC" in a grant are the same
+  organisation: names are matched after dropping case, punctuation, tickers and company endings. This is name
+  matching only, so two different organisations with the same name would be merged, and a parent and its
+  subsidiary are not.
 - **Finds convergence.** Two technologies from different sectors that keep appearing in the same records, for
   example small modular reactors and AI data centers. Ranked by how many records join them, how many kinds of
   evidence, and whether it is growing.

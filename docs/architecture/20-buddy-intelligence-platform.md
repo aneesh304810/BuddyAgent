@@ -19,6 +19,8 @@ flowchart LR
     bip_py --> bip_sources_py
     db[("Your database<br/>bip_notes, bip_signals")]
     bip_py --> db
+    s_nsf["NSF (research grants)<br/>(public data only)"]
+    bip_sources_py --> s_nsf
     o_0["Buddy Connect"]
     bip_py -. uses .-> o_0
     o_1["Claude"]
@@ -55,8 +57,12 @@ tutor) read from it through the functions at the bottom of this file instead of 
                   cybersecurity, AI infrastructure and semiconductors, and energy. The others are defined and
                   can be switched on; each night costs only free API calls.
   Evidence        dated signals from free official and first-hand sources (bip_sources.py): research papers,
-                  registered clinical studies, company filings, US federal awards, new code, and discussion.
-                  Every signal keeps its source, its link and what kind of evidence it is.
+                  registered clinical studies, company filings, US federal awards and research grants,
+                  private fundraising notices, new code, news and discussion. Every signal keeps its source,
+                  its link, the date it happened and the date Buddy first saw it, what kind of evidence it
+                  is, and its standing: verified (an official record exists) or reported (someone's claim).
+  One name        the same organisation written different ways ("Oklo Inc. (OKLO)", "OKLO INC") is counted
+                  once, by a normalised name.
   Tagging         each signal is tagged with the technologies it mentions, by their names and terms, in code.
   Convergence     two technologies from different sectors that keep appearing in the same signals. Ranked by
                   how many signals join them lately, how many kinds of evidence, and whether it is growing.
@@ -98,6 +104,10 @@ rate-limited, logged and can be switched off. Only a technology's search phrase 
   awards       USAspending.gov: US federal contracts and grants that mention it, with recipient and amount
   code         GitHub: new public repositories about it
   discussion   Hacker News: stories about it that drew real attention
+  news         GDELT: news coverage of it worldwide (the report's title, outlet and date)
+  research     OpenAlex: scholarly works across every field, beyond the two sources above
+  grants       NIH RePORTER, NSF and SBIR.gov: US research grants, including those to small companies
+  funding      SEC Form D: a private company's own notice that it is raising money
 
 What each kind of evidence is worth is fixed here, in EVIDENCE, and shown beside every item: an official record
 is a fact that the record exists; a paper is its authors' claim; a filing is the company's own statement; a
@@ -107,6 +117,7 @@ Not used: paid databases (Crunchbase, PitchBook, CB Insights) and anything that 
 A source that fails is recorded and skipped; the others still run.
 ```
 
+- Outside services: NSF (research grants)
 - Uses: funds.py, gateway.py
 
 ## How it connects

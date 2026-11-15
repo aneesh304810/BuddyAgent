@@ -15,7 +15,7 @@ const $ = (id) => document.getElementById(id);
 const esc = (s) => String(s ?? "").replace(/[&<>"']/g, (c) => ({ "&": "&amp;", "<": "&lt;", ">": "&gt;", '"': "&quot;", "'": "&#39;" }[c]));
 const safe = (u) => /^https:\/\/[^\s"'<>]+$/.test(String(u || "")) ? u : "";
 const TABS = [["overview", "Overview"], ["convergence", "Convergence"], ["sectors", "Sectors"], ["sources", "Sources"]];
-const KIND = { research: "papers", trial: "clinical studies", filing: "company filings", award: "federal awards", code: "code projects", discussion: "stories" };
+const KIND = { research: "papers", trial: "clinical studies", filing: "company filings", award: "federal awards", grant: "research grants", funding: "fundraising notices", code: "code projects", news: "news reports", discussion: "stories" };
 let data = null, tab = TABS.some(([k]) => k === storageGet("intelTab")) ? storageGet("intelTab") : "overview";
 
 async function api(path, body) {

@@ -54,6 +54,11 @@ class Web:
             return f'<feed xmlns="http://www.w3.org/2005/Atom">{entries}</feed>'
         if host == "efts.sec.gov":
             assert "owner@example.com" in (headers or {}).get("User-Agent", "")
+            if q.get("forms") == ["D,D/A"]:
+                rows = self.find("form_d", q["q"][0])
+                return json.dumps({"hits": {"hits": [{"_id": f"0009-26-{n}:primary_doc.xml", "_source": {
+                    "display_names": [f"{r['who']}  (CIK 0000099999)"], "form": "D", "file_date": r["day"],
+                    "ciks": ["0000099999"]}} for n, r in enumerate(rows)]}})
             rows = self.find("filings", q["q"][0])
             return json.dumps({"hits": {"hits": [{"_id": f"0001-26-{n}:doc.htm", "_source": {
                 "display_names": [f"{r['who']}  (CIK 0000012345)"], "form": "8-K", "file_date": r["day"],
@@ -83,6 +88,33 @@ class Web:
                 "statusModule": {"overallStatus": "RECRUITING", "startDateStruct": {"date": r["day"][:7]}},
                 "sponsorCollaboratorsModule": {"leadSponsor": {"name": r["who"]}},
                 "designModule": {"phases": ["PHASE1"]}}} for r in rows]})
+        if host == "api.gdeltproject.org":
+            rows = self.find("gdelt", q["query"][0])
+            return json.dumps({"articles": [{"url": f"https://news.example/{r['id']}", "title": r["title"],
+                                             "seendate": r["day"].replace("-", "") + "T120000Z",
+                                             "domain": "news.example"} for r in rows]})
+        if host == "api.openalex.org":
+            rows = self.find("openalex", q["search"][0])
+            return json.dumps({"results": [{"id": f"https://openalex.org/{r['id']}", "title": r["title"],
+                                            "doi": f"https://doi.org/10.1/{r['id']}", "publication_date": r["day"],
+                                            "primary_location": {"source": {"display_name": "Nature Energy"}}}
+                                           for r in rows]})
+        if host == "api.reporter.nih.gov":
+            rows = self.find("nih", json.loads(data)["criteria"]["advanced_text_search"]["search_text"])
+            return json.dumps({"results": [{"appl_id": r["id"], "project_title": r["title"],
+                                            "organization": {"org_name": r["who"]}, "award_amount": r["amount"],
+                                            "project_start_date": r["day"] + "T00:00:00Z"} for r in rows]})
+        if host in ("api.nsf.gov", "www.research.gov"):
+            rows = self.find("nsf", q["keyword"][0])
+            return json.dumps({"response": {"award": [{"id": r["id"], "title": r["title"], "awardeeName": r["who"],
+                                                       "fundsObligatedAmt": str(r["amount"]),
+                                                       "startDate": f"{r['day'][5:7]}/{r['day'][8:10]}/{r['day'][:4]}"}
+                                                      for r in rows]}})
+        if host == "api.www.sbir.gov":
+            rows = self.find("sbir", q["keyword"][0])
+            return json.dumps([{"firm": r["who"], "award_title": r["title"], "agency": "DOE", "phase": "Phase II",
+                                "award_amount": str(r["amount"]), "proposal_award_date": r["day"],
+                                "agency_tracking_number": r["id"]} for r in rows])
         raise AssertionError(url)
 
 
@@ -283,3 +315,47 @@ def test_the_agent_api_is_read_only_and_its_key_opens_nothing_else(memory, monke
     assert client.get("/api/intel/v1/overview", headers={"Authorization": "Bearer owner-token"}).status_code == 200
     monkeypatch.setenv("BUDDY_INTEL_API_KEY", "short")  # a weak key is never accepted
     assert client.get("/api/intel/v1/describe", headers={"Authorization": "Bearer short"}).status_code == 401
+
+
+def test_the_same_organisation_written_two_ways_is_one():
+    assert src.org_key("Oklo Inc. (OKLO)") == src.org_key("OKLO INC") == "oklo"
+    assert src.org_key("The Boeing Company") == "boeing" and src.org_key("X-Energy, LLC") == "x energy"
+    assert src.org_key("") == "" and src.org_key("Inc.") == ""
+
+
+def test_every_kind_of_evidence_has_a_standing_and_a_source():
+    assert set(src.STANDING) == set(src.KINDS) and set(src.STANDING.values()) == {"verified", "reported"}
+    assert set(src.KIND_OF) == set(src.SOURCES) == set(src.TITLES) and len(src.SOURCES) == 13
+    assert set(src.KIND_OF.values()) == set(src.KINDS)
+    shown = bip.describe()
+    assert shown["standing"]["inferred"] and all(e["standing"] in shown["standing"] for e in shown["evidence"])
+
+
+def test_news_grants_and_fundraising_notices_are_collected_and_names_merge(memory):
+    web = Web({
+        "gdelt": {"small modular reactor": [
+            {"id": "a", "title": "Utility orders a small modular reactor", "day": d(3)},
+            {"id": "b", "title": "Utility orders a small modular reactor", "day": d(3)}]},  # syndicated: counts once
+        "openalex": {"small modular reactor": [{"id": "W1", "title": "Small modular reactor load following", "day": d(20)}]},
+        "nsf": {"small modular reactor": [{"id": "2512345", "title": "Small modular reactor materials",
+                                           "who": "Oklo Inc.", "amount": 500000, "day": d(40)}]},
+        "sbir": {"small modular reactor": [{"id": "DE-SC1", "title": "Small modular reactor sensors",
+                                            "who": "OKLO INC", "amount": 1100000, "day": d(50)}]},
+        "form_d": {"small modular reactor": [{"who": "Small Modular Reactor Partners LLC", "day": d(15)}]},
+        "nih": {"small modular reactor": [{"id": 1, "title": "never asked: not biomedical", "who": "x", "amount": 1,
+                                           "day": d(5)}]},
+    })
+    got = bip.collect(memory, web, TODAY, pause=0)
+    assert got["new"] == 5 and got["failed"] == {}
+    assert not any("reporter.nih.gov" in u and "modular" in u for u in web.asked)
+    smr = next(t for t in bip.technologies(memory, TODAY) if t["id"] == "smr")
+    assert smr["kinds"] == {"news": 1, "research": 1, "grant": 2, "funding": 1}
+    assert smr["companies"] == 2  # Oklo Inc. and OKLO INC are one; the partnership is the other
+    assert smr["stage"] == "Experimental"  # grants, a report and a fundraising notice are not a pilot
+    t = bip.technology(memory, "smr", TODAY)
+    assert t["evidence"]["grant"][0]["standing"] == "verified" and t["evidence"]["news"][0]["standing"] == "reported"
+    assert t["evidence"]["funding"][0]["url"].startswith("https://www.sec.gov/Archives/edgar/data/99999/")
+    oklo = next(o for o in t["organisations"] if src.org_key(o["name"]) == "oklo")
+    assert oklo["records"] == 2
+    assert bip.organisation(memory, "Oklo", TODAY)["records"] == 2
+    assert bip.maturity({"grant": 3}, 0)["stage"] == "Scientific research"

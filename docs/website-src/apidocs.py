@@ -232,7 +232,7 @@ docs_page("intelligence.html", f"Buddy Intelligence Platform API · {CO}", f"""
 official and first-hand sources, the technologies that are converging across sectors, and the stage each is at.
 It is made to be easy for an AI agent to use: JSON over HTTPS, one key, and an endpoint that describes the rest.</p>
 <div class="grid">
-  <div class="card"><h3>Records</h3><p>Papers, clinical studies, company filings, government awards, code and discussion, each with its source, date and evidence label.</p></div>
+  <div class="card"><h3>Records</h3><p>Papers, clinical studies, company filings, government awards and grants, fundraising notices, code, news and discussion, each with its source, date and evidence label.</p></div>
   <div class="card"><h3>Convergence</h3><p>Pairs of technologies from different sectors that share records, ranked, with the records behind them.</p></div>
   <div class="card"><h3>Stage</h3><p>Where each technology stands, from fixed rules on the evidence, with the rule that applied.</p></div>
 </div>
@@ -285,9 +285,15 @@ curl -H "Authorization: Bearer $BIP_KEY" "https://YOUR-BUDDY-HOST/api/intel/v1/t
 <tr><td><code>trial</code></td><td>official record</td><td>A registered clinical study exists; it says nothing about the result.</td></tr>
 <tr><td><code>filing</code></td><td>company disclosure</td><td>The company's own statement in a regulatory filing.</td></tr>
 <tr><td><code>award</code></td><td>official record</td><td>A government contract or grant was awarded.</td></tr>
+<tr><td><code>grant</code></td><td>official record</td><td>A research grant was awarded; funded research, not a product.</td></tr>
+<tr><td><code>funding</code></td><td>company disclosure</td><td>A private company filed notice that it is raising money.</td></tr>
 <tr><td><code>code</code></td><td>code published</td><td>Working code exists in public; not proof anyone uses it.</td></tr>
+<tr><td><code>news</code></td><td>reported</td><td>A news report; check the outlet and what it cites.</td></tr>
 <tr><td><code>discussion</code></td><td>reported</td><td>A story people discussed; check the source it links to.</td></tr>
 </table>
+<p>Every record also carries a <code>standing</code>: <code>verified</code> (the record exists in an official
+register; what it claims is its author's) or <code>reported</code> (published by its authors or a third party).
+Stages and convergences are <code>inferred</code> by fixed rules from several records.</p>
 <p>A field named <code>interpretation</code> is written by an AI from record titles. It is not evidence and never
 changes a stage or a rank.</p>
 
