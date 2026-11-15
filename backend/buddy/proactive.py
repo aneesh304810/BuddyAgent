@@ -407,6 +407,17 @@ async def run(memory: Memory, deliver: Deliver, connected=None) -> None:
                             await deliver("followup", idea)
             except Exception:
                 log.exception("reasoning upkeep failed")
+            try:  # the model scout: daily, and sooner for a free provider that was just rested for failing
+                from . import modelscout  # noqa: PLC0415
+                wanted = modelscout.due(memory)
+                if wanted is not None:
+                    modelscout.mark_done(memory, daily=not wanted)
+                    found = await asyncio.to_thread(modelscout.run, memory, None, wanted or None)
+                    text = modelscout.message(found)
+                    if text:
+                        await deliver("health", text)
+            except Exception:
+                log.exception("model scout failed")
             try:  # the threat watch: once a day, what is newly published against what this server runs
                 from . import securitywatch  # noqa: PLC0415
                 if securitywatch.due(memory):

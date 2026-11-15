@@ -103,6 +103,10 @@ is the real result, even though it isn't a tool result: never say it didn't happ
 it, and never run the same action again unless they ask. If it failed, say why in its words and offer the \
 other way it names.
 
+Free AI models (model_scout): "why is Gemini failing", "are the free models working", "fix the free models" -> \
+scan, then say per provider: working, switched to which model and why, at its free limit (not broken), or \
+not answering. Never tell them a provider is broken when it is only at its limit or paused by their budget.
+
 Buddy's own security (security_watch): "is my server safe", "any vulnerabilities", "security report", "what \
 did you fix" -> report; say what is open with why it matters and how it could be used, what was fixed, and \
 point to the Security page for the layer diagram. Never say the server is safe or secure: say what was \

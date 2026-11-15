@@ -10,20 +10,26 @@ flowchart LR
     subgraph Tools["What Buddy can do"]
         t_general_task["general_task"]
         t_free_answer_verdict["free_answer_verdict"]
+        t_model_scout["model_scout"]
         t_model_advice["model_advice"]
     end
     subgraph Modules["Modules"]
         free_models_py["free_models.py<br/>Free-tier AI models for general tasks, chosen by what each is best at"]
         openrouter_catalog_py["openrouter_catalog.py<br/>Which free OpenRouter models to use for each kind of task, chosen…"]
+        modelscout_py["modelscout.py<br/>every day it reads what each free AI provider publishes, checks that…"]
         model_advisor_py["model_advisor.py<br/>free when the task holds none of the owner's data and a free model is…"]
     end
     you --> t_general_task
     t_general_task --> free_models_py
     you --> t_free_answer_verdict
     t_free_answer_verdict --> free_models_py
+    you --> t_model_scout
+    t_model_scout --> modelscout_py
     you --> t_model_advice
     t_model_advice --> model_advisor_py
+    free_models_py --> modelscout_py
     free_models_py --> openrouter_catalog_py
+    modelscout_py --> free_models_py
     model_advisor_py --> free_models_py
     o_0["Buddy Connect"]
     free_models_py -. uses .-> o_0
@@ -33,8 +39,10 @@ flowchart LR
     free_models_py -. uses .-> o_2
     o_3["Investing"]
     free_models_py -. uses .-> o_3
-    o_4["Security and privacy"]
+    o_4["Memory"]
     free_models_py -. uses .-> o_4
+    o_5["Security and privacy"]
+    free_models_py -. uses .-> o_5
 ```
 
 The diagram reads left to right: what you ask, the tools Buddy uses, the modules that do the work, and what they keep or call. Dashed arrows are other features this one relies on.
@@ -45,6 +53,7 @@ The diagram reads left to right: what you ask, the tools Buddy uses, the modules
 |---|---|---|---|
 | `general_task` | Hand a GENERAL task to a free AI model chosen for the job, to save money: translate a public text, summarize a public article or web page, rewrite or polish gen | - | free_models.py |
 | `free_answer_verdict` | After using a general_task answer, record your review of it, in the same response as your reply: used (good as it was), fixed (you corrected it), redone (you di | - | free_models.py |
+| `model_scout` | Keeps the free AI models working | status, scan, use | modelscout.py |
 | `model_advice` | Which model a task should use, and why: free when it holds none of the user's data and a free model is good enough; otherwise it says no free model is good for  | - | model_advisor.py |
 
 ## Technical design, module by module
@@ -78,7 +87,7 @@ a setting, checked against the provider's model list.
 ```
 
 - Settings: `BUDDY_CEREBRAS_KEY`, `BUDDY_CEREBRAS_MODEL`, `BUDDY_DEEPSEEK_MODEL`, `BUDDY_FREE_MODELS`, `BUDDY_GEMINI_KEY`, `BUDDY_GEMINI_MODEL`, `BUDDY_GITHUB_MODEL`, `BUDDY_GITHUB_MODELS_KEY`, `BUDDY_GROQ_KEY`, `BUDDY_GROQ_MODEL`, `BUDDY_MISTRAL_KEY`, `BUDDY_MISTRAL_MODEL` and 2 more
-- Uses: agent.py, config.py, gateway.py, openrouter_catalog.py, privacy.py, tools.py, usage.py
+- Uses: agent.py, budgets.py, config.py, gateway.py, modelscout.py, openrouter_catalog.py, privacy.py, tools.py, usage.py
 
 ### openrouter_catalog.py
 
@@ -106,6 +115,41 @@ model is tried.
 - Settings: `BUDDY_DEEPSEEK_MODEL`, `BUDDY_OPENROUTER_MODEL`
 - Uses: markets.py
 
+### modelscout.py
+
+```text
+The model scout: every day it reads what each free AI provider publishes, checks that the model Buddy uses
+there still answers, and switches to a working one when it doesn't.
+
+Free tiers change without notice: a model is retired, renamed, slowed down or cut off, and a provider that
+worked yesterday times out today. Without this, Buddy kept calling the dead model, then rested the provider.
+
+  Trusted sources   only each provider's own official model list, read with the key the owner gave Buddy for
+                    that provider: Google (Gemini), Groq, Mistral, Cerebras and GitHub Models. No third-party
+                    lists, no downloads, nothing run on the server. (OpenRouter's free models have their own
+                    daily catalog, openrouter_catalog.py, built the same way from OpenRouter's own list.)
+  Every day         for each provider with a key:
+                      1. read its model list; note what is new and what is gone since yesterday
+                      2. ask the model in use one tiny question ("reply with the word ready")
+                      3. if it doesn't answer (an error, a timeout, an empty reply), try up to three other chat
+                         models from that provider's list, best first, and switch to the first that answers
+                    A provider that is only at its free limit is left alone: its model is fine, the quota is
+                    not, and the other providers cover for it until it resets.
+  Sooner            when a provider has just been rested for failing, the scout looks at it on the next check
+                    instead of waiting for tomorrow.
+  Choosing          "best first" is the provider's models ranked by: the ones Buddy prefers there, then the
+                    family that suits a free helper (small and fast general chat models), stable before
+                    preview, newer before older. Speech, image, embedding and safety models are never picked.
+  By hand           a model the owner set (BUDDY_GEMINI_MODEL and the like) is checked but never changed;
+                    "use <model> on <provider>" pins one from chat.
+
+The test question contains nothing personal, and free models still only ever get general content. A switch is
+told once; everything else is in the tool's status.
+```
+
+- Settings: `BUDDY_GEMINI_MODEL`
+- Uses: budgets.py, free_models.py, gateway.py, memory.py, tools.py
+
 ### model_advisor.py
 
 ```text
@@ -132,6 +176,6 @@ this" with the paid suggestion, never passed off as done.
 
 ## How it connects
 
-- Relies on: Buddy Connect; Claude: the brain; Fixing and explaining itself; Investing: signals, research and practice; Security and privacy
+- Relies on: Buddy Connect; Claude: the brain; Fixing and explaining itself; Investing: signals, research and practice; Memory; Security and privacy
 - Relied on by: Buddy Connect; Claude: the brain; Fixing and explaining itself; Insights and costs; Investing: signals, research and practice; Learning: the English and investing tutors; Making and doing things; Money; News, trends and research; Speaking up on its own: briefing, reminders and alerts; The server and the app; Voice: Talk mode and Listen-in
 

@@ -114,6 +114,27 @@ Defaults: `gemini-flash-latest`, `llama-3.3-70b-versatile` (Groq), `mistral-smal
 working, set its current name, e.g. `set.sh BUDDY_GROQ_MODEL`. The other settings are
 `BUDDY_GEMINI_MODEL`, `BUDDY_GITHUB_MODEL`, `BUDDY_MISTRAL_MODEL`, `BUDDY_CEREBRAS_MODEL`, `BUDDY_OPENROUTER_MODEL`.
 
+### The model scout: keeping the free models working
+
+Free tiers change without notice: a model is retired or renamed, a provider that worked yesterday times out
+today. The scout deals with that by itself.
+
+- **Trusted sources only.** It reads each provider's own official model list with the key you gave Buddy for
+  it: Google (Gemini), Groq, Mistral, Cerebras and GitHub Models. No third-party lists, nothing downloaded,
+  nothing run on your server. OpenRouter's free models already have their own daily catalog.
+- **Every day** it notes what each provider added or removed, asks the model in use one tiny question ("reply
+  with the word ready"), and if that model doesn't answer it tries up to three other chat models from the
+  same provider, best first, and switches to the first that answers. You are told once when it switches.
+- **Sooner when needed.** A provider that has just failed enough to be rested is looked at on the next check,
+  not tomorrow.
+- **What it leaves alone.** A provider at its free limit (the model is fine; the quota resets by itself, and
+  the other providers cover meanwhile), a provider paused by your own budget, and any model you set by hand.
+- **What it can't fix.** A daily free quota that runs out: that is the provider's limit, not a broken model.
+  More providers with keys means more cover. And a paid service out of credits (Serper) needs a top-up.
+
+Ask Buddy: "are the free models working?", "check the free models", "what new free models are there?",
+"use <model> on Gemini".
+
 ## 3. Web search and reading pages (Serper + free models + Claude)
 
 With the Serper key (docs/KEYS.md), Buddy searches and reads the web itself instead of

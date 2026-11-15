@@ -175,8 +175,11 @@ class Plaid:
         try:  # every Plaid call in Insights → Costs (no bank data: the endpoint, the result and the time)
             from .travel import log_call
             env = "sandbox" if "sandbox" in self.host else "production"
-            log_call(self.memory, "plaid", path, not data.get("error_code"), time.monotonic() - started,
-                     purpose=env, error=str(data.get("error_code") or ""),
+            # A bank with no cards or loans answers with one of these: that is an answer, not a failure.
+            fine = data.get("error_code") in (None, "", "PRODUCTS_NOT_SUPPORTED", "NO_LIABILITY_ACCOUNTS",
+                                              "PRODUCT_NOT_READY", "NO_INVESTMENT_ACCOUNTS")
+            log_call(self.memory, "plaid", path, fine, time.monotonic() - started,
+                     purpose=env, error="" if fine else str(data.get("error_code") or ""),
                      cost=0.0 if env == "sandbox" else _plaid_call_price(path))
         except Exception:
             pass

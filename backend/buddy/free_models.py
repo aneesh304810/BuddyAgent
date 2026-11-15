@@ -276,6 +276,8 @@ class FreeModels:
             self.memory.set(f"free:rest:{name}", str(time.time() + self.REST_HOURS * 3600))
             self.memory.set(f"free:fails:{name}", "0")
             log.warning("free model %s failed %d times in a row: resting %d hours", name, n, self.REST_HOURS)
+            from . import modelscout  # noqa: PLC0415  it may only need a different model
+            modelscout.ask_soon(self.memory, name)
 
     def _swapped(self, name: str) -> dict | None:
         if self.memory is None:
@@ -449,6 +451,9 @@ class FreeModels:
                 usage.log_call(self.memory, provider=name, model=self._last_model or self.model_of(name), purpose=purpose,
                                seconds=time.monotonic() - started, ok=False, stop="at its free limit",
                                request=prompt)
+            except _budget_stop() as e:  # Buddy's own budget pause, not the provider failing: no rest, no red mark
+                tried.append(f"{name}: paused by your budget")
+                log.info("free model %s skipped: %s", name, e)
             except BadAnswer as e:
                 self._learn(name, None)
                 tried.append(f"{name}: {e}")
@@ -542,6 +547,11 @@ class FreeModels:
                 "busy": [n for n, t in self.cooldown.items() if t > time.time()],
                 "average_seconds": {n: round(v, 1) for n, v in self.speed.items()},
                 "reliability": {n: round(v, 2) for n, v in self.success.items()}}
+
+
+def _budget_stop():
+    from .budgets import BudgetStop  # noqa: PLC0415
+    return BudgetStop
 
 
 CONNECT_NAMES = {"github": "github_models", "deepseek": "openrouter"}  # this module's names -> Buddy Connect's

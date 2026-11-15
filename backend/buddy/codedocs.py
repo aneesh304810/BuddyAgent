@@ -167,7 +167,7 @@ COMPONENTS = [  # every server module belongs to one feature (tests check none i
       "thinking.py", "tools.py", "config.py", "customize.py"]),
     ("Free AI models (Groq, Gemini, Mistral, Cerebras, GitHub Models, OpenRouter)", "Do general work for free, never "
      "with your personal data: translating, summarising public text, brainstorming, general code questions",
-     ["free_models.py", "openrouter_catalog.py", "model_advisor.py"]),
+     ["free_models.py", "openrouter_catalog.py", "modelscout.py", "model_advisor.py"]),
     ("Buddy Connect", "One catalog and one way of calling every outside service: keys, backup hosts, rate limits, the "
      "personal-data check, logging and costs", ["gateway.py", "keytest.py"]),
     ("Memory", "What Buddy knows and remembers: facts, the conversation log and its search, the documents library, "
