@@ -1668,6 +1668,16 @@ async def api_orchestra() -> dict:
     return await asyncio.to_thread(maestro.page, memory)
 
 
+@app.get("/api/maestro/usage", dependencies=[Depends(require_admin)])
+async def api_maestro_usage(days: int = 30, component: str = "", purpose: str = "") -> dict:
+    """Buddy Maestro's spending view: totals, by day, by component, and the drill-down to single requests."""
+    from . import maestro_usage
+    try:
+        return await asyncio.to_thread(maestro_usage.view, memory, days, component, purpose)
+    except ToolError as e:
+        raise HTTPException(400, str(e)) from None
+
+
 @app.get("/api/maestro/models", dependencies=[Depends(require_admin)])
 async def api_maestro_models(task: str = "", q: str = "", limit: int = 12) -> dict:
     """The model finder: models that suit a task or match a search, with prices from the public list."""

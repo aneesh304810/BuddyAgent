@@ -16,6 +16,7 @@ flowchart LR
     end
     subgraph Modules["Modules"]
         maestro_py["maestro.py<br/>the one gateway every AI model call in Buddy is meant to go through"]
+        maestro_usage_py["maestro_usage.py<br/>what Buddy's AI use costs, which part of Buddy spends it, and every…"]
         free_models_py["free_models.py<br/>Free-tier AI models for general tasks, chosen by what each is best at"]
         openrouter_catalog_py["openrouter_catalog.py<br/>Which free OpenRouter models to use for each kind of task, chosen…"]
         modelscout_py["modelscout.py<br/>every day it reads what each free AI provider publishes, checks that…"]
@@ -32,6 +33,7 @@ flowchart LR
     you --> t_model_advice
     t_model_advice --> model_advisor_py
     maestro_py --> free_models_py
+    maestro_py --> maestro_usage_py
     maestro_py --> modelscout_py
     maestro_py --> openrouter_catalog_py
     free_models_py --> maestro_py
@@ -64,7 +66,7 @@ The diagram reads left to right: what you ask, the tools Buddy uses, the modules
 
 | Tool | What it is for | Actions | Module |
 |---|---|---|---|
-| `maestro` | Buddy Maestro: the AI providers Buddy can use and which one does each job | show, set_model, set_limit, test_model, add_provider, remove_provider, find_models, setup, check_key | maestro.py |
+| `maestro` | Buddy Maestro: the AI providers Buddy can use and which one does each job | show, set_model, set_limit, test_model, add_provider, remove_provider, find_models, setup, check_key, spending | maestro.py |
 | `general_task` | Hand a GENERAL task to a free AI model chosen for the job, to save money: translate a public text, summarize a public article or web page, rewrite or polish gen | - | free_models.py |
 | `free_answer_verdict` | After using a general_task answer, record your review of it, in the same response as your reply: used (good as it was), fixed (you corrected it), redone (you di | - | free_models.py |
 | `model_scout` | Keeps the free AI models working | status, scan, use | modelscout.py |
@@ -109,7 +111,33 @@ them: the owner enters them from the provider's own page.
 
 - Outside services: AI providers you added, OpenAI (paid AI, Intelligence Platform only)
 - Settings: `BUDDY_AI_`, `BUDDY_CEREBRAS_KEY`, `BUDDY_GEMINI_KEY`, `BUDDY_GROQ_KEY`, `BUDDY_MISTRAL_KEY`, `BUDDY_NVIDIA_KEY`, `BUDDY_OPENAI_ANALYSIS`, `BUDDY_OPENAI_CHEAP`, `BUDDY_OPENAI_KEY`, `BUDDY_OPENROUTER_KEY`
-- Uses: agent.py, benefits.py, config.py, free_models.py, gateway.py, insights.py, markets.py, memory.py, modelscout.py, openrouter_catalog.py, themes.py, tools.py, usage.py
+- Uses: agent.py, benefits.py, config.py, free_models.py, gateway.py, insights.py, maestro_usage.py, markets.py, memory.py, modelscout.py, openrouter_catalog.py, themes.py, tools.py, usage.py
+
+### maestro_usage.py
+
+```text
+Buddy Maestro's spending view: what Buddy's AI use costs, which part of Buddy spends it, and every step down
+to the single request.
+
+Built from the log of model requests (model_calls: one row per request, kept 90 days; previews are short and
+masked). Nothing here calls a model.
+
+  Summary     spending in the period, this month so far against last month, where this month is heading at the
+              current daily rate, requests, the cost of an average request, how many failed, the share that a
+              free model answered
+  By day      spending and requests for each day of the period
+  Components  the parts of Buddy (COMPONENTS): the conversation, voice, email and memory, money, investing,
+              shopping, travel and places, intelligence, health, research, learning, running Buddy. Every
+              purpose a request is logged with belongs to one component, by the rules below; a purpose no rule
+              knows is shown under "Other" by its own name, so nothing is hidden
+  Drill down  a component -> its purposes -> one purpose's models, days and latest requests
+  By provider and by model, for the whole period or for the part drilled into
+
+The month-end figure is this month's spending so far divided by the days elapsed, times the days in the
+month. It is arithmetic on the pace so far, not a prediction of what you will do.
+```
+
+- Uses: insights.py, memory.py, tools.py
 
 ### free_models.py
 

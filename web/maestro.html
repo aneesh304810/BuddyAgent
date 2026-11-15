@@ -27,6 +27,12 @@ h1 { font-size:20px; margin:0 0 8px; } h2 { font-size:16px; margin:0 0 10px; }
 .chip.on { background:var(--accent); color:var(--onaccent); border-color:var(--accent); font-weight:600; }
 main { padding:12px 16px 60px; max-width:900px; margin:0 auto; }
 .card { background:var(--card); border:1px solid var(--line); border-radius:14px; padding:14px; margin:0 0 12px; }
+.rowbtn{display:grid;grid-template-columns:1fr auto;gap:2px 10px;width:100%;text-align:left;background:none;border:0;border-bottom:1px solid var(--line);color:inherit;font:inherit;padding:10px 2px;cursor:pointer}
+.rowbtn[disabled]{cursor:default;opacity:1} .rowbtn small{display:block;color:var(--muted);font-size:12px;font-weight:400}
+.rowbtn .rv{text-align:right;font-weight:600;font-variant-numeric:tabular-nums} .rowbtn .rb{grid-column:1 / -1;height:6px;border-radius:3px;background:var(--line);overflow:hidden}
+.rowbtn .rb i{display:block;height:6px;border-radius:3px;background:var(--accent, #3987e5)}
+button.link{background:none;border:0;color:var(--accent, #3987e5);font:inherit;padding:0;cursor:pointer;text-decoration:underline}
+.crumbs{font-size:13px;margin-bottom:8px} table.grid td{font-variant-numeric:tabular-nums}
 code{font-size:13px;word-break:break-all;background:var(--bg);border:1px solid var(--line);border-radius:6px;padding:2px 5px}
 ul.plain{list-style:none;margin:6px 0;padding:0;font-size:14px} details summary{cursor:pointer}
 table.grid{width:100%;border-collapse:collapse;font-size:14px} table.grid th,table.grid td{text-align:left;vertical-align:top;padding:8px 6px;border-bottom:1px solid var(--line)} table.grid th{color:var(--muted);font-weight:600}

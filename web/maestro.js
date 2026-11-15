@@ -124,8 +124,71 @@ function models() {
     `<p class="note">${esc(m.note)}</p>`;
 }
 
+// --- Spending: totals and trend, which part of Buddy spends it, and the drill-down to single requests --------
+let view = params.get("view") === "usage" ? "usage" : "providers", inApp = params.has("view");
+let spend = null, spendBusy = false, spendDays = 30, spendComponent = "", spendPurpose = "";
+async function loadSpend() {
+  if (spendBusy) return;
+  spendBusy = true;
+  try { spend = await api(`/api/maestro/usage?days=${spendDays}&component=${encodeURIComponent(spendComponent)}&purpose=${encodeURIComponent(spendPurpose)}`); }
+  catch (e) { spend = { failed: e.message }; }
+  spendBusy = false; render();
+}
+const dollars = (v, d) => "$" + Number(v || 0).toFixed(d != null ? d : v >= 100 ? 0 : 2);
+const share = (v) => Math.round((v || 0) * 100) + "%";
+function dayChart(daysList) {
+  const W = 640, H = 170, L = 8, B = 22, T = 16, plotH = H - B - T, top = Math.max(0.0001, ...daysList.map((d) => d.usd));
+  const step = (W - L) / daysList.length, bw = Math.max(2, Math.min(22, step - 3));
+  const bars = daysList.map((d, i) => { const x = L + i * step + (step - bw) / 2, h = (d.usd / top) * plotH;
+    return `<g>${d.usd ? `<rect x="${x}" y="${T + plotH - h}" width="${bw}" height="${Math.max(1, h)}" rx="2" fill="var(--accent, #3987e5)"/>` : ""}
+      ${i % Math.ceil(daysList.length / 6) === 0 ? `<text x="${x + bw / 2}" y="${H - 6}" text-anchor="middle">${esc(d.day.slice(5))}</text>` : ""}
+      <rect class="hit" data-day="${i}" x="${L + i * step}" y="0" width="${step}" height="${H}" fill="transparent"/></g>`; }).join("");
+  return `<div class="chart" id="spendchart"><svg viewBox="0 0 ${W} ${H}" role="img" aria-label="Spending per day">
+    <line x1="${L}" x2="${W}" y1="${T + plotH}" y2="${T + plotH}" stroke="var(--line)"/>${bars}</svg><div class="tip" id="spendtip"></div></div>`;
+}
+const barRow = (label, sub, g, attr) => `<button class="rowbtn" ${attr || "disabled"}><span class="rl"><b>${esc(label)}</b>${sub ? `<small>${esc(sub)}</small>` : ""}</span>
+    <span class="rv">${dollars(g.usd)}<small>${share(g.share)} · ${esc(g.requests)} requests${g.failed ? ` · ${esc(g.failed)} failed` : ""}</small></span>
+    <span class="rb"><i style="width:${Math.max(1, Math.round((g.share || 0) * 100))}%"></i></span></button>`;
+function spending() {
+  if (!spend) { loadSpend(); return `<p class="muted">Loading…</p>`; }
+  if (spend.failed) return `<p class="err">${esc(spend.failed)}</p>`;
+  const t = spend.totals, m = spend.month, sc = spend.scope, change = m.last_month_usd ? (m.heading_for_usd / m.last_month_usd - 1) : null;
+  const periods = spend.periods.map((d) => `<button class="chip${d === spend.days ? " on" : ""}" data-days="${d}">${d} days</button>`).join("");
+  const crumbs = `<div class="crumbs"><button class="link" data-up="all">All of Buddy</button>${sc.component ? ` › <button class="link" data-up="component">${esc((spend.purposes ? sc.purpose ? "" : sc.title : "") || componentTitle(sc.component))}</button>` : ""}${sc.purpose ? ` › <b>${esc(sc.title)}</b>` : ""}</div>`;
+  const summary = card("AI spending", `<div class="chips">${periods}</div><div class="kpis" style="margin-top:10px">
+      ${kpi(dollars(m.usd), "this month so far")}${kpi(dollars(m.heading_for_usd), "heading for by month end")}
+      ${kpi(dollars(m.last_month_usd), "last month")}${kpi(change == null ? "–" : (change > 0 ? "▲ " : change < 0 ? "▼ " : "") + Math.abs(Math.round(change * 100)) + "%", "this month's pace against last month")}
+      ${kpi(dollars(t.usd), `in the last ${spend.days} days`)}${kpi(esc(t.requests), "requests")}
+      ${kpi(dollars(t.per_request, 4), "an average request")}${kpi(share(t.requests ? t.failed / t.requests : 0), "failed")}
+      ${kpi(share(t.free_share), "answered by a free model")}</div>`,
+    `Day ${esc(m.day)} of ${esc(m.days_in_month)}. "Heading for" is this month's spending so far at the same daily pace to the end of the month: arithmetic, not a prediction.`);
+  const scopeCard = card(sc.component ? esc(sc.title) : "Spending per day", `${crumbs}${sc.covers ? `<p class="muted">${esc(sc.covers)}</p>` : ""}
+      ${sc.component ? `<div class="kpis">${kpi(dollars(sc.usd), `in ${spend.days} days`)}${kpi(share(sc.share), "of all spending")}${kpi(esc(sc.requests), "requests")}${kpi(dollars(sc.per_request, 4), "an average request")}${kpi(sc.median_seconds == null ? "–" : sc.median_seconds + "s", "typical time")}</div>` : ""}
+      ${dayChart(spend.by_day)}`);
+  const parts = spend.components ? card("Which part of Buddy spends it", spend.components.length ? spend.components.map((c) => barRow(c.title, c.covers, c, `data-component="${esc(c.id)}"`)).join("") : `<p class="muted">No requests in this period yet.</p>`, "Tap a part to see what inside it spends.")
+    : card(`Inside ${esc(componentTitle(sc.component))}`, (spend.purposes || []).map((p) => barRow(p.name, p.purpose, p, `data-purpose="${esc(p.purpose)}"`)).join("") || `<p class="muted">Nothing here in this period.</p>`, "Tap a line to see its models and latest requests. Shares are of this part.");
+  const models_ = card("By model", `<div style="overflow-x:auto"><table class="grid"><tr><th>Model</th><th>Cost</th><th>Share</th><th>Requests</th><th>Average</th></tr>${spend.by_model.map((g) => `<tr><td>${esc(g.name)}</td><td>${dollars(g.usd)}</td><td>${share(g.share)}</td><td>${esc(g.requests)}</td><td>${dollars(g.per_request, 4)}</td></tr>`).join("")}</table></div>`)
+    + card("By provider", spend.by_provider.map((g) => barRow(g.name, "", g)).join("") || `<p class="muted">Nothing in this period.</p>`);
+  const reqs = spend.requests ? card(`Latest requests (${spend.requests.length})`, `<div style="overflow-x:auto"><table class="grid"><tr><th>When</th><th>Model</th><th>Cost</th><th>Time</th><th>Tokens</th></tr>${spend.requests.map((r) => `<tr><td>${esc(new Date(r.at).toLocaleString(undefined, { month: "short", day: "numeric", hour: "numeric", minute: "2-digit" }))}${r.ok ? "" : `<br><small style="color:var(--sev-high)">✗ ${esc(r.stop || "failed")}</small>`}${r.preview ? `<br><small class="muted">${esc(r.preview)}</small>` : ""}</td><td>${esc(r.model)}</td><td>${dollars(r.usd, 4)}</td><td>${r.seconds == null ? "–" : esc(Number(r.seconds).toFixed(1)) + "s"}</td><td>${esc(r.tokens_in)} in<br>${esc(r.tokens_out)} out</td></tr>`).join("")}</table></div>`, "Previews are short and have personal details masked. The log keeps 90 days.") : "";
+  return summary + scopeCard + parts + reqs + models_;
+}
+const componentTitle = (id) => ((spend && (spend.components || []).find((c) => c.id === id)) || {}).title || (spend && spend.scope.component === id && !spend.scope.purpose ? spend.scope.title : spendTitles[id] || id);
+const spendTitles = {};
+
 function render() {
-  $("main").innerHTML = models();
+  if (spend && spend.components) spend.components.forEach((c) => { spendTitles[c.id] = c.title; });
+  const switcher = inApp ? "" : `<div class="chips" style="margin-bottom:10px"><button class="chip${view === "providers" ? " on" : ""}" data-view="providers">Providers &amp; models</button><button class="chip${view === "usage" ? " on" : ""}" data-view="usage">Spending</button></div>`;
+  $("main").innerHTML = switcher + (view === "usage" ? spending() : models());
+  document.querySelectorAll("[data-view]").forEach((b) => b.onclick = () => { view = b.dataset.view; render(); });
+  document.querySelectorAll("[data-days]").forEach((b) => b.onclick = () => { spendDays = Number(b.dataset.days); spend = null; render(); });
+  document.querySelectorAll("[data-component]").forEach((b) => b.onclick = () => { spendComponent = b.dataset.component; spendPurpose = ""; spend = null; render(); scrollTo(0, 0); });
+  document.querySelectorAll("[data-purpose]").forEach((b) => b.onclick = () => { spendPurpose = b.dataset.purpose; spend = null; render(); scrollTo(0, 0); });
+  document.querySelectorAll("[data-up]").forEach((b) => b.onclick = () => { if (b.dataset.up === "all") spendComponent = ""; spendPurpose = ""; spend = null; render(); });
+  const chart = $("spendchart"), tip = $("spendtip");
+  if (chart) chart.querySelectorAll(".hit").forEach((r) => {
+    const show = () => { const d = spend.by_day[+r.dataset.day]; tip.textContent = `${d.day}: ${dollars(d.usd, 4)} · ${d.requests} requests`; tip.style.display = "block"; };
+    r.onmouseenter = show; r.onclick = show; r.onmouseleave = () => { tip.style.display = "none"; };
+  });
   document.querySelectorAll("[data-job]").forEach((el) => el.onchange = () => modelSet({ job: el.dataset.job, choice: el.value }));
   document.querySelectorAll("[data-remove]").forEach((b) => b.onclick = () => modelSet({ remove: b.dataset.remove }));
   if ($("p-add")) $("p-add").onclick = () => modelSet({ add: { name: $("p-name").value, base: $("p-base").value, model: $("p-model").value, price_in: Number($("p-in").value), price_out: Number($("p-out").value) } }, $("p-add"));

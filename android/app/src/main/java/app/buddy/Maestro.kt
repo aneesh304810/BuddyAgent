@@ -23,8 +23,8 @@ import androidx.compose.ui.platform.LocalContext
 import androidx.compose.ui.unit.dp
 
 /** Buddy Maestro: the AI providers and which does each job (web/maestro.html), and every model request Buddy made
- *  (what used to be the Insights screen), as tabs at the top. The last tab used is remembered. */
-private val MAESTRO_TABS = listOf("Providers & models", "Usage")
+ *  (Spending: the web view with the drill-down; Requests: what used to be the Insights screen), as tabs at the top. The last tab used is remembered. */
+private val MAESTRO_TABS = listOf("Providers & models", "Spending", "Requests")
 
 @Composable
 fun MaestroScreen(link: ServerLink?, openUsage: Boolean = false) {
@@ -44,8 +44,9 @@ fun MaestroScreen(link: ServerLink?, openUsage: Boolean = false) {
         Box(Modifier.fillMaxSize()) {
             key(tab) {  // a fresh page per tab: the WebView loads its address once
                 when (tab) {
-                    0 -> BuddyPage(link, "maestro.html")
-                    else -> InsightsScreen(link)
+                    0 -> BuddyPage(link, "maestro.html", "view=providers")
+                    1 -> BuddyPage(link, "maestro.html", "view=usage")  // totals, by component, drill-down
+                    else -> InsightsScreen(link)                         // every request, speed, voice, tools
                 }
             }
         }

@@ -90,7 +90,7 @@ flowchart LR
 | Feature | What it does | Modules |
 |---|---|---|
 | [Claude: the brain](01-claude.md) | Understands you, decides what to do, picks the cheapest Claude model that does the job well, thinks from memory before calling the AI, follows your standing instructions, and asks before spending more | 12 |
-| [Free AI models (Groq, Gemini, Mistral, Cerebras, GitHub Models, OpenRouter)](02-free-ai-models.md) | Do general work for free, never with your personal data: translating, summarising public text, brainstorming, general code questions | 5 |
+| [Free AI models (Groq, Gemini, Mistral, Cerebras, GitHub Models, OpenRouter)](02-free-ai-models.md) | Do general work for free, never with your personal data: translating, summarising public text, brainstorming, general code questions | 6 |
 | [Buddy Connect](03-buddy-connect.md) | One catalog and one way of calling every outside service: keys, backup hosts, rate limits, the personal-data check, logging and costs | 2 |
 | [Memory](04-memory.md) | What Buddy knows and remembers: facts, the conversation log and its search, the documents library, your taste and daily routine, and connecting what it knows | 9 |
 | [Voice: Talk mode and Listen-in](05-voice.md) | Hearing you (Whisper on your server or Groq), knowing when you talk to Buddy, your voice match, how you pause, the words it should hear right, and Listen-in's whispers | 7 |
@@ -114,4 +114,4 @@ flowchart LR
 | [Insights and costs](23-insights-and-costs.md) | What Buddy spends and how well it does, model by model and service by service, and what makes it feel slow | 4 |
 | [The server and the app](24-the-server-and-the-app.md) | The one server the phone talks to: the chat connection, the app's pages and their data | 1 |
 
-24 features, 151 server modules. The app (Kotlin) and the deploy scripts are documented by `python -m buddy.codedocs`.
+24 features, 152 server modules. The app (Kotlin) and the deploy scripts are documented by `python -m buddy.codedocs`.

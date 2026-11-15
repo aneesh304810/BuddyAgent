@@ -79,17 +79,50 @@ pool. A choice that fails or gives an unusable answer falls back to the free poo
 personal. Any choice can be scored on 48 headlines with known right labels before a job is moved to it.
 Details are in INTELLIGENCE.md.
 
-## Usage: everything Buddy asked a model
+## Spending: what Buddy's AI use costs, and which part of Buddy spends it
 
-Maestro has two tabs in the app. **Providers & models** is this page. **Usage** is what used to be the
-separate Insights screen: every model request, what it was for, what it cost and how fast it came back,
-with speed, voice timing, tools and the request-by-request list. Insights is no longer in the menu; the
-link from the chat that used to open it opens Maestro's Usage tab.
+Maestro has three tabs in the app: **Providers & models**, **Spending** and **Requests**. Insights is no
+longer in the menu; the link from the chat that used to open it opens Maestro.
 
-The top of Providers & models shows **All of Buddy's AI use**: spending this month, requests in the last
-30 days, how many Claude answered and how many free models did, what was saved by using a cheaper Claude
-tier and by free models, and where the money went by purpose and by model. This covers the main
-conversation and every other feature, not only the jobs chosen on this page.
+**Spending** is built from the log of every model request (kept 90 days). Ask "what am I spending on AI"
+or "what does email cost me".
+
+- **Summary**, for 7, 30 or 90 days: spending this month so far, last month, where this month is heading,
+  the pace against last month, spending and requests in the period, the cost of an average request, how
+  many failed, and the share a free model answered. "Heading for" is this month's spending so far at the
+  same daily pace to the end of the month: arithmetic, not a prediction.
+- **Spending per day**, as a chart. Tap a bar for that day's cost and requests.
+- **Which part of Buddy spends it.** Every request belongs to one component:
+
+  | Component | Covers |
+  |---|---|
+  | The conversation | replies, the expert step-up, thinking, quick free answers |
+  | Voice and calls | hearing you, listen-in, phone calls |
+  | Email and memory | sorting email, life memory, documents, the overnight tidy-up, briefings |
+  | Money | bank categories, statements, cards and credit |
+  | Investing | market scans, signals, funds, the investor lenses |
+  | Shopping and deals | price watches, deal reading, seasons |
+  | Travel and places | trips, transit, dining, events, weather, the home |
+  | Intelligence | labels, write-ups, companies and relationships; news and trends |
+  | Health | the daily health report |
+  | Research and the web | research reports and reading web pages |
+  | Learning | English review and the morning tutor |
+  | Running Buddy | its own code, self-checks, documentation answers, security |
+
+  A purpose that no rule knows is shown under **Other** by its own name, so nothing is hidden.
+- **Drill down.** Tap a component to see what inside it spends, then a line to see its models, its days and
+  its latest requests with cost, time, tokens and a short masked preview. The trail at the top takes you
+  back up.
+- **By model and by provider**, for whatever you have drilled into.
+
+**Requests** is what used to be the Insights screen: the request-by-request list, speed, voice timing and
+tools.
+
+The top of Providers & models still shows a short version, **All of Buddy's AI use**.
+
+**Limits.** It covers AI model requests only; paid outside services (search credits, flight data) are on
+the Connections screen. A request made before today is grouped by the rules as they are now. Costs are
+worked out from each model's list price when the request was logged.
 
 ## What goes through it today, and what does not yet
 

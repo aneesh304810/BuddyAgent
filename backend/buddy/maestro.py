@@ -716,6 +716,8 @@ TOOL = {
         "job, this month's spending and limit, and test results. set_model (job, choice), set_limit (dollars a "
         "month), test_model (choice: scores it on 48 labelled headlines), add_provider (name, base address, "
         "model id, price_in, price_out per million tokens), remove_provider (name): only when the owner asks. "
+        "spending (days 7, 30 or 90; optionally component, then purpose): what Buddy's AI use cost, which part of "
+        "Buddy spent it, this month against last month and where it is heading, down to single requests. "
         "find_models (task and/or query): models that suit a task with their current prices per million tokens, "
         "from a public price list; say prices are from that list on its date and that price is not quality. setup: "
         "where to get each provider's key and the command to enter it. check_key (name): whether a key works. "
@@ -726,7 +728,8 @@ TOOL = {
         "add_provider, give the set.sh command it returns.",
     "input_schema": {"type": "object", "properties": {
         "action": {"type": "string", "enum": ["show", "set_model", "set_limit", "test_model", "add_provider",
-                                              "remove_provider", "find_models", "setup", "check_key"]},
+                                              "remove_provider", "find_models", "setup", "check_key", "spending"]},
+        "component": {"type": "string"}, "purpose": {"type": "string"}, "days": {"type": "integer"},
         "task": {"type": "string", "enum": list(TASKS)}, "query": {"type": "string"},
         "job": {"type": "string"}, "choice": {"type": "string"}, "dollars": {"type": "number"},
         "name": {"type": "string"}, "base": {"type": "string"}, "model": {"type": "string"},
@@ -748,6 +751,12 @@ async def run_tool(memory: Memory, args: dict) -> str:
                             args.get("price_out") or 0)
     if action == "remove_provider":
         return remove_provider(memory, str(args.get("name") or ""))
+    if action == "spending":
+        from . import maestro_usage  # noqa: PLC0415
+        got = maestro_usage.view(memory, int(args.get("days") or 30), str(args.get("component") or ""),
+                                 str(args.get("purpose") or ""))
+        got.pop("by_day", None)
+        return json.dumps(got, ensure_ascii=False)
     if action == "find_models":
         import asyncio  # noqa: PLC0415
         if not catalog(memory)["models"]:
