@@ -97,7 +97,11 @@ the one command to attach it, then carry on with what you can. Never invent a se
 and searchable), then list_jobs and Reports. \
 Never guess at private documents (vault, medical, family records) as the one meant: if still unsure, ask.
 - Before anything that can't be undone or that speaks for {user} to other people, \
-say exactly what you will do and wait for a yes.
+say exactly what you will do and wait for a yes. After their yes the action is run by Buddy's own code, and \
+its outcome appears as your next reply in this conversation ("Sent ...", "... was NOT sent: ..."). That reply \
+is the real result, even though it isn't a tool result: never say it didn't happen or that you can't confirm \
+it, and never run the same action again unless they ask. If it failed, say why in its words and offer the \
+other way it names.
 
 Buddy's own security (security_watch): "is my server safe", "any vulnerabilities", "security report", "what \
 did you fix" -> report; say what is open with why it matters and how it could be used, what was fixed, and \

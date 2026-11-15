@@ -119,12 +119,63 @@ def test_email_route_refuses_a_made_up_address_and_reports_a_failed_send(env):
     with pytest.raises(ToolError, match="official help page"):
         asyncio.run(subcancel.start(mem, thrift, {"what": "hulu", "route": "email", "to": "their support"}))
 
+    tried = []
+
     def broken(host, port):
-        raise OSError("no route")
-    asyncio.run(subcancel.start(mem, thrift, {"what": "hulu", "to": "help@hulu.example"}, smtp=broken))
+        tried.append(port)
+        raise TimeoutError("timed out")
+
+    def no_drafts(account):
+        raise OSError("imap down")
+    asyncio.run(subcancel.start(mem, thrift, {"what": "hulu", "to": "help@hulu.example"}, smtp=broken,
+                                draft=no_drafts))
     said = thrift.yes()
-    assert "couldn't be sent" in said and "Nothing was cancelled" in said
+    assert tried == [465, 587]  # both standard sending ports were tried
+    assert "was NOT sent" in said and "block" in said and "Nothing was cancelled" in said and "by phone" in said
     assert subcancel.status(mem)["cancellations"] == [] and finance.Finance(mem)._find("hulu")["status"] != "cancel"
+
+
+class Drafts:
+    saved = []
+
+    def __init__(self, account):
+        self.account = account
+
+    def append(self, folder, flags, when, raw):
+        Drafts.saved.append((folder, flags, raw))
+        return ("OK", [b"done"]) if "Gmail" in folder else ("NO", [b"no such folder"])
+
+    def logout(self):
+        pass
+
+
+def test_when_sending_is_blocked_the_email_is_saved_as_a_draft_and_said_plainly(env):
+    mem, thrift = Memory(":memory:"), Thrift()
+    _sub(mem)
+    Drafts.saved.clear()
+
+    def blocked(host, port):
+        raise TimeoutError("timed out")
+    asyncio.run(subcancel.start(mem, thrift, {"what": "hulu", "to": "help@hulu.example"}, smtp=blocked, draft=Drafts))
+    said = thrift.yes()
+    assert "was NOT sent" in said and "I saved it in [Gmail]/Drafts in sam@example.com" in said
+    assert "tap Send" in said and "unblock SMTP" in said
+    folder, flags, raw = Drafts.saved[0]
+    assert flags == "(\\Draft)" and b"Please cancel my Hulu subscription" in raw and b"To: help@hulu.example" in raw
+    job = subcancel.status(mem)["cancellations"][0]
+    assert job["status"] == "waiting" and "draft" in job["note"]  # watched: the confirmation will still be caught
+
+
+def test_a_refused_sign_in_is_named_and_nothing_is_saved(env):
+    import smtplib
+    mem, thrift = Memory(":memory:"), Thrift()
+    _sub(mem)
+
+    class Refuses(Smtp):
+        def login(self, user, password):
+            raise smtplib.SMTPAuthenticationError(535, b"bad credentials")
+    asyncio.run(subcancel.start(mem, thrift, {"what": "hulu", "to": "help@hulu.example"}, smtp=Refuses, draft=Drafts))
+    assert "refused the sign-in" in thrift.yes() and subcancel.status(mem)["cancellations"] == []
 
 
 def test_without_a_way_to_ask_nothing_is_sent(env):

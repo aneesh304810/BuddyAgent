@@ -346,7 +346,8 @@ decide each differently), and uses it whenever you ask about a purchase.
   tells you when the next charge fails to come, and if a charge does come after the cancellation it says so
   and offers the dispute letter. Honest limits: many services only cancel for the account holder, so a call
   can end with "you need to call them yourself" (you get the number and hours); the email route needs your
-  email account set up for sending; phone calls need the Calls setup (CALLS.md).
+  email account set up for sending, and many cloud servers (DigitalOcean included) block the mail-sending
+  ports: then Buddy saves the email in your Drafts folder for you to tap Send, and says so; phone calls need the Calls setup (CALLS.md).
 - **The Practice tab (Investments page).** Shows the practice book as it happens: the book's value now, each
   open paper position with its price now and the reasons it was bought, each closed trade with what it was
   bought and sold at, why it was sold, its result and what the S&P 500 did over the same days, the signals the

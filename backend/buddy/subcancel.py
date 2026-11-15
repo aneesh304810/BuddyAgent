@@ -139,28 +139,69 @@ def email_text(sub: dict, name: str, account_email: str = "") -> tuple[str, str]
     return f"Cancel my {sub['merchant']} subscription", body
 
 
-def send_email(account, to: str, subject: str, body: str, smtp=None) -> None:
-    """Send one plain email from the owner's own account. `smtp`: a factory for tests."""
+SMTP_TIMEOUT = 12
+
+
+def build_email(account, to: str, subject: str, body: str) -> EmailMessage:
     message = EmailMessage()
     message["From"], message["To"], message["Subject"] = account.address, to, subject
     message["Date"], message["Message-ID"] = formatdate(localtime=True), make_msgid()
     message.set_content(body)
-    if smtp is not None:
-        server = smtp(account.smtp_host, account.smtp_port)
-    elif account.smtp_port == 465:
-        server = smtplib.SMTP_SSL(account.smtp_host, account.smtp_port, timeout=30,
-                                  context=ssl.create_default_context())
-    else:
-        server = smtplib.SMTP(account.smtp_host, account.smtp_port, timeout=30)
-        server.starttls(context=ssl.create_default_context())
+    return message
+
+
+def _connect_smtp(host: str, port: int):
+    if port == 465:
+        return smtplib.SMTP_SSL(host, port, timeout=SMTP_TIMEOUT, context=ssl.create_default_context())
+    server = smtplib.SMTP(host, port, timeout=SMTP_TIMEOUT)
+    server.starttls(context=ssl.create_default_context())
+    return server
+
+
+def send_email(account, to: str, subject: str, body: str, smtp=None) -> EmailMessage:
+    """Send one plain email from the owner's own account, trying the account's sending port and then the other
+    standard one (many cloud hosts block one or both). Raises the last error. `smtp`: a factory for tests."""
+    message = build_email(account, to, subject, body)
+    last: Exception | None = None
+    for port in dict.fromkeys((account.smtp_port, 465, 587)):
+        try:
+            server = (smtp or _connect_smtp)(account.smtp_host, port)
+        except OSError as e:  # refused, unreachable or timed out: this port is closed from here
+            last = e
+            log.info("smtp %s:%s unreachable: %s", account.smtp_host, port, type(e).__name__)
+            continue
+        try:
+            server.login(account.address, account.password)
+            server.send_message(message)
+            return message
+        finally:
+            try:
+                server.quit()
+            except Exception:  # the message has gone (or failed) already; a bad goodbye changes nothing
+                log.debug("smtp quit failed", exc_info=True)
+    raise last or OSError("no sending port could be reached")
+
+
+def save_draft(account, message: EmailMessage, connect=None) -> str:
+    """Put the message in the account's Drafts folder over IMAP (the reading connection, which works where
+    sending ports are blocked). Returns the folder's name."""
+    import imaplib  # noqa: PLC0415
+    import time  # noqa: PLC0415
+    imap = connect(account) if connect else imaplib.IMAP4_SSL(account.imap_host, timeout=30)
     try:
-        server.login(account.address, account.password)
-        server.send_message(message)
+        if not connect:
+            imap.login(account.address, account.password)
+        folders = ['"[Gmail]/Drafts"', "Drafts"] if getattr(account, "is_gmail", False) else ["Drafts", '"Draft"']
+        for folder in folders:
+            ok, _ = imap.append(folder, "(\\Draft)", imaplib.Time2Internaldate(time.time()), message.as_bytes())
+            if ok == "OK":
+                return folder.strip('"')
+        raise OSError("the Drafts folder wasn't found")
     finally:
         try:
-            server.quit()
-        except Exception:  # the message has gone (or failed) already; a bad goodbye changes nothing
-            log.debug("smtp quit failed", exc_info=True)
+            imap.logout()
+        except Exception:
+            log.debug("imap logout failed", exc_info=True)
 
 
 def call_goal(sub: dict, account_email: str = "", accept: str = "") -> str:
@@ -200,7 +241,7 @@ def running(memory: Memory, sub_id: int) -> dict | None:
     return dict(row) if row else None
 
 
-async def start(memory: Memory, thrift, args: dict, open_links=None, env=None, smtp=None) -> str:
+async def start(memory: Memory, thrift, args: dict, open_links=None, env=None, smtp=None, draft=None) -> str:
     """Begin one cancellation: pick the route, ask the owner, and on their yes do it."""
     import asyncio  # noqa: PLC0415
 
@@ -246,10 +287,29 @@ async def start(memory: Memory, thrift, args: dict, open_links=None, env=None, s
         async def send() -> str:
             try:
                 await asyncio.to_thread(send_email, account, to, subject, body, smtp)
+            except smtplib.SMTPAuthenticationError:
+                return (f"{account.address} refused the sign-in for sending, so nothing was sent or cancelled. The "
+                        "app password may have changed: sudo bash /opt/buddy/deploy/email.sh")
             except Exception as e:
-                log.warning("cancellation email failed: %s", type(e).__name__)
-                return (f"The email to {to} couldn't be sent ({type(e).__name__}). Nothing was cancelled; I can "
-                        "save it as a draft, or try by phone.")
+                blocked = isinstance(e, OSError) and not isinstance(e, smtplib.SMTPException)
+                log.warning("cancellation email failed: %s: %s", type(e).__name__, str(e)[:120])
+                why = ("this server can't reach the mail-sending ports (cloud hosts such as DigitalOcean block "
+                       "them by default)" if blocked else f"the mail server answered with an error ({type(e).__name__})")
+                try:
+                    folder = await asyncio.to_thread(save_draft, account, build_email(account, to, subject, body),
+                                                     draft)
+                except Exception as e2:
+                    log.warning("saving the cancellation draft failed: %s", type(e2).__name__)
+                    return (f"The email to {to} was NOT sent: {why}. I couldn't save it as a draft either. "
+                            "Nothing was cancelled. I can cancel by phone instead, or read you the email to send "
+                            "yourself.")
+                fin.decide(sub["id"], "cancel")
+                _job(memory, sub, "email", to, f"saved as a draft in {account.address} for the owner to send")
+                return (f"The email to {to} was NOT sent: {why}. I saved it in {folder} in {account.address}, "
+                        "ready to go: open it and tap Send, and I'll watch for their confirmation and check the "
+                        "charges stop. Or say the word and I'll cancel by phone instead."
+                        + (" To let me send by myself, ask DigitalOcean support to unblock SMTP for this server."
+                           if blocked else ""))
             fin.decide(sub["id"], "cancel")
             _job(memory, sub, "email", to, f"cancellation email sent from {account.address}")
             return (f"Sent the cancellation email for {sub['merchant']} to {to} from {account.address}. I'll save "
