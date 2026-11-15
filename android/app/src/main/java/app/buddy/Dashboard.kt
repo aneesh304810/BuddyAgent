@@ -22,8 +22,8 @@ import androidx.compose.ui.Modifier
 import androidx.compose.ui.platform.LocalContext
 import androidx.compose.ui.unit.dp
 
-/** Money, the money dashboard and card benefits in one place, as tabs at the top. The last tab used is remembered. */
-private val DASHBOARD_TABS = listOf("Accounts & bills", "Spending", "Card benefits")
+/** Money: accounts and bills, spending, card benefits and investing in one place, as tabs at the top. The last tab used is remembered. */
+private val DASHBOARD_TABS = listOf("Accounts & bills", "Spending", "Cards", "Invest")
 
 @Composable
 fun DashboardScreen(link: ServerLink?, onReports: () -> Unit) {
@@ -43,7 +43,8 @@ fun DashboardScreen(link: ServerLink?, onReports: () -> Unit) {
                 when (tab) {
                     0 -> MoneyScreen(link, onReports)
                     1 -> BuddyPage(link, "money.html")
-                    else -> BuddyPage(link, "cards.html")
+                    2 -> BuddyPage(link, "cards.html")
+                    else -> BuddyPage(link, "invest.html")  // strategy, practice, themes, watchlist
                 }
             }
         }

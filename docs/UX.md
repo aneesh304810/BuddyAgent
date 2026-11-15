@@ -1,0 +1,66 @@
+# Buddy's design standard
+
+Every screen in Buddy, native or web, is held to this. Where a rule and a feature conflict, the rule wins
+unless the owner decides otherwise.
+
+## The principle
+
+**One Buddy, simple on the surface, with the detail one tap away.** You talk to Buddy and see what matters
+today. Models, providers, sources and logs exist, but you see them only when you ask or when something goes
+wrong.
+
+## The eight rules
+
+1. **Conversation first.** Anything can be asked or done from the conversation. Screens are for looking,
+   not for finding features. There is one conversation, on the Buddy place; the other places have a
+   microphone button that talks to the same one.
+2. **One screen, one purpose.** Each screen answers one question, with the most important thing at the top.
+3. **Five places, always reachable.** Nothing used daily is more than two taps away, and the bar is within
+   thumb reach.
+4. **Answer first, detail on request.** Show the call, then one line of why. Evidence, models and cost open
+   on a tap.
+5. **Always say where it came from and how fresh it is.** Every signal, deal and prediction carries its
+   source, its date and its record.
+6. **Privacy you can see.** Mark what stays with Claude, and show what each outside service receives.
+7. **Never leave you guessing.** Every action shows that it worked, is still running, or failed and why. A
+   fallback is stated, not hidden.
+8. **The same parts everywhere.** One card, one chip, one header and one set of colours, so every area
+   feels like the same app.
+
+## The five places
+
+| Place | What lives there |
+|---|---|
+| **Buddy** | The conversation, and what needs you today |
+| **Money** | Accounts and bills, Spending, Cards, Invest |
+| **Trips & Deals** | Travel and deals, with the buy-now-or-wait calls |
+| **Discover** | News, Intelligence, Library, Reports |
+| **More** | How Buddy runs (Maestro, Connections, Security) and your setup (Alerts, Settings) |
+
+Alerts open from the bell in the header on every screen. The phone's Back button goes up one level, then
+to the conversation.
+
+## Foundations
+
+- **Material Design 3** for layout, spacing, touch targets and navigation.
+- **Accessibility (WCAG 2.2, level AA):** text contrast of 4.5 to 1, text that scales with the phone's
+  setting, touch targets of at least 48 points, a spoken label on every icon-only button, reduced motion.
+- **The ten usability heuristics**, used as the checklist when a screen is reviewed.
+
+## Parts
+
+- **Icons** are line shapes drawn in the app (Nav.kt), in the theme's colour. No emoji as icons.
+- **Colours** come from `Pal` (Theme.kt) in the app and the matching variables in the web pages. A state is
+  never shown by colour alone: it also has an icon or a word.
+- **Cards** have rounded corners of 12 to 18 points. **Chips** select a tab or a period.
+- **The prediction card** is the same for investing, flights, hotels and products: the call, the chance or
+  the record, one line of why, and a source line with its date.
+
+## What is built, and what is not yet
+
+Built: the bar with the five places, the header with Back and the bell, the microphone on the other places,
+Trips & Deals, Discover and More, and Invest as a tab of Money.
+
+Not yet: the Today strip on the home screen, the alert count on the bell, the "For you" tab in Trips &
+Deals, fewer tabs inside Invest, the shared prediction card in every engine, "how this was answered" on a
+reply, source and freshness lines everywhere, and the wide-screen layout for the Fold.

@@ -13,6 +13,7 @@ import android.os.PowerManager
 import android.provider.Settings
 import androidx.activity.ComponentActivity
 import androidx.activity.compose.rememberLauncherForActivityResult
+import androidx.activity.compose.BackHandler
 import androidx.activity.compose.setContent
 import androidx.activity.result.contract.ActivityResultContracts
 import androidx.compose.animation.core.RepeatMode
@@ -141,6 +142,9 @@ sealed interface Screen {
     data object Security : Screen
     data object Intelligence : Screen
     data object Maestro : Screen
+    data object Trips : Screen      // Trips & Deals: travel and deals as tabs (Nav.kt)
+    data object Discover : Screen   // News, Intelligence, Library and Reports as tabs (Nav.kt)
+    data object More : Screen       // how Buddy runs and your setup (Nav.kt)
     data object Travel : Screen
     data object Connections : Screen
     data class LibraryItem(val id: String) : Screen
@@ -326,50 +330,33 @@ private fun BuddyScreen(
     batteryOk: () -> Boolean,
 ) {
     val ui by BuddyState.ui.collectAsState()
+    // The phone's Back goes up one level, then to the conversation; from the conversation it leaves the app.
+    BackHandler(enabled = screen != Screen.Talk) { onNavigate(parentOf(screen) ?: Screen.Talk) }
 
-    Column(
-        Modifier
-            .fillMaxSize()
-            .background(Ink)
-            .safeDrawingPadding()
-            .padding(horizontal = 16.dp),
-    ) {
-        Row(Modifier.fillMaxWidth().padding(vertical = 12.dp), verticalAlignment = Alignment.CenterVertically) {
-            Text("Buddy", color = Pal.text, fontSize = 22.sp)
-            Spacer(Modifier.size(10.dp))
-            Box(
-                Modifier.size(8.dp).background(if (ui.online) Listening else Muted, CircleShape)
-            )
-            Spacer(Modifier.size(6.dp))
-            Text(ui.connection, color = Muted, fontSize = 13.sp, modifier = Modifier.weight(1f))
-            if (screen == Screen.Talk) {
-                var menuOpen by remember { mutableStateOf(false) }
-                Box {
-                    TextButton(onClick = { menuOpen = true }) { Text("☰", fontSize = 24.sp, color = Pal.text) }
-                    DropdownMenu(expanded = menuOpen, onDismissRequest = { menuOpen = false }) {
-                        listOf("✈  Travel" to Screen.Travel, "💳  Dashboard" to Screen.Dashboard, "💹  Investments" to Screen.Investments, "🏷️  Deals" to Screen.Deals, "🔔  Alerts" to Screen.Alerts, "🛡  Security" to Screen.Security, "🧭  Intelligence" to Screen.Intelligence, "🎼  Maestro" to Screen.Maestro, "📰  News" to Screen.News,
-                            "📎  Library" to Screen.Library,
-                            "🔌  Connections" to Screen.Connections,
-                            "📄  Reports" to Screen.Reports, "⚙  Settings" to Screen.Settings)
-                            .forEach { (label, target) ->
-                                DropdownMenuItem(text = { Text(label) }, onClick = { menuOpen = false; onNavigate(target) })
-                            }
-                    }
-                }
-            } else {
-                TextButton(onClick = {
-                    onNavigate(when (screen) {
-                        is Screen.Report -> Screen.Reports
-                        is Screen.LibraryItem -> Screen.Library
-                        else -> Screen.Talk
-                    })
-                }) { Text("Back") }
+    // One header, the screen, then the bar with the five places (Nav.kt). The conversation lives on the Buddy
+    // place only; on every other screen a microphone button talks to the same conversation.
+    Column(Modifier.fillMaxSize().background(Ink).safeDrawingPadding()) {
+        Row(Modifier.fillMaxWidth().padding(horizontal = 16.dp, vertical = 10.dp),
+            verticalAlignment = Alignment.CenterVertically) {
+            val parent = parentOf(screen)
+            if (parent != null) {
+                RoundIconButton(Glyph.BACK, "Back") { onNavigate(parent) }
+                Spacer(Modifier.size(10.dp))
             }
+            Text(titleOf(screen), color = Pal.text, fontSize = 22.sp, fontWeight = FontWeight.SemiBold)
+            Spacer(Modifier.size(10.dp))
+            Box(Modifier.size(8.dp).background(if (ui.online) Listening else Muted, CircleShape))
+            Spacer(Modifier.size(6.dp))
+            Text(if (screen == Screen.Talk) ui.connection else "", color = Muted, fontSize = 13.sp, maxLines = 1,
+                modifier = Modifier.weight(1f))
+            if (screen != Screen.Alerts) RoundIconButton(Glyph.BELL, "Alerts") { onNavigate(Screen.Alerts) }
         }
+        Box(Modifier.weight(1f).fillMaxWidth()) {
+          Column(Modifier.fillMaxSize().padding(horizontal = 16.dp)) {
 
         when (screen) {
             Screen.Settings -> {
-                SettingsPanel(prefs, onSaveLink, onBattery, batteryOk, onDone = { onNavigate(Screen.Talk) })
+                SettingsPanel(prefs, onSaveLink, onBattery, batteryOk, onDone = { onNavigate(Screen.More) })
                 return@Column
             }
             Screen.Reports -> {
@@ -436,6 +423,18 @@ private fun BuddyScreen(
                 BuddyPage(prefs.link, "news.html")
                 return@Column
             }
+            Screen.Trips -> {
+                TripsScreen(prefs.link)
+                return@Column
+            }
+            Screen.Discover -> {
+                DiscoverScreen(prefs.link, onNavigate)
+                return@Column
+            }
+            Screen.More -> {
+                MoreScreen(onNavigate)
+                return@Column
+            }
             Screen.Talk -> Unit
         }
 
@@ -448,6 +447,12 @@ private fun BuddyScreen(
         }
         ui.approval?.let { question -> ApprovalCard(question) }
         Controls(ui, prefs)
+          }
+          if (screen != Screen.Talk && screen != Screen.Settings) {
+              TalkAnywhere(ui, Modifier.align(Alignment.BottomEnd).padding(16.dp))
+          }
+        }
+        BottomBar(placeOf(screen)) { onNavigate(homeOf(it)) }
     }
 }
 
