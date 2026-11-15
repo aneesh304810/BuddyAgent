@@ -2,7 +2,8 @@
 enough, it trains a small model in the sandbox, tests it on calls the model never saw, and uses it only if it
 earned its place. Until then, and whenever a model fails its test, the simple learned weights stay in charge.
 
-  Domains     investing (the practice book's closed paper trades: did the trade win?), product, flight, hotel
+  Domains     investing (the practice book's closed paper trades: did the trade win?), theme (the Intelligence
+              Platform's evidence events: did the basket beat the market over the next 90 days?), product, flight, hotel
               (the judged buy-or-wait and book-or-wait calls: did the price then come down 8% or more?)
   Enough      200 judged rows with at least 30 of each outcome. A retrain needs 50 new rows.
   Training    sandbox_jobs/train_model.py, offline, in the sandbox: a logistic regression on the reasons and
@@ -29,12 +30,12 @@ from .tools import local_now
 
 log = logging.getLogger(__name__)
 
-DOMAINS = ("investing", "product", "flight", "hotel")
+DOMAINS = ("investing", "theme", "product", "flight", "hotel")
 MIN_ROWS, MIN_EACH, RETRAIN_NEW = 200, 30, 50
 WORKSPACE = "model-training"
 SCRIPT = Path(__file__).parent / "sandbox_jobs" / "train_model.py"
 WEEK_KEY = "modeltrain:week"
-NAMES = {"investing": "investing signals", "product": "shopping calls", "flight": "flight calls",
+NAMES = {"investing": "investing signals", "theme": "theme baskets", "product": "shopping calls", "flight": "flight calls",
          "hotel": "hotel calls"}
 
 
@@ -48,6 +49,10 @@ def _ready(memory: Memory) -> None:
 def rows(memory: Memory, domain: str) -> list[dict]:
     """The judged rows for a domain: [{"when", "x": features, "y": 1 or 0}]."""
     from . import pricebook, simbook, whentobuy  # noqa: PLC0415
+    if domain == "theme":  # did the basket beat the market over the 90 days after the evidence changed?
+        from . import themes  # noqa: PLC0415
+        return [{"when": e["day"], "x": themes.features_of(e), "y": int(e["r90"] > e["s90"])}
+                for e in reversed(themes._events(memory)) if e["r90"] is not None and e["s90"] is not None]
     if domain == "investing":
         simbook._ready(memory)
         got = pricebook.run(memory, "SELECT closed, side, ret, parts, read, features FROM sim_trades WHERE "
@@ -55,10 +60,11 @@ def rows(memory: Memory, domain: str) -> list[dict]:
         return [{"when": str(t["closed"]), "x": simbook.features_of(t),
                  "y": int((t["ret"] > 0) if t["side"] == "long" else (t["ret"] < 0))} for t in got]
     whentobuy._ready(memory)
-    got = pricebook.run(memory, "SELECT made_on, kind, price, best_seen, parts FROM predictions WHERE "
+    got = pricebook.run(memory, "SELECT made_on, kind, price, best_seen, parts, factors FROM predictions WHERE "
                                 "COALESCE(domain, 'product') = ? AND outcome IN ('right', 'wrong') AND best_seen IS "
                                 "NOT NULL AND parts IS NOT NULL ORDER BY made_on", (domain,))
-    return [{"when": str(p["made_on"]), "x": whentobuy.features_of(json.loads(p["parts"] or "{}"), p["kind"]),
+    return [{"when": str(p["made_on"]), "x": whentobuy.features_of(json.loads(p["parts"] or "{}"), p["kind"],
+                                                               json.loads(p.get("factors") or "{}")),
              "y": int(p["best_seen"] <= p["price"] * whentobuy.DROPPED)} for p in got]
 
 

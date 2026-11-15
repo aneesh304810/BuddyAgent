@@ -15,16 +15,20 @@ flowchart LR
         bip_sources_py["bip_sources.py<br/>where its evidence comes from"]
         themes_py["themes.py<br/>the Intelligence Platform's evidence joined to the market, and tested…"]
         bip_models_py["bip_models.py<br/>Which AI model does each job of the Intelligence Platform, what it…"]
+        factors_py["factors.py<br/>facts any of Buddy's prediction engines can look up when it makes a…"]
     end
     you --> t_intelligence
     t_intelligence --> bip_py
     bip_py --> bip_models_py
     bip_py --> bip_sources_py
+    bip_py --> factors_py
     bip_py --> themes_py
     themes_py --> bip_py
     themes_py --> bip_models_py
     themes_py --> bip_sources_py
     bip_models_py --> themes_py
+    factors_py --> bip_py
+    factors_py --> themes_py
     db[("Your database<br/>bip_notes, bip_signals, theme_events, theme_news, theme_tone")]
     bip_py --> db
     themes_py --> db
@@ -40,9 +44,9 @@ flowchart LR
     bip_py -. uses .-> o_2
     o_3["Investing"]
     bip_py -. uses .-> o_3
-    o_4["Memory"]
+    o_4["Learning"]
     bip_py -. uses .-> o_4
-    o_5["Money"]
+    o_5["Memory"]
     bip_py -. uses .-> o_5
 ```
 
@@ -52,7 +56,7 @@ The diagram reads left to right: what you ask, the tools Buddy uses, the modules
 
 | Tool | What it is for | Actions | Module |
 |---|---|---|---|
-| `intelligence` | The Buddy Intelligence Platform: public evidence about emerging technologies and industries (research papers, registered clinical studies, company filings, US f | overview, technology, organisation, search, switch, scan, themes, patterns, models, set_model, set_limit, test_model | bip.py |
+| `intelligence` | The Buddy Intelligence Platform: public evidence about emerging technologies and industries (research papers, registered clinical studies, company filings, US f | overview, technology, organisation, search, switch, scan, themes, patterns, predictions, models, set_model, set_limit, test_model | bip.py |
 
 ## Technical design, module by module
 
@@ -99,7 +103,7 @@ database), never mixed with the owner's data, so free models may read it.
 ```
 
 - Tables: `bip_notes`, `bip_signals`
-- Uses: bip_models.py, bip_sources.py, memory.py, pricebook.py, themes.py, tools.py
+- Uses: bip_models.py, bip_sources.py, factors.py, memory.py, pricebook.py, themes.py, tools.py
 
 ### bip_sources.py
 
@@ -160,7 +164,7 @@ Stored in the public-data store beside the evidence: these are public prices and
 ```
 
 - Tables: `theme_events`, `theme_news`, `theme_tone`
-- Uses: bip.py, bip_models.py, bip_sources.py, markets.py, memory.py, paper.py, tools.py
+- Uses: bip.py, bip_models.py, bip_sources.py, markets.py, memory.py, modeltrain.py, paper.py, tools.py
 
 ### bip_models.py
 
@@ -193,8 +197,38 @@ so a provider other than Claude is allowed for these jobs and for nothing else i
 - Settings: `BUDDY_OPENAI_ANALYSIS`, `BUDDY_OPENAI_ANALYSIS_MODEL`, `BUDDY_OPENAI_CHEAP`, `BUDDY_OPENAI_CHEAP_MODEL`, `BUDDY_OPENAI_KEY`
 - Uses: agent.py, benefits.py, config.py, free_models.py, gateway.py, memory.py, themes.py, tools.py, usage.py
 
+### factors.py
+
+```text
+The shared signals library: facts any of Buddy's prediction engines can look up when it makes a call.
+
+Buddy has three engines that learn from how their own calls turned out (modeltrain.py trains and tests a model for
+each once it has enough judged calls): investing (signals and themes), travel (flight and hotel book-or-wait
+calls) and shopping (buy-or-wait calls). Each engine keeps its own reasons. This library adds what the others
+already know, so a call is saved with more to learn from:
+
+  investing   what the Intelligence Platform holds on the technologies whose filings name the company: how many
+              records in 90 days and how fast that is growing, how many kinds of evidence, the stage, good and
+              bad headlines in 14 days (the technology's and the company's own), and evidence patterns that
+              fired in the last 30 days
+  travel      the season for the month of travel and for now (government price data for air fares and hotels),
+              oil's move over 30 days (fuel feeds into fares), how many flight or hotel deals reached the inbox
+              and feeds in 30 days against the 30 before, deals that name this route or place, days until travel
+  shopping    deals for this item in 90 days from the inbox, from Reddit and from the feeds, the category's
+              season now and the gain from its best month ahead
+
+Every factor is a number, named f_..., worked out in code from what Buddy already stores (no AI, and no new
+outside call except oil, once a day, when its free key is set). A factor that can't be worked out is left out, and
+the trainer treats a missing factor as zero. Factors never decide a call themselves: they are saved with it, and
+a model uses them only after it has passed its test on calls it never saw.
+
+Only public data is read here: evidence, headlines, prices, deals. Nothing about the owner goes anywhere.
+```
+
+- Uses: bip.py, market_school.py, memory.py, modeltrain.py, pricebook.py, seasons.py, themes.py, tools.py
+
 ## How it connects
 
-- Relies on: Buddy Connect; Claude: the brain; Free AI models (Groq, Gemini, Mistral, Cerebras, GitHub Models, OpenRouter); Investing: signals, research and practice; Memory; Money; The price book, pattern learning and trained models
-- Relied on by: Claude: the brain; Speaking up on its own: briefing, reminders and alerts; The server and the app
+- Relies on: Buddy Connect; Claude: the brain; Free AI models (Groq, Gemini, Mistral, Cerebras, GitHub Models, OpenRouter); Investing: signals, research and practice; Learning: the English and investing tutors; Memory; Money; Shopping and deals; The price book, pattern learning and trained models
+- Relied on by: Claude: the brain; Investing: signals, research and practice; Shopping and deals; Speaking up on its own: briefing, reminders and alerts; The price book, pattern learning and trained models; The server and the app; Travel and getting around
 

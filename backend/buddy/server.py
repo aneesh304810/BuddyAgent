@@ -1620,6 +1620,45 @@ async def api_security_accept(body: dict) -> dict:
     return {"text": text, **await asyncio.to_thread(securitywatch.report, memory)}
 
 
+@app.get("/api/intel/predict", dependencies=[Depends(require_admin)])
+async def api_intel_predict() -> dict:
+    """The three prediction engines: what each learns from, its judged calls, and whether a tested model is in use."""
+    from . import factors
+    return await asyncio.to_thread(factors.overview, memory)
+
+
+_history_job: asyncio.Task | None = None
+
+
+async def _load_history() -> None:
+    """Collect the past records, replay the rules, then train the theme model if there is enough."""
+    from . import modeltrain, themes
+    try:
+        got = await asyncio.to_thread(themes.backfill, memory)
+        text = (f"History loaded: {got['records']} past records and {got['events']} past events with their results.")
+        if modeltrain.readiness(memory, "theme")["train_now"]:
+            text += " || " + modeltrain.message("theme", await modeltrain.train(memory, "theme")).split(" || ")[-1]
+        await deliver("news", text, topic="news:themes")
+    except Exception:
+        log.exception("loading the theme history failed")
+
+
+@app.post("/api/intel/predict", dependencies=[Depends(require_admin)])
+async def api_intel_predict_do(body: dict) -> dict:
+    """{history: true} loads the past records and replays the rules (runs in the background, once at a time)."""
+    global _history_job
+    from . import factors
+    if body.get("history"):
+        if _history_job and not _history_job.done():
+            text = "The history is already loading. It takes a while; Buddy will message when it is done."
+        else:
+            _history_job = asyncio.create_task(_load_history())
+            text = "Loading the history in the background. It takes a while; Buddy will message when it is done."
+    else:
+        raise HTTPException(400, "Nothing to do.")
+    return {"text": text, **await asyncio.to_thread(factors.overview, memory)}
+
+
 @app.get("/api/intel/models", dependencies=[Depends(require_admin)])
 async def api_intel_models() -> dict:
     """Which AI model does each Intelligence job, the month's spending and limit, and test results."""

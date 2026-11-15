@@ -170,3 +170,47 @@ patterns and the practice scoring are code. The jobs that do use a model each ha
   (18 good, 17 bad, 13 neutral). The tab shows how many it got right, what it cost and how long it took.
   The headlines were written for the test, not taken from the news, so use the result as a guide and also
   look at the real labels on the Themes tab.
+
+## Three prediction engines on one core (factors.py, modeltrain.py)
+
+Intelligence has a **Predictions** tab. Ask "how are your predictions doing".
+
+Buddy has one learning core and three engines on it. Each engine asks its own question, keeps its own reasons
+and learns only from how its own calls turned out.
+
+| Engine | The question | Its models |
+|---|---|---|
+| Investing | Will this beat the market? | investing signals (weeks); theme baskets (90 days) |
+| Flights and hotels | Book now or wait: will the price fall 8% or more before the trip? | flight calls; hotel calls |
+| Shopping | Buy now or wait: will the price fall 8% or more within your patience? | shopping calls |
+
+- **The core (already in Buddy, now shared by all five models).** Every call is saved with its reasons and
+  later judged against what happened. Once a model has 200 judged calls with at least 30 of each outcome, a
+  model is trained in the sandbox on the oldest 70%, tested on the newest 30% it never saw, and used only if
+  it beats always saying the average and is right at least 5 points more often on the calls it liked. A model
+  that fails is not used. This runs weekly.
+- **The shared signals library.** Each call is now also saved with what Buddy's other sources know:
+
+  | Engine | Added to each call |
+  |---|---|
+  | Investing | the Intelligence evidence for the company's technologies (records in 90 days, growth, kinds, stage), good and bad headlines in 14 days, evidence patterns in 30 days. Reddit mentions and tone, price trend, insiders and analysts were already there |
+  | Flights and hotels | the season for the travel month and for now (government price data), oil's 30-day move (flights), flight or hotel deals in your inbox and the feeds in 30 days against the 30 before, deals naming the route or place, days until travel |
+  | Shopping | deals for the item in 90 days from your inbox, from Reddit and from the feeds, the category's season now and the gain from its best month ahead |
+
+  These are numbers worked out in code from what Buddy already stores. They do not change a call by
+  themselves: a model uses them only after passing its test.
+- **The theme model.** A new model learns from the evidence events: which pattern fired, and a snapshot of
+  the evidence that day. The outcome is whether the basket beat the market over the next 90 days. When it is
+  in use, each open event on the Themes tab shows the model's odds.
+- **History.** "Load the last 30 months" asks the sources that can answer about a past date (company
+  filings, fundraising notices, federal awards, scholarly works, NSF grants), then replays the rules month
+  by month using only records dated up to each day, with that day's prices and what followed. These events
+  are marked as from history. It takes a while and runs in the background.
+- **Daily checks.** Saved flight and hotel searches are re-run each morning (up to 20), and products with an
+  open call get a price check (up to 15 a day). Each is a paid search.
+
+**Limits.** The history only knows companies that exist today and that filed with a ticker, so it is
+slightly flattering. News cannot be loaded for the past, so the good-news and bad-news patterns have no
+history. Sources return at most 25 records per question, so past months are thinner than they really were.
+Flights, hotels and shopping have no history to load: they learn from calls made from now on, which takes
+months. A model may fail its test, and then Buddy keeps using its simpler rules and says so.

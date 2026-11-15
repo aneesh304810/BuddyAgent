@@ -79,15 +79,15 @@ flowchart LR
     weather_py --> s_openmeteo
     o_0["Buddy Connect"]
     travel_py -. uses .-> o_0
-    o_1["Claude"]
+    o_1["Buddy Intelligence Platform"]
     travel_py -. uses .-> o_1
-    o_2["Investing"]
+    o_2["Claude"]
     travel_py -. uses .-> o_2
-    o_3["Making and doing things"]
+    o_3["Investing"]
     travel_py -. uses .-> o_3
-    o_4["Memory"]
+    o_4["Making and doing things"]
     travel_py -. uses .-> o_4
-    o_5["Money"]
+    o_5["Memory"]
     travel_py -. uses .-> o_5
 ```
 
@@ -164,7 +164,7 @@ For hotels the better advice is often neither: book a rate with free cancellatio
 and the call says so. Buddy never books.
 ```
 
-- Uses: memory.py, modeltrain.py, patterns.py, pricebook.py, tools.py, whentobuy.py
+- Uses: factors.py, memory.py, modeltrain.py, patterns.py, pricebook.py, tools.py, whentobuy.py
 
 ### hoteldirect.py
 
@@ -395,6 +395,6 @@ Only coordinates (rounded to about 1 km) or a place name go to Open-Meteo, nothi
 
 ## How it connects
 
-- Relies on: Buddy Connect; Claude: the brain; Investing: signals, research and practice; Making and doing things; Memory; Money; News, trends and research; Shopping and deals; Speaking up on its own: briefing, reminders and alerts; The price book, pattern learning and trained models
+- Relies on: Buddy Connect; Buddy Intelligence Platform; Claude: the brain; Investing: signals, research and practice; Making and doing things; Memory; Money; News, trends and research; Shopping and deals; Speaking up on its own: briefing, reminders and alerts; The price book, pattern learning and trained models
 - Relied on by: Buddy Connect; Claude: the brain; Email, messages and apps; Going out: restaurants and events; Home and health; Insights and costs; Memory; Money; Phone calls; Shopping and deals; Speaking up on its own: briefing, reminders and alerts; The server and the app
 

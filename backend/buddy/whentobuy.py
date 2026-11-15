@@ -347,9 +347,11 @@ def advise(memory: Memory, what: str, price: float, kind: str = "", lowest: floa
         chance -= 0.1
         reasons.append(f"my past 'wait' calls were right {cal['right']:.0%} of the time over {cal['calls']} calls, "
                        "so I'm more careful")
+    from . import factors  # noqa: PLC0415  what Buddy's other sources know, kept with the call to learn from
+    extra = factors.shopping(memory, what, kind, today)
     try:  # a trained model, when one has passed its test on calls it never saw (modeltrain.py)
         from . import modeltrain  # noqa: PLC0415
-        m = modeltrain.predict(memory, "product", features_of(parts, kind))
+        m = modeltrain.predict(memory, "product", features_of(parts, kind, extra))
     except Exception:
         m = None
     if m:
@@ -374,9 +376,9 @@ def advise(memory: Memory, what: str, price: float, kind: str = "", lowest: floa
         _ready(memory)
         out["prediction_id"] = pricebook.run(
             memory, "INSERT INTO predictions (item, kind, made_on, price, decision, chance, target, event, by_date, "
-                    "parts) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?) RETURNING id",
+                    "parts, factors) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?) RETURNING id",
             (what, kind or "other", today.isoformat(), price, decision, chance, target, event,
-             by_date.isoformat(), json.dumps(parts)))[0]["id"]
+             by_date.isoformat(), json.dumps(parts), json.dumps(extra)))[0]["id"]
     return out
 
 
@@ -391,6 +393,7 @@ def _ready(memory: Memory) -> None:
     pricebook.run(memory, "ALTER TABLE predictions ADD COLUMN IF NOT EXISTS parts VARCHAR")
     pricebook.run(memory, "ALTER TABLE predictions ADD COLUMN IF NOT EXISTS travel_date DATE")
     pricebook.run(memory, "ALTER TABLE predictions ADD COLUMN IF NOT EXISTS nights INTEGER")
+    pricebook.run(memory, "ALTER TABLE predictions ADD COLUMN IF NOT EXISTS factors VARCHAR")
 
 
 def learn(memory: Memory, domain: str = "product") -> dict:
@@ -418,9 +421,11 @@ def learn(memory: Memory, domain: str = "product") -> dict:
     return out
 
 
-def features_of(parts: dict, kind: str = "") -> dict:
-    """A call's features for training and for the model's odds: each reason's push, and the kind of thing."""
+def features_of(parts: dict, kind: str = "", extra: dict | None = None) -> dict:
+    """A call's features for training and for the model's odds: each reason's push, the kind of thing, and the
+    shared factors saved with the call (factors.py)."""
     x = {f"reason_{k}": v for k, v in (parts or {}).items()}
+    x.update({k: v for k, v in (extra or {}).items() if isinstance(v, (int, float))})
     for k in ("electronics", "home", "clothing"):
         x[f"kind_{k}"] = 1 if kind == k else 0
     return x

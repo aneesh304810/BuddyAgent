@@ -96,15 +96,15 @@ flowchart LR
     markets_py --> s_serper
     o_0["Buddy Connect"]
     recommend_py -. uses .-> o_0
-    o_1["Claude"]
+    o_1["Buddy Intelligence Platform"]
     recommend_py -. uses .-> o_1
-    o_2["Free AI models"]
+    o_2["Claude"]
     recommend_py -. uses .-> o_2
-    o_3["Learning"]
+    o_3["Free AI models"]
     recommend_py -. uses .-> o_3
-    o_4["Making and doing things"]
+    o_4["Learning"]
     recommend_py -. uses .-> o_4
-    o_5["Memory"]
+    o_5["Making and doing things"]
     recommend_py -. uses .-> o_5
 ```
 
@@ -151,7 +151,7 @@ Signals only: Buddy never places, changes or cancels a trade, and this is not fi
 ```
 
 - Tables: `recs`
-- Uses: finnhub.py, investors.py, lenses.py, livewatch.py, markets.py, memory.py, modeltrain.py, pricebook.py, shopper.py, signals.py, simbook.py, tools.py, whentobuy.py
+- Uses: factors.py, finnhub.py, investors.py, lenses.py, livewatch.py, markets.py, memory.py, modeltrain.py, pricebook.py, shopper.py, signals.py, simbook.py, tools.py, whentobuy.py
 
 ### signals.py
 
@@ -439,6 +439,6 @@ and retirement balances Plaid reports, plus the money moved into them. Buddy nev
 
 ## How it connects
 
-- Relies on: Buddy Connect; Claude: the brain; Free AI models (Groq, Gemini, Mistral, Cerebras, GitHub Models, OpenRouter); Learning: the English and investing tutors; Making and doing things; Memory; Money; News, trends and research; Shopping and deals; The price book, pattern learning and trained models
+- Relies on: Buddy Connect; Buddy Intelligence Platform; Claude: the brain; Free AI models (Groq, Gemini, Mistral, Cerebras, GitHub Models, OpenRouter); Learning: the English and investing tutors; Making and doing things; Memory; Money; News, trends and research; Shopping and deals; The price book, pattern learning and trained models
 - Relied on by: Buddy Connect; Buddy Intelligence Platform; Claude: the brain; Free AI models (Groq, Gemini, Mistral, Cerebras, GitHub Models, OpenRouter); Learning: the English and investing tutors; News, trends and research; Shopping and deals; Speaking up on its own: briefing, reminders and alerts; The price book, pattern learning and trained models; The server and the app; Travel and getting around
 

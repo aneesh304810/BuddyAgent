@@ -234,7 +234,8 @@ def gdelt(memory, phrase: str, fetch=None, today: date | None = None) -> list[di
 def openalex(memory, phrase: str, fetch=None, today: date | None = None) -> list[dict]:
     today = today or datetime.now(timezone.utc).date()
     got = _get(memory, "openalex", "https://api.openalex.org/works?" + urllib.parse.urlencode(
-        {"search": f'"{phrase}"', "filter": f"from_publication_date:{(today - timedelta(days=120)).isoformat()},type:article",
+        {"search": f'"{phrase}"', "filter": f"from_publication_date:{(today - timedelta(days=120)).isoformat()},"
+                                      f"to_publication_date:{today.isoformat()},type:article",
          "sort": "publication_date:desc", "per-page": 25}), fetch)
     out = []
     for w in (got or {}).get("results") or []:
@@ -276,6 +277,7 @@ def nih(memory, phrase: str, fetch=None, today: date | None = None) -> list[dict
 def nsf(memory, phrase: str, fetch=None, today: date | None = None) -> list[dict]:
     today = today or datetime.now(timezone.utc).date()
     query = urllib.parse.urlencode({"keyword": f'"{phrase}"', "dateStart": f"{today - timedelta(days=365):%m/%d/%Y}",
+                                    "dateEnd": f"{today:%m/%d/%Y}",
                                     "printFields": "id,title,awardeeName,fundsObligatedAmt,startDate", "rpp": 25})
     got = gateway.call_url(memory, "nsf", [f"https://api.nsf.gov/services/v1/awards.json?{query}",
                                            f"https://www.research.gov/awardapi-service/v1/awards.json?{query}"],
@@ -344,6 +346,7 @@ def form_d(memory, phrase: str, fetch=None, env=None, today: date | None = None)
     return out
 
 
+HISTORICAL = ("filings", "form_d", "awards", "openalex", "nsf")  # these can be asked about a past date
 PAUSE = {"arxiv": 3.5, "gdelt": 5.5}  # seconds these sources ask for between requests
 SOURCES = {  # name -> (function, the sectors it is asked about; None = all)
     "arxiv": (arxiv, None), "europepmc": (europepmc, {"biomedical"}), "trials": (trials, {"biomedical"}),

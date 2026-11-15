@@ -212,6 +212,9 @@ def build(memory: Memory, today: date | None = None, data=None, facts_for=None, 
         j = judge(c, bars.get(c["key"]) or [], facts, learned)
         if not j:
             continue
+        if j["action"] != "watch":  # what the Intelligence Platform holds on this company, kept with the trade
+            from . import factors  # noqa: PLC0415
+            j["facts"]["factors"] = factors.investing(memory, c["key"])
         try:  # a trained model's odds, when one has passed its test on trades it never saw (modeltrain.py)
             from . import modeltrain  # noqa: PLC0415
             side = "long" if j["action"] == "buy" else "avoid"

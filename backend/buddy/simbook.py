@@ -70,6 +70,7 @@ def figures(facts: dict) -> dict:
     out = {k: facts[k] for k in FIGURES if isinstance(facts.get(k), (int, float))}
     lens = facts.get("lenses") or {}
     out["business"] = {"strong": 1, "weak": -1}.get(lens.get("business"), 0)
+    out.update({k: v for k, v in (facts.get("factors") or {}).items() if isinstance(v, (int, float))})  # factors.py
     return out
 
 

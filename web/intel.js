@@ -14,7 +14,8 @@ if (params.get("token") && storageGet("buddyToken") === token) history.replaceSt
 const $ = (id) => document.getElementById(id);
 const esc = (s) => String(s ?? "").replace(/[&<>"']/g, (c) => ({ "&": "&amp;", "<": "&lt;", ">": "&gt;", '"': "&quot;", "'": "&#39;" }[c]));
 const safe = (u) => /^https:\/\/[^\s"'<>]+$/.test(String(u || "")) ? u : "";
-const TABS = [["overview", "Overview"], ["convergence", "Convergence"], ["sectors", "Sectors"], ["sources", "Sources"], ["models", "AI models"]];
+const TABS = [["overview", "Overview"], ["convergence", "Convergence"], ["sectors", "Sectors"], ["sources", "Sources"], ["predict", "Predictions"], ["models", "AI models"]];
+let predictData = null, predictBusy = false;
 let modelData = null, modelBusy = false;
 const KIND = { research: "papers", trial: "clinical studies", filing: "company filings", award: "federal awards", grant: "research grants", funding: "fundraising notices", code: "code projects", news: "news reports", discussion: "stories" };
 let data = null, tab = TABS.some(([k]) => k === storageGet("intelTab")) ? storageGet("intelTab") : "overview";
@@ -109,6 +110,44 @@ function sources() {
     "All free, official or first-hand, and read through Buddy Connect. Only a technology's search phrase is sent. No paid databases, nothing scraped.");
 }
 
+// --- Predictions: the three engines, what each learns from, and whether a tested model is in use
+async function loadPredict() {
+  if (predictBusy) return;
+  predictBusy = true;
+  try { predictData = await api("/api/intel/predict"); } catch (e) { predictData = { failed: e.message }; }
+  predictBusy = false;
+  if (tab === "predict") render();
+}
+async function loadHistory(button) {
+  button.disabled = true; button.textContent = "Starting…";
+  try { const out = await api("/api/intel/predict", { history: true }); predictData = out; render(); notice(out.text); }
+  catch (e) { notice(e.message); render(); }
+}
+function modelRow(m) {
+  const bar = Math.min(100, Math.round(100 * m.judged / m.needed));
+  const state = m.in_use ? `<span style="color:var(--sev-good)">✓ model in use</span>` : m.last_status === "rejected" ? `<span style="color:var(--sev-high)">✗ last model did not pass its test</span>`
+    : m.enough ? `<span class="muted">• enough to train; next weekly run</span>` : `<span class="muted">○ learning: not enough judged calls yet</span>`;
+  const tested = m.tested_on ? `<br><span class="muted">Tested on ${esc(m.tested_on)} calls it had never seen: ${Math.round((m.right_overall || 0) * 100)}% right overall${m.right_when_liked != null ? `, ${Math.round(m.right_when_liked * 100)}% on the ones it liked` : ""}</span>` : "";
+  return `<div class="guard"><span><b>${esc(m.name[0].toUpperCase() + m.name.slice(1))}</b> · ${state}<br>
+    <span class="muted">${esc(m.judged)} of ${esc(m.needed)} judged calls (${esc(m.of_each_outcome[0])} went one way, ${esc(m.of_each_outcome[1])} the other)</span>
+    <div style="height:6px;border-radius:3px;background:var(--line);margin:6px 0"><div style="height:6px;border-radius:3px;width:${bar}%;background:var(--accent, #3987e5)"></div></div>${tested}</span></div>`;
+}
+function predict() {
+  if (!predictData) { loadPredict(); return `<p class="muted">Loading…</p>`; }
+  if (predictData.failed) return `<p class="err">${esc(predictData.failed)}</p>`;
+  const h = predictData.history || {};
+  const history = h.state === "done" ? `Loaded ${esc(h.records)} past records and ${esc(h.events)} past events with their results, covering ${esc(h.months)} months.`
+    : h.state === "collecting" ? `Loading now: reached ${esc(h.reached || "the start")}, ${esc(h.new || 0)} records so far. Buddy will message when it is done.`
+    : h.state === "failed" ? `The last load failed: ${esc(h.why || "")}` : "Not loaded yet. Until it is, the theme model learns only from events written since it was switched on.";
+  return predictData.engines.map((e) => card(esc(e.title), `<p class="muted" style="margin-top:0">${esc(e.asks)}</p>
+      ${e.models.map(modelRow).join("")}
+      <p class="note" style="margin-bottom:4px">Learns from</p><ul style="margin:0 0 0 18px;padding:0">${e.learns_from.map((x) => `<li>${esc(x)}</li>`).join("")}</ul>`,
+      `${esc(e.open_calls)} calls open and waiting for their outcome${e.watched != null ? ` · ${esc(e.watched)} saved searches checked daily` : ""}`)).join("") +
+    card("History for the theme model", `<p>${history}</p><p><button class="btn" id="history"${h.state === "collecting" ? " disabled" : ""}>${h.state === "done" ? "Load again" : "Load the last 30 months"}</button></p>`,
+      "Asks the official dated sources (company filings, fundraising notices, federal awards, scholarly works, NSF grants) about past dates, then replays the rules month by month with only what was known then and that day's prices. It takes a while. It is slightly flattering: it only knows companies that exist today, and news cannot be loaded for the past.") +
+    `<p class="note">${esc(predictData.note)}</p>`;
+}
+
 // --- AI models: which model does each job, the month's spending and limit, and a test to compare them
 async function loadModels() {
   if (modelBusy) return;
@@ -186,13 +225,14 @@ function closeSheet() { $("sheet").classList.remove("open"); }
 
 function render() {
   tabs();
-  $("main").innerHTML = { overview, sectors, sources, models,
+  $("main").innerHTML = { overview, sectors, sources, models, predict,
     convergence: () => card("Technologies converging across sectors", data.convergences.length ? data.convergences.map((c, i) => convergence(c, i === 0)).join("")
       : `<p class="muted">None yet. It needs a few nights of records.</p>`, "The stage and rank come from the records by fixed rules. The interpretation, where there is one, is written by an AI from those records only and is marked as such.") }[tab]();
   document.querySelectorAll("#main [data-tech]").forEach((b) => b.onclick = () => openTech(b.dataset.tech));
   document.querySelectorAll("[data-sector]").forEach((b) => b.onclick = () => follow(b.dataset.sector, b.dataset.on === "1"));
   if ($("scan")) $("scan").onclick = scan;
   document.querySelectorAll("[data-job]").forEach((el) => el.onchange = () => modelSet({ job: el.dataset.job, choice: el.value }));
+  if ($("history")) $("history").onclick = () => loadHistory($("history"));
   if ($("capset")) $("capset").onclick = () => modelSet({ cap: Number($("cap").value) });
   if ($("testrun")) $("testrun").onclick = () => modelSet({ test: $("testpick").value }, $("testrun"));
 }

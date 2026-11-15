@@ -23,16 +23,18 @@ flowchart LR
     db[("Your database<br/>deals, launches, meta, models, observations, pattern_months, predictions")]
     pricebook_py --> db
     modeltrain_py --> db
-    o_0["Claude"]
+    o_0["Buddy Intelligence Platform"]
     pricebook_py -. uses .-> o_0
-    o_1["Fixing and explaining itself"]
+    o_1["Claude"]
     pricebook_py -. uses .-> o_1
-    o_2["Investing"]
+    o_2["Fixing and explaining itself"]
     pricebook_py -. uses .-> o_2
-    o_3["Memory"]
+    o_3["Investing"]
     pricebook_py -. uses .-> o_3
-    o_4["Shopping and deals"]
+    o_4["Memory"]
     pricebook_py -. uses .-> o_4
+    o_5["Shopping and deals"]
+    pricebook_py -. uses .-> o_5
 ```
 
 The diagram reads left to right: what you ask, the tools Buddy uses, the modules that do the work, and what they keep or call. Dashed arrows are other features this one relies on.
@@ -109,7 +111,8 @@ Trained models, when there is enough to learn from: each week Buddy counts its j
 enough, it trains a small model in the sandbox, tests it on calls the model never saw, and uses it only if it
 earned its place. Until then, and whenever a model fails its test, the simple learned weights stay in charge.
 
-  Domains     investing (the practice book's closed paper trades: did the trade win?), product, flight, hotel
+  Domains     investing (the practice book's closed paper trades: did the trade win?), theme (the Intelligence
+              Platform's evidence events: did the basket beat the market over the next 90 days?), product, flight, hotel
               (the judged buy-or-wait and book-or-wait calls: did the price then come down 8% or more?)
   Enough      200 judged rows with at least 30 of each outcome. A retrain needs 50 new rows.
   Training    sandbox_jobs/train_model.py, offline, in the sandbox: a logistic regression on the reasons and
@@ -126,10 +129,10 @@ many calls, and whether it is now in use. A model is one more opinion with a tra
 ```
 
 - Tables: `models`
-- Uses: memory.py, pricebook.py, sandbox.py, simbook.py, tools.py, whentobuy.py
+- Uses: memory.py, pricebook.py, sandbox.py, simbook.py, themes.py, tools.py, whentobuy.py
 
 ## How it connects
 
-- Relies on: Claude: the brain; Fixing and explaining itself; Investing: signals, research and practice; Memory; Shopping and deals
+- Relies on: Buddy Intelligence Platform; Claude: the brain; Fixing and explaining itself; Investing: signals, research and practice; Memory; Shopping and deals
 - Relied on by: Buddy Intelligence Platform; Claude: the brain; Investing: signals, research and practice; Learning: the English and investing tutors; Shopping and deals; Speaking up on its own: briefing, reminders and alerts; The server and the app; Travel and getting around
 

@@ -98,9 +98,11 @@ def advise(memory: Memory, domain: str, item: str, price: float, travel_date: st
         reasons.append(f"it's at or near the lowest Buddy has seen (${low:,.0f})")
     if not hist and not known:
         reasons.append("Buddy has no price history for it yet: this call rests on rules of thumb")
+    from . import factors  # noqa: PLC0415  what Buddy's other sources know, kept with the call to learn from
+    extra = factors.travel(memory, domain, item, trip, today)
     try:  # a trained model, when one has passed its test for this kind of trip (modeltrain.py)
         from . import modeltrain  # noqa: PLC0415
-        m = modeltrain.predict(memory, domain, whentobuy.features_of(parts, domain))
+        m = modeltrain.predict(memory, domain, whentobuy.features_of(parts, domain, extra))
     except Exception:
         m = None
     if m:
@@ -121,10 +123,12 @@ def advise(memory: Memory, domain: str, item: str, price: float, travel_date: st
         whentobuy._ready(memory)
         out["prediction_id"] = pricebook.run(
             memory, "INSERT INTO predictions (domain, item, kind, made_on, price, decision, chance, target, event, "
-                    "by_date, parts, travel_date, nights) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?) RETURNING id",
+                    "by_date, parts, travel_date, nights, factors) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?) "
+                    "RETURNING id",
             (domain, item, domain, today.isoformat(), price, decision, chance, round(price * 0.9, 2),
              " ".join(str(place or "").split())[:120] if domain == "hotel" else "",
-             by_date.isoformat(), json.dumps(parts), trip.isoformat(), max(1, int(nights or 1))))[0]["id"]
+             by_date.isoformat(), json.dumps(parts), trip.isoformat(), max(1, int(nights or 1)),
+             json.dumps(extra)))[0]["id"]
     return out
 
 

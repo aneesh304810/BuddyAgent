@@ -151,5 +151,5 @@ Education, not advice: Buddy explains and shows numbers; it never trades and nev
 ## How it connects
 
 - Relies on: Buddy Connect; Claude: the brain; Free AI models (Groq, Gemini, Mistral, Cerebras, GitHub Models, OpenRouter); Investing: signals, research and practice; Making and doing things; Memory; Money; Security and privacy; The price book, pattern learning and trained models; Voice: Talk mode and Listen-in
-- Relied on by: Claude: the brain; Investing: signals, research and practice; Security and privacy; Shopping and deals; Speaking up on its own: briefing, reminders and alerts; The server and the app
+- Relied on by: Buddy Intelligence Platform; Claude: the brain; Investing: signals, research and practice; Security and privacy; Shopping and deals; Speaking up on its own: briefing, reminders and alerts; The server and the app
 

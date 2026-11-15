@@ -676,7 +676,8 @@ TOOL = {
         "its filings name, which are on the owner's watchlist, and the evidence patterns active now. patterns: "
         "what happened to practice baskets after each kind of evidence change (how many beat the market); the "
         "only basis for saying which way a pattern has leaned, and say 'not enough history' when it says so. "
-        "models: which AI model does each of the platform's jobs, this month's spending and limit, and test "
+        "predictions: the three prediction engines (investing, flights and hotels, shopping): what each learns "
+        "from, how many judged calls it has, and whether a tested model is in use. models: which AI model does each of the platform's jobs, this month's spending and limit, and test "
         "results. set_model (job, choice), set_limit (dollars a month), test_model (choice): only when the owner "
         "asks. Use it for 'what industries are emerging', 'what is "
         "converging with AI', 'who is working on small modular reactors', 'how mature is X'. Always say what kind "
@@ -684,7 +685,7 @@ TOOL = {
         "mark interpretations as such. Never give a market size or a buy or sell view from it, and never predict "
         "a price: report the pattern record as past results only.",
     "input_schema": {"type": "object", "properties": {
-        "action": {"type": "string", "enum": ["overview", "technology", "organisation", "search", "switch", "scan", "themes", "patterns", "models",
+        "action": {"type": "string", "enum": ["overview", "technology", "organisation", "search", "switch", "scan", "themes", "patterns", "predictions", "models",
                                             "set_model", "set_limit", "test_model"]},
         "id": {"type": "string"}, "name": {"type": "string"}, "query": {"type": "string"},
         "sector": {"type": "string", "enum": list(SECTORS)}, "on": {"type": "boolean"},
@@ -705,6 +706,10 @@ async def run_tool(memory: Memory, args: dict) -> str:
     if action == "switch":
         on = switch(memory, str(args.get("sector") or ""), bool(args.get("on", True)))
         return "Collecting for: " + ", ".join(SECTORS[s][0] for s in on) + ". New sectors fill in from the next nightly run."
+    if action == "predictions":
+        import asyncio  # noqa: PLC0415
+        from . import factors  # noqa: PLC0415
+        return json.dumps(await asyncio.to_thread(factors.overview, memory), ensure_ascii=False)
     if action in ("models", "set_model", "set_limit", "test_model"):
         from . import bip_models  # noqa: PLC0415
         if action == "set_model":

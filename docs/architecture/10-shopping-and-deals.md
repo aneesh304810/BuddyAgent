@@ -92,15 +92,15 @@ flowchart LR
     amazon_py --> s_serper_shopping
     o_0["Buddy Connect"]
     shopper_py -. uses .-> o_0
-    o_1["Claude"]
+    o_1["Buddy Intelligence Platform"]
     shopper_py -. uses .-> o_1
-    o_2["Email, messages and apps"]
+    o_2["Claude"]
     shopper_py -. uses .-> o_2
-    o_3["Investing"]
+    o_3["Email, messages and apps"]
     shopper_py -. uses .-> o_3
-    o_4["Learning"]
+    o_4["Investing"]
     shopper_py -. uses .-> o_4
-    o_5["Making and doing things"]
+    o_5["Learning"]
     shopper_py -. uses .-> o_5
 ```
 
@@ -169,7 +169,7 @@ own patterns.
 ```
 
 - Settings: `BUDDY_SERPER_KEY`
-- Uses: amazon.py, dealcollector.py, gateway.py, memory.py, modeltrain.py, patterns.py, pricebook.py, prices.py, seasons.py, shopper.py, tools.py, travel.py
+- Uses: amazon.py, dealcollector.py, factors.py, gateway.py, memory.py, modeltrain.py, patterns.py, pricebook.py, prices.py, seasons.py, shopper.py, tools.py, travel.py
 
 ### dealcollector.py
 
@@ -347,6 +347,6 @@ price book shows the item. Refreshed once a month (code only; no AI, no cost). O
 
 ## How it connects
 
-- Relies on: Buddy Connect; Claude: the brain; Email, messages and apps; Investing: signals, research and practice; Learning: the English and investing tutors; Making and doing things; Memory; Money; The price book, pattern learning and trained models; Travel and getting around
-- Relied on by: Claude: the brain; Email, messages and apps; Investing: signals, research and practice; Making and doing things; Speaking up on its own: briefing, reminders and alerts; The price book, pattern learning and trained models; The server and the app; Travel and getting around
+- Relies on: Buddy Connect; Buddy Intelligence Platform; Claude: the brain; Email, messages and apps; Investing: signals, research and practice; Learning: the English and investing tutors; Making and doing things; Memory; Money; The price book, pattern learning and trained models; Travel and getting around
+- Relied on by: Buddy Intelligence Platform; Claude: the brain; Email, messages and apps; Investing: signals, research and practice; Making and doing things; Speaking up on its own: briefing, reminders and alerts; The price book, pattern learning and trained models; The server and the app; Travel and getting around
 

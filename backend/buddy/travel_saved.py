@@ -20,7 +20,7 @@ from .tools import ToolError
 
 log = logging.getLogger(__name__)
 
-MAX_SAVED = 10
+MAX_SAVED = 20
 DROP = 0.05          # 5% under the price when saved
 MIN_DROP = 15.0      # and at least this much (in the search's currency)
 AGAIN = 0.97         # told again only after a further 3% drop
