@@ -575,12 +575,14 @@ TOOL = {
         "tells them about matches and new lows. today: run it now and give the results (also kept in Reports). "
         "search: deals seen in the last days matching words (query, days). feeds: list the feeds; add_feed: url "
         "(and name) of a deal site's RSS or Atom feed; remove_feed: which. status: how each feed did today. "
-        "on/off. read_inbox: read the deals inbox now (the separate email for deal newsletters; normally every "
-        "night at 1 AM). All deals, with their price history, are on the Deals page (Buddy's menu → Deals). "
+        "on/off. read_inbox: read the deals inbox and the marketing mail in the owner's email accounts now "
+        "(normally every night at 1 AM). card_offers (query?: a merchant): the offers on the owner's cards "
+        "found in their card issuers' emails (spend $250, get $50 back at a store, until a date) that are "
+        "still running; mention a matching one whenever they're about to buy at that store. All deals, with their price history, are on the Deals page (Buddy's menu → Deals). "
         "Deals come from public feeds and newsletters: suggest checking the price and seller; never buy for them."),
     "input_schema": {"type": "object", "properties": {
         "action": {"type": "string", "enum": ["today", "search", "feeds", "add_feed", "remove_feed", "status",
-                                              "on", "off", "read_inbox"]},
+                                              "on", "off", "read_inbox", "card_offers"]},
         "query": {"type": "string"}, "days": {"type": "integer"}, "url": {"type": "string"},
         "name": {"type": "string"}, "which": {"type": "string"}},
         "required": ["action"], "additionalProperties": False},
@@ -624,6 +626,13 @@ def run_tool(memory: Memory, args: dict) -> str:
     if action == "read_inbox":
         from . import dealmail  # noqa: PLC0415
         return dealmail.run(memory)
+    if action == "card_offers":
+        from . import dealmail  # noqa: PLC0415
+        found = dealmail.offers(memory, args.get("query") or "")
+        return json.dumps({"offers": [o["offer"] for o in found] or "None running"
+                           + (f" at {args['query']}" if args.get("query") else "") + " that I've seen in your email.",
+                           "note": "From your card issuers' emails. An offer usually has to be added to the card in "
+                                   "the issuer's app before you pay: check there."})
     if action == "off":
         memory.set(OFF_KEY, "1")
         return "The daily deals collector is off."

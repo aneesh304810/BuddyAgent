@@ -338,6 +338,13 @@ def take_pending(memory: Memory) -> list[tuple[str, list[dict]]]:
         text = (f"🔔 The deal you were watching for is here: {p['title']} for ${p['price']:,.2f}"
                 + (f" at {p['store']}" if p["store"] else "") + f"{cmp}. Why: {p['reason']}. "
                 "Ask me 'should I buy it now?' if you want a second opinion.")
+        try:  # a card offer at that store, from the owner's card emails (dealmail.py)
+            from . import dealmail  # noqa: PLC0415
+            mine = dealmail.offers(memory, p["store"]) if p.get("store") else []
+        except Exception:
+            mine = []
+        if mine:
+            text += " You also have a card offer there: " + "; ".join(o["offer"] for o in mine[:2]) + "."
         cards = [{"kind": "link", "title": p["title"][:80], "subtitle": p["store"] or p["source"], "url": p["url"]}] \
             if str(p.get("url", "")).startswith("https://") else []
         out.append((text, cards))

@@ -361,4 +361,16 @@ decide each differently), and uses it whenever you ask about a purchase.
   (or the budget paused) the lesson is assembled from the numbers, shorter but complete. It replaces the short
   Market school message while it is on. Education, never advice.
 
+- **Deals and card offers from all your email.** Each night Buddy also looks through your regular email
+  accounts for marketing email, and only that: it reads just the headers of each new message and opens one only
+  if it is bulk mail (it has an unsubscribe header), so a personal email's body is never downloaded for this.
+  From the bulk mail it takes the same deals into the price book. From your card issuers' emails (American
+  Express, Chase, Citi, Capital One, Discover and others) it takes the card offers: "spend $250 or more, get
+  $50 back at Best Buy, until December 31". When a deal you're watching turns up at a store where you have an
+  offer, the alert says so, and "what card offers do I have at Home Depot?" lists them. Offers usually have to
+  be added to the card in the issuer's app before you pay. Your regular accounts are only ever read: nothing is
+  marked read, moved or deleted there. It is all code on your server; no AI reads these emails. Card offers are
+  about your own cards, so they are kept in Buddy's encrypted database, not the price book. Turn it off with
+  `BUDDY_DEALS_FROM_ALL_EMAIL=0`.
+
 All of it stays on your server; only Claude sees it. Buddy still never buys or pays.

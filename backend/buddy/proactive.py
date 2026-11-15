@@ -511,7 +511,7 @@ async def run(memory: Memory, deliver: Deliver, connected=None) -> None:
                 log.exception("purchase history failed")
             try:  # nightly (01:00): the deals inbox read into the price book, by code (no AI)
                 from . import dealmail  # noqa: PLC0415
-                if dealmail.configured() and dealmail.due(memory):
+                if (dealmail.configured() or dealmail.accounts()) and dealmail.due(memory):
                     memory.set(dealmail.DAY_KEY, local_now().date().isoformat())
                     log.info("deals inbox: %s", await asyncio.to_thread(dealmail.run, memory))
             except Exception:

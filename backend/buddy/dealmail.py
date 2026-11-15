@@ -10,6 +10,16 @@ Why a separate inbox: newsletters don't bury real mail or go through the AI emai
 email), and nothing personal is in it. Setup: a new free email account (2-step verification on, an app password),
 then sudo bash /opt/buddy/deploy/set.sh BUDDY_DEALS_EMAIL_ADDRESS and ... BUDDY_DEALS_EMAIL_APP_PASSWORD.
 
+All the owner's email, for deals only (on unless BUDDY_DEALS_FROM_ALL_EMAIL=0): each night Buddy also looks through
+the owner's regular email accounts for marketing email, and only that. It first reads just the headers of each new
+message; a message is opened only if it is bulk mail (it carries an unsubscribe header, or says it is bulk), so a
+personal email's body is never downloaded for this. From the bulk mail it takes the same deals into the price
+book, and from card issuers' emails (American Express, Chase, Citi, Capital One...) the card offers: "spend $250
+or more, get $50 back at Best Buy, by 12/31". Card offers are about the owner's own cards, so they are kept in
+Buddy's encrypted database, not the price book. Regular accounts are only ever read: nothing is marked read, moved
+or deleted there (the tidy-up is for the deals inbox alone). All of it is code on the owner's server: no AI reads
+these emails, and nothing is sent anywhere.
+
 The price is taken from the email itself; store pages are never opened by Buddy (their terms forbid automated
 visits). The owner opens a deal's link in their own browser from the Deals page.
 """
@@ -291,6 +301,217 @@ def clean(memory: Memory, env=None, connect=None) -> int:
             pass
 
 
+# --- the owner's regular accounts: marketing mail only, read-only ---------------------------------------------
+ISSUERS = {"American Express": r"american ?express|\bamex\b", "Chase": r"\bchase\b", "Citi": r"\bciti(?:bank)?\b",
+           "Capital One": r"capital ?one", "Discover": r"\bdiscover\b", "Bank of America": r"bank ?of ?america",
+           "Wells Fargo": r"wells ?fargo", "U.S. Bank": r"\bu\.?s\.? ?bank", "Barclays": r"barclays"}
+SPEND_GET = re.compile(r"spend\s+\$\s?(\d[\d,]*)(?:\.\d{2})?(?:\s+or more)?[^$]{0,90}?(?:get|earn|receive)\s+"
+                       r"(?:a\s+)?\$\s?(\d[\d,]*)(?:\.\d{2})?\s+(?:back|statement credit|credit|cash ?back)", re.I)
+PCT_BACK = re.compile(r"(?:get|earn|receive)\s+(\d{1,2})%\s+(?:cash ?)?back", re.I)
+POINTS = re.compile(r"(?:get|earn|receive)\s+(?:an additional\s+|\+\s?)?(\d{1,3}(?:,\d{3})+|\d{3,6})\s+(?:[\w® ]{0,30}\s)?"
+                    r"(?:points|miles)[^$]{0,90}?spend(?:ing)?\s+\$\s?(\d[\d,]*)", re.I)
+AT = re.compile(r"\b(?:at|with|from|on)\s+((?:[A-Z][\w&'-]*(?:\.\w+)*)(?:\s+(?:[A-Z&][\w&'-]*(?:\.\w+)*)){0,3})")
+OFFER_ENDS = re.compile(r"(?:ends|expires|through|thru|until|valid through|by|before)\s*:?\s*"
+                        r"((?:jan|feb|mar|apr|may|jun|jul|aug|sep|oct|nov|dec)[a-z]*\.?\s+\d{1,2}(?:,\s*\d{4})?|"
+                        r"\d{1,2}/\d{1,2}(?:/\d{2,4})?)", re.I)
+OFFERS_SCHEMA = """
+CREATE TABLE IF NOT EXISTS card_offers (
+    id INTEGER PRIMARY KEY AUTOINCREMENT, issuer TEXT NOT NULL, merchant TEXT NOT NULL, spend REAL, reward REAL NOT NULL,
+    reward_kind TEXT NOT NULL, ends TEXT DEFAULT '', seen_on TEXT NOT NULL, subject TEXT DEFAULT '',
+    UNIQUE (issuer, merchant, spend, reward, reward_kind)
+);
+"""
+
+
+def all_mail_on(env=None) -> bool:
+    return (gateway._secret(env, "BUDDY_DEALS_FROM_ALL_EMAIL") or "1") not in ("0", "off", "no")
+
+
+def accounts(env=None) -> list:
+    """The owner's regular email accounts (not the deals inbox), when reading them for deals is on."""
+    from .email_accounts import email_accounts  # noqa: PLC0415
+    if not all_mail_on(env):
+        return []
+    import os  # noqa: PLC0415
+    deals = (gateway._secret(env, "BUDDY_DEALS_EMAIL_ADDRESS") or "").lower()
+    return [a for a in email_accounts(os.environ if env is None else env) if a.address.lower() != deals]
+
+
+def is_bulk(message) -> bool:
+    """Marketing or list mail, by its own headers. A personal email has neither."""
+    return bool(message.get("List-Unsubscribe")) or str(message.get("Precedence", "")).strip().lower() in ("bulk", "list")
+
+
+def _imap_account(account):
+    imap = imaplib.IMAP4_SSL(account.imap_host, timeout=60)
+    imap.login(account.address, account.password)
+    return imap
+
+
+def fetch_bulk(memory: Memory, account, connect=None) -> tuple[list, int]:
+    """(the new bulk messages in one regular account, how many new messages were looked at). Read-only; the body
+    of a message that isn't bulk mail is never fetched."""
+    imap = (connect or _imap_account)(account)
+    key = f"{LAST_KEY}:{account.address.lower()}"
+    try:
+        imap.select(account.folder, readonly=True)
+        last = int(memory.get(key) or 0)
+        if last:
+            _, found = imap.uid("search", None, f"UID {last + 1}:*")
+        else:  # the first run: the last two weeks
+            _, found = imap.uid("search", None, f"(SINCE {date.fromordinal(local_now().date().toordinal() - 14):%d-%b-%Y})")
+        uids = [int(u) for u in (found[0] or b"").split() if int(u) > last][-MAX_EMAILS:]
+        out = []
+        for uid in uids:
+            _, parts = imap.uid("fetch", str(uid), "(BODY.PEEK[HEADER.FIELDS (LIST-UNSUBSCRIBE PRECEDENCE FROM)])")
+            head = next((p[1] for p in parts if isinstance(p, tuple)), None)
+            if not head or not is_bulk(email.message_from_bytes(head, policy=email.policy.default)):
+                continue
+            _, parts = imap.uid("fetch", str(uid), "(BODY.PEEK[])")
+            raw = next((p[1] for p in parts if isinstance(p, tuple)), None)
+            if raw:
+                out.append(email.message_from_bytes(raw, policy=email.policy.default))
+        if uids:
+            memory.set(key, str(max(uids)))
+        return out, len(uids)
+    finally:
+        try:
+            imap.logout()
+        except Exception:
+            pass
+
+
+def issuer_of(message) -> str:
+    sender = str(message.get("From", ""))
+    return next((name for name, rx in ISSUERS.items() if re.search(rx, sender, re.I)), "")
+
+
+def offers_in(message) -> list[dict]:
+    """Card offers in a card issuer's email: [{issuer, merchant, spend, reward, reward_kind, ends, subject}]."""
+    issuer = issuer_of(message)
+    if not issuer:
+        return []
+    subject = str(message.get("Subject", ""))
+    cells = _cells(message)
+    out, seen = [], set()
+    for i, cell in enumerate(cells):
+        text = " ".join(cell["text"].split())
+        if m := SPEND_GET.search(text):
+            spend, reward, kind = _num(m.group(1)), _num(m.group(2)), "cash"
+        elif m := POINTS.search(text):
+            spend, reward, kind = _num(m.group(2)), _num(m.group(1)), "points"
+        elif m := PCT_BACK.search(text):
+            spend, reward, kind = None, float(m.group(1)), "percent"
+        else:
+            continue
+        where = AT.search(text[m.end():]) or AT.search(text)
+        merchant = re.sub(r"\s+(?:by|through|until|before|and|or|when|with)\b.*$", "", where.group(1)).strip(" .,") \
+            if where else ""
+        before = " ".join(cells[i - 1]["text"].split()) if i else ""
+        if not merchant and 2 < len(before) <= 40 and not re.search(r"[\d$%]", before):
+            merchant = before  # the store's name on its own line above the offer; never a neighbouring offer's
+        if not merchant or re.fullmatch(r"(?i)(your|the|this|eligible|select|participating).*", merchant):
+            continue
+        ends = OFFER_ENDS.search(text)  # this offer's own date only: a neighbour's would be wrong
+        key = (merchant.lower(), spend, reward, kind)
+        if key not in seen:
+            seen.add(key)
+            out.append({"issuer": issuer, "merchant": merchant[:60], "spend": spend, "reward": reward,
+                        "reward_kind": kind, "ends": ends.group(1) if ends else "", "subject": subject[:160]})
+    return out[:40]
+
+
+def keep_offers(memory: Memory, offers: list[dict], today: date | None = None) -> int:
+    """New card offers into Buddy's own (encrypted) database; one seen again just has its date refreshed."""
+    memory.db.executescript(OFFERS_SCHEMA)
+    day = (today or local_now().date()).isoformat()
+    added = 0
+    for o in offers:
+        cur = memory.db.execute(
+            "INSERT OR IGNORE INTO card_offers (issuer, merchant, spend, reward, reward_kind, ends, seen_on, subject) "
+            "VALUES (?, ?, ?, ?, ?, ?, ?, ?)", (o["issuer"], o["merchant"], o["spend"] or 0, o["reward"], o["reward_kind"],
+                                                _ends_iso(o["ends"], today), day, o["subject"]))
+        added += cur.rowcount
+        if not cur.rowcount:
+            memory.db.execute("UPDATE card_offers SET seen_on = ? WHERE issuer = ? AND merchant = ? AND reward = ? AND "
+                              "reward_kind = ?", (day, o["issuer"], o["merchant"], o["reward"], o["reward_kind"]))
+    memory.db.commit()
+    return added
+
+
+def _ends_iso(text: str, today: date | None = None) -> str:
+    """'12/31', '12/31/26' or 'Dec 31, 2026' as YYYY-MM-DD ('' when it can't be read): the next such date."""
+    today = today or local_now().date()
+    text = (text or "").strip().rstrip(".")
+    if not text:
+        return ""
+    try:
+        if "/" in text:
+            parts = [int(p) for p in text.split("/")]
+            year = parts[2] + (2000 if parts[2] < 100 else 0) if len(parts) > 2 else today.year
+            got = date(year, parts[0], parts[1])
+        else:
+            m = re.match(r"([A-Za-z]{3})[a-z]*\.?\s+(\d{1,2})(?:,\s*(\d{4}))?", text)
+            month = ["jan", "feb", "mar", "apr", "may", "jun", "jul", "aug", "sep", "oct", "nov", "dec"].index(
+                m.group(1).lower()) + 1
+            got = date(int(m.group(3) or today.year), month, int(m.group(2)))
+        if got < today and "/" in text and len(text.split("/")) == 2 or (got < today and not re.search(r"\d{4}", text)):
+            got = got.replace(year=got.year + 1)
+        return got.isoformat()
+    except (ValueError, AttributeError, IndexError):
+        return ""
+
+
+def offers(memory: Memory, merchant: str = "", today: date | None = None) -> list[dict]:
+    """The card offers still running (not past their end date, seen in the last 90 days), a merchant's when given."""
+    memory.db.executescript(OFFERS_SCHEMA)
+    today = today or local_now().date()
+    since = date.fromordinal(today.toordinal() - 90).isoformat()
+    rows = [dict(r) for r in memory.db.execute(
+        "SELECT issuer, merchant, spend, reward, reward_kind, ends, seen_on FROM card_offers WHERE seen_on >= ? AND "
+        "(ends = '' OR ends >= ?) ORDER BY merchant", (since, today.isoformat()))]
+    words = {w for w in re.findall(r"[a-z0-9]{3,}", (merchant or "").lower())} - {"the", "and", "com", "inc"}
+    if merchant:
+        rows = [r for r in rows if words & set(re.findall(r"[a-z0-9]{3,}", r["merchant"].lower()))]
+    for r in rows:
+        r["offer"] = offer_text(r)
+    return rows
+
+
+def offer_text(o: dict) -> str:
+    what = (f"${o['reward']:,.0f} back" if o["reward_kind"] == "cash" else f"{o['reward']:g}% back"
+            if o["reward_kind"] == "percent" else f"{o['reward']:,.0f} points")
+    return (f"{o['issuer']}: {what} at {o['merchant']}" + (f" when you spend ${o['spend']:,.0f} or more" if o["spend"]
+                                                             else "") + (f", until {o['ends']}" if o["ends"] else ""))
+
+
+def run_all(memory: Memory, env=None, connect=None) -> str:
+    """The owner's regular accounts: bulk mail only. Returns a status line ('' when there is nothing to read)."""
+    from . import dealforecast  # noqa: PLC0415
+    lines = []
+    for account in accounts(env):
+        try:
+            messages, looked = fetch_bulk(memory, account, connect)
+        except (imaplib.IMAP4.error, OSError) as e:
+            lines.append(f"{account.address}: couldn't be read ({str(e)[:60]})")
+            continue
+        found = kept = new_offers = 0
+        for m in messages:
+            try:
+                got = offers_in(m)
+                deals = [] if issuer_of(m) else deals_in(m)  # a card issuer's email holds offers, not prices
+            except Exception:
+                log.warning("deal mail: couldn't read a marketing email", exc_info=True)
+                continue
+            found += len(deals)
+            kept += keep(memory, deals, source="your email")
+            new_offers += keep_offers(memory, got)
+            dealforecast.check(memory, [{**d, "source": f"email: {d['store']}"} for d in deals])
+        lines.append(f"{account.address}: {len(messages)} marketing emails of {looked} new, {found} deals "
+                     f"({kept} new), {new_offers} new card offers")
+    return "; ".join(lines)
+
+
 def keep(memory: Memory, deals: list[dict], when: datetime | None = None, source: str = "") -> int:
     """Into the price book: each deal (once) and its price as history."""
     from . import dealforecast, pricebook  # noqa: PLC0415
@@ -316,13 +537,27 @@ def keep(memory: Memory, deals: list[dict], when: datetime | None = None, source
     return added
 
 
-def run(memory: Memory, env=None, connect=None) -> str:
+def run(memory: Memory, env=None, connect=None, connect_account=None) -> str:
+    """The nightly read: the deals inbox, then the marketing mail in the owner's regular accounts."""
+    try:
+        rest = run_all(memory, env, connect_account)
+    except Exception:
+        log.warning("deal mail: reading the regular accounts failed", exc_info=True)
+        rest = ""
+    first = _run_inbox(memory, env, connect)
+    if rest and not configured(env) and connect is None:
+        first = "no separate deals inbox"
+    return _status(memory, first + (f". Your email accounts (marketing mail only, nothing changed there): {rest}"
+                                    if rest else ""))
+
+
+def _run_inbox(memory: Memory, env=None, connect=None) -> str:
     try:
         messages = fetch_new(memory, env, connect)
     except ToolError as e:
-        return _status(memory, str(e))
+        return str(e)
     except (imaplib.IMAP4.error, OSError) as e:
-        return _status(memory, f"couldn't read the deals inbox: {e}")
+        return f"couldn't read the deals inbox: {e}"
     found = kept = 0
     for m in messages:
         try:
@@ -339,10 +574,9 @@ def run(memory: Memory, env=None, connect=None) -> str:
         cleaned = clean(memory, env, connect)
     except (imaplib.IMAP4.error, OSError, ToolError) as e:
         log.warning("deals inbox: cleaning failed: %s", e)
-    return _status(memory, f"read {len(messages)} email{'s' if len(messages) != 1 else ''}: {found} deals, "
-                           f"{kept} new kept in the price book"
-                           + (f"; {cleaned} read newsletters older than {clean_days(env)} days moved to Trash"
-                              if cleaned else ""))
+    return (f"read {len(messages)} email{'s' if len(messages) != 1 else ''}: {found} deals, "
+            f"{kept} new kept in the price book"
+            + (f"; {cleaned} read newsletters older than {clean_days(env)} days moved to Trash" if cleaned else ""))
 
 
 def _kind(d: dict) -> str:
