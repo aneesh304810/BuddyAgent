@@ -51,14 +51,18 @@ def rows(memory: Memory, domain: str) -> list[dict]:
     from . import pricebook, simbook, whentobuy  # noqa: PLC0415
     if domain == "theme":  # did the basket beat the market over the 90 days after the evidence changed?
         from . import themes  # noqa: PLC0415
-        return [{"when": e["day"], "x": themes.features_of(e), "y": int(e["r90"] > e["s90"])}
+        return [{"when": e["day"], "x": themes.features_of(e), "y": int(e["r90"] - themes.COST > e["s90"]),
+                 "regime": "up" if e["s90"] > 0 else "down",  # what the market did over the same 90 days
+                 **({"rival": int(e["features"]["f_momentum_90"] > 0)} if "f_momentum_90" in e["features"] else {})}
                 for e in reversed(themes._events(memory)) if e["r90"] is not None and e["s90"] is not None]
     if domain == "investing":
         simbook._ready(memory)
-        got = pricebook.run(memory, "SELECT closed, side, ret, parts, read, features FROM sim_trades WHERE "
+        got = pricebook.run(memory, "SELECT closed, side, ret, spy_ret, parts, read, features FROM sim_trades WHERE "
                                     "status = 'closed' AND ret IS NOT NULL ORDER BY closed")
         return [{"when": str(t["closed"]), "x": simbook.features_of(t),
-                 "y": int((t["ret"] > 0) if t["side"] == "long" else (t["ret"] < 0))} for t in got]
+                 "y": int((t["ret"] > 0) if t["side"] == "long" else (t["ret"] < 0)),
+                 **({"regime": "up" if t["spy_ret"] > 0 else "down"} if t.get("spy_ret") is not None else {})}
+                for t in got]
     whentobuy._ready(memory)
     got = pricebook.run(memory, "SELECT made_on, kind, price, best_seen, parts, factors FROM predictions WHERE "
                                 "COALESCE(domain, 'product') = ? AND outcome IN ('right', 'wrong') AND best_seen IS "
@@ -133,6 +137,47 @@ def predict(memory: Memory, domain: str, x: dict) -> dict | None:
             "right_when_liked": m["right_when_liked"], "right_overall": m["right_overall"]}
 
 
+LIVE_MIN_LIKED = 20  # calls a model liked since it went into use, before its live record can retire it
+
+
+def live(memory: Memory, domain: str) -> dict | None:
+    """How the model in use has done on calls judged since it was trained (calls it never learned from)."""
+    last = latest(memory, domain)
+    if not last or last["status"] != "promoted":
+        return None
+    from .sandbox_jobs import train_model  # noqa: PLC0415
+    model, tested_to = last["result"]["model"], last["result"].get("last") or last["trained_on"]
+    since = [r for r in rows(memory, domain) if r["when"] > tested_to]
+    ps = [train_model.predict(model, r["x"]) for r in since]
+    liked = [r["y"] for p, r in zip(ps, since) if p >= train_model.LIKES]
+    return {"calls": len(since), "right_overall": round(sum(r["y"] for r in since) / len(since), 3) if since else None,
+            "liked": len(liked), "right_when_liked": round(sum(liked) / len(liked), 3) if liked else None,
+            "promised": last["result"].get("right_when_liked"), "since": tested_to}
+
+
+def monitor(memory: Memory) -> list[str]:
+    """Retire a model whose live record shows no edge: once it has liked 20 or more calls since it went into
+    use, those must have come true more often than calls overall. Returns the messages for the owner."""
+    from . import pricebook  # noqa: PLC0415
+    out = []
+    for domain in DOMAINS:
+        try:
+            got = live(memory, domain)
+        except Exception:
+            log.exception("monitoring the %s model failed", domain)
+            continue
+        if not got or got["liked"] < LIVE_MIN_LIKED or got["right_when_liked"] > got["right_overall"]:
+            continue
+        why = (f"since it went into use it liked {got['liked']} calls and {got['right_when_liked']:.0%} came true, "
+               f"no better than the {got['right_overall']:.0%} of all {got['calls']} calls")
+        pricebook.run(memory, "INSERT INTO models (domain, trained_on, n_rows, status, result) VALUES (?, ?, ?, ?, ?)",
+                      (domain, local_now().date().isoformat(), latest(memory, domain)["n_rows"], "retired",
+                       json.dumps({"status": "retired", "why": why, "live": got})))
+        out.append(f"🧪 I stopped using my model for {NAMES[domain]}: {why}. My usual rules are back in charge, "
+                   "and I'll train again when there is enough new data.")
+    return out
+
+
 def message(domain: str, r: dict) -> str:
     name = NAMES[domain]
     if r["status"] not in ("promoted", "rejected"):
@@ -161,7 +206,7 @@ def due(memory: Memory, now: datetime | None = None) -> bool:
 
 async def weekly(memory: Memory, call=None) -> list[str]:
     """Train every domain that has enough new data. Returns the messages for the owner."""
-    out = []
+    out = monitor(memory)  # first: has a model in use stopped earning its place?
     for domain in DOMAINS:
         try:
             if not readiness(memory, domain)["train_now"]:
@@ -186,9 +231,12 @@ def status(memory: Memory) -> dict:
         last = latest(memory, d)
         r = (last or {}).get("result") or {}
         out[NAMES[d]] = {**readiness(memory, d), "model_in_use": bool(last and last["status"] == "promoted"),
+                         "live": live(memory, d),
                          "last_run": ({"on": last["trained_on"], "status": last["status"],
                                        **{k: r.get(k) for k in ("learned_from", "tested_on", "right_overall", "liked",
-                                                                "right_when_liked", "checks", "strongest", "why")}}
+                                                                "right_when_liked", "checks", "strongest", "why",
+                                                                "brier", "brier_of_the_average", "calibration",
+                                                                "simple_rule_accuracy", "by_market")}}
                                       if last else None)}
     return {"domains": out, "note": f"A model is trained once a domain has {MIN_ROWS} judged calls with {MIN_EACH} "
                                     "of each outcome, tested on the newest 30% it never saw, and used only if it "

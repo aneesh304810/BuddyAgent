@@ -60,12 +60,17 @@ PATTERNS = {  # name -> (title, the rule in words)
     "bad_news": ("A jump in bad news", "3 or more reports labelled bad in 14 days, at least double the 14 days "
                                        "before, and more bad than good"),
     "research": ("A jump in research", "5 or more papers in 30 days and at least double the 30 days before"),
-    "award": ("A large award or grant", "a US federal award or research grant of $10 million or more in the last 30 days"),
+    "award": ("A large award or grant", "a US federal award or research grant of $10 million or more that became "
+                                        "public in the last 30 days (taken as 30 days after its own date)"),
     "funding": ("A run of private fundraising", "3 or more private fundraising notices in 30 days"),
 }
 HORIZONS = (30, 90)
 MIN_EVENTS = 30  # finished baskets a pattern needs before Buddy says which way it has leaned
 BASKET, STAKE, BIG = 5, 10_000.0, 10_000_000.0
+COST = 0.002  # buying and selling a basket: taken off its return before it is compared with the market
+HINDSIGHT = ("The list of technologies was chosen today, knowing which ones came to matter, so results from loaded "
+             "history look better than a list chosen back then would have. Results from events written since "
+             "switch-on do not have this problem.")
 TICKER = re.compile(r"\(([A-Z]{1,5}(?:[.\-][A-Z])?)(?:,\s*[A-Z.\-]+)*\)")
 NOTE = ("A record of what happened after past evidence changes, tested with practice money. It is not advice and "
         "not a forecast: more evidence about a technology does not mean its shares rise, and the price often moves "
@@ -139,7 +144,8 @@ def fired(rows: list[dict], today: date, forming: dict | None = None) -> list[di
         if now >= 3 and now >= 2 * before and now > toned(other, day(14), end):
             out.append({"pattern": f"{tone}_news", "why": f"{now} reports labelled {tone} in the last 14 days against "
                         f"{before} in the 14 before", "kinds": NEWS_KINDS, "since": day(14), "tone": tone})
-    big = [r for r in rows if r["kind"] in ("award", "grant") and (r["amount"] or 0) >= BIG and day(30) <= r["day"] < end]
+    big = [r for r in rows if r["kind"] in ("award", "grant") and (r["amount"] or 0) >= BIG  # by the day it was public
+           and day(30) <= src.known_from(r["kind"], r["day"]) < end]
     if big:
         top = max(big, key=lambda r: r["amount"])
         out.append({"pattern": "award", "why": f"${top['amount'] / 1e6:,.0f} million to {top['who'] or 'a recipient'}",
@@ -151,7 +157,16 @@ def fired(rows: list[dict], today: date, forming: dict | None = None) -> list[di
     return out
 
 
-def snapshot(rows: list[dict], tech: str, today: date, companies: int) -> dict:
+def momentum(bars: dict, symbols: list[str], day: str, back: int = 90) -> float | None:
+    """How the basket did against the market over the 90 days before `day`: the 'already rising' rule's input."""
+    then = (date.fromisoformat(day) - timedelta(days=back)).isoformat()
+    moves = [_at(bars.get(s), day) / _at(bars.get(s), then) - 1 for s in symbols
+             if _at(bars.get(s), day) and _at(bars.get(s), then)]
+    now, before = _at(bars.get("SPY"), day), _at(bars.get("SPY"), then)
+    return round(sum(moves) / len(moves) - (now / before - 1), 4) if moves and now and before else None
+
+
+def snapshot(rows: list[dict], tech: str, today: date, companies: int, rising: float | None = None) -> dict:
     """What the evidence looked like on the day an event was written: kept with it so a model can learn which
     situations were followed by a basket beating the market. rows: that technology's records up to today."""
     day = lambda n: (today - timedelta(days=n)).isoformat()  # noqa: E731
@@ -163,7 +178,8 @@ def snapshot(rows: list[dict], tech: str, today: date, companies: int) -> dict:
         kinds[r["kind"]] = kinds.get(r["kind"], 0) + 1
     news = [r for r in recent if r["kind"] in NEWS_KINDS and r["day"] >= day(14)]
     stage = bip.STAGES.index(bip.maturity(kinds, companies, bip.TECHS[tech]["established"])["stage"])
-    return {"f_evidence_90": len(recent), "f_evidence_growth": round(len(recent) / before - 1, 3) if before else 0.0,
+    return {**({"f_momentum_90": rising} if rising is not None else {}),
+            "f_evidence_90": len(recent), "f_evidence_growth": round(len(recent) / before - 1, 3) if before else 0.0,
             "f_evidence_kinds": len(kinds), "f_stage": stage, "f_companies": companies,
             "f_filings_90": kinds.get("filing", 0), "f_official_90": sum(kinds.get(k, 0) for k in ("award", "grant", "trial")),
             "f_research_90": kinds.get("research", 0), "f_funding_90": kinds.get("funding", 0),
@@ -335,7 +351,7 @@ def detect(memory: Memory, today: date | None = None, data=None) -> list[dict]:
         return []
     symbols = sorted({c["symbol"] for item in wanted for c in item[2]} | {"SPY"})
     try:
-        bars = _data(memory, data).bars("us", symbols, days=10)
+        bars = _data(memory, data).bars("us", symbols, days=130)
     except Exception as e:
         log.info("themes: no prices tonight (%s)", type(e).__name__)
         return []
@@ -351,7 +367,8 @@ def detect(memory: Memory, today: date | None = None, data=None) -> list[dict]:
         bip._run(memory, "INSERT INTO theme_events (day, tech, pattern, why, symbols, entry, spy, evidence, features) "
                          "VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?)",
                  (today.isoformat(), tid, f["pattern"], f["why"], json.dumps(sorted(entry)), json.dumps(entry),
-                  last["SPY"], json.dumps(proof), json.dumps(snapshot(mine, tid, today, len(entry)))))
+                  last["SPY"], json.dumps(proof),
+                  json.dumps(snapshot(mine, tid, today, len(entry), momentum(bars, sorted(entry), today.isoformat())))))
         out.append({"tech": tid, "name": bip.TECHS[tid]["name"], "pattern": f["pattern"],
                     "title": PATTERNS[f["pattern"]][0], "why": f["why"], "symbols": sorted(entry)})
     return out
@@ -426,7 +443,7 @@ def record(events: list[dict]) -> list[dict]:
         row = {"pattern": name, "title": title, "rule": rule, "events": len(mine),
                "from_history": sum(1 for e in mine if e.get("backfilled"))}
         for n in HORIZONS:
-            row[f"days_{n}"] = lean([(e[f"r{n}"], e[f"s{n}"]) for e in mine if e[f"r{n}"] is not None])
+            row[f"days_{n}"] = lean([(e[f"r{n}"] - COST, e[f"s{n}"]) for e in mine if e[f"r{n}"] is not None])
         out.append(row)
     return out
 
@@ -435,7 +452,8 @@ def scorecard(events: list[dict]) -> dict:
     """The practice strategy: $10,000 of pretend money in each 'forming' basket, held 90 days."""
     mine = [e for e in events if e["pattern"] == "forming"]
     done = [e for e in mine if e["r90"] is not None]
-    return {"stake": STAKE, "baskets": len(mine), "open": len(mine) - len(done), "finished": len(done),
+    done = [{**e, "r90": e["r90"] - COST} for e in done]  # after the cost of buying and selling
+    return {"stake": STAKE, "baskets": len(mine), "cost": COST, "open": len(mine) - len(done), "finished": len(done),
             "from_history": sum(1 for e in mine if e.get("backfilled")),
             "profit": round(sum(STAKE * e["r90"] for e in done), 2),
             "market_profit": round(sum(STAKE * e["s90"] for e in done), 2),
@@ -635,7 +653,8 @@ def replay(memory: Memory, months: int = 30, data=None, today: date | None = Non
         if not spy:
             continue
         for tid, companies in names.items():
-            mine = [r for r in rows if tid in r["techs"] and floor <= r["day"] <= day]
+            mine = [r for r in rows if tid in r["techs"] and floor <= r["day"]  # only what was public by then
+                    and src.known_from(r["kind"], r["day"]) <= day]
             known = tickers(mine, tid)[:BASKET]  # only companies whose filings existed by then
             entry = {c["symbol"]: _at(bars.get(c["symbol"]), day) for c in known}
             entry = {s: p for s, p in entry.items() if p}
@@ -653,7 +672,8 @@ def replay(memory: Memory, months: int = 30, data=None, today: date | None = Non
                 bip._run(memory, "INSERT INTO theme_events (day, tech, pattern, why, symbols, entry, spy, r30, s30, r90, "
                                  "s90, evidence, features, backfilled) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, '[]', ?, TRUE)",
                          (day, tid, f["pattern"], f["why"], json.dumps(sorted(entry)), json.dumps(entry), spy,
-                          *result[30], *result[90], json.dumps(snapshot(mine, tid, asof, len(entry)))))
+                          *result[30], *result[90],
+                          json.dumps(snapshot(mine, tid, asof, len(entry), momentum(bars, sorted(entry), day)))))
                 seen.setdefault((tid, f["pattern"]), []).append(asof)
                 written += 1
     return written

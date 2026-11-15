@@ -346,6 +346,17 @@ def form_d(memory, phrase: str, fetch=None, env=None, today: date | None = None)
     return out
 
 
+# A record's own date is not always the day it became public. An award or grant can start before it is
+# published, so when the past is replayed these are treated as known only this many days after their date.
+KNOWN_AFTER = {"award": 30, "grant": 30}
+
+
+def known_from(kind: str, day: str) -> str:
+    """The first day a record of this kind, dated `day`, can be assumed to have been public."""
+    lag = KNOWN_AFTER.get(kind, 0)
+    return (date.fromisoformat(day) + timedelta(days=lag)).isoformat() if lag and day else day
+
+
 HISTORICAL = ("filings", "form_d", "awards", "openalex", "nsf")  # these can be asked about a past date
 PAUSE = {"arxiv": 3.5, "gdelt": 5.5}  # seconds these sources ask for between requests
 SOURCES = {  # name -> (function, the sectors it is asked about; None = all)

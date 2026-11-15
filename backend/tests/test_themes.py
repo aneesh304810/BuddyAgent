@@ -85,8 +85,9 @@ def test_each_rule_fires_only_on_its_own_change():
     assert themes.fired([row("filing", 3)] * 4 + [row("filing", 40)] * 3, TODAY) == []  # not double
     assert [f["pattern"] for f in themes.fired([row("news", 2)] * 3 + [row("discussion", 5)] * 2, TODAY)] == ["news"]
     assert [f["pattern"] for f in themes.fired([row("research", 9)] * 5, TODAY)] == ["research"]
-    assert [f["pattern"] for f in themes.fired([row("grant", 9, 25e6), row("award", 9, 2e6)], TODAY)] == ["award"]
-    assert themes.fired([row("award", 45, 25e6)], TODAY) == []  # too long ago
+    assert [f["pattern"] for f in themes.fired([row("grant", 40, 25e6), row("award", 40, 2e6)], TODAY)] == ["award"]
+    assert themes.fired([row("award", 9, 25e6)], TODAY) == []   # dated 9 days ago: not taken as public yet
+    assert themes.fired([row("award", 75, 25e6)], TODAY) == []  # too long ago
     assert [f["pattern"] for f in themes.fired([row("funding", 9)] * 3, TODAY)] == ["funding"]
     assert set(themes.PATTERNS) == {"forming", "filings", "news", "good_news", "bad_news", "research", "award", "funding"}
 
@@ -241,7 +242,7 @@ def test_the_practice_scorecard_counts_only_forming_baskets_at_90_days():
               {"pattern": "filings", "r30": 0.5, "s30": 0.0, "r90": 0.9, "s90": 0.0}]
     card = themes.scorecard(events)
     assert (card["baskets"], card["open"], card["finished"]) == (2, 1, 1)
-    assert card["profit"] == 2000.0 and card["market_profit"] == 500.0 and card["lean"] == "none"
+    assert card["profit"] == 1980.0 and card["market_profit"] == 500.0 and card["lean"] == "none"  # 0.2% cost off
     filings_row = next(r for r in themes.record(events) if r["pattern"] == "filings")
     assert filings_row["events"] == 1 and filings_row["days_30"]["finished"] == 1
 

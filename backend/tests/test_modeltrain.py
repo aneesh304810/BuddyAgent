@@ -78,8 +78,9 @@ def test_noise_is_rejected_and_an_old_model_is_retired(memory, tmp_path):
     pricebook.run(memory, "DELETE FROM sim_trades")
     trades(memory, 400, pattern=False, seed=3)                    # the pattern stopped holding
     told = run_week(memory, tmp_path)
-    assert "It didn't pass its test, so I'm not using it." in told[0] and "❌" in told[0]
-    assert "My usual weighted reasons stay in charge" in told[0]
+    assert "I stopped using my model for investing signals" in told[0] and "no better than" in told[0]  # live record
+    assert "It didn't pass its test, so I'm not using it." in told[1] and "❌" in told[1]             # and the retrain
+    assert "My usual weighted reasons stay in charge" in told[1]
     assert modeltrain.active(memory, "investing") is None and modeltrain.predict(memory, "investing", {}) is None
     last = modeltrain.status(memory)["domains"]["investing signals"]
     assert last["model_in_use"] is False and last["last_run"]["status"] == "rejected"
@@ -125,3 +126,35 @@ def test_the_trainer_itself_and_the_weekly_schedule(memory, tmp_path, monkeypatc
     told = asyncio.run(modeltrain.weekly(memory))
     assert len(told) == 1 and "sandbox isn't set up" in told[0]
     assert asyncio.run(modeltrain.weekly(memory)) == []           # said once, not every week
+
+
+def test_odds_must_mean_what_they_say_and_hold_in_both_kinds_of_market():
+    from buddy.sandbox_jobs import train_model
+    cal = train_model.calibration([0.9, 0.9, 0.9, 0.9, 0.3, 0.3], [1, 0, 0, 0, 0, 0])
+    assert cal["table"][-1] == {"odds": "60% to 100%", "calls": 4, "said": 0.9, "came_true": 0.25}
+    assert cal["gap"] == round((4 * 0.65 + 2 * 0.3) / 6, 3)  # says 90%, a quarter come true: far from calibrated
+    rnd = random.Random(11)
+    rows = []
+    for i in range(400):
+        strong = rnd.random() < 0.5
+        rows.append({"when": (START + timedelta(days=i)).isoformat(), "x": {"signal": 1.0 if strong else 0.0},
+                     "y": int(rnd.random() < (0.8 if strong else 0.2)), "regime": "up", "rival": int(not strong)})
+    got = train_model.evaluate(rows)
+    assert got["checks"]["its odds mean what they say (within 10 points)"] is True
+    assert got["checks"]["more accurate than the simple rule by 2 points"] is True and got["simple_rule_accuracy"] < 0.4
+    assert got["checks"]["tested in rising and falling markets (10 or more of each)"] is False  # only ever rising
+    assert got["status"] == "rejected" and got["by_market"]["down"]["calls"] == 0
+    for i, r in enumerate(rows):
+        r["regime"] = "up" if i % 2 else "down"
+    both = train_model.evaluate(rows)
+    assert both["status"] == "promoted" and both["by_market"]["down"]["calls"] >= 10
+    plain = train_model.evaluate([{k: v for k, v in r.items() if k not in ("regime", "rival")} for r in rows])
+    assert "by_market" not in plain and len(plain["checks"]) == 5  # rows without them are not asked for them
+
+
+def test_a_model_in_use_reports_its_live_record(memory, tmp_path):
+    trades(memory, 300, pattern=True)
+    run_week(memory, tmp_path)
+    assert modeltrain.live(memory, "investing")["calls"] == 0 and modeltrain.monitor(memory) == []
+    assert modeltrain.status(memory)["domains"]["investing signals"]["live"]["liked"] == 0
+    assert modeltrain.live(memory, "theme") is None

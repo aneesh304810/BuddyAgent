@@ -214,3 +214,38 @@ slightly flattering. News cannot be loaded for the past, so the good-news and ba
 history. Sources return at most 25 records per question, so past months are thinner than they really were.
 Flights, hotels and shopping have no history to load: they learn from calls made from now on, which takes
 months. A model may fail its test, and then Buddy keeps using its simpler rules and says so.
+
+## What a model must do before Buddy trusts it, and after
+
+Reaching 200 judged calls only earns a model a test. To be used it must pass every one of these on the
+newest 30% of calls, which it never saw:
+
+| Test | Applies to |
+|---|---|
+| 40 or more unseen calls, and 15 or more it liked (gave 55% or better) | every model |
+| Its odds beat always saying the average (a lower Brier score, by 0.005 or more) | every model |
+| The calls it liked came true at least 5 points more often than calls overall | every model |
+| Its odds mean what they say: grouped by the odds it gave, the share that came true is within 10 points on average | every model |
+| More accurate than a simple rule, "companies already rising keep rising", by 2 points or more | theme baskets |
+| Tested in both rising and falling markets (10 or more calls from each), and the calls it liked held up in both | theme baskets, investing signals |
+
+The Predictions tab shows each test with a tick or a cross, the calibration table and the results by market
+direction.
+
+- **After it is in use.** Every week Buddy checks the model on calls judged since it was trained. Once it has
+  liked 20 or more of them, those must still come true more often than calls overall. If not, the model is
+  retired automatically, you are told why, and the simpler rules take over until a new model passes.
+- **Costs.** A theme basket has 0.2% taken off its return for buying and selling before it is compared with
+  the market, in the scorecard, the pattern records and the model's training.
+- **When a record became public.** An award or grant can be dated before it was published. In the rules and
+  in the replay of history, these count as known only 30 days after their own date. Every evidence record
+  also keeps the day Buddy first saw it.
+- **Is it really running?** The top of the Predictions tab lists each job (nightly collection, sources,
+  headline labels, company news, events, history, weekly training, buy-or-wait calls) as running, needs a
+  look, or not yet, read from what the jobs on your server wrote down. Passing tests only show the code can
+  run.
+
+**What cannot be fixed, only disclosed.** The list of 54 technologies was chosen today, knowing which ones
+came to matter. Results from loaded history therefore look better than a list chosen back then would have.
+Events written from switch-on forward do not have this problem, which is why the live record after
+promotion matters more than the history test.

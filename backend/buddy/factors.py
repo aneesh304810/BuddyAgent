@@ -218,9 +218,91 @@ def overview(memory: Memory) -> dict:
                            "of_each_outcome": s["of_each_outcome"], "enough": s["enough"],
                            "in_use": s["model_in_use"], "last_run": last.get("on"), "last_status": last.get("status"),
                            "tested_on": last.get("tested_on"), "right_overall": last.get("right_overall"),
-                           "right_when_liked": last.get("right_when_liked"), "strongest": last.get("strongest")})
+                           "right_when_liked": last.get("right_when_liked"), "strongest": last.get("strongest"),
+                           "checks": last.get("checks"), "why": last.get("why"), "brier": last.get("brier"),
+                           "brier_of_the_average": last.get("brier_of_the_average"),
+                           "calibration": last.get("calibration"), "by_market": last.get("by_market"),
+                           "simple_rule_accuracy": last.get("simple_rule_accuracy"), "live": s.get("live")})
         engines.append({"id": key, "title": title, "asks": asks, "learns_from": WHAT[key], "models": models,
                         "open_calls": sum(open_calls.get(d, 0) for d in domains),
                         "watched": watched.get(key)})
-    return {"engines": engines, "history": themes.backfill_status(memory), "note": status["note"] + " A model's odds "
+    return {"engines": engines, "history": themes.backfill_status(memory), "running": running(memory),
+            "hindsight": themes.HINDSIGHT, "note": status["note"] + " A model's odds "
             "are one more opinion with a record behind it, never a promise. Buddy never buys, books or trades."}
+
+
+# --- is it really running? ----------------------------------------------------------------------------------
+def _age(stamp: str, now) -> float | None:
+    from datetime import datetime, timezone  # noqa: PLC0415
+    try:
+        then = datetime.fromisoformat(str(stamp))
+    except ValueError:
+        return None
+    if then.tzinfo is None:
+        then = then.replace(tzinfo=timezone.utc)
+    return (now - then).total_seconds() / 3600
+
+
+def running(memory: Memory, now=None) -> list[dict]:
+    """What has actually happened on this server, as opposed to what the code can do: each line is ok, late or
+    never, with the facts behind it. Read from what the jobs themselves wrote down."""
+    from datetime import datetime, timezone  # noqa: PLC0415
+    from . import bip, bip_sources, modeltrain, themes  # noqa: PLC0415
+    now = now or datetime.now(timezone.utc)
+    out = []
+
+    def line(what: str, state: str, detail: str) -> None:
+        out.append({"what": what, "state": state, "detail": detail})
+
+    def count(sql: str, params=()) -> dict:
+        try:
+            return _run(memory, sql, params)[0]
+        except Exception:
+            return {}
+    try:
+        last = json.loads(memory.get(bip.LAST_KEY) or "{}")
+    except ValueError:
+        last = {}
+    hours = _age(last.get("at", ""), now)
+    if hours is None:
+        line("Nightly evidence collection", "never", "has not run on this server yet")
+    else:
+        failed = ", ".join(last.get("failed") or {}) or "none"
+        line("Nightly evidence collection", "ok" if hours <= 36 else "late",
+             f"last ran {hours:.0f} hours ago: {last.get('new', 0)} new records from {last.get('asked', 0)} questions; "
+             f"sources that failed: {failed}")
+    try:
+        sources = bip_sources.status(memory)
+        working = sum(1 for s in sources if s["state"] == "working")
+        failing = [s["title"] for s in sources if s["state"] == "failing"]
+        line("Evidence sources", "ok" if working and not failing else ("never" if not working else "late"),
+             f"{working} of {len(sources)} working" + (f"; failing: {', '.join(failing[:4])}" if failing else ""))
+    except Exception:
+        line("Evidence sources", "never", "no status yet")
+    themes._ready(memory)
+    tone = count("SELECT COUNT(*) AS n, MAX(made) AS last FROM theme_tone")
+    line("Headline labels", "ok" if tone.get("n") else "never",
+         f"{tone.get('n', 0)} headlines labelled" + (f", the latest on {tone['last']}" if tone.get("last") else ""))
+    news = count("SELECT COUNT(*) AS n, MAX(seen) AS last FROM theme_news")
+    line("News about companies", "ok" if news.get("n") else "never",
+         f"{news.get('n', 0)} headlines kept" + (f", the latest on {news['last']}" if news.get("last") else ""))
+    events = count("SELECT COUNT(*) AS n, SUM(CASE WHEN backfilled THEN 1 ELSE 0 END) AS old, MAX(day) AS last, "
+                   "SUM(CASE WHEN r90 IS NOT NULL THEN 1 ELSE 0 END) AS done FROM theme_events")
+    line("Evidence events and practice baskets", "ok" if events.get("n") else "never",
+         f"{events.get('n', 0)} events ({int(events.get('old') or 0)} from loaded history), "
+         f"{int(events.get('done') or 0)} with a 90-day result" + (f"; the latest on {events['last']}" if events.get("last") else ""))
+    history = themes.backfill_status(memory)
+    line("History for the theme model", {"done": "ok", "collecting": "late", "failed": "late"}.get(history["state"], "never"),
+         {"done": f"loaded: {history.get('records', 0)} records, {history.get('events', 0)} events",
+          "collecting": f"loading now, reached {history.get('reached', 'the start')}",
+          "failed": f"the last load failed: {history.get('why', '')}"}.get(history["state"], "not loaded"))
+    week = memory.get(modeltrain.WEEK_KEY)
+    trained = count("SELECT COUNT(*) AS n, MAX(trained_on) AS last FROM models")
+    line("Weekly model training", "ok" if week else "never",
+         (f"last checked in week {week}; " if week else "has not run yet; ")
+         + (f"{trained.get('n', 0)} training runs, the latest on {trained['last']}" if trained.get("last") else "no model trained yet"))
+    calls = count("SELECT COUNT(*) AS n, SUM(CASE WHEN outcome IN ('right', 'wrong') THEN 1 ELSE 0 END) AS judged, "
+                  "MAX(made_on) AS last FROM predictions")
+    line("Buy-or-wait calls (shopping, flights, hotels)", "ok" if calls.get("n") else "never",
+         f"{calls.get('n', 0)} calls made, {int(calls.get('judged') or 0)} judged" + (f"; the latest on {calls['last']}" if calls.get("last") else ""))
+    return out

@@ -173,3 +173,47 @@ def test_the_overview_lists_three_engines_and_the_endpoints_need_the_owner(memor
     ok = {"Authorization": "Bearer owner-token"}
     assert len(client.get("/api/intel/predict", headers=ok).json()["engines"]) == 3
     assert client.post("/api/intel/predict", json={}, headers=ok).status_code == 400
+
+
+def test_an_award_is_not_known_in_a_replay_until_a_month_after_its_date(memory):
+    from buddy import bip_sources as src
+    assert src.known_from("award", "2026-01-10") == "2026-02-09" and src.known_from("filing", "2026-01-10") == "2026-01-10"
+    add(memory, "filing", 200, "Oklo Inc.  (OKLO)")
+    add(memory, "award", 135, "DOE lab", 50e6)  # dated 15 days before the replay's day: not yet public then
+    prices = Prices({"OKLO": {"2025-01-01": 10.0}, "SPY": {"2025-01-01": 500.0}}, start=date(2025, 1, 1))
+    themes.replay(memory, 12, prices, TODAY)
+    awards = [e for e in themes._events(memory) if e["pattern"] == "award"]
+    assert [e["day"] for e in awards] == [(TODAY - timedelta(days=90)).isoformat()]  # seen at the next month's step
+
+
+def test_an_event_records_how_the_basket_did_before_it_and_the_model_gets_a_rival(memory):
+    filings(memory)
+    start = (TODAY - timedelta(days=90)).isoformat()
+    prices = Prices({"OKLO": {"2026-06-01": 40.0, start: 40.0, d(1): 50.0, d(-90): 60.0}, "SMR": 20.0,
+                     "SPY": {"2026-06-01": 600.0, d(-90): 540.0}})
+    themes.detect(memory, TODAY, prices)
+    event = themes._events(memory)[0]
+    assert event["features"]["f_momentum_90"] == 0.125  # OKLO +25%, SMR flat, the market flat
+    themes.measure(memory, TODAY + timedelta(days=91), prices.on(TODAY + timedelta(days=91)))
+    row = modeltrain.rows(memory, "theme")[0]
+    assert row["rival"] == 1 and row["regime"] == "down" and row["y"] == 1  # the market fell 10% over the 90 days
+    card = themes.scorecard([{"pattern": "forming", "r90": 0.001, "s90": 0.0, "r30": None, "s30": None}])
+    assert card["beat_market"] == 0 and card["cost"] == themes.COST  # +0.1% does not beat the market after costs
+
+
+def test_the_running_panel_says_never_until_a_job_has_really_run(memory):
+    from datetime import datetime, timezone
+    now = datetime(2026, 11, 16, 12, tzinfo=timezone.utc)
+    first = {r["what"]: r for r in factors.running(memory, now)}
+    assert all(r["state"] == "never" for r in first.values()) and len(first) == 8
+    memory.set(bip.LAST_KEY, json.dumps({"at": "2026-11-16T03:00:00+00:00", "new": 42, "asked": 300, "failed": {"gdelt": "x"}}))
+    filings(memory)
+    themes.detect(memory, TODAY, Prices({"OKLO": 50.0, "SMR": 20.0, "SPY": 600.0}))
+    got = {r["what"]: r for r in factors.running(memory, now)}
+    nightly = got["Nightly evidence collection"]
+    assert nightly["state"] == "ok" and "42 new records" in nightly["detail"] and "gdelt" in nightly["detail"]
+    assert got["Evidence events and practice baskets"]["state"] == "ok"
+    late = {r["what"]: r for r in factors.running(memory, datetime(2026, 11, 19, 12, tzinfo=timezone.utc))}
+    assert late["Nightly evidence collection"]["state"] == "late"
+    out = factors.overview(memory)
+    assert len(out["running"]) == 8 and "chosen today" in out["hindsight"]

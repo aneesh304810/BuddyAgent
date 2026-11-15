@@ -128,9 +128,16 @@ function modelRow(m) {
   const state = m.in_use ? `<span style="color:var(--sev-good)">✓ model in use</span>` : m.last_status === "rejected" ? `<span style="color:var(--sev-high)">✗ last model did not pass its test</span>`
     : m.enough ? `<span class="muted">• enough to train; next weekly run</span>` : `<span class="muted">○ learning: not enough judged calls yet</span>`;
   const tested = m.tested_on ? `<br><span class="muted">Tested on ${esc(m.tested_on)} calls it had never seen: ${Math.round((m.right_overall || 0) * 100)}% right overall${m.right_when_liked != null ? `, ${Math.round(m.right_when_liked * 100)}% on the ones it liked` : ""}</span>` : "";
+  const pc = (v) => v == null ? "–" : Math.round(v * 100) + "%";
+  const checks = m.checks ? `<details style="margin-top:6px"><summary class="muted">The tests it had to pass</summary><ul class="plain">${Object.entries(m.checks).map(([what, ok]) => `<li>${ok ? "✓" : "✗"} ${esc(what)}</li>`).join("")}</ul>
+      ${m.brier != null ? `<p class="muted">Error of its odds (Brier): ${esc(m.brier)} against ${esc(m.brier_of_the_average)} for always saying the average. Lower is better.</p>` : ""}
+      ${m.simple_rule_accuracy != null ? `<p class="muted">The simple rule "already rising keeps rising" was right ${pc(m.simple_rule_accuracy)} of the time.</p>` : ""}
+      ${m.calibration ? `<table class="grid"><tr><th>Odds it gave</th><th>Calls</th><th>Came true</th></tr>${m.calibration.table.map((t) => `<tr><td>${esc(t.odds)}</td><td>${esc(t.calls)}</td><td>${pc(t.came_true)}</td></tr>`).join("")}</table>` : ""}
+      ${m.by_market ? `<p class="muted">Rising markets: ${esc(m.by_market.up.calls)} calls, ${pc(m.by_market.up.right_when_liked)} right on the ones it liked. Falling markets: ${esc(m.by_market.down.calls)} calls, ${pc(m.by_market.down.right_when_liked)}.</p>` : ""}</details>` : "";
+  const live = m.live ? `<br><span class="muted">Since it went into use: ${esc(m.live.calls)} calls judged${m.live.liked ? `, ${pc(m.live.right_when_liked)} right on the ${esc(m.live.liked)} it liked (its test showed ${pc(m.live.promised)})` : ", none it liked yet"}. It is retired automatically if those stop beating calls overall.</span>` : "";
   return `<div class="guard"><span><b>${esc(m.name[0].toUpperCase() + m.name.slice(1))}</b> · ${state}<br>
     <span class="muted">${esc(m.judged)} of ${esc(m.needed)} judged calls (${esc(m.of_each_outcome[0])} went one way, ${esc(m.of_each_outcome[1])} the other)</span>
-    <div style="height:6px;border-radius:3px;background:var(--line);margin:6px 0"><div style="height:6px;border-radius:3px;width:${bar}%;background:var(--accent, #3987e5)"></div></div>${tested}</span></div>`;
+    <div style="height:6px;border-radius:3px;background:var(--line);margin:6px 0"><div style="height:6px;border-radius:3px;width:${bar}%;background:var(--accent, #3987e5)"></div></div>${tested}${live}${checks}</span></div>`;
 }
 function predict() {
   if (!predictData) { loadPredict(); return `<p class="muted">Loading…</p>`; }
@@ -139,12 +146,16 @@ function predict() {
   const history = h.state === "done" ? `Loaded ${esc(h.records)} past records and ${esc(h.events)} past events with their results, covering ${esc(h.months)} months.`
     : h.state === "collecting" ? `Loading now: reached ${esc(h.reached || "the start")}, ${esc(h.new || 0)} records so far. Buddy will message when it is done.`
     : h.state === "failed" ? `The last load failed: ${esc(h.why || "")}` : "Not loaded yet. Until it is, the theme model learns only from events written since it was switched on.";
-  return predictData.engines.map((e) => card(esc(e.title), `<p class="muted" style="margin-top:0">${esc(e.asks)}</p>
+  const MARK = { ok: ["✓", "sev-good"], late: ["!", "sev-high"], never: ["○", "sev-low"] };
+  const running = card("Is it really running?", (predictData.running || []).map((r) => `<div class="guard"><span class="mark" style="color:var(--${(MARK[r.state] || MARK.never)[1]})">${(MARK[r.state] || MARK.never)[0]}</span>
+      <span><b>${esc(r.what)}</b> <span class="chipk">${r.state === "ok" ? "running" : r.state === "late" ? "needs a look" : "not yet"}</span><br><span class="muted">${esc(r.detail)}</span></span></div>`).join(""),
+    "Read from what the jobs on this server wrote down, not from the code. Passing tests only show the code can run.");
+  return running + predictData.engines.map((e) => card(esc(e.title), `<p class="muted" style="margin-top:0">${esc(e.asks)}</p>
       ${e.models.map(modelRow).join("")}
       <p class="note" style="margin-bottom:4px">Learns from</p><ul style="margin:0 0 0 18px;padding:0">${e.learns_from.map((x) => `<li>${esc(x)}</li>`).join("")}</ul>`,
       `${esc(e.open_calls)} calls open and waiting for their outcome${e.watched != null ? ` · ${esc(e.watched)} saved searches checked daily` : ""}`)).join("") +
     card("History for the theme model", `<p>${history}</p><p><button class="btn" id="history"${h.state === "collecting" ? " disabled" : ""}>${h.state === "done" ? "Load again" : "Load the last 30 months"}</button></p>`,
-      "Asks the official dated sources (company filings, fundraising notices, federal awards, scholarly works, NSF grants) about past dates, then replays the rules month by month with only what was known then and that day's prices. It takes a while. It is slightly flattering: it only knows companies that exist today, and news cannot be loaded for the past.") +
+      "Asks the official dated sources (company filings, fundraising notices, federal awards, scholarly works, NSF grants) about past dates, then replays the rules month by month with only what was known then and that day's prices. It takes a while. It is flattering in three ways: it only knows companies that exist today, news cannot be loaded for the past, and the list of technologies was chosen with hindsight. " + esc(predictData.hindsight || "")) +
     `<p class="note">${esc(predictData.note)}</p>`;
 }
 

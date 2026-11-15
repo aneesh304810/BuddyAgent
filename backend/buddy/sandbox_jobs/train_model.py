@@ -1,6 +1,8 @@
 """Train and test a small model on Buddy's judged calls. Runs in the sandbox, offline; plain Python, no libraries.
 
 Input  input/rows.json   {"domain": "...", "rows": [{"when": "YYYY-MM-DD", "x": {feature: number}, "y": 0 or 1}]}
+                         A row may also carry "rival" (0 or 1: what a simple rule would have guessed) and
+                         "regime" ("up" or "down": what the market did over the row's outcome window).
 Output output/model.json the model (a logistic regression: one weight per feature), how it did on calls it had
                          not seen, and whether it earned its place.
 
@@ -12,6 +14,13 @@ How it is kept honest:
   - It is promoted only if, on the unseen calls, its probabilities are better than that rival's (Brier score
     lower by 0.005 or more) AND the calls it likes (55% or more) turned out right at least 5 points more often
     than calls overall, with 15 or more such calls and 40 or more unseen calls in all.
+  - Its odds must mean what they say: across the unseen calls, grouped by the odds it gave, the share that came
+    true must sit within 10 points of those odds on average (calibration).
+  - Where the rows carry a simple rule's guess (for themes: "companies already rising keep rising"), the model
+    must be more accurate than that rule on the unseen calls, by 2 points or more.
+  - Where the rows carry the market's direction, the unseen calls must include 10 or more from rising markets
+    and 10 or more from falling ones, and the calls it liked must not do worse than calls overall in either.
+    A model tested only in a rising market has not been tested.
   - A small penalty on large weights (L2) keeps it from memorising noise.
 """
 
@@ -22,6 +31,33 @@ from pathlib import Path
 
 TEST_SHARE, LIKES, MIN_TEST, MIN_LIKED = 0.3, 0.55, 40, 15
 BRIER_GAIN, RATE_GAIN = 0.005, 0.05
+CALIBRATION, RIVAL_GAIN, MIN_REGIME = 0.10, 0.02, 10
+BUCKETS = ((0.0, 0.4), (0.4, 0.5), (0.5, 0.6), (0.6, 1.01))
+
+
+def calibration(ps: list[float], ys: list[int]) -> dict:
+    """Grouped by the odds given: how many, the average odds, and the share that came true. gap: the average
+    distance between the two, weighted by how many calls are in each group."""
+    table = []
+    for low, high in BUCKETS:
+        group = [(p, y) for p, y in zip(ps, ys) if low <= p < high]
+        if group:
+            table.append({"odds": f"{low:.0%} to {min(high, 1):.0%}", "calls": len(group),
+                          "said": round(sum(p for p, _ in group) / len(group), 3),
+                          "came_true": round(sum(y for _, y in group) / len(group), 3)})
+    gap = sum(t["calls"] * abs(t["said"] - t["came_true"]) for t in table) / len(ys) if ys else 1.0
+    return {"table": table, "gap": round(gap, 3)}
+
+
+def regimes(test: list[dict], ps: list[float]) -> dict:
+    """Per market direction: unseen calls, how often they came true, and how often the liked ones did."""
+    out = {}
+    for name in ("up", "down"):
+        group = [(p, r["y"]) for p, r in zip(ps, test) if r.get("regime") == name]
+        liked = [y for p, y in group if p >= LIKES]
+        out[name] = {"calls": len(group), "right": round(sum(y for _, y in group) / len(group), 3) if group else None,
+                     "liked": len(liked), "right_when_liked": round(sum(liked) / len(liked), 3) if liked else None}
+    return out
 
 
 def _sig(z: float) -> float:
@@ -78,12 +114,27 @@ def evaluate(rows: list[dict]) -> dict:
         f"{MIN_LIKED} or more calls it liked": len(liked) >= MIN_LIKED,
         "the calls it liked were right 5 points more often": liked_rate is not None and liked_rate - overall >= RATE_GAIN,
     }
-    return {"status": "promoted" if all(checks.values()) else "rejected", "model": model, "rows": len(rows),
+    cal = calibration(ps, ys)
+    checks["its odds mean what they say (within 10 points)"] = cal["gap"] <= CALIBRATION
+    accuracy = sum((p >= 0.5) == bool(y) for p, y in zip(ps, ys)) / len(ys)
+    extra = {"calibration": cal}
+    if any("rival" in r for r in test):
+        rival_right = sum(int(r.get("rival", 0)) == r["y"] for r in test) / len(test)
+        extra["simple_rule_accuracy"] = round(rival_right, 3)
+        checks["more accurate than the simple rule by 2 points"] = accuracy - rival_right >= RIVAL_GAIN
+    if any(r.get("regime") for r in test):
+        by = regimes(test, ps)
+        extra["by_market"] = by
+        checks[f"tested in rising and falling markets ({MIN_REGIME} or more of each)"] = all(
+            by[name]["calls"] >= MIN_REGIME for name in by)
+        checks["the calls it liked held up in both"] = all(
+            b["right_when_liked"] is None or b["right_when_liked"] >= b["right"] for b in by.values())
+    return {"status": "promoted" if all(checks.values()) else "rejected", "model": model, "rows": len(rows), **extra,
             "learned_from": len(train), "tested_on": len(test), "first": rows[0]["when"], "last": rows[-1]["when"],
             "right_overall": round(overall, 3), "liked": len(liked),
             "right_when_liked": round(liked_rate, 3) if liked_rate is not None else None,
             "brier": round(brier, 4), "brier_of_the_average": round(rival, 4),
-            "accuracy": round(sum((p >= 0.5) == bool(y) for p, y in zip(ps, ys)) / len(ys), 3),
+            "accuracy": round(accuracy, 3),
             "checks": checks,
             "strongest": sorted(model["weights"].items(), key=lambda kv: -abs(kv[1]))[:6]}
 

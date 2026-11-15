@@ -28,6 +28,7 @@ flowchart LR
     themes_py --> bip_sources_py
     bip_models_py --> themes_py
     factors_py --> bip_py
+    factors_py --> bip_sources_py
     factors_py --> themes_py
     db[("Your database<br/>bip_notes, bip_signals, theme_events, theme_news, theme_tone")]
     bip_py --> db
@@ -225,7 +226,7 @@ a model uses them only after it has passed its test on calls it never saw.
 Only public data is read here: evidence, headlines, prices, deals. Nothing about the owner goes anywhere.
 ```
 
-- Uses: bip.py, market_school.py, memory.py, modeltrain.py, pricebook.py, seasons.py, themes.py, tools.py
+- Uses: bip.py, bip_sources.py, market_school.py, memory.py, modeltrain.py, pricebook.py, seasons.py, themes.py, tools.py
 
 ## How it connects
 
