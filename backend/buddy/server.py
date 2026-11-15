@@ -1830,6 +1830,20 @@ async def api_deals_predicted(days: int = 45) -> dict:
     return {"predictions": await asyncio.to_thread(dealforecast.predictions, memory, max(7, min(days, 120)))}
 
 
+# --- today: the strip on the app's home screen and the number on the bell
+@app.get("/api/today", dependencies=[Depends(require_admin)])
+async def api_today() -> dict:
+    from . import today  # noqa: PLC0415
+    return await asyncio.to_thread(today.strip, memory)
+
+
+@app.post("/api/today/seen", dependencies=[Depends(require_admin)])
+async def api_today_seen() -> dict:
+    """The Alerts screen was opened: the bell counts from now."""
+    from . import today  # noqa: PLC0415
+    return await asyncio.to_thread(today.seen, memory)
+
+
 # --- alerts (web/alerts.html): what Buddy sent on its own, grouped by category, with thumbs and levels
 @app.get("/api/alerts", dependencies=[Depends(require_admin)])
 async def api_alerts(days: int = 14) -> dict:

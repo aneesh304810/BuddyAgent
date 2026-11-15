@@ -305,12 +305,17 @@ function themeCard(t) {
   const techNews = (t.headlines || []).map(headline).join("");
   const coNews = (t.companies || []).filter((c) => (c.news || []).length).map((c) => `<li><b>${esc(c.symbol)}</b><ul class="why">${c.news.map(headline).join("")}</ul></li>`).join("");
   const mine = (t.yours || []).map((y) => `<b>${esc(y.symbol)}</b> (${esc(y.where)})`).join(", ");
-  const active = (t.active || []).map((a) => `<li><b>${esc(a.title)}</b> <small class="muted">${esc(LEAN[a.lean] || "")}. ${esc(a.record)}</small></li>`).join("");
+  // The same card shape as the buy-now-or-wait calls in Deals: the call, the record, one line of why, the source.
+  const CALL = { up: ["▲ Leans up", "go"], down: ["▼ Leans down", "stop"], flat: ["● No clear edge", "wait"], none: ["○ Too early to call", "wait"] };
+  const active = (t.active || []).map((a) => `<div style="margin:8px 0"><span class="call ${(CALL[a.lean] || CALL.none)[1]}">${(CALL[a.lean] || CALL.none)[0]}</span>
+      <span class="muted">${esc(a.record)}</span>
+      <p class="muted" style="margin:6px 0 2px">${esc(a.title)} for ${esc(t.name)}.</p>
+      <small class="muted">Buddy Intelligence evidence · fired in the last 30 days · measured against the market, not a forecast</small></div>`).join("");
   return `<div class="tx" style="display:block"><b>${esc(t.name)}</b> <small class="muted">${esc(t.sector_name)} · ${esc(t.stage)} · ${esc(t.signals_90_days)} records in 90 days${t.growth == null ? "" : ", " + (t.growth > 0 ? "+" : "") + Math.round(t.growth * 100) + "% on the 90 before"}</small>
     ${mine ? `<p class="note">On your lists: ${mine}</p>` : ""}
     ${companies ? `<div class="chips" style="flex-wrap:wrap;margin-top:6px">${companies}</div>` : `<p class="note">No public company named in its filings yet.</p>`}
     ${signals ? `<p class="note">${signals}</p>` : ""}
-    ${active ? `<ul class="why">${active}</ul>` : ""}
+    ${active}
     ${newsLine}${techNews ? `<ul class="why">${techNews}</ul>` : ""}
     ${coNews ? `<p class="note">News about its companies</p><ul class="why">${coNews}</ul>` : ""}</div>`;
 }

@@ -62,8 +62,16 @@ Built: the bar with the five places, the header with Back and the bell, the micr
 Trips & Deals, Discover and More, Invest as a tab of Money with four tabs of its own (Overview, Trading,
 Themes, Watchlist), and "For you" in Deals: Buddy's open buy-now-or-wait calls for products, flights and
 hotels in one card shape (the call, the chance, one line of why, then the date of the call and the record
-of calls of its kind).
+of calls of its kind). Investment themes use the same card for each evidence pattern that fired.
 
-Not yet: the Today strip on the home screen, the alert count on the bell, the same card for investment
-themes, "how this was answered" on a reply, source and freshness lines everywhere, and the wide-screen
+The Today strip sits above the conversation: the next reminder or appointment, and the next bill or card
+payment due within seven days, each with where it came from. It shows nothing when there is nothing. The
+bell carries the number of alerts sent since Alerts was last opened; silenced kinds are not counted. Both
+read `/api/today`, which uses no AI model and makes no outside call.
+
+Trading (the old Practice tab) shows the strategies in use, what the closed trades have changed, the
+patterns still only being measured, and what each paper trade used from Reddit, the price, company facts,
+news and the Intelligence evidence.
+
+Not yet: "how this was answered" on a reply, source and freshness lines everywhere, and the wide-screen
 layout for the Fold.

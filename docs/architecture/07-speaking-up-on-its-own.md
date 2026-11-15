@@ -19,6 +19,7 @@ flowchart LR
     subgraph Modules["Modules"]
         proactive_py["proactive.py<br/>due reminders, the morning briefing and the evening wrap-up"]
         attention_py["attention.py<br/>which of Buddy's own messages deserve to interrupt, which can wait…"]
+        today_py["today.py<br/>the short strip at the top of the app's home screen, and the number…"]
         daybrief_py["daybrief.py<br/>News and events for the morning briefing: what's new on the owner's…"]
         commute_py["commute.py<br/>The user's weekday commute, learned from where the phone goes, and…"]
         organiser_py["organiser.py<br/>the user's to-do lists, plus the evening wrap-up"]
@@ -42,6 +43,7 @@ flowchart LR
     proactive_py --> daybrief_py
     proactive_py --> health_py
     proactive_py --> organiser_py
+    today_py --> attention_py
     db[("Your database<br/>alerts, tasks")]
     attention_py --> db
     organiser_py --> db
@@ -112,6 +114,24 @@ Everything sent (or held back) is kept 60 days for the Alerts page. It's the own
 
 - Tables: `alerts`
 - Uses: memory.py, tools.py
+
+### today.py
+
+```text
+Today: the short strip at the top of the app's home screen, and the number on the bell.
+
+Three things, read from what Buddy already keeps on the server, with no AI model and no outside call:
+
+  next    the next thing with a time on it: a reminder, or an appointment found in your email (7 days ahead)
+  due     the next bill or card payment due within 7 days
+  alerts  how many messages Buddy sent on its own since you last opened the Alerts screen (silenced kinds
+          are not counted)
+
+Each part says where it came from. A part with nothing to show is left out; a part that fails is left out
+and logged, so the strip never blocks the conversation.
+```
+
+- Uses: attention.py, finance.py, lifemail.py, memory.py, tools.py
 
 ### daybrief.py
 

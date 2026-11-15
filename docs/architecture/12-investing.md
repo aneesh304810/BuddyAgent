@@ -241,7 +241,7 @@ US stocks and funds only (the signals come from tickers people discuss): crypto 
 and the links, not in the trades. Market prices are public data; nothing here is personal. Cached for 30 minutes.
 ```
 
-- Uses: market_school.py, markets.py, memory.py, modeltrain.py, pricebook.py, simbook.py, tools.py
+- Uses: market_school.py, markets.py, memory.py, modeltrain.py, pricebook.py, simbook.py, themes.py, tools.py
 
 ### markets.py
 

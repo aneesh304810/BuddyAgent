@@ -332,6 +332,18 @@ private fun BuddyScreen(
     val ui by BuddyState.ui.collectAsState()
     // The phone's Back goes up one level, then to the conversation; from the conversation it leaves the app.
     BackHandler(enabled = screen != Screen.Talk) { onNavigate(parentOf(screen) ?: Screen.Talk) }
+    // The Today strip and the bell's count (Today.kt): read again whenever the screen changes. Opening Alerts
+    // tells the server they were seen, so the count starts again from there.
+    var today by remember { mutableStateOf(TodayState()) }
+    LaunchedEffect(screen, prefs.link) {
+        val link = prefs.link ?: return@LaunchedEffect
+        if (screen == Screen.Alerts) {
+            TodayApi.seen(link)
+            today = today.copy(newAlerts = 0)
+        } else {
+            today = TodayApi.load(link)
+        }
+    }
 
     // One header, the screen, then the bar with the five places (Nav.kt). The conversation lives on the Buddy
     // place only; on every other screen a microphone button talks to the same conversation.
@@ -349,7 +361,7 @@ private fun BuddyScreen(
             Spacer(Modifier.size(6.dp))
             Text(if (screen == Screen.Talk) ui.connection else "", color = Muted, fontSize = 13.sp, maxLines = 1,
                 modifier = Modifier.weight(1f))
-            if (screen != Screen.Alerts) RoundIconButton(Glyph.BELL, "Alerts") { onNavigate(Screen.Alerts) }
+            if (screen != Screen.Alerts) BellButton(today.newAlerts) { onNavigate(Screen.Alerts) }
         }
         Box(Modifier.weight(1f).fillMaxWidth()) {
           Column(Modifier.fillMaxSize().padding(horizontal = 16.dp)) {
@@ -442,6 +454,7 @@ private fun BuddyScreen(
             Button(onClick = onStart, modifier = Modifier.fillMaxWidth()) { Text("Start Buddy") }
         }
 
+        TodayStrip(today) { onNavigate(Screen.Dashboard) }
         Transcript(ui.lines, Modifier.weight(1f), { onNavigate(Screen.Insights) }, { onNavigate(Screen.Card(it)) }) {
             onNavigate(Screen.Report(it))
         }

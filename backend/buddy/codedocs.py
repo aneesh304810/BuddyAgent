@@ -182,7 +182,7 @@ COMPONENTS = [  # every server module belongs to one feature (tests check none i
      ["calls.py", "contacts.py", "scheduling.py"]),
     ("Speaking up on its own: briefing, reminders and alerts", "The morning briefing with news, finance and events "
      "that follows what you talk about; reminders; and alerts whose loudness is learned from your thumbs",
-     ["proactive.py", "attention.py", "daybrief.py", "commute.py", "organiser.py", "health.py"]),
+     ["proactive.py", "attention.py", "today.py", "daybrief.py", "commute.py", "organiser.py", "health.py"]),
     ("Learning: the English and investing tutors", "The morning investing lesson, the morning English lesson, the "
      "evening English review and live tips, and Market school",
      ["morning_tutor.py", "tutor.py", "market_school.py"]),
