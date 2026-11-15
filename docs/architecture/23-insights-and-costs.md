@@ -135,5 +135,5 @@ Self-contained on purpose: this file plus one-line hooks, so it's easy to switch
 ## How it connects
 
 - Relies on: Claude: the brain; Fixing and explaining itself; Free AI models (Groq, Gemini, Mistral, Cerebras, GitHub Models, OpenRouter); Making and doing things; Memory; News, trends and research; Phone calls; Travel and getting around; Voice: Talk mode and Listen-in
-- Relied on by: Claude: the brain; Security and privacy; Speaking up on its own: briefing, reminders and alerts; The server and the app
+- Relied on by: Claude: the brain; Free AI models (Groq, Gemini, Mistral, Cerebras, GitHub Models, OpenRouter); Security and privacy; Speaking up on its own: briefing, reminders and alerts; The server and the app
 

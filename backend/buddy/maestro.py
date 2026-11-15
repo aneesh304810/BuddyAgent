@@ -90,6 +90,14 @@ def openai_setting(choice: str, env=None) -> dict | None:
     return {"model": model, "in": price_in, "out": price_out}
 
 
+def check_public(text: str, memory: Memory | None = None) -> None:
+    """The one check every part of Buddy calls before text goes to a model other than Claude. Raises
+    free_models.PersonalData when the text holds anything about the owner (an email address, a phone number, a
+    secret, something from memory), so the caller keeps it on Claude."""
+    from .free_models import check_general  # noqa: PLC0415  (the detector itself)
+    check_general(text, memory)
+
+
 def may_see(provider: str, personal: bool) -> bool:
     """The privacy rule, in one place: only Claude may see anything about the owner."""
     return not personal or provider == "claude" or provider.startswith("claude:")
@@ -361,9 +369,9 @@ async def ask(memory: Memory, job: str, prompt: str, system: str = SYSTEM, fetch
 
 def _public(text: str, memory: Memory) -> bool:
     """Does this text hold nothing about the owner? (Emails, phone numbers, secrets, things from memory.)"""
-    from .free_models import PersonalData, check_general  # noqa: PLC0415
+    from .free_models import PersonalData  # noqa: PLC0415
     try:
-        check_general(text, memory)
+        check_public(text, memory)
         return True
     except PersonalData:
         return False
@@ -472,12 +480,33 @@ def page(memory: Memory, env=None) -> dict:
                      for j, (title, does, used) in JOBS.items()],
             "choices": choices(env, memory), "spending": spending(memory), "tests": list(tests.values()),
             "providers": providers(memory, env), "rule": RULE, "added": added(memory),
+            "everything": everything(memory),
             "setup": setup(memory, env), "finder_tasks": [{"id": k, "title": v[0]} for k, v in TASKS.items()],
             "catalog_at": catalog(memory)["at"], "catalog_size": len(catalog(memory)["models"]),
             "test_size": len(TEST),
             "note": "Only public records go to these models. A job on a paid model goes back to the free choice when "
                     "the month's limit is reached. The test headlines were written for the test, not taken from the "
                     "news, so use a result as a guide."}
+
+
+def everything(memory: Memory, days: int = 30) -> dict:
+    """All of Buddy's AI use, not only the jobs routed here: the main conversation and every other feature report
+    in from the log of model requests (usage.py, insights.py). Spending this month, and where it went."""
+    try:
+        from . import insights, usage  # noqa: PLC0415
+        got = insights.report(memory, days=days, recent=0)
+        top = lambda rows: [{"name": r["name"], "requests": r["requests"], "usd": r["cost_usd"]}  # noqa: E731
+                            for r in sorted(rows, key=lambda r: -r["cost_usd"])[:8]]
+        totals = got["totals"]
+        return {"month_usd": round(usage.month_to_date(memory), 2), "days": got["days"], "usd": totals["cost_usd"],
+                "requests": totals["requests"], "claude_requests": totals["claude_requests"],
+                "free_requests": totals["free_requests"], "saved_by_router_usd": totals["saved_by_router_usd"],
+                "saved_by_free_usd": totals["saved_by_free_usd"],
+                "by_purpose": [{**r, "name": insights.purpose_name(r["name"])} for r in top(got["by_purpose"])],
+                "by_model": top(got["by_model"])}
+    except Exception:
+        log.info("maestro: the request log is unavailable", exc_info=True)
+        return {}
 
 
 def providers(memory: Memory, env=None) -> list[dict]:

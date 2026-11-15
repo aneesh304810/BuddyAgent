@@ -735,10 +735,10 @@ class Conversation:
         model writing the outline that Buddy builds into a .pptx / .docx. False (Claude takes over) on any problem."""
         from . import makers, routing  # noqa: PLC0415
         from .benefits import last_json  # noqa: PLC0415
-        from .free_models import check_general  # noqa: PLC0415
+        from .maestro import check_public  # noqa: PLC0415
         started = time.monotonic()
         try:
-            check_general(user_text, self.memory)  # personal details never go to a free model
+            check_public(user_text, self.memory)  # personal details never go to a free model
             if made == "image":
                 data = await asyncio.to_thread(makers.generate_image, mask(user_text))
                 file = makers.save(self.memory, data, topic[:40], "png", "image")

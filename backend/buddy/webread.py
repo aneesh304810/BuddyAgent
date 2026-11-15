@@ -31,7 +31,7 @@ import lxml.etree
 import lxml.html
 
 from . import usage
-from .free_models import FreeModels, NeedsClaude, PersonalData, check_general
+from .free_models import FreeModels, NeedsClaude, PersonalData
 from .config import settings
 from .memory import Memory
 from .tools import ToolError
@@ -163,7 +163,8 @@ class PageReader:
 
     def _general(self, question: str) -> bool:
         try:
-            check_general(question, self.memory)
+            from .maestro import check_public  # noqa: PLC0415  the one privacy check
+            check_public(question, self.memory)
             return True
         except PersonalData:
             usage.count(self.memory, "web:private_question")

@@ -349,7 +349,7 @@ private fun BuddyScreen(
                     DropdownMenu(expanded = menuOpen, onDismissRequest = { menuOpen = false }) {
                         listOf("✈  Travel" to Screen.Travel, "💳  Dashboard" to Screen.Dashboard, "💹  Investments" to Screen.Investments, "🏷️  Deals" to Screen.Deals, "🔔  Alerts" to Screen.Alerts, "🛡  Security" to Screen.Security, "🧭  Intelligence" to Screen.Intelligence, "🎼  Maestro" to Screen.Maestro, "📰  News" to Screen.News,
                             "📎  Library" to Screen.Library,
-                            "📊  Insights" to Screen.Insights, "🔌  Connections" to Screen.Connections,
+                            "🔌  Connections" to Screen.Connections,
                             "📄  Reports" to Screen.Reports, "⚙  Settings" to Screen.Settings)
                             .forEach { (label, target) ->
                                 DropdownMenuItem(text = { Text(label) }, onClick = { menuOpen = false; onNavigate(target) })
@@ -376,8 +376,8 @@ private fun BuddyScreen(
                 ReportsScreen(prefs.link) { onNavigate(Screen.Report(it)) }
                 return@Column
             }
-            Screen.Insights -> {
-                InsightsScreen(prefs.link)
+            Screen.Insights -> {  // every model request: now the Usage tab of Buddy Maestro (Maestro.kt)
+                MaestroScreen(prefs.link, openUsage = true)
                 return@Column
             }
             Screen.Connections -> {  // Buddy Connect: every outside service, its state, a Test button (Connections.kt)
@@ -421,7 +421,7 @@ private fun BuddyScreen(
                 return@Column
             }
             Screen.Maestro -> {  // Buddy Maestro: AI providers, who may see what, which does each job (web/maestro.html)
-                BuddyPage(prefs.link, "maestro.html")
+                MaestroScreen(prefs.link)
                 return@Column
             }
             Screen.Intelligence -> {  // the Buddy Intelligence Platform: convergence, stages, evidence (web/intel.html)

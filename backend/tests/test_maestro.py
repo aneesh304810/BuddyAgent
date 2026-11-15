@@ -330,3 +330,40 @@ def test_the_chat_tool_and_the_endpoints(memory, monkeypatch):
     assert client.get("/api/maestro/models?task=code", headers=ok).json()["models"][0]["id"] == "deepseek/deepseek-coder"
     checked = client.post("/api/maestro", json={"check": "nvidia"}, headers=ok).json()
     assert checked["checked"]["ok"] is False and "isn't set" in checked["text"]
+
+
+def test_every_place_text_can_leave_claude_calls_the_one_check():
+    import inspect
+
+    from buddy import agent, free_models, makers, model_advisor, webread
+    for module in (agent, free_models, makers, model_advisor, webread):
+        source = inspect.getsource(module)
+        assert "check_public(" in source, module.__name__
+        calls = [line for line in source.splitlines() if "check_general(" in line and "def check_general" not in line
+                 and not line.strip().startswith(("#", '"', "from"))]
+        assert all("free_models.check_general:" in c or "(free_models.check_general)" in c for c in calls), (module.__name__, calls)
+    with pytest.raises(free_models.PersonalData):
+        models.check_public("email jane.doe@example.com about the invoice")
+    models.check_public("how do tides work")  # nothing personal: no error
+
+
+def test_buddy_connect_refuses_personal_data_for_every_ai_provider_but_claude(memory):
+    for name, entry in gateway.CATALOG.items():
+        if entry.get("group") != "AI models" or name == "claude":
+            continue
+        with pytest.raises(gateway.ConnectError, match="personal data"):
+            gateway.call_url(memory, name, ["https://example.com/x"], personal=True,
+                             fetch=lambda *a, **k: (_ for _ in ()).throw(AssertionError("must not be called")))
+
+
+def test_the_page_reports_all_of_buddys_ai_use_including_the_main_conversation(memory):
+    from buddy import usage
+    usage.log_call(memory, provider="claude", model="claude-sonnet-5-5", purpose="chat", input_tokens=1000,
+                   output_tokens=200, cost=0.04, seconds=1.2)
+    usage.log_call(memory, provider="claude", model="claude-haiku-5-5", purpose="mail", input_tokens=500,
+                   output_tokens=50, cost=0.01, seconds=0.4)
+    usage.log_call(memory, provider="cerebras", model="llama", purpose="general:translate", seconds=0.3)
+    got = models.page(memory)["everything"]
+    assert got["requests"] == 3 and got["claude_requests"] == 2 and got["free_requests"] == 1
+    assert got["usd"] == 0.05 and got["by_purpose"][0] == {"name": "Talking with you", "requests": 1, "usd": 0.04}
+    assert got["by_model"][0]["name"] == "claude · claude-sonnet-5-5"

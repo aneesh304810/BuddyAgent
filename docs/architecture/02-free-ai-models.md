@@ -34,10 +34,12 @@ flowchart LR
     maestro_py --> free_models_py
     maestro_py --> modelscout_py
     maestro_py --> openrouter_catalog_py
+    free_models_py --> maestro_py
     free_models_py --> modelscout_py
     free_models_py --> openrouter_catalog_py
     modelscout_py --> free_models_py
     model_advisor_py --> free_models_py
+    model_advisor_py --> maestro_py
     s_added_ai["AI providers you added<br/>(public data only)"]
     maestro_py --> s_added_ai
     s_openai["OpenAI (paid AI, Intelligence Platform only)<br/>(public data only)"]
@@ -50,9 +52,9 @@ flowchart LR
     maestro_py -. uses .-> o_2
     o_3["Fixing and explaining itself"]
     maestro_py -. uses .-> o_3
-    o_4["Investing"]
+    o_4["Insights and costs"]
     maestro_py -. uses .-> o_4
-    o_5["Memory"]
+    o_5["Investing"]
     maestro_py -. uses .-> o_5
 ```
 
@@ -107,7 +109,7 @@ them: the owner enters them from the provider's own page.
 
 - Outside services: AI providers you added, OpenAI (paid AI, Intelligence Platform only)
 - Settings: `BUDDY_AI_`, `BUDDY_CEREBRAS_KEY`, `BUDDY_GEMINI_KEY`, `BUDDY_GROQ_KEY`, `BUDDY_MISTRAL_KEY`, `BUDDY_NVIDIA_KEY`, `BUDDY_OPENAI_ANALYSIS`, `BUDDY_OPENAI_CHEAP`, `BUDDY_OPENAI_KEY`, `BUDDY_OPENROUTER_KEY`
-- Uses: agent.py, benefits.py, config.py, free_models.py, gateway.py, markets.py, memory.py, modelscout.py, openrouter_catalog.py, themes.py, tools.py, usage.py
+- Uses: agent.py, benefits.py, config.py, free_models.py, gateway.py, insights.py, markets.py, memory.py, modelscout.py, openrouter_catalog.py, themes.py, tools.py, usage.py
 
 ### free_models.py
 
@@ -138,7 +140,7 @@ a setting, checked against the provider's model list.
 ```
 
 - Settings: `BUDDY_CEREBRAS_KEY`, `BUDDY_CEREBRAS_MODEL`, `BUDDY_DEEPSEEK_MODEL`, `BUDDY_FREE_MODELS`, `BUDDY_GEMINI_KEY`, `BUDDY_GEMINI_MODEL`, `BUDDY_GITHUB_MODEL`, `BUDDY_GITHUB_MODELS_KEY`, `BUDDY_GROQ_KEY`, `BUDDY_GROQ_MODEL`, `BUDDY_MISTRAL_KEY`, `BUDDY_MISTRAL_MODEL` and 4 more
-- Uses: agent.py, budgets.py, config.py, gateway.py, modelscout.py, openrouter_catalog.py, privacy.py, tools.py, usage.py
+- Uses: agent.py, budgets.py, config.py, gateway.py, maestro.py, modelscout.py, openrouter_catalog.py, privacy.py, tools.py, usage.py
 
 ### openrouter_catalog.py
 
@@ -223,10 +225,10 @@ this" with the paid suggestion, never passed off as done.
 ```
 
 - Settings: `BUDDY_CLEAN_REPOS`, `BUDDY_CODE_MODEL`, `BUDDY_FREE_MODELS`
-- Uses: config.py, free_models.py, selfcode.py
+- Uses: config.py, free_models.py, maestro.py, selfcode.py
 
 ## How it connects
 
-- Relies on: Buddy Connect; Buddy Intelligence Platform; Claude: the brain; Fixing and explaining itself; Investing: signals, research and practice; Memory; Money; Security and privacy
+- Relies on: Buddy Connect; Buddy Intelligence Platform; Claude: the brain; Fixing and explaining itself; Insights and costs; Investing: signals, research and practice; Memory; Money; Security and privacy
 - Relied on by: Buddy Connect; Buddy Intelligence Platform; Claude: the brain; Fixing and explaining itself; Insights and costs; Investing: signals, research and practice; Learning: the English and investing tutors; Making and doing things; Money; News, trends and research; Speaking up on its own: briefing, reminders and alerts; The server and the app; Voice: Talk mode and Listen-in
 

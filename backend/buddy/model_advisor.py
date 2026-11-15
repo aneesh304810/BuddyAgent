@@ -71,12 +71,13 @@ def note_code_result(memory, provider: str, ok: bool) -> None:
 
 def advise_code(memory, task: str, repo: str, free=None) -> dict:
     """{route: free|claude, provider?, model?, paid: haiku|sonnet, why}."""
-    from .free_models import FreeModels, PersonalData, check_general  # noqa: PLC0415
+    from .free_models import FreeModels, PersonalData  # noqa: PLC0415
     big = size(task) == "large"
     paid = "sonnet" if big else "haiku"
     out = {"route": "claude", "paid": paid, "size": "large" if big else "small"}
     try:
-        check_general(the_change(task), memory)
+        from .maestro import check_public  # noqa: PLC0415  the one privacy check
+        check_public(the_change(task), memory)
     except PersonalData:
         return {**out, "why": "the request includes your personal details, which only go to Claude"}
     except Exception:

@@ -406,7 +406,8 @@ class FreeModels:
             raise ToolError(f"Kinds: {', '.join(BEST_FOR)}.")
         text = text[:MAX_CHARS]
         # check_text=False: the text is public (a web page); only the instruction can carry the user's details.
-        check_general((text + " " if check_text else "") + instruction, self.memory)
+        from .maestro import check_public  # noqa: PLC0415  the one privacy check (maestro.py)
+        check_public((text + " " if check_text else "") + instruction, self.memory)
         if kind == "code" and (why := code_route(instruction + "\n" + text)):
             usage.count(self.memory, "free:code_to_claude")
             raise NeedsClaude(f"This coding task needs you, not a free model ({why}): do it yourself, carefully (hand_over first if you have that tool).")

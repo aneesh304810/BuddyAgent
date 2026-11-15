@@ -76,6 +76,17 @@ function setupCard(rows) {
     "Buddy cannot sign up for you or create a key: each provider needs you to make the account and accept its terms. The check asks the provider to list its models with the key that is set; the key is never shown.");
 }
 
+function everythingCard(e) {
+  if (!e || e.requests == null) return "";
+  const rows = (list) => (list || []).map((r) => `<tr><td>${esc(r.name)}</td><td>${esc(r.requests)}</td><td>$${Number(r.usd).toFixed(2)}</td></tr>`).join("");
+  return card("All of Buddy's AI use", `<div class="kpis">${kpi("$" + Number(e.month_usd).toFixed(2), "spent this month")}${kpi(esc(e.requests), `requests in ${e.days} days`)}
+      ${kpi(esc(e.claude_requests), "answered by Claude")}${kpi(esc(e.free_requests), "answered by free models")}
+      ${kpi("$" + Number(e.saved_by_router_usd).toFixed(2), "saved by using a cheaper Claude tier")}${kpi("$" + Number(e.saved_by_free_usd).toFixed(2), "saved by free models")}</div>
+    <h3>Where it went</h3><div style="overflow-x:auto"><table class="grid"><tr><th>What for</th><th>Requests</th><th>Cost</th></tr>${rows(e.by_purpose)}</table></div>
+    <h3>By model</h3><div style="overflow-x:auto"><table class="grid"><tr><th>Model</th><th>Requests</th><th>Cost</th></tr>${rows(e.by_model)}</table></div>`,
+    "This covers the main conversation and every other feature, not only the jobs chosen below. The full detail, request by request, is on the Usage tab.");
+}
+
 function models() {
   if (!modelData) { loadModels(); return `<p class="muted">Loading…</p>`; }
   if (modelData.failed) return `<p class="err">${esc(modelData.failed)}</p>`;
@@ -99,7 +110,7 @@ function models() {
     <p><label>Price per million tokens: in <input id="p-in" type="number" min="0" step="0.01" value="0" style="width:80px"></label> <label>out <input id="p-out" type="number" min="0" step="0.01" value="0" style="width:80px"></label></p>
     <p><button class="btn" id="p-add">Add provider</button></p>`;
   return card("The privacy rule", `<p><b>${esc(m.rule || "")}</b></p>`, "Checked in code in one place. Text meant to be public is also checked for personal details before it leaves, and goes to Claude if it has any.") +
-    card("Providers", prov) + card("Which model does each job", jobs, "Most of the platform uses no AI: tagging, stages, convergences and the practice scoring are code.") +
+    everythingCard(m.everything) + card("Providers", prov) + card("Which model does each job", jobs, "Most of the platform uses no AI: tagging, stages, convergences and the practice scoring are code.") +
     card(`Spending this month (${esc(sp.month)})`, `<div class="kpis">${kpi("$" + Number(sp.total).toFixed(2), "spent on paid models")}${kpi("$" + Number(sp.cap).toFixed(2), "monthly limit")}${kpi(used + "%", "of the limit used")}</div>
       ${spent || `<p class="muted">Nothing spent yet.</p>`}
       <p style="margin-top:10px"><label>Monthly limit in dollars <input id="cap" type="number" min="0" max="500" step="1" value="${esc(sp.cap)}" style="width:90px"></label> <button class="btn" id="capset">Save</button></p>`,

@@ -79,15 +79,30 @@ pool. A choice that fails or gives an unusable answer falls back to the free poo
 personal. Any choice can be scored on 48 headlines with known right labels before a job is moved to it.
 Details are in INTELLIGENCE.md.
 
+## Usage: everything Buddy asked a model
+
+Maestro has two tabs in the app. **Providers & models** is this page. **Usage** is what used to be the
+separate Insights screen: every model request, what it was for, what it cost and how fast it came back,
+with speed, voice timing, tools and the request-by-request list. Insights is no longer in the menu; the
+link from the chat that used to open it opens Maestro's Usage tab.
+
+The top of Providers & models shows **All of Buddy's AI use**: spending this month, requests in the last
+30 days, how many Claude answered and how many free models did, what was saved by using a cheaper Claude
+tier and by free models, and where the money went by purpose and by model. This covers the main
+conversation and every other feature, not only the jobs chosen on this page.
+
 ## What goes through it today, and what does not yet
 
 - **Through the Maestro:** the Intelligence Platform's jobs (labelling headlines, writing up
   convergences, finding companies and relationships).
 - **Using the same pool and the same privacy check, but called directly:** Buddy's general free-model work
   (translating or summarising a public page, small talk), which is in `free_models.py`.
-- **Not through it:** the main conversation, which is always Claude and chooses its tier in `router.py` and
-  `routing.py`.
+- **Reported here, called directly:** the main conversation, which is always Claude and chooses its tier in
+  `router.py` and `routing.py`. Its requests and cost show on this page and on the Usage tab. It is called
+  directly on purpose: it is the path every message takes, with tools, streaming and voice, and it would
+  stay on Claude whichever way it was routed.
 
-So the registry, the rule and the page cover every provider, but only the first group is routed by job
-here. Moving the other two behind the same front door is the next step, and is a larger change because the
-main conversation uses tools and streaming.
+**One privacy check.** Every place where text can leave Claude (free-model work, making an image, reading
+a web page, the model advisor, a free answer in chat) calls the same check, `maestro.check_public`. Buddy
+Connect also refuses to send anything marked personal to any AI provider except Claude. A test fails if a
+new place calls the detector directly instead of going through the check.

@@ -499,6 +499,10 @@ def call_url(memory, name: str, urls: list[str], *, data: bytes | None = None, h
         raise ConnectError(name, f"{entry['title']} is disconnected (you switched it off on the Security page).", 403)
     if personal and entry.get("privacy") != "personal":
         raise ConnectError(name, f"{entry['title']} may not see personal data, so I didn't send this there.")
+    if personal and entry.get("group") == "AI models":  # Buddy Maestro's rule: only Claude sees the owner's data
+        from . import maestro  # noqa: PLC0415
+        if not maestro.may_see(name, True):
+            raise ConnectError(name, f"{entry['title']} may not see personal data: that goes to Claude only.")
     if not _rate_ok(name):
         raise ConnectError(name, f"{entry['title']}: too many calls this minute; try again shortly.", 429)
     fetch = fetch or _transport

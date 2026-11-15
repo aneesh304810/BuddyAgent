@@ -129,7 +129,7 @@ folder; links to them are signed and expire, so only you can open them.
 
 - Tables: `files`
 - Settings: `BUDDY_FILES_DIR`, `BUDDY_GEMINI_KEY`, `BUDDY_IMAGE_MODEL`, `BUDDY_TOKEN`
-- Uses: cards.py, config.py, docedit.py, free_models.py, memory.py, tools.py
+- Uses: cards.py, config.py, docedit.py, maestro.py, memory.py, tools.py
 
 ### docedit.py
 

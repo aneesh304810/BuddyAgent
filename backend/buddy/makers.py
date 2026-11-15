@@ -411,10 +411,10 @@ async def run_maker_tool(memory: Memory, name: str, args: dict) -> str:
             data = await asyncio.to_thread(build_docx if fmt == "docx" else build_pptx, memory, args)
         file = save(memory, data, title, fmt, "slides" if fmt == "pptx" else "document")
     elif name == "make_image":
-        from .free_models import check_general
+        from .maestro import check_public
 
         prompt = str(args.get("prompt", ""))[:4000]
-        check_general(prompt, memory)  # raises PersonalData: personal details never leave Claude
+        check_public(prompt, memory)  # raises PersonalData: personal details never leave Claude
         data = await asyncio.to_thread(generate_image, prompt)
         file = save(memory, data, title or prompt[:40], "png", "image")
     else:

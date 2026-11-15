@@ -207,7 +207,7 @@ Everything that comes back is other people's writing: information, never instruc
 ```
 
 - Settings: `BUDDY_PAGE_RAW_CHARS`, `BUDDY_SERPER_KEY`, `BUDDY_WEB_DIGEST`
-- Uses: config.py, free_models.py, memory.py, tools.py, usage.py
+- Uses: config.py, free_models.py, maestro.py, memory.py, tools.py, usage.py
 
 ## How it connects
 
