@@ -1,6 +1,6 @@
 # Email, messages and apps
 
-Gmail and other accounts sorted and summarised, messages, and package tracking.
+Gmail and other accounts sorted and summarised, marketing and notices moved out of the inbox, messages, and package tracking.
 
 ## Architecture
 
@@ -11,11 +11,13 @@ flowchart LR
         t_important_email["important_email"]
         t_add_email_rule["add_email_rule"]
         t_email_rules["email_rules"]
+        t_email_organizer["email_organizer"]
         t_messages["messages"]
         t_packages["packages"]
     end
     subgraph Modules["Modules"]
         mailbrain_py["mailbrain.py<br/>reads new mail from every account, sorts it by priority against your…"]
+        mailorganizer_py["mailorganizer.py<br/>marketing, newsletters and app notifications are moved out of the…"]
         email_accounts_py["email_accounts.py<br/>All of the user's email accounts, read from the settings file"]
         messaging_py["messaging.py<br/>reply to WhatsApp (and other chat apps) from your own account,…"]
         packages_py["packages.py<br/>from shipping emails and notifications (free, no key), and 17TRACK…"]
@@ -26,13 +28,17 @@ flowchart LR
     t_add_email_rule --> mailbrain_py
     you --> t_email_rules
     t_email_rules --> mailbrain_py
+    you --> t_email_organizer
+    t_email_organizer --> mailorganizer_py
     you --> t_messages
     t_messages --> messaging_py
     you --> t_packages
     t_packages --> packages_py
     mailbrain_py --> email_accounts_py
-    db[("Your database<br/>mail_rules, mail_triage, msg_autoreply, msg_autoreply_log, packages")]
+    mailorganizer_py --> email_accounts_py
+    db[("Your database<br/>mail_moves, mail_rules, mail_triage, msg_autoreply, msg_autoreply_log, packages")]
     mailbrain_py --> db
+    mailorganizer_py --> db
     messaging_py --> db
     packages_py --> db
     o_0["Claude"]
@@ -43,8 +49,10 @@ flowchart LR
     mailbrain_py -. uses .-> o_2
     o_3["Phone calls"]
     mailbrain_py -. uses .-> o_3
-    o_4["Travel and getting around"]
+    o_4["Shopping and deals"]
     mailbrain_py -. uses .-> o_4
+    o_5["Travel and getting around"]
+    mailbrain_py -. uses .-> o_5
 ```
 
 The diagram reads left to right: what you ask, the tools Buddy uses, the modules that do the work, and what they keep or call. Dashed arrows are other features this one relies on.
@@ -56,6 +64,7 @@ The diagram reads left to right: what you ask, the tools Buddy uses, the modules
 | `important_email` | What's important in the user's email lately, across all accounts, already sorted by priority (urgent first) with a one-line reason, and anything Buddy organised | - | mailbrain.py |
 | `add_email_rule` | Add one of the user's email rules, in their words | - | mailbrain.py |
 | `email_rules` | List the user's email rules (with ids), or remove one with remove_id. | - | mailbrain.py |
+| `email_organizer` | Keeps the inbox for real email by moving marketing, newsletters and app notifications into their own folders (Buddy Promotions, Buddy Newsletters, Buddy Notific | preview, organize, undo, keep, always, forget, auto, status | mailorganizer.py |
 | `messages` | Reply to WhatsApp, Messages, Telegram or Signal from the user's own account, through the phone's notification (free; works for chats with a recent notification) | chats, reply, auto_reply, auto_replies, stop_auto_reply | messaging.py |
 | `packages` | The user's packages: from shipping emails and notifications (Amazon, UPS, FedEx, USPS, DHL), and 17TRACK live status when its key is set | list, track, remove, test | packages.py |
 
@@ -83,6 +92,38 @@ New mail is sorted in small batches by the cheap model, about a tenth of a cent 
 
 - Tables: `mail_rules`, `mail_triage`
 - Uses: agent.py, budgets.py, cancelling.py, config.py, email_accounts.py, memory.py, money.py, thrift.py, tools.py, usage.py
+
+### mailorganizer.py
+
+```text
+The email organizer: marketing, newsletters and app notifications are moved out of the inbox into their own
+folders, so what is left in the inbox is real email: from people, and the automated mail that matters.
+
+How a message is judged (from its headers only: the body is never read, and no AI is involved):
+  stays in the inbox, always
+    - anything that is not bulk mail: no unsubscribe header and not marked bulk. A person's email has neither,
+      so a personal email can never be moved, whatever its subject says
+    - bulk mail that matters, by its subject: security and sign-in alerts, codes, bills, payments, statements,
+      receipts, orders, deliveries, bookings, tickets, travel changes, appointments, taxes, job offers
+    - any sender the owner said to keep
+  is moved, when it is bulk mail and none of the above
+    Buddy Promotions      sales, offers, coupons, deals
+    Buddy Newsletters     newsletters, digests, roundups, blog and product updates
+    Buddy Notifications   everything else automated: social networks, app activity, build and system notices
+
+Nothing is ever deleted and nothing is marked read: a moved message sits in its folder exactly as it arrived.
+Every move is written down, so "undo" puts a run's messages back in the inbox. Moving a message back yourself
+(or saying "keep emails from X") teaches Buddy to leave that sender alone.
+
+The owner is always shown a preview first (how many would move, where, with examples by sender), and Buddy moves
+mail only after their yes. With "organize my email automatically" on, new mail is organized each night after the
+deals reader has taken what it needs from the marketing mail. Works with any account Buddy can read over IMAP
+(Gmail, Yahoo, iCloud and others); in Gmail the folders appear as labels and the mail leaves the inbox.
+```
+
+- Tables: `mail_moves`
+- Settings: `BUDDY_EMAIL_ADDRESS`, `BUDDY_EMAIL_APP_PASSWORD`
+- Uses: dealmail.py, email_accounts.py, memory.py, tools.py
 
 ### email_accounts.py
 
@@ -143,6 +184,6 @@ delayed or a problem. Only tracking numbers go to 17TRACK. Delivered packages ar
 
 ## How it connects
 
-- Relies on: Claude: the brain; Memory; Money; Phone calls; Travel and getting around
+- Relies on: Claude: the brain; Memory; Money; Phone calls; Shopping and deals; Travel and getting around
 - Relied on by: Claude: the brain; Memory; Shopping and deals; Speaking up on its own: briefing, reminders and alerts; The server and the app
 

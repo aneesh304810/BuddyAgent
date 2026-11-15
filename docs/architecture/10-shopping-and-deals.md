@@ -63,14 +63,16 @@ flowchart LR
     dealnotif_py --> dealforecast_py
     dealnotif_py --> dealmail_py
     dealforecast_py --> dealcollector_py
+    dealforecast_py --> dealmail_py
     dealforecast_py --> seasons_py
     dealforecast_py --> shopper_py
     dealforecast_py --> whentobuy_py
     deals_py --> amazon_py
     deals_py --> prices_py
     amazon_py --> prices_py
-    db[("Your database<br/>deal_alerts, price_seen, price_watches, seasons, shop_considering, shop_profile, shop_purchases, shop_reviews")]
+    db[("Your database<br/>card_offers, deal_alerts, price_seen, price_watches, seasons, shop_considering, shop_profile, shop_purchases and more")]
     shopper_py --> db
+    dealmail_py --> db
     dealforecast_py --> db
     deals_py --> db
     prices_py --> db
@@ -110,7 +112,7 @@ The diagram reads left to right: what you ask, the tools Buddy uses, the modules
 |---|---|---|---|
 | `shopping_profile` | The owner's way of buying, per kind (general, electronics, home, travel, clothing): how they research, trusted sources and brands, brands to avoid, patience and | show, interview, save, considering, learn, forget, review | shopper.py |
 | `when_to_buy` | Buy now or wait, for a product at today's price (not flights or hotels: the travel tools do those) | advise, track_record, calendar, note_launch, lifecycle | whentobuy.py |
-| `daily_deals` | Buddy's daily deals collector: every morning it reads deal sites (Slickdeals, DealNews, deal subreddits and any feed the owner adds), checks today's prices for  | today, search, feeds, add_feed, remove_feed, status, on, off, read_inbox | dealcollector.py |
+| `daily_deals` | Buddy's daily deals collector: every morning it reads deal sites (Slickdeals, DealNews, deal subreddits and any feed the owner adds), checks today's prices for  | today, search, feeds, add_feed, remove_feed, status, on, off, read_inbox, card_offers | dealcollector.py |
 | `deal_forecast` | Why deals happen and when the next one is likely, with alerts | forecast, why, watch, alerts, stop, upcoming, company, predictions | dealforecast.py |
 | `watch_price` | Keep checking a flight, hotel or product in the background and tell the user when it drops to `target` (or by 10% or more) | - | deals.py |
 | `price_watches` | List the price watches with the latest and lowest prices seen, or stop one with stop_id. | - | deals.py |
@@ -211,11 +213,22 @@ Why a separate inbox: newsletters don't bury real mail or go through the AI emai
 email), and nothing personal is in it. Setup: a new free email account (2-step verification on, an app password),
 then sudo bash /opt/buddy/deploy/set.sh BUDDY_DEALS_EMAIL_ADDRESS and ... BUDDY_DEALS_EMAIL_APP_PASSWORD.
 
+All the owner's email, for deals only (on unless BUDDY_DEALS_FROM_ALL_EMAIL=0): each night Buddy also looks through
+the owner's regular email accounts for marketing email, and only that. It first reads just the headers of each new
+message; a message is opened only if it is bulk mail (it carries an unsubscribe header, or says it is bulk), so a
+personal email's body is never downloaded for this. From the bulk mail it takes the same deals into the price
+book, and from card issuers' emails (American Express, Chase, Citi, Capital One...) the card offers: "spend $250
+or more, get $50 back at Best Buy, by 12/31". Card offers are about the owner's own cards, so they are kept in
+Buddy's encrypted database, not the price book. Regular accounts are only ever read: nothing is marked read, moved
+or deleted there (the tidy-up is for the deals inbox alone). All of it is code on the owner's server: no AI reads
+these emails, and nothing is sent anywhere.
+
 The price is taken from the email itself; store pages are never opened by Buddy (their terms forbid automated
 visits). The owner opens a deal's link in their own browser from the Deals page.
 ```
 
-- Settings: `BUDDY_DEALS_EMAIL_ADDRESS`, `BUDDY_DEALS_EMAIL_APP_PASSWORD`, `BUDDY_DEALS_EMAIL_CLEAN_DAYS`, `BUDDY_DEALS_EMAIL_IMAP_HOST`
+- Tables: `card_offers`
+- Settings: `BUDDY_DEALS_EMAIL_ADDRESS`, `BUDDY_DEALS_EMAIL_APP_PASSWORD`, `BUDDY_DEALS_EMAIL_CLEAN_DAYS`, `BUDDY_DEALS_EMAIL_IMAP_HOST`, `BUDDY_DEALS_FROM_ALL_EMAIL`
 - Uses: dealforecast.py, email_accounts.py, gateway.py, memory.py, pricebook.py, shopper.py, tools.py
 
 ### dealnotif.py
@@ -264,7 +277,7 @@ Buddy never buys: an alert says the deal is there, the owner decides.
 ```
 
 - Tables: `deal_alerts`
-- Uses: dealcollector.py, memory.py, patterns.py, pricebook.py, recommend.py, seasons.py, shopper.py, tools.py, whentobuy.py
+- Uses: dealcollector.py, dealmail.py, memory.py, patterns.py, pricebook.py, recommend.py, seasons.py, shopper.py, tools.py, whentobuy.py
 
 ### deals.py
 
@@ -335,5 +348,5 @@ price book shows the item. Refreshed once a month (code only; no AI, no cost). O
 ## How it connects
 
 - Relies on: Buddy Connect; Claude: the brain; Email, messages and apps; Investing: signals, research and practice; Learning: the English and investing tutors; Making and doing things; Memory; Money; The price book, pattern learning and trained models; Travel and getting around
-- Relied on by: Claude: the brain; Investing: signals, research and practice; Making and doing things; Speaking up on its own: briefing, reminders and alerts; The price book, pattern learning and trained models; The server and the app; Travel and getting around
+- Relied on by: Claude: the brain; Email, messages and apps; Investing: signals, research and practice; Making and doing things; Speaking up on its own: briefing, reminders and alerts; The price book, pattern learning and trained models; The server and the app; Travel and getting around
 

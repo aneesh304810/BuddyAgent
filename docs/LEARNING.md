@@ -44,3 +44,27 @@ music, AI, property, travel deals and so on):
 
 The counting is done in code on your server; nothing is sent out for it. For a subject outside the list, say
 "follow <subject>". Other people's words in Listen-in are never counted.
+
+## The email organizer
+
+"Organize my email" keeps your inbox for real email. Marketing, newsletters and app notifications move into
+their own folders (Buddy Promotions, Buddy Newsletters, Buddy Notifications; in Gmail they appear as labels).
+
+- **What always stays in the inbox**: anything that isn't bulk mail (no unsubscribe header), which means every
+  email from a person, whatever its subject says; bulk mail whose subject says it matters (security alerts,
+  sign-in codes, bills, payments, statements, receipts, orders, deliveries, bookings, tickets, travel changes,
+  appointments, taxes); and any sender you told Buddy to keep.
+- **What moves**: other bulk mail. Sales and offers go to Promotions, newsletters and digests to Newsletters,
+  everything else automated (social networks, app activity, build notices) to Notifications.
+- **How it decides**: from the headers only (sender, subject, the bulk-mail markers), in code. The body is
+  never read and no AI is involved, so it costs nothing.
+- **Preview first**: Buddy always shows what would move (counts, the top senders, examples) and moves mail
+  only after your yes. Nothing is ever deleted or marked read.
+- **Undo**: "undo the email organizing" puts the last run back in the inbox.
+- **Teach it**: "keep emails from github.com", "always put oldnavy.com in promotions", "forget what I said
+  about X". A taught sender wins over the built-in rules.
+- **Automatic**: after you've organized once by hand, "organize my email automatically" does the last two
+  days' mail each night, after the deals reader has taken what it needs from the marketing mail.
+
+It works on every email account Buddy can read (Gmail, Yahoo, iCloud and others). When in doubt a message stays
+in the inbox: it is better to leave a promotion than to hide something real.

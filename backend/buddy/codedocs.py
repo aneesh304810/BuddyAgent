@@ -211,8 +211,9 @@ COMPONENTS = [  # every server module belongs to one feature (tests check none i
     ("News, trends and research", "The topics you follow with a daily digest, what's trending, searching beyond the "
      "web index, reading pages on Buddy's side, and the background research agent",
      ["trends.py", "social.py", "research.py", "webread.py"]),
-    ("Email, messages and apps", "Gmail and other accounts sorted and summarised, messages, and package tracking",
-     ["mailbrain.py", "email_accounts.py", "messaging.py", "packages.py"]),
+    ("Email, messages and apps", "Gmail and other accounts sorted and summarised, marketing and notices moved out of "
+     "the inbox, messages, and package tracking",
+     ["mailbrain.py", "mailorganizer.py", "email_accounts.py", "messaging.py", "packages.py"]),
     ("Home and health", "Your Nest thermostat, your phone's health data and Oura Ring, and your health plan with "
      "public medical sources", ["nest.py", "health_data.py", "oura.py", "coach.py"]),
     ("Making and doing things", "Diagrams, charts, images, Word, PowerPoint, PDF and Excel; data crunching in the "

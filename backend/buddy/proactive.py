@@ -514,6 +514,10 @@ async def run(memory: Memory, deliver: Deliver, connected=None) -> None:
                 if (dealmail.configured() or dealmail.accounts()) and dealmail.due(memory):
                     memory.set(dealmail.DAY_KEY, local_now().date().isoformat())
                     log.info("deals inbox: %s", await asyncio.to_thread(dealmail.run, memory))
+                from . import mailorganizer  # noqa: PLC0415  after the deals reader has read the marketing mail
+                if mailorganizer.due(memory):
+                    memory.set(mailorganizer.DAY_KEY, local_now().date().isoformat())
+                    log.info("email organizer: %s", (await asyncio.to_thread(mailorganizer.nightly, memory))["moved"])
             except Exception:
                 log.exception("deals inbox failed")
             try:  # nightly: patterns learned in the sandbox, raw prices over 90 days (already learned) deleted,
