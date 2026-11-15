@@ -132,3 +132,17 @@ def test_read_newsletters_go_to_trash_after_two_days_personal_mail_stays(memory)
     assert dealmail.clean(memory, env={"BUDDY_DEALS_EMAIL_CLEAN_DAYS": "0"}, connect=lambda env: CleanIMAP()) == 0
     memory.set(dealmail.LAST_KEY, "")
     assert dealmail.clean(memory, env={}, connect=lambda env: CleanIMAP()) == 0  # nothing read yet: nothing removed
+
+
+def test_a_flood_of_product_deals_does_not_push_flights_and_hotels_off_the_page(memory):
+    """Seen live: after a night with thousands of product deals the Flights and Hotels tabs looked empty."""
+    msgs = [message("Delta <deals@delta.example>", "Fares", text="JFK to LIM from $398\nhttps://delta.example/lim")]
+    dealmail.run(memory, env={}, connect=lambda env: FakeIMAP(msgs))
+    pricebook.run(memory, "INSERT INTO deals (seen_on, source, title, url, price, store) SELECT current_date, 'feed', "
+                          "'Gadget ' || i, 'https://shop.example/' || i, 10 + i, 'Shop' FROM range(40) t(i)")
+    page = pricebook.deals_page(memory, days=7, limit=10)
+    assert page["counts"] == {"product": 40, "flight": 1, "hotel": 0}  # the true totals, not just what is shown
+    assert page["shown"] == {"product": 10, "flight": 1, "hotel": 0}
+    assert any(d["domain"] == "flight" and "LIM" in d["title"] for d in page["deals"])
+    only = pricebook.deals_page(memory, days=7, domain="flight", limit=10)
+    assert [d["domain"] for d in only["deals"]] == ["flight"]

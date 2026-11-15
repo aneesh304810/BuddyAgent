@@ -115,7 +115,9 @@ function render() {
     $("main").innerHTML = `<p class="muted">No ${tab === "product" ? "product" : tab} deals here yet. Deals arrive from the deal feeds every morning and from your deals inbox every night.</p>`;
     return;
   }
-  $("main").innerHTML = list.map((d, i) => `
+  const total = (data.counts || {})[tab] || list.length;
+  const more = total > list.length ? `<p class="muted">Showing the newest ${list.length} of ${total.toLocaleString()}. Search to narrow them down.</p>` : "";
+  $("main").innerHTML = more + list.map((d, i) => `
     <section class="card"><div class="deal">
       <div class="what">
         <b>${esc(d.title)}</b>

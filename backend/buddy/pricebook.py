@@ -274,16 +274,22 @@ def deals_page(memory, days: int = 7, domain: str = "", query: str = "", limit: 
     deal at or under it is marked. Market data only."""
     since = (datetime.now(timezone.utc).date() - timedelta(days=max(1, min(days, 90)))).isoformat()
     where, args = ["seen_on >= ?"], [since]
-    if domain in ("product", "flight", "hotel"):
-        where.append("COALESCE(domain, 'product') = ?")
-        args.append(domain)
     for w in [w for w in re.findall(r"[a-z0-9]{2,}", (query or "").lower())][:6]:
         where.append("lower(title || ' ' || COALESCE(store, '') || ' ' || COALESCE(item, '')) LIKE ?")
         args.append(f"%{w}%")
-    rows = run(memory, "SELECT d.id, d.seen_on, d.source, d.title, d.url, d.price, d.store, "
-                       "COALESCE(d.domain, 'product') AS domain, COALESCE(NULLIF(d.item, ''), lower(d.title)) AS item, "
-                       "d.regular_price, d.ends FROM deals d WHERE " + " AND ".join(where)
-               + f" ORDER BY d.seen_on DESC, d.id DESC LIMIT {int(limit)}", tuple(args))
+    # Each kind gets its own newest `limit`: a night with thousands of product deals must not push the few
+    # flight and hotel deals off the page.
+    kinds = (domain,) if domain in ("product", "flight", "hotel") else ("product", "flight", "hotel")
+    rows = []
+    for kind in kinds:
+        rows += run(memory, "SELECT d.id, d.seen_on, d.source, d.title, d.url, d.price, d.store, "
+                            "COALESCE(d.domain, 'product') AS domain, COALESCE(NULLIF(d.item, ''), lower(d.title)) AS item, "
+                            "d.regular_price, d.ends FROM deals d WHERE " + " AND ".join(where)
+                    + " AND COALESCE(d.domain, 'product') = ?"
+                    + f" ORDER BY d.seen_on DESC, d.id DESC LIMIT {int(limit)}", (*args, kind))
+    totals = {r["domain"]: int(r["n"]) for r in run(
+        memory, "SELECT COALESCE(domain, 'product') AS domain, COUNT(*) AS n FROM deals d WHERE " + " AND ".join(where)
+                + " GROUP BY 1", tuple(args))}
     lows = {(r["domain"], r["item"]): r["low"] for r in run(
         memory, "SELECT domain, item, MIN(price) AS low, COUNT(*) AS n FROM observations GROUP BY domain, item")}
     out = []
@@ -293,8 +299,9 @@ def deals_page(memory, days: int = 7, domain: str = "", query: str = "", limit: 
                     "is_lowest": bool(r["price"] and low and r["price"] <= low * 1.001),
                     "off": round(1 - r["price"] / r["regular_price"], 2) if r["price"] and r["regular_price"] else None,
                     "url": r["url"] if str(r["url"]).startswith("https://") else ""})
-    counts = {d: sum(1 for r in out if r["domain"] == d) for d in ("product", "flight", "hotel")}
-    return {"deals": out, "counts": counts, "days": days}
+    counts = {d: totals.get(d, 0) for d in ("product", "flight", "hotel")}  # all of them, not just those shown
+    return {"deals": out, "counts": counts, "shown": {d: sum(1 for r in out if r["domain"] == d) for d in counts},
+            "days": days}
 
 
 def chart(memory, item: str, domain: str = "product", days: int = 365) -> dict:
