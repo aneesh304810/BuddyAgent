@@ -26,6 +26,7 @@ import json
 import logging
 import os
 import re
+import tempfile
 import threading
 from datetime import datetime, timedelta, timezone
 from pathlib import Path
@@ -345,7 +346,7 @@ def run_tool(memory, args: dict) -> str:
             for r in rows[-200:]], "count": len(rows)}, default=str)
     if action == "export":
         where = str(Path(path_for(memory)).with_name("pricebook-export")) if not path_for(memory).startswith(
-            ":memory:") else "/tmp/pricebook-export"
+            ":memory:") else str(Path(tempfile.gettempdir()) / "pricebook-export")
         files = export(memory, where, args.get("format") or "csv")
         return json.dumps({"files": files, "note": "Saved on Buddy's server. Copy them off with scp."})
     if action == "patterns":

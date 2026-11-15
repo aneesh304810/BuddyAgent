@@ -17,7 +17,6 @@ or adds one. Only the CIK goes to the SEC.
 import json
 import logging
 import re
-import xml.etree.ElementTree as ET
 from datetime import date, datetime
 
 from . import gateway
@@ -110,7 +109,8 @@ def holdings(memory: Memory, cik: str, accession: str, filed: str, env=None, fet
         raise ToolError("The filing has no holdings table.")
     raw = gateway.call_url(memory, "sec", [f"{folder}/{tables[0]}"], headers={**_headers(env), "Accept": "*/*"},
                            raw=True, fetch=fetch, purpose="funds")
-    root = ET.fromstring(raw)
+    from defusedxml import ElementTree as SafeET  # noqa: PLC0415  a filing is outside XML: parsed safely
+    root = SafeET.fromstring(raw)
     scale = 1.0 if filed >= "2023-01-03" else 1000.0  # values were in thousands of dollars before 2023
 
     def text(el, name):

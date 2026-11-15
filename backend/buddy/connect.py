@@ -523,7 +523,7 @@ class Moments:
     # calendar: time to leave for an event with a place, and tomorrow's overlaps
     def place(self, where: str) -> tuple[float, float] | None:
         import hashlib  # noqa: PLC0415
-        key = "connect:place:" + hashlib.sha1(where.lower().encode()).hexdigest()[:16]
+        key = "connect:place:" + hashlib.sha1(where.lower().encode(), usedforsecurity=False).hexdigest()[:16]
         saved = self.memory.get(key)
         if saved:
             return tuple(json.loads(saved)) if saved != "none" else None

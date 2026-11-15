@@ -170,7 +170,7 @@ def analyse(memory: Memory, day: datetime | None = None, start: datetime | None 
     repeats: dict = {}
     for r in rows:
         if r["request"]:
-            key = (r["purpose"], hashlib.sha1(r["request"].encode()).hexdigest())
+            key = (r["purpose"], hashlib.sha1(r["request"].encode(), usedforsecurity=False).hexdigest())
             e = repeats.setdefault(key, {"n": 0, "usd": 0.0})
             e["n"] += 1
             e["usd"] += float(r["cost_usd"] or 0)

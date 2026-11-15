@@ -449,7 +449,7 @@ def refresh_self_knowledge(brain, root=None) -> int:
     docs = sorted((repo / "docs").glob("*.md")) if (repo / "docs").exists() else []
     web = sorted((repo / "web").glob("*.html")) if (repo / "web").exists() else []
     stamp = hashlib.sha1("".join(f"{p.name}:{p.stat().st_mtime_ns}:{p.stat().st_size}"
-                                 for p in files + docs + web).encode()).hexdigest()[:16]
+                                 for p in files + docs + web).encode(), usedforsecurity=False).hexdigest()[:16]
     if brain.memory.get("reasoning:self_stamp") == stamp:
         return 0
     brain.memory.db.execute("DELETE FROM brain_notes WHERE kind = 'self'")

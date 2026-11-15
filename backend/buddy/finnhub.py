@@ -43,7 +43,8 @@ def market_news(memory: Memory, env=None, fetch=None) -> list:
 def _headline(n: dict, symbol: str) -> dict:
     when = datetime.fromtimestamp(int(n.get("datetime") or 0), timezone.utc).date().isoformat() if n.get(
         "datetime") else ""
-    return {"id": "fh_" + str(n.get("id") or hashlib.sha1(n["headline"].encode()).hexdigest()[:12]), "title": str(n["headline"])[:300],
+    key = n.get("id") or hashlib.sha1(n["headline"].encode(), usedforsecurity=False).hexdigest()[:12]  # an id, not a secret
+    return {"id": f"fh_{key}", "title": str(n["headline"])[:300],
             "text": str(n.get("summary") or "")[:400], "url": str(n.get("url") or "")[:300],
             "source": str(n.get("source") or ""), "day": when, "symbol": symbol.upper()}
 

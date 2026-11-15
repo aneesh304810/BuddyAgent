@@ -196,7 +196,8 @@ def read(memory: Memory, name: str, listing: str = "top", fetch=None, token: str
     posts = []
     for i, it in enumerate(parse_feed(raw)):
         m = re.search(r"/comments/([a-z0-9]+)", it["url"])
-        posts.append({"id": "t3_" + m.group(1) if m else "u_" + hashlib.sha1(it["url"].encode()).hexdigest()[:12],
+        posts.append({"id": "t3_" + m.group(1) if m else "u_" + hashlib.sha1(
+            it["url"].encode(), usedforsecurity=False).hexdigest()[:12],
                       "title": it["title"][:300], "text": it.get("summary", "")[:400], "url": it["url"][:300],
                       "score": None, "comments": None, "place": i + 1})
     return posts, "feed"

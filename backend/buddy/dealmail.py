@@ -521,7 +521,8 @@ def keep(memory: Memory, deals: list[dict], when: datetime | None = None, source
     for d in deals:
         d.setdefault("reason", dealforecast.reason_of(d["title"], d.get("subject", ""), kind=_kind(d)))
     for d in deals:
-        url = d["url"] or "email:" + hashlib.sha1(f"{d['store']}|{d['title']}|{d['price']}|{day}".encode()).hexdigest()
+        url = d["url"] or "email:" + hashlib.sha1(
+            f"{d['store']}|{d['title']}|{d['price']}|{day}".encode(), usedforsecurity=False).hexdigest()
         got = pricebook.run(memory, "INSERT OR IGNORE INTO deals (seen_on, source, title, url, price, store, kind, posted, "
                                     "domain, item, regular_price, ends, reason, model) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, "
                                     "?, ?, ?, ?, ?) RETURNING id",

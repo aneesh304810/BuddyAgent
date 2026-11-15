@@ -24,7 +24,7 @@ import os
 import re
 import urllib.parse
 import urllib.robotparser
-import xml.etree.ElementTree as ET
+import xml.etree.ElementTree as ET  # for ParseError only: feeds are parsed with defusedxml
 from datetime import date, datetime, timedelta, timezone
 from email.utils import parsedate_to_datetime
 
@@ -152,7 +152,8 @@ def _text(el, *names) -> str:
 
 def parse_feed(raw: bytes) -> list[dict]:
     """RSS 2.0 or Atom: title, link, posted, summary."""
-    root = ET.fromstring(raw)
+    from defusedxml import ElementTree as SafeET  # noqa: PLC0415  feeds are untrusted XML
+    root = SafeET.fromstring(raw)
     atom = "{http://www.w3.org/2005/Atom}"
     out = []
     for it in root.iter("item"):
@@ -215,7 +216,7 @@ def read_feeds(memory: Memory, fetch=None) -> tuple[list[dict], list[str]]:
                 status.append(f"{f['name']}: skipped, the site's robots rules don't allow it")
                 continue
             items = parse_feed(_get(memory, f["service"], f["url"], fetch) or b"")
-        except (gateway.ConnectError, ET.ParseError) as e:
+        except (gateway.ConnectError, ET.ParseError, ValueError) as e:  # ValueError: XML defusedxml refused
             status.append(f"{f['name']}: couldn't read it ({str(e)[:80]})")
             continue
         added = 0
