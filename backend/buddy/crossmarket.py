@@ -188,6 +188,113 @@ def _because(t: dict, reasons: dict) -> list[str]:
     return way or ["the signal's reasons weren't kept for this one"]
 
 
+def _way(v) -> str:
+    return "up" if v > 0 else "down" if v < 0 else "none"
+
+
+def used(t: dict) -> list[dict]:
+    """What a paper trade was decided on, grouped by where it came from: Reddit, the price, company facts, and
+    the Intelligence evidence (news read as good or bad, filings, awards, relationships). Each entry: source,
+    what it said, and which way it pointed (up, down or none). Only what was kept with the trade is shown."""
+    parts = json.loads(t.get("parts") or "{}")
+    f = json.loads(t.get("features") or "{}")
+    out = []
+    if f.get("mentions") is not None or parts.get("tone"):
+        says = []
+        if f.get("mentions") is not None:
+            times = f.get("times_usual")
+            says.append(f"{f['mentions']:g} posts the night before" + (f", {times:g} times its usual" if times else ""))
+        if f.get("tone") is not None:
+            says.append(f"tone {f['tone']:+.2f} on a scale from -1 to +1")
+        out.append({"source": "Reddit", "says": "; ".join(says) or "the tone of the posts",
+                    "way": _way(parts.get("tone") or 0)})
+    if f.get("rsi") is not None or parts.get("trend"):
+        says = ([f"strength {f['rsi']:g} of 100"] if f.get("rsi") is not None else []) + (
+            [f"usual daily swing {f['atr_pct']:.1%}"] if f.get("atr_pct") else [])
+        out.append({"source": "Price", "says": "; ".join(says) or "the price trend",
+                    "way": _way(parts.get("trend") or 0)})
+    facts = [(name, parts.get(k) or 0) for k, name in (("insiders", "insider buying or selling"),
+                                                      ("analysts", "analysts' ratings")) if parts.get(k)]
+    if f.get("business"):
+        facts.append(("the business checklist read it " + ("strong" if f["business"] > 0 else "weak"), f["business"]))
+    if t.get("read"):
+        facts.append((f"the price checklist read it {t['read']}", 0))
+    if facts:
+        ways = {_way(v) for _, v in facts if v}
+        out.append({"source": "Company facts", "says": "; ".join(n for n, _ in facts),
+                    "way": ways.pop() if len(ways) == 1 else "none"})
+    if f.get("f_good_news_14") or f.get("f_bad_news_14"):
+        good, bad = int(f.get("f_good_news_14") or 0), int(f.get("f_bad_news_14") or 0)
+        out.append({"source": "News", "says": f"{good} good and {bad} bad headlines in 14 days, read by an AI",
+                    "way": _way(good - bad)})
+    if f.get("f_evidence_90"):
+        says = [f"{int(f['f_evidence_90'])} records in 90 days across {int(f.get('f_evidence_kinds') or 0)} kinds "
+                "(filings, awards, research...)"]
+        if f.get("f_evidence_growth"):
+            says.append(f"{f['f_evidence_growth']:+.0%} against the 90 days before")
+        if f.get("f_patterns_30"):
+            says.append(f"{int(f['f_patterns_30'])} evidence patterns fired in 30 days")
+        if f.get("f_links_90"):
+            says.append(f"named in {int(f['f_links_90'])} relationships (funding, supply, partnership)")
+        out.append({"source": "Intelligence", "says": "; ".join(says), "way": _way(f.get("f_evidence_growth") or 0)})
+    return out
+
+
+def strategies(memory: Memory, stats: dict, model: dict | None) -> dict:
+    """The strategies the practice books follow, how each has done, and what is being learned or tested."""
+    w = stats.get("weights") or {}
+    names = {"tone": "What people say on Reddit", "trend": "The price trend", "insiders": "Insider buying or selling",
+             "analysts": "Analysts' ratings"}
+    inputs = [{"name": names[k], "weight": (w.get(k) or {}).get("weight", 1.0), "trades": (w.get(k) or {}).get("trades", 0),
+               "won": (w.get(k) or {}).get("won", 0)} for k in names]
+    o = stats.get("overall")
+    out = [{"key": "signals", "name": "Signals",
+            "rule": "Each weekday Buddy scores stocks and funds on four reasons. A strong score opens a paper buy, a "
+                    "weak one marks it to avoid. A trade closes at its stop, its target, an opposite signal or after "
+                    "28 days.",
+            "uses": ["Reddit", "Price", "Company facts", "News", "Intelligence"],
+            "record": f"{o['won']} of {o['trades']} closed calls were right" if o else "No closed trades yet",
+            "trades": o["trades"] if o else 0, "inputs": inputs}]
+    learning = []
+    moved = [i for i in inputs if i["weight"] != 1.0]
+    for i in moved:
+        learning.append(f"{i['name']} now counts {i['weight']:.2f} times (it was right in {i['won']} of {i['trades']} "
+                        "trades it pointed the way of).")
+    if not moved:
+        learning.append("The four reasons still count equally: a reason is re-weighed once 10 closed trades have "
+                        "followed it.")
+    if model:
+        if model.get("model_in_use"):
+            top = ", ".join(str(n).replace("f_", "").replace("reason_", "").replace("_", " ")
+                            for n, _ in ((model.get("last_run") or {}).get("strongest") or [])[:3])
+            learning.append("A trained model now sets the odds on each signal" + (f"; it leans most on {top}." if top
+                                                                                    else "."))
+        else:
+            last = model.get("last_run")
+            learning.append(f"A trained model is not in use yet: {model.get('rows', 0)} of {model.get('needed', 0)} "
+                            "judged signals collected" + (f"; the last attempt ({last['on']}) was {last['status']}."
+                                                          if last else "."))
+    testing = []
+    try:
+        from . import themes  # noqa: PLC0415
+        events = themes._events(memory)
+        card = themes.scorecard(events)
+        out.append({"key": "themes", "name": "Themes", "rule": card["rule"],
+                    "uses": ["Intelligence", "News"],
+                    "record": card.get("says") or "", "trades": card["baskets"], "open": card["open"],
+                    "finished": card["finished"], "profit": card["profit"], "market_profit": card["market_profit"],
+                    "from_history": card["from_history"]})
+        for r in themes.record(events):
+            if r["pattern"] != "forming":
+                testing.append({"name": r["title"], "rule": r["rule"], "seen": r["events"],
+                                "lean": r["days_90"]["lean"], "says": r["days_90"]["says"]})
+    except Exception as e:
+        log.info("practice strategies: themes unavailable (%s)", type(e).__name__)
+    return {"following": out, "learning": learning, "testing": testing,
+            "note": "A pattern under test is only measured against the market. It starts no trades until it has 30 "
+                    "finished baskets, and nothing here ever uses real money."}
+
+
 def practice(memory: Memory, data=None, today: date | None = None) -> dict:
     """The practice book for the page: summary, open positions at the latest price, closed trades, skipped
     signals, a day-by-day log and what has been learned."""
@@ -211,7 +318,8 @@ def practice(memory: Memory, data=None, today: date | None = None) -> dict:
         out = {"symbol": t["symbol"], "category": t["category"], "kind": "buy" if t["side"] == "long" else "avoid",
                "opened": str(t["opened"]), "entry": t["entry"], "stop": t["stop"], "target": t["target"],
                "shares": t["shares"], "cost": round(t["shares"] * t["entry"], 2), "risk": t.get("risk"),
-               "checklists": t.get("read") or "", "because": _because(t, reasons)}
+               "checklists": t.get("read") or "", "because": _because(t, reasons), "strategy": "Signals",
+               "used": used(t)}
         if t["status"] == "open":
             now = last.get(t["symbol"])
             out.update({"price": now, "days_held": (today - date.fromisoformat(str(t["opened"]))).days,
@@ -253,6 +361,7 @@ def practice(memory: Memory, data=None, today: date | None = None) -> dict:
             "by_category": stats["by_category"], "open": open_, "closed": closed[:60], "skipped": skipped[:20],
             "log": [{"day": d, "events": e} for d, e in sorted(log_.items(), reverse=True)][:30],
             "weights": stats["weights"], "model": model, "note": stats["note"],
+            "strategies": strategies(memory, stats, model),
             "limits": "Paper trades are US stocks and funds only; crypto shows in the market activity below, not in "
                       "the trades. Prices are daily closes, so a real fill could differ. No real money moves."}
 

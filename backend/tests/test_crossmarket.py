@@ -120,6 +120,36 @@ def test_practice_shows_what_was_bought_and_sold_and_why(memory):
     assert "crypto" in out["limits"] and set(out["weights"]) >= {"tone", "trend"}
 
 
+def test_a_trade_shows_what_it_used_by_source():
+    t = {"parts": json.dumps({"tone": 1, "trend": 1, "insiders": -1}), "read": "cheap",
+         "features": json.dumps({"mentions": 40, "times_usual": 3, "tone": 0.4, "rsi": 62, "atr_pct": 0.02,
+                                 "business": 1, "f_good_news_14": 3, "f_bad_news_14": 1, "f_evidence_90": 12,
+                                 "f_evidence_kinds": 4, "f_evidence_growth": 0.5, "f_patterns_30": 2, "f_links_90": 1})}
+    got = {u["source"]: u for u in crossmarket.used(t)}
+    assert list(got) == ["Reddit", "Price", "Company facts", "News", "Intelligence"]
+    assert "40 posts" in got["Reddit"]["says"] and "3 times its usual" in got["Reddit"]["says"]
+    assert got["Reddit"]["way"] == "up" and got["Price"]["way"] == "up"
+    assert got["Company facts"]["way"] == "none"  # insiders pointed down, the business read pointed up
+    assert got["News"]["says"].startswith("3 good and 1 bad") and got["News"]["way"] == "up"
+    assert "12 records" in got["Intelligence"]["says"] and "relationships" in got["Intelligence"]["says"]
+    assert crossmarket.used({"parts": "{}", "features": "{}"}) == []  # nothing kept, nothing claimed
+
+
+def test_practice_names_its_strategies_and_what_it_is_learning(memory):
+    simbook.open_from(memory, [sig("NEW")], DAY, 500.0)
+    out = crossmarket.practice(memory, Fake(), today=DAY)
+    assert out["open"][0]["strategy"] == "Signals"
+    assert [u["source"] for u in out["open"][0]["used"]][:2] == ["Reddit", "Price"]
+    s = out["strategies"]
+    assert [x["key"] for x in s["following"]] == ["signals", "themes"]
+    assert s["following"][0]["record"] == "No closed trades yet" and len(s["following"][0]["inputs"]) == 4
+    assert "count equally" in s["learning"][0]
+    assert {x["lean"] for x in s["testing"]} == {"none"} and len(s["testing"]) == 7
+    memory.set(simbook.WEIGHTS_KEY, json.dumps({"on": "2026-01-01", "parts": {"tone": {"weight": 1.3, "trades": 12, "won": 9}}}))
+    learned = crossmarket.practice(memory, Fake(), today=DAY)["strategies"]["learning"]
+    assert learned[0].startswith("What people say on Reddit now counts 1.30 times")
+
+
 def test_a_trade_without_a_kept_signal_still_says_why(memory):
     simbook.open_from(memory, [sig("OLD")], DAY, 500.0)
     out = crossmarket.practice(memory, Fake(), today=DAY)

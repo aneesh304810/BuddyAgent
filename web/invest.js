@@ -15,7 +15,7 @@ const $ = (id) => document.getElementById(id);
 const esc = (s) => String(s ?? "").replace(/[&<>"']/g, (c) => ({ "&": "&amp;", "<": "&lt;", ">": "&gt;", '"': "&quot;", "'": "&#39;" }[c]));
 const safe = (u) => /^https:\/\/[^\s"'<>]+$/.test(String(u || "")) ? u : "";
 // Four tabs: the old Strategy, Signals and Accounts are one Overview; market news is in Discover, under News.
-const TABS = [["strategy", "Overview"], ["practice", "Practice"], ["themes", "Themes"], ["watch", "Watchlist"]];
+const TABS = [["strategy", "Overview"], ["practice", "Trading"], ["themes", "Themes"], ["watch", "Watchlist"]];
 let themesData = null, themesBusy = false, practiceData = null, practiceBusy = false, signalsData = null, signalsBusy = false;
 let data = null, tab = TABS.some(([k]) => k === storageGet("investTab")) ? storageGet("investTab") : "strategy", busy = false;
 
@@ -194,7 +194,33 @@ function tradeCard(t) {
       : `Right if it falls to ${px(t.target)}, wrong if it rises to ${px(t.stop)}.`} Held ${esc(t.days_held)} days.</p>`;
   }
   return `<div class="idea">${head}<div class="levels">${cells.map(([k, v]) => `<div>${esc(k)}<b>${v}</b></div>`).join("")}</div>
-    <p class="muted" style="margin:8px 0 2px"><b>Why ${t.why_skipped ? "it was signalled" : buy ? "it was bought" : "Buddy said avoid"}</b></p>${why(t.because)}${tail}</div>`;
+    <p class="muted" style="margin:8px 0 2px"><b>Why ${t.why_skipped ? "it was signalled" : buy ? "it was bought" : "Buddy said avoid"}</b>${t.strategy ? ` <span class="pill">${esc(t.strategy)} strategy</span>` : ""}</p>${why(t.because)}${usedRows(t.used)}${tail}</div>`;
+}
+
+// What a trade was decided on, one line per source, with the way it pointed (a sign and a word, not colour alone).
+const WAY = { up: ["▲ pointed up", "gain"], down: ["▼ pointed down", "loss"], none: ["● no lean", "muted"] };
+function usedRows(used) {
+  if (!used || !used.length) return "";
+  return `<p class="muted" style="margin:8px 0 2px"><b>What it used</b></p>` + used.map((u) =>
+    `<div class="tx" style="grid-template-columns:104px 1fr auto"><span><b>${esc(u.source)}</b></span><span>${esc(u.says)}</span>
+      <span class="${(WAY[u.way] || WAY.none)[1]}">${(WAY[u.way] || WAY.none)[0]}</span></div>`).join("");
+}
+
+// The strategies the paper books follow, what the trades have changed, and the patterns still only being measured.
+function strategiesCards(p) {
+  const s = p.strategies;
+  if (!s) return "";
+  const one = (x) => `<div class="idea"><div class="top"><b>${esc(x.name)}</b><span class="pill">${esc(x.trades)} ${x.key === "themes" ? "baskets" : "closed trades"}</span></div>
+    <p style="margin:6px 0">${esc(x.rule)}</p>
+    <p class="muted" style="margin:0 0 6px"><b>Reads:</b> ${x.uses.map(esc).join(" · ")}</p>
+    <p class="muted" style="margin:0 0 6px"><b>Record:</b> ${esc(String(x.record).replace(/\.$/, ""))}${x.key === "themes" && x.finished ? `. Paper profit ${money(x.profit)} against ${money(x.market_profit)} for the market${x.from_history ? `; ${esc(x.from_history)} baskets are replayed from history` : ""}` : ""}.</p>
+    ${(x.inputs || []).map((i) => `<div class="row" style="cursor:default"><span class="name fixed" style="flex:1">${esc(i.name)}</span>
+      <span class="muted">${i.trades ? `${esc(i.won)} of ${esc(i.trades)} won` : "no trades yet"}</span><span class="amt">×${esc(Number(i.weight).toFixed(2))}</span></div>`).join("")}</div>`;
+  const testing = (s.testing || []).map((t) => `<div class="row" style="cursor:default" title="${esc(t.rule)}"><span class="name fixed">${esc(t.name)}</span>
+      <span class="muted" style="flex:1">${esc(t.says)}</span><span class="amt">${esc(t.seen)} seen</span></div>`).join("");
+  return card("Strategies in use", s.following.map(one).join("")) +
+    card("What it is learning", `<ul style="margin:0;padding-left:18px">${(s.learning || []).map((l) => `<li>${esc(l)}</li>`).join("")}</ul>`) +
+    (testing ? card("New strategies being tested", testing + `<p class="note">${esc(s.note)}</p>`) : "");
 }
 
 function learned(p) {
@@ -236,7 +262,7 @@ function linksCard(m) {
 }
 
 function practiceTab() {
-  if (!practiceData) { loadPractice(); return `<p class="muted">Loading the practice book…</p>`; }
+  if (!practiceData) { loadPractice(); return `<p class="muted">Loading the paper trades…</p>`; }
   if (practiceData.failed) return `<p class="err">${esc(practiceData.failed)}</p><button class="btn" id="practice-refresh">Try again</button>`;
   const p = practiceData.practice || {}, m = practiceData.markets;
   if (p.error) return card("Practice book", `<p class="muted">${esc(p.error)}</p>`) + marketsCard(m) + linksCard(m);
@@ -248,13 +274,13 @@ function practiceTab() {
   const log = (p.log || []).map((d) => `<h3 class="group">${esc(d.day)}</h3>` + d.events.map((e) =>
     `<div class="tx"><span><b>${esc(e.what)}</b></span><span>${esc(e.symbol)}<small>${esc(e.why)}</small></span><span class="amt">${px(e.price)}</span></div>`).join("")).join("");
   const list = (rows, empty) => rows && rows.length ? rows.map(tradeCard).join("") : `<p class="muted">${empty}</p>`;
-  return card("Buddy's practice book", summary) +
-    card(`Open now (${(p.open || []).length})`, list(p.open, "No paper positions are open. They open when Buddy makes a buy or sell signal.")) +
-    card(`Closed trades (${(p.closed || []).length})`, list(p.closed, "Nothing has closed yet. A trade closes at its stop, its target, a sell signal, or after 28 days.")) +
+  return card("Buddy's paper trading", summary) + strategiesCards(p) +
+    card(`Bought and holding (${(p.open || []).length})`, list(p.open, "No paper positions are open. They open when Buddy makes a buy or sell signal.")) +
+    card(`Sold and judged (${(p.closed || []).length})`, list(p.closed, "Nothing has closed yet. A trade closes at its stop, its target, a sell signal, or after 28 days.")) +
     ((p.skipped || []).length ? card("Signals not traded", list(p.skipped, "")) : "") +
     card("Day by day", log || `<p class="muted">No activity yet.</p>`) +
-    learned(p) + marketsCard(m) + linksCard(m) +
-    `<p class="note">${esc(p.limits || "")}</p><p><button class="btn" id="practice-refresh">Refresh</button></p>`;
+    (p.strategies ? "" : learned(p)) + marketsCard(m) + linksCard(m) +
+    `<p class="note">${esc(p.limits || "")} Theme baskets are listed under Themes.</p><p><button class="btn" id="practice-refresh">Refresh</button></p>`;
 }
 
 // --- Themes: the Intelligence evidence joined to public companies, with practice baskets against the market
@@ -341,7 +367,7 @@ function signalsTab() {
   return card("Signals on for", `<p class="muted">Tap a category to turn its buy and sell signals on or off.</p><div class="chips" style="flex-wrap:wrap">${s.investing.map(sw).join("")}</div>`)
     + card("Buddy's record", `<div style="display:flex;flex-wrap:wrap;gap:6px">${s.investing.map(rec).join("")}</div>`
         + (m ? `<p class="muted" style="margin-top:10px"><b>Trained model:</b> ${m[1].model_in_use ? "in use" : "not in use yet"}; ${esc(m[1].rows)} of ${esc(m[1].needed)} judged signals collected.</p>` : ""),
-        "A signal is scored a week later; a category is unproven until 20 are scored. How the signals did as paper trades is under Practice.")
+        "A signal is scored a week later; a category is unproven until 20 are scored. How the signals did as paper trades is under Trading.")
     + card("Recent signals", list, s.note)
     + (s.trending.length ? card("Most talked about last night", `<p class="muted">${s.trending.map((t) => `${esc(t.key)} (${esc(t.mentions)}${t.times_usual ? `, ${esc(t.times_usual)}× usual` : ""})`).join(" · ")}</p>`, "Attention, not advice.") : "");
 }
