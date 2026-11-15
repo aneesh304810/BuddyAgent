@@ -211,6 +211,11 @@ def _universe(memory: Memory) -> set:
         known |= {r["symbol"] for r in memory.db.execute("SELECT symbol FROM mkt_watch WHERE market = 'us'")}
     except Exception:  # no markets tables yet
         pass
+    try:
+        from . import watchpicks  # noqa: PLC0415
+        known |= watchpicks.symbols(memory)  # Buddy's recommended watchlist is scanned too
+    except Exception:
+        pass
     return known
 
 

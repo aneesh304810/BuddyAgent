@@ -16,6 +16,7 @@ flowchart LR
         themes_py["themes.py<br/>the Intelligence Platform's evidence joined to the market, and tested…"]
         factors_py["factors.py<br/>facts any of Buddy's prediction engines can look up when it makes a…"]
         bip_links_py["bip_links.py<br/>the companies a record names, and the relationships between…"]
+        watchpicks_py["watchpicks.py<br/>public companies the Intelligence evidence points at, refreshed each…"]
     end
     you --> t_intelligence
     t_intelligence --> bip_py
@@ -32,10 +33,13 @@ flowchart LR
     factors_py --> themes_py
     bip_links_py --> bip_py
     bip_links_py --> bip_sources_py
-    db[("Your database<br/>bip_extracted, bip_links, bip_mentions, bip_notes, bip_signals, theme_events, theme_news, theme_tone")]
+    watchpicks_py --> bip_py
+    watchpicks_py --> themes_py
+    db[("Your database<br/>bip_extracted, bip_links, bip_mentions, bip_notes, bip_signals, theme_events, theme_news, theme_tone and more")]
     bip_py --> db
     themes_py --> db
     bip_links_py --> db
+    watchpicks_py --> db
     s_nsf["NSF (research grants)<br/>(public data only)"]
     bip_sources_py --> s_nsf
     o_0["Buddy Connect"]
@@ -224,6 +228,29 @@ and a single headline can be wrong. Only public records are read; nothing about 
 
 - Tables: `bip_extracted`, `bip_links`, `bip_mentions`
 - Uses: bip.py, bip_sources.py, maestro.py, memory.py, tools.py
+
+### watchpicks.py
+
+```text
+Recommended watchlist: public companies the Intelligence evidence points at, refreshed each night.
+
+Your own watchlist stays yours. This is a second list that Buddy keeps from its market intelligence:
+
+  recommended  a company a technology's filings name, where the company was named in a filing in the last
+               30 days or one of the technology's evidence patterns fired in the last 30 days. Each one says
+               why, with the sector and the technology it belongs to. The strongest 30 are listed and are
+               added to the daily scan next to your own symbols.
+  archived     a recommended company with nothing new for 30 days. It is moved out of the list, not deleted,
+               and kept grouped by sector and technology with the dates it was recommended. If its evidence
+               picks up again it comes back by itself.
+  dismissed    one you removed. Buddy does not recommend it again unless you restore it.
+
+It reads only the public evidence (filings, patterns) in the price book. No AI model is used and no outside
+call is made here. A recommendation is a reason to look, not advice to buy; nothing is ever bought.
+```
+
+- Tables: `watch_picks`
+- Uses: bip.py, markets.py, memory.py, themes.py, tools.py
 
 ## How it connects
 

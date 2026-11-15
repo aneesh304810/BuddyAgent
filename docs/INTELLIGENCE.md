@@ -276,3 +276,21 @@ wrong or out of date. Names are matched by their normalised form, so two differe
 same name are merged and a parent and its subsidiary are not. Only headlines are read, not the full
 article or filing, so most real supplier and customer relationships will not be found this way. Official
 funding links cover US agencies only.
+
+## The recommended watchlist
+
+Under your own watchlist (Money → Invest → Watchlist) Buddy keeps a second list from its market
+intelligence, refreshed each night after the evidence scan (`watchpicks.py`).
+
+- **Recommended.** A public company that a technology's filings name, where the company was named in a
+  filing in the last 30 days or one of the technology's evidence patterns fired in the last 30 days. Each
+  one says why and since when, and is grouped by sector, then technology. The strongest 30 are listed and
+  are read by the daily scan next to your own symbols.
+- **Archive.** A recommended company with nothing new for 30 days is moved to the archive, grouped the
+  same way, with the dates it was recommended. It is not scanned. If its evidence picks up, it comes back
+  by itself.
+- **Dismissed.** One you removed with ✕. It is not recommended again unless you restore it.
+
+Add puts a recommended company on your own watchlist. No AI model is used and no outside call is made to
+build the list; it reads the public evidence already collected. A recommendation is a reason to look, not
+advice to buy, and nothing is ever bought.

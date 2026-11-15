@@ -57,7 +57,8 @@ Protocol (JSON messages):
                                                       (display: what to show instead, e.g. English)
                                                       (filler: "hang on, checking" while tools run)
                    {"type": "cards", "turn": "a1b2c3", "cards": [...]}  results to show under the reply
-                   {"type": "done", "turn": "a1b2c3"} reply finished (turn: for a thumbs rating)
+                   {"type": "done", "turn": "a1b2c3", "how": "Answered by Claude · used calendar"} reply
+                     finished (turn: for a thumbs rating; how: one line on how it was answered)
                    {"type": "nudge", "kind": "...", "text": "...", "job_id": 3, "id": "ab12", "category":
                     "Investing", "level": "alert" | "notify" | "quiet"}   (level: pop up and speak / silent
                                                       notification / chat only; id: for a thumbs rating, sent
@@ -77,8 +78,8 @@ Protocol (JSON messages):
 ```
 
 - Settings: `BUDDY_COMPANY_DOCS`, `BUDDY_DIAGNOSTICS`, `BUDDY_FRAGMENT_WAIT`, `BUDDY_INTEL_API_KEY`, `BUDDY_TRACE`
-- Endpoints: `GET /api/files/{file_id}`, `GET /health`, `GET /admin/agents`, `POST /admin/agents/{name}/{action}`, `GET /admin/connectors`, `POST /admin/connectors/{name}/{action}`, `GET /admin/audit`, `GET /admin/access-log`, `GET /api/compliance`, `POST /api/compliance/report` and 109 more
-- Uses: addressee.py, advisor.py, agent.py, agents.py, ambient.py, attention.py, bankfeed.py, benefits.py, bip.py, brain.py, browse.py, budgets.py, builder.py, calls.py, card_optimizer.py, claudefix.py, codejob.py, companydocs.py, compliance.py, config.py, contacts.py, convolog.py, costwatch.py, crossmarket.py, dealforecast.py, deals.py, diagnostics.py, factors.py, finance.py, finops.py, gateway.py, guard.py, health.py, health_data.py, insights.py, invest.py, jobs.py, library.py, lifelog.py, location.py, maestro.py, maestro_usage.py, mailbrain.py, makers.py, maps.py, markets.py, memory.py, merchants.py, messaging.py, model_advisor.py, modeltrain.py, money.py, pausehabit.py, persona.py, plaid.py, pricebook.py, privacy.py, proactive.py, recommend.py, research.py, review.py, rides.py, securitywatch.py, selfcheck.py, selfdeploy.py, social.py, techradar.py, themes.py, thinking.py, thrift.py, today.py, tools.py, trace.py, transit.py, travel.py, travel_saved.py, trends.py, tutor.py, usage.py, vocabulary.py, voiceprint.py, whentobuy.py, whisper.py
+- Endpoints: `GET /api/files/{file_id}`, `GET /health`, `GET /admin/agents`, `POST /admin/agents/{name}/{action}`, `GET /admin/connectors`, `POST /admin/connectors/{name}/{action}`, `GET /admin/audit`, `GET /admin/access-log`, `GET /api/compliance`, `POST /api/compliance/report` and 111 more
+- Uses: addressee.py, advisor.py, agent.py, agents.py, ambient.py, attention.py, bankfeed.py, benefits.py, bip.py, brain.py, browse.py, budgets.py, builder.py, calls.py, card_optimizer.py, claudefix.py, codejob.py, companydocs.py, compliance.py, config.py, contacts.py, convolog.py, costwatch.py, crossmarket.py, dealforecast.py, deals.py, diagnostics.py, factors.py, finance.py, finops.py, gateway.py, guard.py, health.py, health_data.py, insights.py, invest.py, jobs.py, library.py, lifelog.py, location.py, maestro.py, maestro_usage.py, mailbrain.py, makers.py, maps.py, markets.py, memory.py, merchants.py, messaging.py, model_advisor.py, modeltrain.py, money.py, pausehabit.py, persona.py, plaid.py, pricebook.py, privacy.py, proactive.py, recommend.py, research.py, review.py, rides.py, securitywatch.py, selfcheck.py, selfdeploy.py, social.py, techradar.py, themes.py, thinking.py, thrift.py, today.py, tools.py, trace.py, transit.py, travel.py, travel_saved.py, trends.py, tutor.py, usage.py, vocabulary.py, voiceprint.py, watchpicks.py, whentobuy.py, whisper.py
 
 ## How it connects
 

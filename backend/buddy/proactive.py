@@ -428,6 +428,13 @@ async def run(memory: Memory, deliver: Deliver, connected=None) -> None:
                     moved = await themes.nightly(memory)
                     log.info("themes: %d new events, %d results filled in, %d company headlines, %d labelled",
                              len(moved["new"]), moved["measured"], moved["company_news"], moved["labelled"])
+                    try:
+                        from . import watchpicks  # noqa: PLC0415  the recommended watchlist, from the evidence
+                        picked = await asyncio.to_thread(watchpicks.refresh, memory)
+                        log.info("watchlist picks: %d added, %d returned, %d archived", len(picked["added"]),
+                                 len(picked["returned"]), len(picked["archived"]))
+                    except Exception:
+                        log.exception("refreshing the recommended watchlist failed")
                     text = themes.message(moved, memory)
                     if text and not in_quiet_hours():
                         await deliver("news", text, topic="news:themes")

@@ -1766,6 +1766,26 @@ async def api_invest_watch(body: dict) -> dict:
     return {"ok": True, "text": text, "watchlist": await asyncio.to_thread(invest.watchlist, memory, mk)}
 
 
+@app.get("/api/invest/picks", dependencies=[Depends(require_admin)])
+async def api_invest_picks() -> dict:
+    """Buddy's recommended watchlist from the Intelligence evidence, and its archive, grouped by sector."""
+    from . import watchpicks  # noqa: PLC0415
+    return await asyncio.to_thread(watchpicks.view, memory)
+
+
+@app.post("/api/invest/picks", dependencies=[Depends(require_admin)])
+async def api_invest_picks_decide(body: dict) -> dict:
+    """dismiss (symbol) · restore (symbol) · refresh: the recommended watchlist."""
+    from . import watchpicks  # noqa: PLC0415
+    try:
+        if body.get("action") == "refresh":
+            await asyncio.to_thread(watchpicks.refresh, memory)
+            return await asyncio.to_thread(watchpicks.view, memory)
+        return await asyncio.to_thread(watchpicks.decide, memory, str(body.get("symbol") or ""), str(body.get("action") or ""))
+    except ToolError as e:
+        raise HTTPException(status_code=400, detail=str(e)) from e
+
+
 @app.post("/api/invest/analyze", dependencies=[Depends(require_admin)])
 async def api_invest_analyze(body: dict) -> dict:
     """One symbol now: trend, RSI, levels, any setup with its plan, and what people are saying (ideas, not advice)."""

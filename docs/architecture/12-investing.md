@@ -178,7 +178,7 @@ All of it is public market chatter: opinion, often late or wrong. It is a signal
 - Tables: `signal_days`, `signals`
 - Outside services: Reddit
 - Settings: `BUDDY_KEEP_RAW_DAYS`, `BUDDY_REDDIT_CLIENT_ID`, `BUDDY_REDDIT_FEEDS`, `BUDDY_REDDIT_SECRET`
-- Uses: benefits.py, dealcollector.py, dealforecast.py, dealmail.py, finnhub.py, free_models.py, gateway.py, markets.py, memory.py, pricebook.py, shopper.py, tools.py
+- Uses: benefits.py, dealcollector.py, dealforecast.py, dealmail.py, finnhub.py, free_models.py, gateway.py, markets.py, memory.py, pricebook.py, shopper.py, tools.py, watchpicks.py
 
 ### simbook.py
 

@@ -267,7 +267,7 @@ grows another 20%); "no" keeps the hold (saver) for the month. The answer is rea
 Track Claude token usage and cost, and enforce the monthly budget.
 ```
 
-- Uses: diagnostics.py, memory.py, privacy.py, tools.py
+- Uses: diagnostics.py, free_models.py, memory.py, privacy.py, tools.py
 
 ### thinking.py
 

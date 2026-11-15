@@ -16,6 +16,7 @@ const esc = (s) => String(s ?? "").replace(/[&<>"']/g, (c) => ({ "&": "&amp;", "
 const safe = (u) => /^https:\/\/[^\s"'<>]+$/.test(String(u || "")) ? u : "";
 // Four tabs: the old Strategy, Signals and Accounts are one Overview; market news is in Discover, under News.
 const TABS = [["strategy", "Overview"], ["practice", "Trading"], ["themes", "Themes"], ["watch", "Watchlist"]];
+let picksData = null, picksBusy = false;
 let themesData = null, themesBusy = false, practiceData = null, practiceBusy = false, signalsData = null, signalsBusy = false;
 let data = null, tab = TABS.some(([k]) => k === storageGet("investTab")) ? storageGet("investTab") : "strategy", busy = false;
 
@@ -147,6 +148,39 @@ function accountsTab() {
       "From your bank transactions (Plaid): transfers to brokerage and retirement accounts.");
 }
 
+// Buddy's recommended watchlist: picked each night from the Intelligence evidence, grouped by sector and
+// technology; quiet ones move to the archive and come back if their evidence picks up.
+async function loadPicks(body) {
+  if (picksBusy) return;
+  picksBusy = true;
+  try { picksData = await api("/api/invest/picks", body); }
+  catch (e) { picksData = { ...(picksData || {}), failed: e.message }; }
+  picksBusy = false;
+  if (tab === "watch") render();
+}
+function picksGroups(groups, archived) {
+  return (groups || []).map((g) => `<details${archived ? "" : " open"}><summary><b>${esc(g.sector)}</b> <small class="muted">${esc(g.count)}</small></summary>` +
+    g.industries.map((i) => `<h3 class="group" style="margin:8px 0 2px">${esc(i.industry)}</h3>` + i.picks.map((k) =>
+      `<div class="row" style="cursor:default;align-items:flex-start"><span class="name" style="white-space:normal"><b>${esc(k.symbol)}</b> <small class="muted">${esc(k.name)}${k.yours ? " · on your list" : ""}</small>
+        <small class="muted" style="display:block">${archived ? `Recommended ${esc(k.first_seen)} to ${esc(k.last_active)} · archived ${esc(k.archived_on)}` : `${esc(k.why)} · since ${esc(k.first_seen)}`}</small></span>
+        <button class="btn small" data-check="${esc(k.symbol)}">Check</button>
+        ${archived ? `<button class="btn small" data-pick="restore" data-sym="${esc(k.symbol)}">Restore</button>`
+          : `${k.yours ? "" : `<button class="btn small" data-keep="${esc(k.symbol)}" aria-label="Add ${esc(k.symbol)} to your watchlist">Add</button>`}
+             <button class="btn small" data-pick="dismiss" data-sym="${esc(k.symbol)}" aria-label="Stop recommending ${esc(k.symbol)}">✕</button>`}</div>`).join("")).join("") + `</details>`).join("");
+}
+function picksCards() {
+  if (!picksData) { loadPicks(); return card("Recommended by Buddy", `<p class="muted">Loading…</p>`); }
+  const d = picksData;
+  const failed = d.failed ? `<p class="err">${esc(d.failed)}</p>` : "";
+  if (!d.recommended) return card("Recommended by Buddy", failed + `<button class="btn" id="picks-refresh">Try again</button>`);
+  return card(`Recommended by Buddy (${esc(d.recommended_count)})`, failed + (picksGroups(d.recommended, false) ||
+      `<p class="muted">Nothing recommended yet. Buddy adds companies here each night as its market intelligence finds new filings and evidence patterns.</p>`) +
+      `<p><button class="btn" id="picks-refresh">Refresh from the evidence now</button></p>`, d.rules + " These are scanned daily with your own symbols.") +
+    (d.archive_count ? card(`Archive (${esc(d.archive_count)})`, picksGroups(d.archive, true), "Nothing new for 30 days. Kept here by sector and technology; not scanned.") : "") +
+    ((d.dismissed || []).length ? card("Dismissed", d.dismissed.map((x) => `<button class="chip" data-pick="restore" data-sym="${esc(x)}" title="Recommend ${esc(x)} again">${esc(x)} ↺</button>`).join(" "),
+      "Tap one to let Buddy recommend it again.") : "");
+}
+
 function watchTab() {
   const rows = grouped(data.watchlist, (w) => w.market, (w) => `<div class="row" style="cursor:default"><span class="name" style="white-space:normal"><b>${esc(w.symbol)}</b>
       <small class="muted"> ${esc(MARKET[w.market] || w.market)}${w.note ? " · " + esc(w.note) : ""}</small></span>
@@ -155,7 +189,7 @@ function watchTab() {
       <button class="btn small" data-unwatch="${esc(w.symbol)}" aria-label="Remove ${esc(w.symbol)}">✕</button></div>`, "");
   return card("Watchlist", `<div class="add"><input id="newsym" placeholder="Add a symbol: NVDA, ETH, TCS…" maxlength="20" aria-label="Symbol to watch">
       <button class="btn solid" id="watchbtn">Add</button></div>` + (rows || `<p class="muted">Nothing on your watchlist yet.</p>`),
-    "Every symbol here is in the daily scan, on top of the usual list for each market.");
+    "Every symbol here is in the daily scan, on top of the usual list for each market.") + picksCards();
 }
 
 // --- Practice: Buddy's paper trades (what was bought and sold, and why), the day across markets, crypto links
@@ -397,6 +431,9 @@ function render() {
   if ($("practice-refresh")) $("practice-refresh").onclick = () => { practiceData = null; render(); loadPractice(true); };
   document.querySelectorAll("[data-sold]").forEach((b) => b.onclick = () => sold(b.dataset.sold));
   document.querySelectorAll("[data-unwatch]").forEach((b) => b.onclick = () => watch("remove", b.dataset.unwatch));
+  document.querySelectorAll("[data-pick]").forEach((b) => b.onclick = () => loadPicks({ action: b.dataset.pick, symbol: b.dataset.sym }));
+  document.querySelectorAll("[data-keep]").forEach((b) => b.onclick = async () => { await watch("add", b.dataset.keep); picksData = null; render(); });
+  if ($("picks-refresh")) $("picks-refresh").onclick = () => loadPicks({ action: "refresh" });
   document.querySelectorAll("[data-check]").forEach((b) => b.onclick = () => { tab = "strategy"; render(); $("sym").value = b.dataset.check; analyze(); });
   document.querySelectorAll("[data-refresh]").forEach((b) => b.onclick = () => refresh(b.dataset.refresh, b));
   if ($("analyze")) { $("analyze").onclick = analyze; $("sym").onkeydown = (e) => { if (e.key === "Enter") analyze(); }; }
