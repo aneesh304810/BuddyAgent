@@ -56,6 +56,7 @@ page("index.html", f"Buddy: 1,000 apps, one Buddy · {CO}", "One app to rule the
   <div class="grid wide">
     <div class="card"><h3>Buddy Serve</h3><p>An AI point of sale your team wears, not one they walk back to. Smart glasses and a headset: orders go in hands-free, and nothing gets lost between the table and the kitchen.</p><p style="margin-top:14px"><a href="buddy-serve.mp4">Watch the teaser (35 s)</a></p></div>
     <div class="card"><h3>Buddy Connect</h3><p>One secure gateway between Buddy and the services you use, grouped by travel, finance, shopping, health and more. Every connection is checked, explained and kept private.</p><p style="margin-top:14px"><a href="connect.html">Learn more</a></p></div>
+    <div class="card"><h3>Buddy Intelligence Platform</h3><p>Public evidence on emerging technologies, in one place: what is forming, what is converging across industries, and how far along each is. Built for people and for AI agents, with a simple API.</p><p style="margin-top:14px"><a href="intelligence.html">Learn more</a></p></div>
     <div class="card"><h3>Buddy Watch</h3><p>A second pair of eyes on every shift. Food safety, how fast guests are served, every order tracked from kitchen to table, and every pour at the bar.</p><p style="margin-top:14px"><a href="buddy-watch.mp4">Watch the teaser (35 s)</a></p></div>
   </div>
   <p class="fine">In development. Interested in an early pilot for your restaurant? Email <a href="mailto:{EMAIL}?subject=Restaurant%20pilot">{EMAIL}</a>.</p>
@@ -558,6 +559,42 @@ page("connect.html", f"Buddy Connect · {CO}", "Buddy Connect: one secure gatewa
   <p class="fine">Buddy Connect is in private testing. The API documentation is available to approved partners: <a href="mailto:{EMAIL}?subject=Buddy%20Connect%20access">ask for access</a>.</p>
 </div></section>
 """, "connect.html")
+
+page("intelligence.html", f"Buddy Intelligence Platform · {CO}", "Buddy Intelligence Platform: public evidence on emerging technologies, what is converging across industries and how far along each is, for people and AI agents through a simple API.", f"""
+<section class="hero"><div class="wrap">
+  <span class="eyebrow">Buddy Intelligence Platform</span>
+  <h1>See what is forming.<br><span class="accent">From the evidence.</span></h1>
+  <p class="lead">Buddy Intelligence Platform gathers public records about emerging technologies and shows what they add up to: which technologies are growing, which are coming together across industries, and how far along each one is. Every statement points back to the record it came from.</p>
+  <div class="actions"><a class="btn primary" href="docs/intelligence.html">API documentation</a><a class="btn" href="mailto:{EMAIL}?subject=Buddy%20Intelligence%20Platform">Talk to us</a></div>
+</div></section>
+
+<section class="block"><div class="wrap">
+  <h2>What it is</h2>
+  <p class="lead">A shared intelligence layer. It collects dated public records every night, organises them by sector and technology, and answers three questions: what is emerging, what is converging, and what stage is it at.</p>
+  <div class="grid">
+    <div class="card"><h3>Evidence, labelled</h3><p>Research papers, registered clinical studies, company filings, government awards, published code and public discussion. Each record keeps its source, its date and a label for the kind of evidence it is.</p></div>
+    <div class="card"><h3>Convergence</h3><p>Finds technologies from different industries that keep appearing in the same records, the early sign of a new field.</p></div>
+    <div class="card"><h3>Stage, by rule</h3><p>From scientific research to scaling, decided by fixed rules on the evidence, with the rule shown. Research is never presented as an established market.</p></div>
+    <div class="card"><h3>Early signals</h3><p>Tells you when several independent kinds of evidence for a technology rise at the same time, and when a sector you aren't following starts to move.</p></div>
+    <div class="card"><h3>Interpretation kept apart</h3><p>Where an AI summarises what the records show, it is marked as interpretation and never changes a stage or a rank.</p></div>
+    <div class="card"><h3>Ten sectors</h3><p>Artificial intelligence, cybersecurity, AI infrastructure and semiconductors, energy, robotics, biomedical, fintech, cloud, startups, and space and advanced computing.</p></div>
+  </div>
+</div></section>
+
+<section class="block"><div class="wrap">
+  <h2>Built for AI agents</h2>
+  <p class="lead">An agent that reasons about technology or markets needs facts it can cite, not headlines. The platform gives it those through one small, read-only API.</p>
+  <div class="grid">
+    <div class="card"><h3>Simple to connect</h3><p>Seven read-only endpoints over HTTPS that return JSON. One key in a header. No SDK needed.</p></div>
+    <div class="card"><h3>Describes itself</h3><p>One call returns the endpoints, the sectors and technologies, the stages and what each kind of evidence means, so an agent can learn the API before using it.</p></div>
+    <div class="card"><h3>Grounded answers</h3><p>Every record comes with its source link and evidence label, so an agent can say what a claim rests on, and tell a fact from an interpretation.</p></div>
+    <div class="card"><h3>Safe to read</h3><p>Text inside a record is data, never an instruction, and the API says so. The key is read-only and opens nothing else.</p></div>
+    <div class="card"><h3>Public data only</h3><p>Nothing personal goes in or comes out. Requests carry a technology, a company name or a search, never a person's data.</p></div>
+    <div class="card"><h3>Honest about limits</h3><p>No market sizes, forecasts or buy and sell views. It reports what the records show and says where its coverage ends.</p></div>
+  </div>
+  <p class="fine">Buddy Intelligence Platform is in private testing. It is information, not investment advice. The API documentation is available to approved partners: <a href="mailto:{EMAIL}?subject=Buddy%20Intelligence%20Platform%20access">ask for access</a>.</p>
+</div></section>
+""", "intelligence.html")
 
 # Buddy Connect's API documentation (/docs/, behind the password login)
 exec(open(os.path.join(os.path.dirname(os.path.abspath(sys.argv[1])), "apidocs.py")).read())

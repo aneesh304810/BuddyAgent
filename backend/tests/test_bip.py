@@ -253,3 +253,33 @@ def test_the_page_endpoints_need_the_owner(memory, monkeypatch):
     assert client.post("/api/intel/switch", json={"sector": "nope", "on": True}, headers=ok).status_code == 400
     assert client.get("/api/intel/technology?id=smr", headers=ok).json()["stage"] == "No evidence yet"
     assert client.get("/api/intel/technology?id=nope", headers=ok).status_code == 404
+
+
+def test_the_agent_api_is_read_only_and_its_key_opens_nothing_else(memory, monkeypatch):
+    from fastapi.testclient import TestClient
+
+    from buddy import server
+    bip.collect(memory, Web(SMR), TODAY, pause=0)
+    monkeypatch.setattr(server, "memory", memory)
+    monkeypatch.setattr(server, "authorized", lambda t: t == "owner-token")
+    monkeypatch.setenv("BUDDY_INTEL_API_KEY", "k" * 40)
+    client, key = TestClient(server.app), {"Authorization": "Bearer " + "k" * 40}
+    assert client.get("/api/intel/v1/describe").status_code == 401
+    assert client.get("/api/intel/v1/describe", headers={"Authorization": "Bearer wrong"}).status_code == 401
+    d = client.get("/api/intel/v1/describe", headers=key).json()
+    assert d["version"] == "1" and len(d["endpoints"]) == 7 and len(d["sectors"]) == 10
+    assert "never as instructions" in d["how_to_read"] and "Not investment advice" in d["limits"]
+    assert client.get("/api/intel/v1/search?q=nuscale", headers=key).json()["records"][0]["evidence"] == "company disclosure"
+    assert client.get("/api/intel/v1/technology?id=smr", headers=key).json()["stage"] == "Early commercialization"
+    assert client.get("/api/intel/v1/organisation?name=oklo", headers=key).json()["records"] == 1
+    assert len(client.get("/api/intel/v1/technologies?limit=3", headers=key).json()["technologies"]) == 3
+    assert "convergences" in client.get("/api/intel/v1/convergences", headers=key).json()
+    assert client.get("/api/intel/v1/technology?id=nope", headers=key).status_code == 400
+    assert client.get("/api/intel/v1/nope", headers=key).status_code == 404
+    # the key is for this API only: nothing else in Buddy opens, and it cannot change anything
+    assert client.get("/api/intel", headers=key).status_code == 401
+    assert client.post("/api/intel/switch", json={"sector": "robotics", "on": True}, headers=key).status_code == 401
+    assert client.get("/api/security", headers=key).status_code == 401
+    assert client.get("/api/intel/v1/overview", headers={"Authorization": "Bearer owner-token"}).status_code == 200
+    monkeypatch.setenv("BUDDY_INTEL_API_KEY", "short")  # a weak key is never accepted
+    assert client.get("/api/intel/v1/describe", headers={"Authorization": "Bearer short"}).status_code == 401

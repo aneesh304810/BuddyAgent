@@ -43,6 +43,22 @@ Buddy answers from it: "what industries are emerging?", "what is converging with
 small modular reactors?", "how mature is fusion?", "follow robotics". It is the background for investing and
 technology questions, and Buddy says what kind of evidence each statement rests on.
 
+## The API for other agents and apps
+
+A small read-only API, so another AI agent or app can use the platform without touching anything else in Buddy.
+
+- **Key:** set one with `sudo bash /opt/buddy/deploy/set.sh BUDDY_INTEL_API_KEY` (at least 32 characters). It
+  opens this API only: not your data, not the settings, not the rest of Buddy. Your own access token works too.
+- **Endpoints** (all `GET`, JSON, `Authorization: Bearer <key>`): `/api/intel/v1/describe`, `overview`,
+  `technologies`, `technology?id=`, `convergences`, `organisation?name=`, `search?q=`.
+- **describe** returns the endpoints, the sectors and technology ids, the stages, what each evidence label
+  means and how to read the data, so an agent can learn the API from one call.
+- **Where it runs:** on your own Buddy server, reachable where that server is (your private network). There is
+  no hosted public service yet.
+
+The public product page is `intelligence.html` on the website; the API documentation is `docs/intelligence.html`
+there, behind the docs sign-in.
+
 ## What it is not
 
 - Not investment advice, a forecast or a recommendation. A rising count of records is not a judgement that

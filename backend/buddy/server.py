@@ -1515,6 +1515,42 @@ async def api_intel_technology(id: str = "") -> dict:
         raise HTTPException(status_code=404, detail=str(e)) from e
 
 
+# The platform's API for other agents and apps: read-only, public data only. It accepts the owner's token or a
+# separate read-only key (BUDDY_INTEL_API_KEY) that opens nothing else in Buddy.
+def require_intel(authorization: str | None = Header(default=None)) -> None:
+    token = (authorization or "").removeprefix("Bearer ").strip()
+    key = (os.getenv("BUDDY_INTEL_API_KEY") or "").strip()
+    if authorized(token or None) or (len(key) >= 32 and token and secrets.compare_digest(token, key)):
+        return
+    raise HTTPException(status_code=401, detail="bad token")
+
+
+@app.get("/api/intel/v1/{what}", dependencies=[Depends(require_intel)])
+async def api_intel_v1(what: str, id: str = "", name: str = "", q: str = "", limit: int = 20) -> dict:
+    from . import bip
+    limit = max(1, min(limit, 50))
+    try:
+        if what == "describe":
+            return bip.describe()
+        if what == "overview":
+            got = await asyncio.to_thread(bip.overview, memory)
+            got["technologies"], got["convergences"] = got["technologies"][:limit], got["convergences"][:limit]
+            return got
+        if what == "technologies":
+            return {"technologies": (await asyncio.to_thread(bip.technologies, memory))[:limit]}
+        if what == "technology":
+            return await asyncio.to_thread(bip.technology, memory, id)
+        if what == "convergences":
+            return {"convergences": await asyncio.to_thread(bip.convergences, memory, None, limit)}
+        if what == "organisation":
+            return await asyncio.to_thread(bip.organisation, memory, name)
+        if what == "search":
+            return {"records": await asyncio.to_thread(bip.search, memory, q, limit)}
+    except ToolError as e:
+        raise HTTPException(status_code=400, detail=str(e)) from e
+    raise HTTPException(status_code=404, detail="Unknown endpoint. See /api/intel/v1/describe.")
+
+
 @app.post("/api/intel/switch", dependencies=[Depends(require_admin)])
 async def api_intel_switch(body: dict) -> dict:
     from . import bip

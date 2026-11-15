@@ -78,3 +78,10 @@ Regenerate the site: `cd <Buddywebsite clone> && python3 <BuddyAgent>/docs/websi
   address read `/docs/` without the password while the owner reviews. Set it back to `false` (and push) to require the
   password again. The pages stay noindex and disallowed in robots.txt either way.
 - Same rule as the API docs: services may be named, but never a server address, port, token, key, password or file path.
+
+## Buddy Intelligence Platform page (added 15 November 2026, at the owner's request)
+
+Public page `intelligence.html` (in the nav and as a home page card) says what the platform is, its features and
+how AI agents use it through the API. It names kinds of public records, not vendors. It must keep saying
+"in private testing", "not investment advice" and that there is no hosted service yet, until those change. The
+API documentation is `docs/intelligence.html`, behind the docs sign-in like Buddy Connect's.
