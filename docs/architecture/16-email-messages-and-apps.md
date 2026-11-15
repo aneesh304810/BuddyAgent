@@ -12,12 +12,14 @@ flowchart LR
         t_add_email_rule["add_email_rule"]
         t_email_rules["email_rules"]
         t_email_organizer["email_organizer"]
+        t_life_memory["life_memory"]
         t_messages["messages"]
         t_packages["packages"]
     end
     subgraph Modules["Modules"]
         mailbrain_py["mailbrain.py<br/>reads new mail from every account, sorts it by priority against your…"]
         mailorganizer_py["mailorganizer.py<br/>marketing, newsletters and app notifications are moved out of the…"]
+        lifemail_py["lifemail.py<br/>Buddy reads the email that is about the owner's own life and…"]
         email_accounts_py["email_accounts.py<br/>All of the user's email accounts, read from the settings file"]
         messaging_py["messaging.py<br/>reply to WhatsApp (and other chat apps) from your own account,…"]
         packages_py["packages.py<br/>from shipping emails and notifications (free, no key), and 17TRACK…"]
@@ -30,15 +32,18 @@ flowchart LR
     t_email_rules --> mailbrain_py
     you --> t_email_organizer
     t_email_organizer --> mailorganizer_py
+    you --> t_life_memory
+    t_life_memory --> lifemail_py
     you --> t_messages
     t_messages --> messaging_py
     you --> t_packages
     t_packages --> packages_py
     mailbrain_py --> email_accounts_py
     mailorganizer_py --> email_accounts_py
-    db[("Your database<br/>mail_moves, mail_rules, mail_triage, msg_autoreply, msg_autoreply_log, packages")]
+    db[("Your database<br/>life_circle, life_events, mail_moves, mail_rules, mail_triage, msg_autoreply, msg_autoreply_log, packages")]
     mailbrain_py --> db
     mailorganizer_py --> db
+    lifemail_py --> db
     messaging_py --> db
     packages_py --> db
     o_0["Claude"]
@@ -65,6 +70,7 @@ The diagram reads left to right: what you ask, the tools Buddy uses, the modules
 | `add_email_rule` | Add one of the user's email rules, in their words | - | mailbrain.py |
 | `email_rules` | List the user's email rules (with ids), or remove one with remove_id. | - | mailbrain.py |
 | `email_organizer` | Keeps the inbox for real email by moving marketing, newsletters and app notifications into their own folders (Buddy Promotions, Buddy Newsletters, Buddy Notific | preview, organize, undo, keep, always, forget, auto, status | mailorganizer.py |
+| `life_memory` | What Buddy remembers about the owner's life from their own email: family and the people around them, children's school and daycare, health appointments (logisti | show, teach, ignore, forget, catch_up | lifemail.py |
 | `messages` | Reply to WhatsApp, Messages, Telegram or Signal from the user's own account, through the phone's notification (free; works for chats with a recent notification) | chats, reply, auto_reply, auto_replies, stop_auto_reply | messaging.py |
 | `packages` | The user's packages: from shipping emails and notifications (Amazon, UPS, FedEx, USPS, DHL), and 17TRACK live status when its key is set | list, track, remove, test | packages.py |
 
@@ -124,6 +130,41 @@ deals reader has taken what it needs from the marketing mail. Works with any acc
 - Tables: `mail_moves`
 - Settings: `BUDDY_EMAIL_ADDRESS`, `BUDDY_EMAIL_APP_PASSWORD`
 - Uses: dealmail.py, email_accounts.py, memory.py, tools.py
+
+### lifemail.py
+
+```text
+Life memory from email: Buddy reads the email that is about the owner's own life and remembers what it says,
+so it knows the people, the places and the dates without being told twice.
+
+  What is read    new email that looks like real life, not marketing: a sender already in the owner's circle, or
+                  words that mark an appointment, a child's school or daycare, the home or building, a travel
+                  document, an insurer, a payment that was made, or a real person writing. Mail the email
+                  manager sorted as low (newsletters, promotions) is skipped unless it is from the circle.
+  What is kept    for each such email, at most one dated entry (life_events): its category (health, school,
+                  childcare, home, travel, money, insurance, family, work), what it is (appointment, document,
+                  notice, payment, update), the date and time, who it concerns, the organisation, a reference
+                  number when there is one, and one plain sentence worth remembering. The sentence is also kept
+                  as a searchable note in the brain, so "what's the reference on Ishaan's Kenya eTA?" or "when
+                  is my doctor's visit?" can be answered later.
+  The circle      the people and organisations that keep appearing (life_circle): a sender, a name, and what
+                  they are to the owner. Buddy only guesses a relation ("travels with you; a school writes to
+                  you both: family?") and asks once; nothing is treated as fact until the owner confirms or
+                  says it ("Neha Sareen is my wife"). Confirmed people go into the brain as people.
+  What it does    an appointment found in email is said once and gets reminders (the evening before, and two
+                  hours before when the time is known); a delivery waiting at the building is said once; the
+                  rest is kept quietly and shows in the morning briefing when it is dated within the week. Anything
+                  with an end date (a visa, a policy, a registration, a warranty, a return window) gets a
+                  reminder ahead of it.
+
+Health email is kept to logistics only: who, when and where. Never results, diagnoses or medicines, and a
+patient-portal message is only "there is a new message", since its content isn't in the email anyway.
+All of it is personal: it is read by Claude only, never by a free model, and stays in the encrypted database.
+The owner can see it, correct it and delete it (the life_memory tool). Kept 400 days after its date.
+```
+
+- Tables: `life_circle`, `life_events`
+- Uses: brain.py, config.py, memory.py, thinking.py, tools.py
 
 ### email_accounts.py
 

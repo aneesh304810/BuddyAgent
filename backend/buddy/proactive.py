@@ -67,6 +67,17 @@ def _spoken_system(memory: Memory) -> str:
             + (f"Their goals: {goals}." if goals else ""))
 
 
+def _life_line(memory: Memory) -> str:
+    """Appointments, school and travel dates Buddy found in the owner's email, for this week."""
+    try:
+        from . import lifemail  # noqa: PLC0415
+        line = lifemail.briefing_line(memory)
+        return f"{line} (mention today's and tomorrow's) " if line else ""
+    except Exception:
+        log.info("briefing: life memory failed", exc_info=True)
+        return ""
+
+
 async def morning_briefing(memory: Memory) -> str:
     system = _spoken_system(memory)
     reminders = [
@@ -98,7 +109,7 @@ async def morning_briefing(memory: Memory) -> str:
         f"Bills: {Money(memory).morning_line()}. "
         f"{('Home thermostat (mention only if notable): ' + home + '. ') if home else ''}"
         f"{('Their health plan (one short line on how recovered they are and what that means today): ' + body + '. ') if body else ''}"
-        f"Email: {MailManager(memory, None).briefing_line()}. "
+        f"Email: {MailManager(memory, None).briefing_line()}. {_life_line(memory)}"
         f"Spending: {Thrift(memory).summary()}. "
         f"Buddy's own health check (mention in a few words only if there's something): "
         f"{health.morning_line(memory) or 'nothing'}. "
@@ -396,6 +407,12 @@ async def run(memory: Memory, deliver: Deliver, connected=None) -> None:
                             await deliver("followup", idea)
             except Exception:
                 log.exception("reasoning upkeep failed")
+            try:  # life memory: appointments, school, home, family and travel documents in the owner's email
+                from . import lifemail  # noqa: PLC0415
+                for text in await lifemail.scan(memory):
+                    await deliver("email", text)
+            except Exception:
+                log.exception("life memory scan failed")
             try:  # the brain connects: plans in new emails, notifications and uploads; upcoming flights tracked
                 from .connect import Connect  # noqa: PLC0415
                 for text in await Connect(memory).scan():

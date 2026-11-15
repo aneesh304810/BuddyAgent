@@ -45,6 +45,33 @@ music, AI, property, travel deals and so on):
 The counting is done in code on your server; nothing is sent out for it. For a subject outside the list, say
 "follow <subject>". Other people's words in Listen-in are never counted.
 
+## Life memory from your email
+
+Buddy reads the email that is about your own life and remembers what it says, so it knows the people, the
+places and the dates without being told twice.
+
+- **What it reads.** Email that looks like real life, not marketing: an appointment or a patient-portal
+  notice, your child's school and daycare, your building (a delivery at the front desk, a work order), travel
+  documents (a visa or travel authorisation, with its reference number), insurance, payments you made, your
+  car, taxes, official letters, invitations, your job, and mail from people you've told Buddy about.
+  Newsletters and promotions are skipped.
+- **What it keeps.** One short entry per email: what it is, the date and time, who it concerns, the
+  organisation, a reference number, and one sentence worth remembering. Ask "when is my doctor's visit?",
+  "what did the school send this week?", "what's the reference on Ishaan's Kenya eTA?".
+- **Your circle.** Buddy notices who keeps appearing and guesses what they are to you, but a guess is only a
+  guess: it asks once ("Neha Sareen keeps coming up... who is she to you?") and treats nothing as fact until
+  you say it. Say "Neha Sareen is my wife" or "Nine on the Hudson is my building" any time; their mail is then
+  always read and remembered.
+- **What it does with it.** An appointment found in email is said once and gets reminders (the evening before,
+  and two hours before when the time is known). A delivery waiting at your building is said once. Anything
+  with an end date (a visa, a policy, a registration, a warranty, a return window) gets a reminder ahead of
+  it. The week's dates appear in the morning briefing. Buddy checks this memory when planning a trip, a school
+  day or anything involving the family.
+- **Catching up.** "Catch up on my email from the last 30 days" reads older mail for what was missed.
+- **Private.** Health email is kept to who, when and where: never results, diagnoses or medicines. Only Claude
+  reads this mail, never a free model; it stays in the encrypted database, 400 days after its date. "What do
+  you remember from my email?" shows it; "forget ..." deletes it; "ignore ..." stops Buddy keeping someone.
+
 ## The email organizer
 
 "Organize my email" keeps your inbox for real email. Marketing, newsletters and app notifications move into
