@@ -605,6 +605,41 @@ def track_record(memory: Memory) -> dict:
                     "email). 'unknown' means it never saw one."}
 
 
+def open_calls(memory: Memory, today: date | None = None, limit: int = 30) -> dict:
+    """Buddy's open buy-now-or-wait calls for products, flights and hotels, newest first, each with what it is
+    waiting for, and how the judged calls of its kind have turned out. For the "For you" view."""
+    from . import pricebook  # noqa: PLC0415
+    today = today or local_now().date()
+    _ready(memory)
+    rows = pricebook.run(memory, "SELECT id, COALESCE(domain, 'product') AS domain, item, kind, price, decision, chance, "
+                                 "target, event, made_on, by_date, travel_date FROM predictions WHERE outcome = '' AND "
+                                 "by_date >= ? ORDER BY made_on DESC, id DESC LIMIT ?", (today.isoformat(), limit))
+    judged = pricebook.run(memory, "SELECT COALESCE(domain, 'product') AS domain, COUNT(*) AS n, SUM(CASE WHEN outcome = "
+                                   "'right' THEN 1 ELSE 0 END) AS good FROM predictions WHERE outcome IN ('right', "
+                                   "'wrong') GROUP BY 1")
+    record = {r["domain"]: {"judged": int(r["n"]), "right": int(r["good"] or 0)} for r in judged}
+    names = {"product": "Product", "flight": "Flight", "hotel": "Hotel"}
+    calls = []
+    for r in rows:
+        wait = r["decision"] == "wait"
+        rec = record.get(r["domain"], {"judged": 0, "right": 0})
+        calls.append({
+            "id": r["id"], "what": r["item"], "kind": names.get(r["domain"], "Product"), "domain": r["domain"],
+            "price": r["price"], "call": "Wait" if wait else ("Book now" if r["domain"] != "product" else "Buy now"),
+            "wait": wait, "chance": r["chance"],
+            "why": (f"Worth waiting for about ${r['target']:,.0f}" + (f", around {r['event']}" if r["event"] else "")
+                    + f". Buddy checks again by {r['by_date']}.") if wait
+            else "Little chance of a better price soon, by what Buddy has seen.",
+            "travel_date": str(r["travel_date"]) if r.get("travel_date") else "",
+            "made_on": str(r["made_on"]), "recheck_by": str(r["by_date"]),
+            "record": (f"{rec['right']} of {rec['judged']} past {names.get(r['domain'], 'product').lower()} calls were right"
+                       if rec["judged"] else "No past calls of this kind judged yet"),
+        })
+    return {"calls": calls, "record": record,
+            "note": "Rough odds from the prices Buddy has seen, the sales calendar and the season, not a promise. "
+                    "Buddy never buys or books."}
+
+
 TOOL = {
     "name": "when_to_buy",
     "description": (

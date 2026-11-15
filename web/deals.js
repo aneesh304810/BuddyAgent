@@ -15,9 +15,10 @@ const $ = (id) => document.getElementById(id);
 const esc = (s) => String(s ?? "").replace(/[&<>"']/g, (c) => ({ "&": "&amp;", "<": "&lt;", ">": "&gt;", '"': "&quot;", "'": "&#39;" }[c]));
 const safe = (u) => /^https:\/\/[^\s"'<>]+$/.test(String(u || "")) ? u : "";
 const money = (v) => v == null ? "–" : "$" + Number(v).toLocaleString(undefined, { minimumFractionDigits: v % 1 ? 2 : 0, maximumFractionDigits: 2 });
-const TABS = [["product", "🛍️ Products"], ["flight", "✈️ Flights"], ["hotel", "🏨 Hotels"], ["predicted", "🔮 Predicted"], ["alerts", "🔔 Alert settings"]];
+const TABS = [["foryou", "For you"], ["product", "Products"], ["flight", "Flights"], ["hotel", "Hotels"], ["predicted", "Predicted"], ["alerts", "Alert settings"]];
+let calls = null;
 let predicted = null;
-let tab = TABS.some(([k]) => k === storageGet("dealsTab")) ? storageGet("dealsTab") : "product", data = null, timer = null;
+let tab = TABS.some(([k]) => k === storageGet("dealsTab")) ? storageGet("dealsTab") : "foryou", data = null, timer = null;
 
 async function api(path, body) {
   const res = await fetch(path, body ? { method: "POST", headers: { Authorization: `Bearer ${token}`, "Content-Type": "application/json" }, body: JSON.stringify(body) }
@@ -29,10 +30,28 @@ async function api(path, body) {
 
 function tabs() {
   $("tabs").innerHTML = TABS.map(([k, label]) => {
-    const n = k === "predicted" || k === "alerts" ? "" : data ? data.counts[k] || 0 : "";
+    const n = k === "predicted" || k === "alerts" || k === "foryou" ? "" : data ? data.counts[k] || 0 : "";
     return `<button class="chip${k === tab ? " on" : ""}" role="tab" aria-selected="${k === tab}" data-tab="${k}">${label}${n !== "" ? ` · ${n}` : ""}</button>`;
   }).join("");
   $("tabs").querySelectorAll("button").forEach((b) => b.onclick = () => { tab = b.dataset.tab; storageSet("dealsTab", tab); render(); });
+}
+
+// For you: Buddy's open buy-now-or-wait calls, one card shape for products, flights and hotels: the call, the
+// chance, one line of why, then where it came from and its record.
+async function renderForYou() {
+  try {
+    calls = calls || await api("/api/deals/calls");
+    const card = (c) => `<section class="card"><div class="deal"><div class="what"><b>${esc(c.what)}</b>
+        <small>${esc(c.kind)}${c.travel_date ? " · " + esc(c.travel_date) : ""}</small></div>
+        <div class="price"><b>${money(c.price)}</b></div></div>
+      <p style="margin:10px 0 6px"><span class="call ${c.wait ? "wait" : "go"}">${c.wait ? "◷" : "✓"} ${esc(c.call)}</span>
+        <span class="muted">${c.wait ? Math.round(c.chance * 100) + "% chance of a lower price" : Math.round((1 - c.chance) * 100) + "% chance this is as low as it gets"}</span></p>
+      <p class="muted" style="margin:0 0 6px">${esc(c.why)}</p>
+      <small class="muted">Buddy's call on ${esc(c.made_on)} · ${esc(c.record)}</small></section>`;
+    $("main").innerHTML = (calls.calls.length ? calls.calls.map(card).join("")
+      : `<p class="muted">No open calls. Ask Buddy "should I buy this now?" or "is this a good fare?" and the call shows here until it is settled.</p>`)
+      + `<p class="muted">${esc(calls.note)} How these calls have turned out is in Intelligence, under Predictions.</p>`;
+  } catch (e) { $("main").innerHTML = `<p class="err">${esc(e.message)}</p>`; }
 }
 
 async function renderPredicted() {
@@ -83,6 +102,7 @@ async function renderAlerts(fresh) {
 
 function render() {
   tabs();
+  if (tab === "foryou") { renderForYou(); return; }
   if (tab === "predicted") { renderPredicted(); return; }
   if (tab === "alerts") { renderAlerts(); return; }
   const list = (data?.deals || []).filter((d) => d.domain === tab);

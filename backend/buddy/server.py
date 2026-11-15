@@ -1817,6 +1817,13 @@ async def api_deals(days: int = 7, domain: str = "", q: str = "") -> dict:
     return await asyncio.to_thread(pricebook.deals_page, memory, days, domain, q)
 
 
+@app.get("/api/deals/calls", dependencies=[Depends(require_admin)])
+async def api_deals_calls() -> dict:
+    """Buddy's open buy-now-or-wait calls for products, flights and hotels (the For you view)."""
+    from . import whentobuy  # noqa: PLC0415
+    return await asyncio.to_thread(whentobuy.open_calls, memory)
+
+
 @app.get("/api/deals/predicted", dependencies=[Depends(require_admin)])
 async def api_deals_predicted(days: int = 45) -> dict:
     from . import dealforecast  # noqa: PLC0415

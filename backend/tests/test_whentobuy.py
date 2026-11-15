@@ -108,3 +108,29 @@ def test_note_launch_is_kept_and_used(memory):
                                    "launch_price": 449.0, "kind": "electronics", "brand": "Sony"}))
     got = w.advise(memory, "Sony WH-1000XM6", 449.0, "electronics", today=date(2026, 11, 14), save=False)
     assert got["life_stage"] == "mature"
+
+
+def test_open_calls_list_what_buddy_is_waiting_on_with_the_record_of_its_kind(tmp_path):
+    from datetime import timedelta
+
+    from buddy import pricebook, travelcall
+    whentobuy = w
+    from buddy.memory import Memory
+    memory = Memory(tmp_path / "b.db")
+    today = date(2026, 11, 16)
+    try:
+        first = whentobuy.advise(memory, "Sony WH-1000XM6", 399.0, "electronics", today=today)
+        travelcall.advise(memory, "flight", "EWR-LIM", 612.0, "2027-02-10", today=today)
+        old = whentobuy.advise(memory, "Old toaster", 40.0, "home", today=today - timedelta(days=200))
+        pricebook.run(memory, "UPDATE predictions SET outcome = 'right', best_seen = 30 WHERE id = ?", (old["prediction_id"],))
+        got = whentobuy.open_calls(memory, today)
+        kinds = {c["what"]: c for c in got["calls"]}
+        assert set(kinds) == {"Sony WH-1000XM6", "EWR-LIM"}  # the settled call is not open
+        sony, lima = kinds["Sony WH-1000XM6"], kinds["EWR-LIM"]
+        assert sony["kind"] == "Product" and sony["price"] == 399.0 and sony["call"] in ("Wait", "Buy now")
+        assert sony["wait"] == (first["decision"] == "wait") and sony["record"] == "1 of 1 past product calls were right"
+        assert lima["kind"] == "Flight" and lima["travel_date"] == "2027-02-10" and lima["call"] in ("Wait", "Book now")
+        assert lima["record"] == "No past calls of this kind judged yet" and "never buys or books" in got["note"]
+        assert whentobuy.open_calls(memory, today + timedelta(days=400))["calls"] == []  # past their re-check date
+    finally:
+        pricebook.close_all()

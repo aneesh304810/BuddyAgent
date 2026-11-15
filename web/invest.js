@@ -14,7 +14,8 @@ if (params.get("token") && storageGet("buddyToken") === token) history.replaceSt
 const $ = (id) => document.getElementById(id);
 const esc = (s) => String(s ?? "").replace(/[&<>"']/g, (c) => ({ "&": "&amp;", "<": "&lt;", ">": "&gt;", '"': "&quot;", "'": "&#39;" }[c]));
 const safe = (u) => /^https:\/\/[^\s"'<>]+$/.test(String(u || "")) ? u : "";
-const TABS = [["strategy", "Strategy"], ["signals", "Signals"], ["practice", "Practice"], ["themes", "Themes"], ["trends", "Trends"], ["accounts", "Accounts"], ["watch", "Watchlist"]];
+// Four tabs: the old Strategy, Signals and Accounts are one Overview; market news is in Discover, under News.
+const TABS = [["strategy", "Overview"], ["practice", "Practice"], ["themes", "Themes"], ["watch", "Watchlist"]];
 let themesData = null, themesBusy = false, practiceData = null, practiceBusy = false, signalsData = null, signalsBusy = false;
 let data = null, tab = TABS.some(([k]) => k === storageGet("investTab")) ? storageGet("investTab") : "strategy", busy = false;
 
@@ -320,7 +321,7 @@ async function loadSignals() {
   try { signalsData = await api("/api/deals/signals"); }
   catch (e) { signalsData = { failed: e.message }; }
   signalsBusy = false;
-  if (tab === "signals") render();
+  if (tab === "strategy") render();
 }
 function signalsTab() {
   if (!signalsData) { loadSignals(); return `<p class="muted">Loading signals…</p>`; }
@@ -350,9 +351,16 @@ async function switchSignal(category) {
   catch (e) { notice(e.message); }
 }
 
+// Overview: today's strategy, then the buy and sell signals, then the investment accounts.
+function overviewTab() {
+  return strategy() + `<h2 class="group" style="margin:18px 0 8px">Signals</h2>` + signalsTab()
+    + `<h2 class="group" style="margin:18px 0 8px">Accounts</h2>` + accountsTab()
+    + `<p class="muted">Market news and trends are in Discover, under News.</p>`;
+}
+
 function render() {
   tabs();
-  $("main").innerHTML = { strategy, signals: signalsTab, practice: practiceTab, themes: themesTab, trends: trendsTab, accounts: accountsTab, watch: watchTab }[tab]();
+  $("main").innerHTML = { strategy: overviewTab, practice: practiceTab, themes: themesTab, watch: watchTab }[tab]();
   document.querySelectorAll("[data-sigcat]").forEach((b) => b.onclick = () => switchSignal(b.dataset.sigcat));
   if ($("themes-refresh")) $("themes-refresh").onclick = () => { themesData = null; render(); };
   if ($("practice-refresh")) $("practice-refresh").onclick = () => { practiceData = null; render(); loadPractice(true); };

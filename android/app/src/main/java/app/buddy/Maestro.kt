@@ -24,7 +24,7 @@ import androidx.compose.ui.unit.dp
 
 /** Buddy Maestro: the AI providers and which does each job (web/maestro.html), and every model request Buddy made
  *  (Spending: the web view with the drill-down; Requests: what used to be the Insights screen), as tabs at the top. The last tab used is remembered. */
-private val MAESTRO_TABS = listOf("Providers & models", "Spending", "Requests")
+private val MAESTRO_TABS = listOf("Providers & models", "AI spending", "Requests")
 
 @Composable
 fun MaestroScreen(link: ServerLink?, openUsage: Boolean = false) {

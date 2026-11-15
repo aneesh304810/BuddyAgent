@@ -59,8 +59,11 @@ to the conversation.
 ## What is built, and what is not yet
 
 Built: the bar with the five places, the header with Back and the bell, the microphone on the other places,
-Trips & Deals, Discover and More, and Invest as a tab of Money.
+Trips & Deals, Discover and More, Invest as a tab of Money with four tabs of its own (Overview, Practice,
+Themes, Watchlist), and "For you" in Deals: Buddy's open buy-now-or-wait calls for products, flights and
+hotels in one card shape (the call, the chance, one line of why, then the date of the call and the record
+of calls of its kind).
 
-Not yet: the Today strip on the home screen, the alert count on the bell, the "For you" tab in Trips &
-Deals, fewer tabs inside Invest, the shared prediction card in every engine, "how this was answered" on a
-reply, source and freshness lines everywhere, and the wide-screen layout for the Fold.
+Not yet: the Today strip on the home screen, the alert count on the bell, the same card for investment
+themes, "how this was answered" on a reply, source and freshness lines everywhere, and the wide-screen
+layout for the Fold.
