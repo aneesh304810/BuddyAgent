@@ -418,8 +418,9 @@ async def run(memory: Memory, deliver: Deliver, connected=None) -> None:
                     if text and not in_quiet_hours():
                         await deliver("news", text, topic="news:intelligence")
                     from . import themes  # noqa: PLC0415  the evidence joined to the market, with practice money
-                    moved = await asyncio.to_thread(themes.run, memory)
-                    log.info("themes: %d new events, %d results filled in", len(moved["new"]), moved["measured"])
+                    moved = await themes.nightly(memory)
+                    log.info("themes: %d new events, %d results filled in, %d company headlines, %d labelled",
+                             len(moved["new"]), moved["measured"], moved["company_news"], moved["labelled"])
                     text = themes.message(moved, memory)
                     if text and not in_quiet_hours():
                         await deliver("news", text, topic="news:themes")

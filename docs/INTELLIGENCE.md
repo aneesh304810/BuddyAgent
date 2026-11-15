@@ -108,12 +108,23 @@ is found. Ask "which themes touch my watchlist" or "does this pattern work".
   | Several kinds rising together | three or more kinds of evidence each at 3 or more records and 1.5 times the 30 days before |
   | A jump in company filings | 3 or more in 30 days and at least double the 30 days before |
   | A jump in news and discussion | 5 or more in 14 days and at least double the 14 days before |
+  | A jump in good news | 3 or more reports labelled good in 14 days, at least double the 14 days before, and more good than bad |
+  | A jump in bad news | 3 or more reports labelled bad in 14 days, at least double the 14 days before, and more bad than good |
   | A jump in research | 5 or more papers in 30 days and at least double the 30 days before |
   | A large award or grant | $10 million or more in the last 30 days |
   | A run of private fundraising | 3 or more notices in 30 days |
 
   When a rule fires for a technology that has public companies, an event is written with that day's closing
   prices. The same pattern is written at most once per technology in any 30 days.
+- **News is read, not only counted.** Each night a free model labels every new headline about a technology
+  or one of its companies as good, bad or neutral for it (up to 120 a night; headlines are public). The label
+  is shown beside the headline so you can check it. It is made from the headline alone and is sometimes
+  wrong. A headline the model gives no usable answer for stays unlabelled and is asked again another night.
+- **News about the companies.** The news is also searched by company name for up to 15 companies a night
+  (those on your lists first). Only headlines that name the company are kept. A company with a very short
+  name is not searched, because the results would be about other things.
+- **Joined with Signals.** Each company shows whether Buddy's Signals practice book has an open buy or a
+  mark to avoid on it, and since when.
 - **Practice baskets.** Every event is measured as pretend money split equally across up to five of the
   companies, after 30 and after 90 days, against the S&P 500 fund (SPY) over the same days. The practice
   strategy is the first pattern only: $10,000 of pretend money per basket, closed after 90 days. Nothing is

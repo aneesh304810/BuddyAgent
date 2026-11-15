@@ -266,18 +266,29 @@ async function loadThemes() {
   if (tab === "themes") render();
 }
 const LEAN = { up: "▲ has beaten the market so far", down: "▼ has trailed the market so far", flat: "● no clear edge so far", none: "○ not enough history" };
+const TONE = { good: ["▲ good", "gain"], bad: ["▼ bad", "loss"], neutral: ["● neutral", "muted"] };
+const tone = (t) => TONE[t] ? `<span class="${TONE[t][1]}" title="Labelled by an AI from the headline; check it">${TONE[t][0]}</span>` : `<span class="muted">○ not labelled yet</span>`;
+const headline = (x) => `<li>${tone(x.tone)} · ${x.url ? `<a href="${safe(x.url)}" target="_blank" rel="noopener">${esc(x.title)}</a>` : esc(x.title)} <small class="muted">${esc(x.day)}${x.outlet ? " · " + esc(x.outlet) : ""}</small></li>`;
 const against = (a, b) => a == null ? "–" : `${pct(a)} <small class="muted">market ${pct(b)}</small>`;
 function themeCard(t) {
-  const companies = (t.companies || []).map((c) => `<button class="chip" data-check="${esc(c.symbol)}" title="${esc(c.name)}: ${esc(c.records)} filings">${esc(c.symbol)}</button>`).join("");
+  const companies = (t.companies || []).map((c) => `<button class="chip" data-check="${esc(c.symbol)}" title="${esc(c.name)}: ${esc(c.records)} filings">${esc(c.symbol)}${c.signal ? (c.signal.kind === "buy" ? " ▲" : " ▼") : ""}</button>`).join("");
+  const signals = (t.companies || []).filter((c) => c.signal).map((c) => `<b>${esc(c.symbol)}</b>: ${c.signal.kind === "buy" ? "▲ open buy" : "▼ marked to avoid"} in the Signals practice book since ${esc(c.signal.since)}`).join("; ");
+  const n = t.news_14_days || {}, counted = (n.good || 0) + (n.bad || 0) + (n.neutral || 0) + (n.unlabelled || 0);
+  const newsLine = counted ? `<p class="note">News in 14 days: <span class="gain">▲ ${esc(n.good || 0)} good</span> · <span class="loss">▼ ${esc(n.bad || 0)} bad</span> · ● ${esc(n.neutral || 0)} neutral${n.unlabelled ? ` · ○ ${esc(n.unlabelled)} not labelled yet` : ""}</p>` : "";
+  const techNews = (t.headlines || []).map(headline).join("");
+  const coNews = (t.companies || []).filter((c) => (c.news || []).length).map((c) => `<li><b>${esc(c.symbol)}</b><ul class="why">${c.news.map(headline).join("")}</ul></li>`).join("");
   const mine = (t.yours || []).map((y) => `<b>${esc(y.symbol)}</b> (${esc(y.where)})`).join(", ");
   const active = (t.active || []).map((a) => `<li><b>${esc(a.title)}</b> <small class="muted">${esc(LEAN[a.lean] || "")}. ${esc(a.record)}</small></li>`).join("");
   return `<div class="tx" style="display:block"><b>${esc(t.name)}</b> <small class="muted">${esc(t.sector_name)} · ${esc(t.stage)} · ${esc(t.signals_90_days)} records in 90 days${t.growth == null ? "" : ", " + (t.growth > 0 ? "+" : "") + Math.round(t.growth * 100) + "% on the 90 before"}</small>
     ${mine ? `<p class="note">On your lists: ${mine}</p>` : ""}
     ${companies ? `<div class="chips" style="flex-wrap:wrap;margin-top:6px">${companies}</div>` : `<p class="note">No public company named in its filings yet.</p>`}
-    ${active ? `<ul class="why">${active}</ul>` : ""}</div>`;
+    ${signals ? `<p class="note">${signals}</p>` : ""}
+    ${active ? `<ul class="why">${active}</ul>` : ""}
+    ${newsLine}${techNews ? `<ul class="why">${techNews}</ul>` : ""}
+    ${coNews ? `<p class="note">News about its companies</p><ul class="why">${coNews}</ul>` : ""}</div>`;
 }
 function themeEvent(e) {
-  const proof = (e.evidence || []).slice(0, 3).map((x) => `<li>${x.url ? `<a href="${safe(x.url)}" target="_blank" rel="noopener">${esc(x.title)}</a>` : esc(x.title)} <small class="muted">${esc(x.day)}</small></li>`).join("");
+  const proof = (e.evidence || []).slice(0, 3).map((x) => x.tone ? headline(x) : `<li>${x.url ? `<a href="${safe(x.url)}" target="_blank" rel="noopener">${esc(x.title)}</a>` : esc(x.title)} <small class="muted">${esc(x.day)}</small></li>`).join("");
   return `<div class="tx" style="display:block"><b>${esc(e.name)}</b>: ${esc(e.title.toLowerCase())} <small class="muted">${esc(e.day)} · ${esc(e.why)}</small>
     <p class="note">Basket: ${esc((e.symbols || []).join(", "))}. After 30 days ${against(e.after_30, e.market_30)}; after 90 days ${against(e.after_90, e.market_90)}${e.so_far == null ? "" : `; so far (${esc(e.days)} days) ${against(e.so_far, e.market_so_far)}`}</p>
     ${proof ? `<ul class="why">${proof}</ul>` : ""}</div>`;
@@ -294,7 +305,7 @@ function themesTab() {
   const mine = (d.themes || []).filter((t) => (t.yours || []).length), rest = (d.themes || []).filter((t) => !(t.yours || []).length);
   return card("Practice: does acting on the evidence beat the market?", score) +
     card("What followed each kind of evidence change", rows ? `<div style="overflow-x:auto"><table class="grid"><tr><th>Pattern</th><th>Events</th><th>After 30 days</th><th>After 90 days</th></tr>${rows}</table></div>` : "",
-      `Buddy says which way a pattern has leaned only after ${esc(d.needed)} finished baskets. Events close together are not independent tests.`) +
+      `Buddy says which way a pattern has leaned only after ${esc(d.needed)} finished baskets. Events close together are not independent tests. Good, bad and neutral labels on headlines are written by an AI from the headline alone and are sometimes wrong.`) +
     (mine.length ? card("Themes touching what you follow", mine.map(themeCard).join("")) : "") +
     card(`Themes (${rest.length})`, rest.length ? rest.slice(0, 30).map(themeCard).join("") : `<p class="muted">No evidence collected yet. It fills in after the nightly Intelligence run.</p>`,
       d.yours ? "" : "Nothing is on your watchlist yet, so no theme can be matched to it.") +

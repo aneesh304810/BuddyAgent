@@ -21,7 +21,7 @@ flowchart LR
     bip_py --> themes_py
     themes_py --> bip_py
     themes_py --> bip_sources_py
-    db[("Your database<br/>bip_notes, bip_signals, theme_events")]
+    db[("Your database<br/>bip_notes, bip_signals, theme_events, theme_news, theme_tone")]
     bip_py --> db
     themes_py --> db
     s_nsf["NSF (research grants)<br/>(public data only)"]
@@ -137,6 +137,11 @@ Themes: the Intelligence Platform's evidence joined to the market, and tested wi
              a jump in company filings, a jump in news, a jump in research, a large award or grant, a run of
              private fundraising notices. Each time a rule fires for a technology that has public companies, an
              event is written with that day's closing prices.
+  News       news is read, not only counted. A free model labels each headline about a technology or one of its
+             companies as good, bad or neutral for it (headlines are public; the label is shown beside the
+             headline so it can be checked, and it will sometimes be wrong). Good and bad news each have their
+             own pattern and their own record. News about the companies themselves is searched by company name.
+  Signals    each company also shows whether Buddy's Signals practice book has an open buy or avoid on it.
   Practice   every event is a practice basket: pretend money split equally across up to five of the companies,
              measured after 30 and after 90 days against the S&P 500 fund (SPY) over the same days. Nothing is
              bought. No costs or taxes are taken off, so real results would be a little worse.
@@ -148,8 +153,8 @@ Themes: the Intelligence Platform's evidence joined to the market, and tested wi
 Stored in the public-data store beside the evidence: these are public prices and Buddy's own practice results.
 ```
 
-- Tables: `theme_events`
-- Uses: bip.py, bip_sources.py, markets.py, memory.py, paper.py, tools.py
+- Tables: `theme_events`, `theme_news`, `theme_tone`
+- Uses: benefits.py, bip.py, bip_sources.py, free_models.py, markets.py, memory.py, paper.py, tools.py
 
 ## How it connects
 

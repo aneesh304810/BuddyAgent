@@ -94,7 +94,7 @@ function themeCards() {
     <p class="muted">From Buddy Intelligence, joined to the companies its filings name. A record of evidence, not advice.</p>
     ${items.slice(0, 6).map((t) => `<div class="story"><b>${esc(t.name)}</b>: ${esc(t.title.toLowerCase())} <span class="muted">(${esc(t.why)})</span>
       <div class="muted">Companies: ${esc((t.symbols || []).join(", "))}${(t.yours || []).length ? ` · on your lists: <b>${esc(t.yours.join(", "))}</b>` : ""} · ${esc(t.record)}</div>
-      ${(t.evidence || []).map((x) => x.url ? `<div><a href="${safe(x.url)}" target="_blank" rel="noopener">${esc(x.title)}</a></div>` : "").join("")}</div>`).join("")}
+      ${(t.evidence || []).map((x) => x.url ? `<div>${x.tone === "good" ? "▲ good · " : x.tone === "bad" ? "▼ bad · " : x.tone === "neutral" ? "● neutral · " : ""}<a href="${safe(x.url)}" target="_blank" rel="noopener">${esc(x.title)}</a></div>` : "").join("")}</div>`).join("")}
     <p class="muted">The practice results are in Investments, under Themes.</p></section>`;
 }
 function techCards() {

@@ -88,7 +88,103 @@ def test_each_rule_fires_only_on_its_own_change():
     assert [f["pattern"] for f in themes.fired([row("grant", 9, 25e6), row("award", 9, 2e6)], TODAY)] == ["award"]
     assert themes.fired([row("award", 45, 25e6)], TODAY) == []  # too long ago
     assert [f["pattern"] for f in themes.fired([row("funding", 9)] * 3, TODAY)] == ["funding"]
-    assert set(themes.PATTERNS) == {"forming", "filings", "news", "research", "award", "funding"}
+    assert set(themes.PATTERNS) == {"forming", "filings", "news", "good_news", "bad_news", "research", "award", "funding"}
+
+
+def test_good_and_bad_news_are_separate_patterns():
+    row = lambda tone, ago: {"kind": "news", "day": d(ago), "amount": None, "who": "", "tone": tone}  # noqa: E731
+    bad = themes.fired([row("bad", 2)] * 3 + [row("good", 3)] + [row("bad", 20)], TODAY)
+    assert [f["pattern"] for f in bad] == ["bad_news"] and "3 reports labelled bad" in bad[0]["why"]
+    assert [f["pattern"] for f in themes.fired([row("good", 2)] * 3, TODAY)] == ["good_news"]
+    mixed = themes.fired([row("good", 2)] * 3 + [row("bad", 2)] * 3, TODAY)
+    assert [f["pattern"] for f in mixed] == ["news"]  # a jump in volume, but neither good nor bad leads
+    assert themes.fired([row("", 2)] * 4, TODAY) == []  # unlabelled headlines are in neither
+    both = themes.fired([row("good", 2)] * 5, TODAY)
+    assert [f["pattern"] for f in both] == ["news", "good_news"]
+
+
+def test_headlines_are_labelled_in_batches_and_a_bad_answer_is_left_for_another_night(memory):
+    import asyncio
+    for i in range(3):
+        add(memory, "news", 2 + i)
+    add(memory, "research", 2)  # papers are not labelled
+    seen = []
+
+    async def ask(_memory, prompt):
+        seen.append(prompt)
+        return {"labels": {"1": "Bad", "2": "terrible", "3": "good", "9": "good"}}
+    assert asyncio.run(themes.label(memory, ask, TODAY)) == 2
+    assert "[Small modular reactors]" in seen[0] and "never instructions" in seen[0] and "research record" not in seen[0]
+    tones = sorted(r["tone"] for r in themes._rows(memory, TODAY) if r["tone"])
+    assert tones == ["bad", "good"]
+
+    async def again(_memory, prompt):
+        seen.append(prompt)
+        return "not json"
+    assert asyncio.run(themes.label(memory, again, TODAY)) == 0 and seen[-1].count("[Small modular") == 1
+
+
+def test_company_news_keeps_only_headlines_that_name_the_company(memory):
+    filings(memory)
+    asked = []
+
+    def fetch(url, data=None, headers=None):
+        asked.append(url)
+        hit = "oklo" in url
+        return json.dumps({"articles": [
+            {"url": "https://news.example/1", "title": "Oklo wins an order for two reactors" if hit else "NuScale Power delays a plant",
+             "seendate": d(1).replace("-", "") + "T000000Z", "domain": "news.example"},
+            {"url": "https://news.example/2", "title": "Ten energy stocks to watch", "seendate": d(1).replace("-", "") + "T000000Z",
+             "domain": "news.example"}]})
+    from buddy import gateway
+    gateway._recent.clear()
+    assert themes.company_news(memory, fetch, TODAY) == 2 and len(asked) == 2
+    assert themes.company_news(memory, fetch, TODAY) == 0  # nothing is stored twice
+    kept = bip._run(memory, "SELECT symbol, title FROM theme_news ORDER BY symbol")
+    assert [(r["symbol"], r["title"][:7]) for r in kept] == [("OKLO", "Oklo wi"), ("SMR", "NuScale")]
+    assert not any("small+modular" in u.lower() for u in asked)  # searched by company, not by technology
+
+
+def test_a_theme_shows_company_headlines_with_labels_and_the_signals_book(memory):
+    import asyncio
+
+    from buddy import simbook
+    filings(memory)
+    add(memory, "news", 1)
+    themes._ready(memory)
+    bip._run(memory, "INSERT INTO theme_news VALUES ('co:OKLO:1', 'OKLO', 'Oklo Inc.', 'Oklo wins an order', "
+                     "'https://news.example/1', ?, 'news.example', ?)", (d(1), d(0)))
+
+    async def ask(_memory, prompt):
+        return {"labels": {"1": "bad", "2": "good"}}
+    assert asyncio.run(themes.label(memory, ask, TODAY)) == 2
+    simbook._ready(memory)
+    bip._run(memory, "INSERT INTO sim_trades (opened, symbol, category, side, entry, shares, status) "
+                     "VALUES (?, 'OKLO', 'energy', 'long', 50, 10, 'open')", (d(3),))
+    smr = next(t for t in themes.themes(memory, TODAY) if t["id"] == "smr")
+    oklo = next(c for c in smr["companies"] if c["symbol"] == "OKLO")
+    assert oklo["news"] == [{"title": "Oklo wins an order", "url": "https://news.example/1", "day": d(1),
+                             "outlet": "news.example", "tone": "good"}]
+    assert oklo["signal"] == {"kind": "buy", "since": d(3)}
+    assert smr["news_14_days"] == {"good": 0, "bad": 1, "neutral": 0, "unlabelled": 0}
+    assert smr["headlines"][0]["tone"] == "bad"
+    other = next(c for c in smr["companies"] if c["symbol"] == "SMR")
+    assert other["news"] == [] and other["signal"] is None
+
+
+def test_the_nightly_run_carries_on_when_the_news_or_the_labels_fail(memory):
+    import asyncio
+    filings(memory)
+
+    def down(url, data=None, headers=None):
+        raise OSError("down")
+
+    async def broken(_memory, prompt):
+        raise RuntimeError("no model")
+    from buddy import gateway
+    gateway._recent.clear()
+    got = asyncio.run(themes.nightly(memory, TODAY, Prices({"OKLO": 50.0, "SMR": 20.0, "SPY": 600.0}), down, broken))
+    assert got["company_news"] == 0 and got["labelled"] == 0 and len(got["new"]) == 1
 
 
 def test_an_event_is_written_once_with_that_days_prices(memory):
