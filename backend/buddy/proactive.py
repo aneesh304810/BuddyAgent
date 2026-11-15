@@ -407,6 +407,17 @@ async def run(memory: Memory, deliver: Deliver, connected=None) -> None:
                             await deliver("followup", idea)
             except Exception:
                 log.exception("reasoning upkeep failed")
+            try:  # technology that matters for Buddy: sorted and verified once a night, shown in Buddy News
+                from . import techradar  # noqa: PLC0415
+                if techradar.due(memory):
+                    techradar.mark_done(memory)
+                    found = await techradar.run(memory)
+                    log.info("tech radar: read %d, kept %d, new %d", found["read"], found["kept"], len(found["new"]))
+                    text = techradar.message(found)
+                    if text and not in_quiet_hours():
+                        await deliver("news", text, topic="news:tech")
+            except Exception:
+                log.exception("tech radar failed")
             try:  # the model scout: daily, and sooner for a free provider that was just rested for failing
                 from . import modelscout  # noqa: PLC0415
                 wanted = modelscout.due(memory)

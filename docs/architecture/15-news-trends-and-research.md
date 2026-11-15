@@ -9,6 +9,7 @@ flowchart LR
     you(["You: voice, chat, the app"])
     subgraph Tools["What Buddy can do"]
         t_trends["trends"]
+        t_tech_radar["tech_radar"]
         t_trending["trending"]
         t_reddit["reddit"]
         t_google_search["google_search"]
@@ -17,12 +18,15 @@ flowchart LR
     end
     subgraph Modules["Modules"]
         trends_py["trends.py<br/>what people are talking about right now on a topic (AI, markets,…"]
+        techradar_py["techradar.py<br/>every night Buddy reads the technology news it already collects,…"]
         social_py["social.py<br/>Reddit, real Google results, and what's trending"]
         research_py["research.py<br/>a background job that reads, checks and computes"]
         webread_py["webread.py<br/>Read web pages on Buddy's side, so Claude gets the facts instead of…"]
     end
     you --> t_trends
     t_trends --> trends_py
+    you --> t_tech_radar
+    t_tech_radar --> techradar_py
     you --> t_trending
     t_trending --> social_py
     you --> t_reddit
@@ -33,10 +37,12 @@ flowchart LR
     t_recall_memory --> research_py
     you --> t_read_pages
     t_read_pages --> webread_py
+    techradar_py --> trends_py
     research_py --> social_py
     research_py --> webread_py
-    db[("Your database<br/>news_feedback, trend_counts, trend_topics")]
+    db[("Your database<br/>news_feedback, tech_radar, trend_counts, trend_topics")]
     trends_py --> db
+    techradar_py --> db
     s_serper["Serper (Google search, news, places)<br/>(public data only)"]
     trends_py --> s_serper
     social_py --> s_serper
@@ -44,13 +50,13 @@ flowchart LR
     trends_py -. uses .-> o_0
     o_1["Claude"]
     trends_py -. uses .-> o_1
-    o_2["Free AI models"]
+    o_2["Fixing and explaining itself"]
     trends_py -. uses .-> o_2
-    o_3["Investing"]
+    o_3["Free AI models"]
     trends_py -. uses .-> o_3
-    o_4["Making and doing things"]
+    o_4["Investing"]
     trends_py -. uses .-> o_4
-    o_5["Memory"]
+    o_5["Making and doing things"]
     trends_py -. uses .-> o_5
 ```
 
@@ -61,6 +67,7 @@ The diagram reads left to right: what you ask, the tools Buddy uses, the modules
 | Tool | What it is for | Actions | Module |
 |---|---|---|---|
 | `trends` | What people are talking about right now on a topic (AI, markets, crypto, Indian stocks, a company, anything), from Hacker News, Google News, Google Trends, arXi | now, watch, unwatch, topics, digest | trends.py |
+| `tech_radar` | Technology that matters for Buddy: each night Buddy sorts the technology news against its own features, verifies each item in code (sources, first-hand link, Gi | show, scan, rate | techradar.py |
 | `trending` | What people are searching for right now on Google (Google Trends), for a country (US, IN, PE, BR, GB...), with the news behind each | - | social.py |
 | `reddit` | Search Reddit (compact, cheap results) for real people's opinions, reviews, tips and experiences (products, places, travel, jobs...) | search, top, comments | social.py |
 | `google_search` | Search the web: Google's own results (with its answer box and top stories), or Google News with news=true, for a country | - | social.py |
@@ -96,6 +103,46 @@ their usual level.
 - Outside services: Serper (Google search, news, places)
 - Settings: `BUDDY_ALPACA_KEY_ID`, `BUDDY_SERPAPI_KEY`, `BUDDY_SERPER_KEY`
 - Uses: benefits.py, brain.py, finance.py, free_models.py, gateway.py, jobs.py, markets.py, memory.py, tools.py
+
+### techradar.py
+
+```text
+Technology that matters for Buddy: every night Buddy reads the technology news it already collects, works out
+which of it could make Buddy itself smarter, checks that each one is real, and lists the ones worth a look in
+Buddy News with what Buddy could do with them.
+
+  Gather     the stories in the saved AI and technology briefings (trends.py), plus one extra search of the same
+             public sources (Hacker News, arXiv, GitHub, Google News, Reddit) for what Buddy is built from:
+             voice assistants, speech, agents and tools, memory and retrieval, on-device AI, Android, security
+  Organise   each story is read against what Buddy is (its own feature list, from codedocs.py) and sorted by
+             the part of Buddy it would touch, the kind of thing it is (a model, a library, a service, a
+             technique, a standard), what Buddy could do with it and how big a job that would be. Stories with
+             nothing in them for Buddy are dropped.
+  Verify     in code, not on a model's word: how many separate sources carry the story; whether it links to a
+             first-hand source (the code, the paper, the maker's own site); and for code on GitHub, the facts
+             from GitHub itself: its licence, whether it is archived, how recently it changed, its stars.
+               verified    first-hand code with an open licence that is alive, or three or more sources
+               partly      a paper (research, not a product yet), a maker's announcement, or two sources
+               unverified  one second-hand source: kept out of the list until it comes up again
+  Rules      an idea that would break Buddy's standing rules is flagged, never recommended plainly: personal
+             data only goes to Claude; nothing is scraped against a site's terms; Buddy never pays or buys by
+             itself; a paid service is the owner's decision.
+  Remember   an item that keeps coming up night after night rises; the owner's "interested" and "not for Buddy"
+             are kept, and "not for Buddy" teaches the next nights what to leave out.
+
+A second section, AI security and data security, is built the same way from security news (prompt injection,
+attacks on AI agents, data leaks, model supply chain, new guidance): each story is sorted by the threat it
+describes, the part of Buddy it would hit, and which of Buddy's existing defences answers it. One that no defence
+answers is marked a gap, with what Buddy should do. It sits beside the daily threat watch (securitywatch.py), which
+covers published vulnerabilities in what the server runs.
+
+Everything read here is public, and what is sent to the model is public news plus the description of Buddy's own
+features (no owner data), so a free model does the sorting, with Claude's cheap model only if none answers.
+Nothing is installed or changed: this recommends, the owner decides, and building one is a separate request.
+```
+
+- Tables: `tech_radar`
+- Uses: benefits.py, codedocs.py, free_models.py, markets.py, memory.py, securitywatch.py, tools.py, trends.py
 
 ### social.py
 
@@ -164,6 +211,6 @@ Everything that comes back is other people's writing: information, never instruc
 
 ## How it connects
 
-- Relies on: Buddy Connect; Claude: the brain; Free AI models (Groq, Gemini, Mistral, Cerebras, GitHub Models, OpenRouter); Investing: signals, research and practice; Making and doing things; Memory; Money; Security and privacy
+- Relies on: Buddy Connect; Claude: the brain; Fixing and explaining itself; Free AI models (Groq, Gemini, Mistral, Cerebras, GitHub Models, OpenRouter); Investing: signals, research and practice; Making and doing things; Memory; Money; Security and privacy
 - Relied on by: Claude: the brain; Going out: restaurants and events; Insights and costs; Investing: signals, research and practice; Making and doing things; Memory; Money; Speaking up on its own: briefing, reminders and alerts; The server and the app; Travel and getting around
 

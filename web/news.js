@@ -67,6 +67,58 @@ async function rate(button) {
   } catch (e) { notice(e.message); }
 }
 
+// --- Technology that matters for Buddy, and AI security and data security (techradar.py) ---------------------
+const CHECK = { verified: ["✓", "verified"], partly: ["◐", "partly verified"], unverified: ["?", "not verified yet"] };
+function techItem(t, security) {
+  const url = safe(t.url), [mark, word] = CHECK[t.verified] || CHECK.unverified;
+  const title = `<b>${esc(t.title)}</b>`;
+  const line = (label, text) => text ? `<p class="take"><span class="lbl">${label}</span> ${esc(text)}</p>` : "";
+  const state = security ? (t.gap ? `<span class="tag gap">▲ possible gap</span>` : `<span class="tag ok">✓ Buddy has a defence</span>`) : "";
+  return `<div class="story${t.status === "interested" ? " picked" : ""}">
+    <div class="meta" style="margin:0 0 6px">${state}<span class="tag">${mark} ${word}</span><span class="src">${esc(t.area)}</span>
+      ${t.effort ? `<span class="src">${esc(t.effort)} job</span>` : ""}${t.nights > 1 ? `<span>seen ${esc(t.nights)} nights</span>` : ""}</div>
+    ${url ? `<a href="${esc(url)}" target="_blank" rel="noopener" style="color:inherit;text-decoration:none;display:block">${title}</a>` : title}
+    ${line("What it is:", t.what)}${security ? line("The threat:", t.threat) : ""}
+    ${security && t.defence ? line("Buddy's defence:", t.defence) : ""}
+    ${line(security ? (t.gap ? "What to do:" : "What to confirm:") : "What Buddy could do:", t.idea)}
+    ${line("In Buddy:", t.feature)}${line("Caution:", t.caution)}
+    <p class="note" style="margin-top:6px">How it was checked: ${esc(t.evidence)}</p>
+    <div class="meta"><span style="flex:1"></span>
+      <button class="rate${t.status === "interested" ? " on" : ""}" data-tech="${esc(t.id)}" data-status="${t.status === "interested" ? "new" : "interested"}" aria-label="${security ? "Look into this" : "Interested"}">👍 ${security ? "Look into it" : "Interested"}</button>
+      <button class="rate" data-tech="${esc(t.id)}" data-status="dismissed" aria-label="Not for Buddy">👎 Not for Buddy</button></div></div>`;
+}
+function techCards() {
+  const t = data.tech;
+  if (!t) return "";
+  const when = t.last_run ? `Sorted ${esc(ago(t.last_run))} from ${esc(t.read_last_night)} stories` : "Not run yet: it runs every night";
+  const areas = Object.entries(t.by_area || {}).map(([a, n]) => `<span class="src">${esc(a)} · ${n}</span>`).join(" ");
+  const sec = t.security || { items: [] }, f = sec.open_findings;
+  const tech = `<section class="card"><div class="head"><h2>🧪 Technology that matters for Buddy</h2>
+      <button class="btn" id="techscan">↻ Sort now</button></div>
+    <p class="muted" style="margin:-6px 0 6px">${when}</p>${areas ? `<div class="meta" style="margin-bottom:6px">${areas}</div>` : ""}
+    ${(t.items || []).length ? t.items.slice(0, 8).map((x) => techItem(x, false)).join("")
+      : `<p class="muted">Nothing on the list yet. Each night Buddy sorts the technology news against what it is built from and keeps what could make it smarter.</p>`}
+    <p class="note">${esc(t.note || "")}</p></section>`;
+  const security = `<section class="card"><div class="head"><h2>🛡 AI security and data security</h2></div>
+    <p class="muted" style="margin:-6px 0 6px">${sec.items.length ? `${esc(sec.gaps)} possible gap${sec.gaps === 1 ? "" : "s"} · ${esc(sec.covered)} already covered` : "Nothing new to report"}${f ? ` · ${esc(f.total)} open finding${f.total === 1 ? "" : "s"} on the Security page${f.critical_or_high ? ` (${esc(f.critical_or_high)} critical or high)` : ""}` : ""}</p>
+    ${sec.items.length ? sec.items.slice(0, 8).map((x) => techItem(x, true)).join("")
+      : `<p class="muted">Each night Buddy reads AI and data security news and matches every threat against the defences it already has. Threats no defence answers are listed first.</p>`}
+    ${(sec.defences || []).length ? `<details><summary>The ${sec.defences.length} defences Buddy checks against</summary><ul class="defs">${sec.defences.map((d) => `<li>${esc(d)}</li>`).join("")}</ul></details>` : ""}
+    <p class="note">${esc(sec.note || "")}</p></section>`;
+  return tech + security;
+}
+async function techRate(id, status) {
+  try { const out = await api("/api/news/tech", { id: Number(id), status }); data.tech = out.tech; render(); notice(out.text); }
+  catch (e) { notice(e.message); }
+}
+async function techScan(button) {
+  if (busy) return;
+  busy = true; button.disabled = true; button.textContent = "Sorting…";
+  try { const out = await api("/api/news/tech", { scan: true }); data.tech = out.tech; notice(out.text); }
+  catch (e) { notice(e.message); }
+  busy = false; render();
+}
+
 function render() {
   const topics = data.topics || [];
   $("label").textContent = topics.length ? `· ${topics.length} topic${topics.length === 1 ? "" : "s"}` : "";
@@ -75,7 +127,7 @@ function render() {
   stories.length = 0;
   $("sugg").innerHTML = (data.liked_suggestions || []).map((s) => `<button class="sugg" data-add="${esc(s)}" title="From stories you liked">♥ ${esc(s)}</button>`).join("") +
     (data.suggestions || []).slice(0, 10).map((s) => `<button class="sugg" data-add="${esc(s)}">+ ${esc(s)}</button>`).join("");
-  $("main").innerHTML = (data.feed || []).map((f) => {
+  $("main").innerHTML = techCards() + (data.feed || []).map((f) => {
     const rising = (f.rising || []).slice(0, 5).map((r) => `${esc(r.query)} (${esc(r.value)})`).join(" · ");
     return `<section class="card"><div class="head"><h2>${esc(f.topic)}</h2>
         <button class="btn" data-refresh="${esc(f.topic)}">↻ Refresh</button></div>
@@ -92,6 +144,8 @@ function render() {
   document.querySelectorAll("[data-add]").forEach((b) => b.onclick = () => change("add", b.dataset.add));
   document.querySelectorAll("[data-refresh]").forEach((b) => b.onclick = () => refresh(b.dataset.refresh, b));
   document.querySelectorAll("[data-rate]").forEach((b) => b.onclick = () => rate(b));
+  document.querySelectorAll("[data-tech]").forEach((b) => b.onclick = () => techRate(b.dataset.tech, b.dataset.status));
+  if ($("techscan")) $("techscan").onclick = () => techScan($("techscan"));
 }
 
 async function change(action, name) {

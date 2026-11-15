@@ -82,6 +82,7 @@ from .subcancel import TOOL as CANCEL_SUBSCRIPTION_TOOL
 from .lifemail import TOOL as LIFE_MEMORY_TOOL
 from .securitywatch import TOOL as SECURITY_WATCH_TOOL
 from .modelscout import TOOL as MODEL_SCOUT_TOOL
+from .techradar import TOOL as TECH_RADAR_TOOL
 from .nest import TOOL as THERMOSTAT_TOOL
 from .calls import TOOL as PHONE_CALL_TOOL
 from .convolog import TOOL as RECALL_CONVO_TOOL
@@ -820,7 +821,7 @@ class Conversation:
                      WEATHER_TOOL, PACKAGES_TOOL, MESSAGE_TOOL, BUDGET_TOOL, COSTWATCH_TOOL, ADVICE_TOOL, EDIT_TOOL,
                      RECALL_CONVO_TOOL, CLAUDE_FIX_TOOL, COMMUTE_TOOL, ROUTINE_TOOL, CALENDAR_ADD_TOOL,
                      CONNECTIONS_TOOL, AMAZON_TOOL, MY_HEALTH_TOOL, HEALTH_INFO_TOOL, HEALTH_PLAN_TOOL, RESTAURANTS_TOOL, ENTERTAINMENT_TOOL, SELF_CHECK_TOOL, MARKET_SCHOOL_TOOL, SHOPPING_PROFILE_TOOL, WHEN_TO_BUY_TOOL, DAILY_DEALS_TOOL, PRICE_BOOK_TOOL, DEAL_FORECAST_TOOL, HOTEL_DIRECT_TOOL, SEASONAL_PRICES_TOOL, COMMUNITY_SIGNALS_TOOL, RECOMMENDATIONS_TOOL, INVESTOR_CHECKS_TOOL,
-    FUND_HOLDINGS_TOOL, INVESTMENT_JOURNAL_TOOL, PAPER_PORTFOLIO_TOOL, INVESTOR_LIBRARY_TOOL, ALERT_SETTINGS_TOOL, TRAVEL_TIMING_TOOL, MORNING_TUTOR_TOOL, EMAIL_ORGANIZER_TOOL, CANCEL_SUBSCRIPTION_TOOL, LIFE_MEMORY_TOOL, SECURITY_WATCH_TOOL, MODEL_SCOUT_TOOL,
+    FUND_HOLDINGS_TOOL, INVESTMENT_JOURNAL_TOOL, PAPER_PORTFOLIO_TOOL, INVESTOR_LIBRARY_TOOL, ALERT_SETTINGS_TOOL, TRAVEL_TIMING_TOOL, MORNING_TUTOR_TOOL, EMAIL_ORGANIZER_TOOL, CANCEL_SUBSCRIPTION_TOOL, LIFE_MEMORY_TOOL, SECURITY_WATCH_TOOL, MODEL_SCOUT_TOOL, TECH_RADAR_TOOL,
                      THERMOSTAT_TOOL, PHONE_CALL_TOOL]
         spending += [BROWSE_TOOL] if self.jobs else []  # listed even when the sandbox is down: it says what to fix
         if self.memory.get("forms:phone") != "1":  # the owner's choice: forms always in Buddy's own browser
@@ -988,6 +989,9 @@ class Conversation:
         if name == "thermostat":  # the owner's home: changes only after a yes (nest.run_tool asks)
             from . import nest  # noqa: PLC0415
             return await nest.run_tool(self.memory, self.thrift, args)
+        if name == "tech_radar":  # technology news sorted against Buddy's own features, verified in code
+            from . import techradar  # noqa: PLC0415
+            return await techradar.run_tool(self.memory, args)
         if name == "model_scout":  # the free models: each provider's own list, a test question, a switch when one is dead
             from . import modelscout  # noqa: PLC0415
             return await modelscout.run_tool(self.memory, args, self.free)

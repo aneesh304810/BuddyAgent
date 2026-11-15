@@ -210,7 +210,7 @@ COMPONENTS = [  # every server module belongs to one feature (tests check none i
      "to buy tickets yourself", ["dining.py", "events.py"]),
     ("News, trends and research", "The topics you follow with a daily digest, what's trending, searching beyond the "
      "web index, reading pages on Buddy's side, and the background research agent",
-     ["trends.py", "social.py", "research.py", "webread.py"]),
+     ["trends.py", "techradar.py", "social.py", "research.py", "webread.py"]),
     ("Email, messages and apps", "Gmail and other accounts sorted and summarised, marketing and notices moved out of "
      "the inbox, messages, and package tracking",
      ["mailbrain.py", "mailorganizer.py", "lifemail.py", "mailfiles.py", "email_accounts.py", "messaging.py", "packages.py"]),

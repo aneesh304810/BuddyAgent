@@ -45,6 +45,32 @@ music, AI, property, travel deals and so on):
 The counting is done in code on your server; nothing is sent out for it. For a subject outside the list, say
 "follow <subject>". Other people's words in Listen-in are never counted.
 
+## Technology that matters for Buddy, and AI security (Buddy News)
+
+Every night Buddy reads the technology news it already collects and works out what in it concerns Buddy itself.
+Two sections at the top of Buddy News show the result.
+
+- **Technology that matters for Buddy.** Stories are sorted against Buddy's own feature list: which part of
+  Buddy it would touch, what it is (a model, a library, a service, a technique), what Buddy could do with it,
+  and how big a job that is. Stories with nothing in them for Buddy are dropped.
+- **AI security and data security.** Security news (prompt injection, attacks on AI assistants, data leaks,
+  new guidance) is sorted by the threat it describes and matched against the defences Buddy already has. A
+  threat that none of them answers is a **possible gap** and is listed first, with what to do; you get a
+  message when a new one appears. The section also shows how many findings are open on the Security page.
+- **Verified in code, not on a model's word.** How many separate sources carry the story; whether it links to
+  the code, the paper or the maker's own site; and for code on GitHub, what GitHub says: its licence, whether
+  it is archived, when it last changed. Each item is marked verified, partly verified or not verified yet. A
+  single second-hand story is held back until it comes up again.
+- **Your say.** 👍 Interested (or Look into it) keeps it at the top; 👎 Not for Buddy removes it and teaches
+  the next nights to leave similar ones out. "Sort now" runs it at once.
+- **What it is not.** These are ideas to consider. Nothing is installed or changed until you ask for one to be
+  built. A possible gap is a prompt to look, not proof Buddy is exposed, and a threat nobody has written about
+  won't be here. The sorting is done by a free model from public news and Buddy's own feature list (none of
+  your data), so it can misjudge a story; the verification mark is the part done in code.
+
+Ask Buddy: "what new technology could you use?", "any new AI security threats?", "are you protected against
+prompt injection?".
+
 ## Life memory from your email
 
 Buddy reads the email that is about your own life and remembers what it says, so it knows the people, the

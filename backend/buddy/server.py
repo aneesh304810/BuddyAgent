@@ -1422,8 +1422,29 @@ async def api_cards_credit(benefit_id: int) -> dict:
 @app.get("/api/news", dependencies=[Depends(require_admin)])
 async def api_news() -> dict:
     """The News tab: watched topics, suggestions, and the latest trending stories per topic (trends.py)."""
-    from . import trends
-    return await asyncio.to_thread(trends.Trends(memory).feed)
+    from . import techradar, trends
+    feed = await asyncio.to_thread(trends.Trends(memory).feed)
+    try:  # the section "Technology that matters for Buddy" (techradar.py)
+        feed["tech"] = await asyncio.to_thread(techradar.page, memory)
+    except Exception:
+        log.exception("tech radar page failed")
+        feed["tech"] = {"items": [], "by_area": {}, "last_run": "", "note": ""}
+    return feed
+
+
+@app.post("/api/news/tech", dependencies=[Depends(require_admin)])
+async def api_news_tech(body: dict) -> dict:
+    """Mark a technology idea interested, dismissed or done; or run the nightly sort now (scan: true)."""
+    from . import techradar
+    try:
+        if body.get("scan"):
+            got = await techradar.run(memory)
+            text = f"Read {got['read']} stories; {got['kept']} matter for Buddy, {len(got['new'])} new."
+        else:
+            text = await asyncio.to_thread(techradar.rate, memory, body.get("id"), str(body.get("status") or ""))
+    except ToolError as e:
+        raise HTTPException(status_code=400, detail=str(e)) from e
+    return {"text": text, "tech": await asyncio.to_thread(techradar.page, memory)}
 
 
 @app.post("/api/news/topics", dependencies=[Depends(require_admin)])
