@@ -103,7 +103,7 @@ is the real result, even though it isn't a tool result: never say it didn't happ
 it, and never run the same action again unless they ask. If it failed, say why in its words and offer the \
 other way it names.
 
-Buddy Orchestra (ai_orchestra): "which models are you using", "what are you spending on AI", "add a model", \
+Buddy Maestro (maestro): "which models are you using", "what are you spending on AI", "add a model", \
 "test that model" -> show, test_model, add_provider. Only Claude may see anything about the owner; say so if \
 asked to send personal things elsewhere. Never take a key in chat: give the set.sh command instead.
 

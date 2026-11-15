@@ -1661,35 +1661,53 @@ async def api_intel_predict_do(body: dict) -> dict:
     return {"text": text, **await asyncio.to_thread(factors.overview, memory)}
 
 
-@app.get("/api/orchestra", dependencies=[Depends(require_admin)])
+@app.get("/api/maestro", dependencies=[Depends(require_admin)])
 async def api_orchestra() -> dict:
-    """Buddy Orchestra: every AI provider, what each may see, which does each job, spending and test results."""
-    from . import orchestra
-    return await asyncio.to_thread(orchestra.page, memory)
+    """Buddy Maestro: every AI provider, what each may see, which does each job, spending and test results."""
+    from . import maestro
+    return await asyncio.to_thread(maestro.page, memory)
 
 
-@app.post("/api/orchestra", dependencies=[Depends(require_admin)])
+@app.get("/api/maestro/models", dependencies=[Depends(require_admin)])
+async def api_maestro_models(task: str = "", q: str = "", limit: int = 12) -> dict:
+    """The model finder: models that suit a task or match a search, with prices from the public list."""
+    from . import maestro
+    if not maestro.catalog(memory)["models"]:
+        try:
+            await asyncio.to_thread(maestro.refresh_catalog, memory)
+        except Exception as e:
+            raise HTTPException(502, f"The public price list could not be read ({type(e).__name__}).") from None
+    return await asyncio.to_thread(maestro.find, memory, task, q, limit)
+
+
+@app.post("/api/maestro", dependencies=[Depends(require_admin)])
 async def api_orchestra_set(body: dict) -> dict:
     """Set a job's model ({job, choice}), the monthly limit ({cap}), run the test on a choice ({test}), add a
     provider ({add: {name, base, model, price_in, price_out}}) or remove one ({remove: name})."""
-    from . import orchestra
+    from . import maestro
     try:
         if body.get("test"):
-            got = await orchestra.test(memory, str(body["test"]))
+            got = await maestro.test(memory, str(body["test"]))
             text = f"{got['title']}: {got['right']} of {got['headlines']} right, ${got['usd']:.4f}, {got['seconds']:.0f} seconds."
         elif "cap" in body:
-            text = orchestra.set_cap(memory, body.get("cap"))
+            text = maestro.set_cap(memory, body.get("cap"))
         elif body.get("add"):
             new = body["add"] if isinstance(body["add"], dict) else {}
-            text = orchestra.add_provider(memory, new.get("name"), new.get("base"), new.get("model"),
+            text = maestro.add_provider(memory, new.get("name"), new.get("base"), new.get("model"),
                                           new.get("price_in") or 0, new.get("price_out") or 0, new.get("title") or "")
         elif body.get("remove"):
-            text = orchestra.remove_provider(memory, str(body["remove"]))
+            text = maestro.remove_provider(memory, str(body["remove"]))
+        elif body.get("check"):
+            got = await asyncio.to_thread(maestro.check_key, memory, str(body["check"]))
+            return {"text": got["says"], "checked": got, **await asyncio.to_thread(maestro.page, memory)}
+        elif body.get("refresh"):
+            got = await asyncio.to_thread(maestro.refresh_catalog, memory)
+            text = f"The price list now has {len(got['models'])} models."
         else:
-            text = orchestra.set_choice(memory, str(body.get("job") or ""), str(body.get("choice") or ""))
+            text = maestro.set_choice(memory, str(body.get("job") or ""), str(body.get("choice") or ""))
     except ToolError as e:
         raise HTTPException(400, str(e)) from None
-    return {"text": text, **await asyncio.to_thread(orchestra.page, memory)}
+    return {"text": text, **await asyncio.to_thread(maestro.page, memory)}
 
 
 @app.get("/api/invest/themes", dependencies=[Depends(require_admin)])

@@ -1,4 +1,4 @@
-"""Buddy Orchestra: the one gateway every AI model call in Buddy is meant to go through.
+"""Buddy Maestro: the one gateway every AI model call in Buddy is meant to go through.
 
 Buddy uses several AI providers. This is the place that knows them all, decides which may see what, picks one
 for each job, counts what it cost, and lets a new provider be added later without changing any code.
@@ -53,7 +53,7 @@ CLAUDE = {"claude:fast": ("fast_model", "Claude, cheap model"), "claude:chat": (
 OPENAI = {"openai:cheap": ("BUDDY_OPENAI_CHEAP", "OpenAI, volume model"),
           "openai:analysis": ("BUDDY_OPENAI_ANALYSIS", "OpenAI, analysis model")}
 POOL = ("mistral", "cerebras", "gemini", "nvidia")  # the free pool's primaries (free_models.py), each a choice too
-ADDED_KEY = "orchestra:providers"
+ADDED_KEY = "maestro:providers"
 PROVIDERS = (  # id, title, role, may it see anything about the owner?, how it is paid for
     ("claude", "Claude (Anthropic)", "Everything about you, and the main assistant", True, "paid per use"),
     ("openai", "OpenAI", "Optional: public records only, for jobs you assign to it", False, "paid per use"),
@@ -274,7 +274,7 @@ def _added(memory: Memory, choice: str, prompt: str, system: str, fetch=None, en
                                                          {"role": "user", "content": prompt}]}).encode()
     got = gateway.call_url(memory, "added_ai", [g["base"] + "/chat/completions"], data=body, fetch=fetch,
                            headers={"Authorization": f"Bearer {key}", "Content-Type": "application/json"},
-                           purpose="orchestra")
+                           purpose="maestro")
     used = (got or {}).get("usage") or {}
     tokens_in, tokens_out = int(used.get("prompt_tokens") or 0), int(used.get("completion_tokens") or 0)
     return {"text": str((((got or {}).get("choices") or [{}])[0].get("message") or {}).get("content") or ""),
@@ -338,7 +338,7 @@ async def ask(memory: Memory, job: str, prompt: str, system: str = SYSTEM, fetch
         try:
             got = await ask_with(memory, choice if may_see(choice, True) else "claude:chat", prompt, system)
         except Exception as e:
-            log.info("orchestra: Claude could not answer a personal %s (%s); it is not sent elsewhere", job, type(e).__name__)
+            log.info("maestro: Claude could not answer a personal %s (%s); it is not sent elsewhere", job, type(e).__name__)
             return None
         _spent(memory, job, got["usd"], got["in"], got["out"])
         return last_json(got["text"])
@@ -472,6 +472,8 @@ def page(memory: Memory, env=None) -> dict:
                      for j, (title, does, used) in JOBS.items()],
             "choices": choices(env, memory), "spending": spending(memory), "tests": list(tests.values()),
             "providers": providers(memory, env), "rule": RULE, "added": added(memory),
+            "setup": setup(memory, env), "finder_tasks": [{"id": k, "title": v[0]} for k, v in TASKS.items()],
+            "catalog_at": catalog(memory)["at"], "catalog_size": len(catalog(memory)["models"]),
             "test_size": len(TEST),
             "note": "Only public records go to these models. A job on a paid model goes back to the free choice when "
                     "the month's limit is reached. The test headlines were written for the test, not taken from the "
@@ -487,7 +489,7 @@ def providers(memory: Memory, env=None) -> list[dict]:
     try:
         rows = {r["name"]: r for r in gateway.status(memory, env)}
     except Exception:
-        log.debug("orchestra: no Connect status", exc_info=True)
+        log.debug("maestro: no Connect status", exc_info=True)
         rows = {}
     out = []
     for name, title, role, personal, paid in PROVIDERS:
@@ -517,20 +519,186 @@ def providers(memory: Memory, env=None) -> list[dict]:
     return out
 
 
+# --- the model finder: what exists, what it costs, and what suits a task --------------------------------------
+CATALOG_KEY, CATALOG_URL = "maestro:catalog", "https://openrouter.ai/api/v1/models"
+MAKERS = {  # the maker's prefix in the public list -> (name, how Buddy can use its models)
+    "anthropic": ("Anthropic", "claude"), "openai": ("OpenAI", "openai"), "mistralai": ("Mistral", "mistral"),
+    "google": ("Google", "gemini"), "nvidia": ("NVIDIA", "nvidia"), "meta-llama": ("Meta (Llama)", ""),
+    "deepseek": ("DeepSeek", ""), "qwen": ("Alibaba (Qwen)", ""), "x-ai": ("xAI", ""), "cohere": ("Cohere", ""),
+    "perplexity": ("Perplexity", ""), "moonshotai": ("Moonshot (Kimi)", ""), "microsoft": ("Microsoft", ""),
+    "amazon": ("Amazon", ""),
+}
+TASKS = {  # task -> (title, what matters for it, most it should cost per million tokens in, least context, name hints)
+    "sort": ("Sort and label", "Labelling headlines, tagging, yes-or-no questions. Thousands of small calls, so price "
+             "and speed matter most; a small model is enough. Check it with the 48-headline test.", 0.5, 8_000, "fast"),
+    "extract": ("Pull out names and facts", "Finding companies, dates and relationships in a text. It must follow "
+                "the format exactly and not add anything; a small-to-mid model usually does.", 1.5, 16_000, ""),
+    "summarise": ("Summarise long texts", "Long articles, filings and papers. The whole text must fit, so a large "
+                  "context matters more than cleverness.", 3.0, 200_000, ""),
+    "analyse": ("Analyse and write", "Comparing evidence, writing a briefing or a report. Needs a mid model: cheap "
+                "ones miss nuance and repeat themselves.", 5.0, 32_000, ""),
+    "code": ("Write and fix code", "Small, contained code questions. Models tuned for code do better; anything "
+             "across several files needs a strong model.", 5.0, 32_000, "code"),
+    "reason": ("Hard questions", "Multi-step reasoning, strategy, research questions. Use a strong model and expect "
+               "to pay for it; use it rarely.", 1e9, 64_000, "reason"),
+    "personal": ("Anything about you", "Your email, money, family, health. Claude only; no other model is offered.",
+                 1e9, 0, ""),
+}
+SETUP = {  # provider -> (setting to enter, where its key page is, what the free tier is)
+    "mistral": ("BUDDY_MISTRAL_KEY", "https://console.mistral.ai/api-keys", "A free tier with a monthly limit."),
+    "cerebras": ("BUDDY_CEREBRAS_KEY", "https://cloud.cerebras.ai", "A free tier with a daily limit."),
+    "gemini": ("BUDDY_GEMINI_KEY", "https://aistudio.google.com/apikey", "A free tier with a daily limit."),
+    "nvidia": ("BUDDY_NVIDIA_KEY", "https://build.nvidia.com", "Free credits for the models it hosts."),
+    "openrouter": ("BUDDY_OPENROUTER_KEY", "https://openrouter.ai/keys", "Free models, with a daily limit."),
+    "openai": ("BUDDY_OPENAI_KEY", "https://platform.openai.com/api-keys", "Paid. No free tier for the API."),
+    "groq": ("BUDDY_GROQ_KEY", "https://console.groq.com/keys", "Used for speech to text only."),
+}
+
+
+def refresh_catalog(memory: Memory, fetch=None) -> dict:
+    """Read the public list of models and prices (no key needed; nothing about the owner is sent)."""
+    if fetch is None:
+        from .markets import _fetch as fetch  # noqa: PLC0415  (https only, Buddy's user agent)
+    raw = fetch(CATALOG_URL, {})
+    data = (raw if isinstance(raw, dict) else json.loads(raw or b"{}")).get("data") or []
+    models = []
+    for m in data:
+        mid = str(m.get("id") or "")
+        price = m.get("pricing") or {}
+        try:
+            cost_in, cost_out = float(price.get("prompt") or 0) * 1e6, float(price.get("completion") or 0) * 1e6
+        except (TypeError, ValueError):
+            continue
+        outs = (m.get("architecture") or {}).get("output_modalities") or ["text"]
+        if "/" not in mid or "text" not in outs or cost_in < 0 or cost_out < 0:
+            continue
+        models.append({"id": mid[:100], "name": str(m.get("name") or mid)[:80], "maker": mid.split("/")[0],
+                       "in": round(cost_in, 4), "out": round(cost_out, 4), "context": int(m.get("context_length") or 0),
+                       "free": cost_in == 0 and cost_out == 0})
+    if not models:
+        return catalog(memory)  # keep the last list rather than nothing
+    out = {"at": datetime.now(timezone.utc).isoformat(), "models": models[:800]}
+    memory.set(CATALOG_KEY, json.dumps(out))
+    return out
+
+
+def catalog(memory: Memory) -> dict:
+    try:
+        return json.loads(memory.get(CATALOG_KEY) or "{}") or {"at": "", "models": []}
+    except ValueError:
+        return {"at": "", "models": []}
+
+
+def _how(model: dict, env=None, memory: Memory | None = None) -> dict:
+    """How Buddy can use a model: straight from its maker (if that provider is in the lineup), or through the
+    fallback provider."""
+    name, provider = MAKERS.get(model["maker"], (model["maker"].replace("-", " ").title(), ""))
+    if provider == "claude":
+        return {"maker": name, "via": "Claude, already set up", "ready": True}
+    if provider:
+        ready = next((p["set_up"] for p in providers(memory, env) if p["id"] == provider), False) if memory else False
+        return {"maker": name, "via": f"{name} directly" + ("" if ready else " (needs its key)"), "ready": ready}
+    return {"maker": name, "via": "through OpenRouter, or add its maker as a provider", "ready": False}
+
+
+def find(memory: Memory, task: str = "", query: str = "", limit: int = 12, env=None) -> dict:
+    """Models that suit a task (by price ceiling, context and what they are tuned for), or that match the words
+    searched for, cheapest first. Price is not quality: the test and the job's own results decide."""
+    from . import openrouter_catalog as hints  # noqa: PLC0415
+    from .config import settings  # noqa: PLC0415
+    got = catalog(memory)
+    models, words = got["models"], [w for w in str(query or "").lower().split() if w][:4]
+    note = ""
+    if task == "personal":
+        return {"task": task, "title": TASKS[task][0], "advice": TASKS[task][1], "at": got["at"], "models": [],
+                "claude": [settings.fast_model, settings.chat_model, settings.model], "note": RULE}
+    if task in TASKS:
+        title, advice, ceiling, context, hint = TASKS[task]
+        pattern = {"fast": hints.FAST, "code": hints.CODE, "reason": hints.REASON}.get(hint)
+        fit = [m for m in models if m["in"] <= ceiling and m["context"] >= context
+               and (pattern is None or pattern.search(m["id"] + " " + m["name"]))]
+        if task == "reason":  # the strongest first: here the dearest in each maker's range is the best guide there is
+            fit.sort(key=lambda m: -m["in"])
+            note = "Shown dearest first: for hard questions a maker's top model is usually its dearest."
+        else:
+            fit.sort(key=lambda m: (not m["free"], m["in"] + m["out"]))
+            note = "Shown cheapest first. Price is not quality: run the test before giving a model a job."
+        models = fit
+    else:
+        title, advice = "Search", ""
+        models = sorted(models, key=lambda m: (m["in"] + m["out"], m["id"]))
+    if words:
+        models = [m for m in models if all(w in (m["id"] + " " + m["name"]).lower() for w in words)]
+    return {"task": task, "title": title, "advice": advice, "at": got["at"], "found": len(models), "note": note,
+            "models": [{**m, **_how(m, env, memory)} for m in models[:max(1, min(limit, 40))]],
+            "tasks": [{"id": k, "title": v[0]} for k, v in TASKS.items()]}
+
+
+def setup(memory: Memory, env=None) -> list[dict]:
+    """For each provider that needs a key: where to get it, the command to enter it, and whether it is set."""
+    rows = {p["id"]: p for p in providers(memory, env)}
+    out = [{"id": name, "title": rows[name]["title"], "role": rows[name]["role"], "page": page_url, "free": free,
+            "command": f"sudo bash /opt/buddy/deploy/set.sh {setting}", "set_up": rows[name]["set_up"]}
+           for name, (setting, page_url, free) in SETUP.items()]
+    out += [{"id": f"added:{g['name']}", "title": g["title"], "role": "Added by you", "page": "", "free": "",
+             "command": f"sudo bash /opt/buddy/deploy/set.sh {key_name(g['name'])}",
+             "set_up": bool((_env(env).get(key_name(g["name"])) or "").strip())} for g in added(memory)]
+    return out
+
+
+def check_key(memory: Memory, provider: str, env=None, fetch=None) -> dict:
+    """Ask a provider to list its models with the key that is set: proof the key works. The key is never shown."""
+    from . import modelscout  # noqa: PLC0415
+    from .free_models import PROVIDERS as pool_providers  # noqa: PLC0415
+    env_ = _env(env)
+    try:
+        if provider.startswith("added:"):
+            g = next((x for x in added(memory) if f"added:{x['name']}" == provider), None)
+            key = (env_.get(key_name(g["name"])) or "").strip() if g else ""
+            if not g or not key:
+                raise ToolError("Its key isn't set yet.")
+            got = gateway.call_url(memory, "added_ai", [g["base"] + "/models"], fetch=fetch,
+                                   headers={"Authorization": f"Bearer {key}"}, purpose="maestro")
+            ids = [str(m.get("id") or "") for m in (got or {}).get("data") or [] if isinstance(m, dict)]
+        elif provider == "openai":
+            got = gateway.call(memory, "openai", "/v1/models", fetch=fetch, env=env, purpose="maestro")
+            ids = [str(m.get("id") or "") for m in (got or {}).get("data") or [] if isinstance(m, dict)]
+        elif provider in pool_providers:
+            key = (env_.get(pool_providers[provider]["key"]) or "").strip()
+            if not key:
+                raise ToolError("Its key isn't set yet.")
+            ids = modelscout.list_models(provider, key, fetch)
+        else:
+            raise ToolError("That provider has no key to check.")
+    except ToolError as e:
+        return {"provider": provider, "ok": False, "says": str(e)}
+    except Exception as e:
+        return {"provider": provider, "ok": False, "says": f"{type(e).__name__}: {str(e)[:160]}"}
+    ids = [i for i in ids if i]
+    return {"provider": provider, "ok": bool(ids), "models": len(ids), "some": sorted(ids)[:8],
+            "says": f"The key works: it lists {len(ids)} models." if ids else "It answered, but listed no models."}
+
+
 TOOL = {
-    "name": "ai_orchestra",
+    "name": "maestro",
     "description":
-        "Buddy Orchestra: the AI providers Buddy can use and which one does each job. show: every provider (its "
+        "Buddy Maestro: the AI providers Buddy can use and which one does each job. show: every provider (its "
         "role, whether it may see the owner's data, whether it is set up and working), the model chosen for each "
         "job, this month's spending and limit, and test results. set_model (job, choice), set_limit (dollars a "
         "month), test_model (choice: scores it on 48 labelled headlines), add_provider (name, base address, "
         "model id, price_in, price_out per million tokens), remove_provider (name): only when the owner asks. "
-        "Use it for 'which models are you using', 'what are you spending on AI', 'add a model'. Only Claude may "
+        "find_models (task and/or query): models that suit a task with their current prices per million tokens, "
+        "from a public price list; say prices are from that list on its date and that price is not quality. setup: "
+        "where to get each provider's key and the command to enter it. check_key (name): whether a key works. "
+        "Use it for 'which models are you using', 'what are you spending on AI', 'add a model', 'which model is "
+        "best for X', 'how much does X cost'. Buddy cannot sign up to a provider or create a key: the owner does "
+        "that on the provider's own page, and enters the key with the command. Only Claude may "
         "see anything about the owner, and nothing here can change that. Never ask for a key in chat: after "
         "add_provider, give the set.sh command it returns.",
     "input_schema": {"type": "object", "properties": {
         "action": {"type": "string", "enum": ["show", "set_model", "set_limit", "test_model", "add_provider",
-                                              "remove_provider"]},
+                                              "remove_provider", "find_models", "setup", "check_key"]},
+        "task": {"type": "string", "enum": list(TASKS)}, "query": {"type": "string"},
         "job": {"type": "string"}, "choice": {"type": "string"}, "dollars": {"type": "number"},
         "name": {"type": "string"}, "base": {"type": "string"}, "model": {"type": "string"},
         "price_in": {"type": "number"}, "price_out": {"type": "number"}},
@@ -551,5 +719,15 @@ async def run_tool(memory: Memory, args: dict) -> str:
                             args.get("price_out") or 0)
     if action == "remove_provider":
         return remove_provider(memory, str(args.get("name") or ""))
+    if action == "find_models":
+        import asyncio  # noqa: PLC0415
+        if not catalog(memory)["models"]:
+            await asyncio.to_thread(refresh_catalog, memory)
+        return json.dumps(find(memory, str(args.get("task") or ""), str(args.get("query") or "")), ensure_ascii=False)
+    if action == "setup":
+        return json.dumps(setup(memory), ensure_ascii=False)
+    if action == "check_key":
+        import asyncio  # noqa: PLC0415
+        return json.dumps(await asyncio.to_thread(check_key, memory, str(args.get("name") or "")), ensure_ascii=False)
     got = page(memory)
     return json.dumps({k: got[k] for k in ("rule", "providers", "jobs", "spending", "tests", "added")}, ensure_ascii=False)

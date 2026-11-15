@@ -56,6 +56,7 @@ page("index.html", f"Buddy: 1,000 apps, one Buddy · {CO}", "One app to rule the
   <div class="grid wide">
     <div class="card"><h3>Buddy Serve</h3><p>An AI point of sale your team wears, not one they walk back to. Smart glasses and a headset: orders go in hands-free, and nothing gets lost between the table and the kitchen.</p><p style="margin-top:14px"><a href="buddy-serve.mp4">Watch the teaser (35 s)</a></p></div>
     <div class="card"><h3>Buddy Connect</h3><p>One secure gateway between Buddy and the services you use, grouped by travel, finance, shopping, health and more. Every connection is checked, explained and kept private.</p><p style="margin-top:14px"><a href="connect.html">Learn more</a></p></div>
+    <div class="card"><h3>Buddy Maestro</h3><p>One conductor for many AI models: it decides which model may see what, picks the right one for each task, and keeps count of the cost. <a href="maestro.html">Learn more</a></p></div>
     <div class="card"><h3>Buddy Intelligence Platform</h3><p>Public evidence on emerging technologies, in one place: what is forming, what is converging across industries, and how far along each is. Built for people and for AI agents, with a simple API.</p><p style="margin-top:14px"><a href="intelligence.html">Learn more</a></p></div>
     <div class="card"><h3>Buddy Watch</h3><p>A second pair of eyes on every shift. Food safety, how fast guests are served, every order tracked from kitchen to table, and every pour at the bar.</p><p style="margin-top:14px"><a href="buddy-watch.mp4">Watch the teaser (35 s)</a></p></div>
   </div>
@@ -559,6 +560,42 @@ page("connect.html", f"Buddy Connect · {CO}", "Buddy Connect: one secure gatewa
   <p class="fine">Buddy Connect is in private testing. The API documentation is available to approved partners: <a href="mailto:{EMAIL}?subject=Buddy%20Connect%20access">ask for access</a>.</p>
 </div></section>
 """, "connect.html")
+
+page("maestro.html", f"Buddy Maestro · {CO}", "Buddy Maestro: one gateway that conducts many AI models. It decides which model may see what, picks the right one for each task, counts the cost, and lets new models be added without rebuilding.", f"""
+<section class="hero"><div class="wrap">
+  <span class="eyebrow">Buddy Maestro</span>
+  <h1>Many AI models.<br><span class="accent">One conductor.</span></h1>
+  <p class="lead">Buddy Maestro is the gateway between an assistant and the AI models it uses. It knows every model, decides which one may see what, chooses the right one for each task, keeps count of the cost, and lets a new model join later without rebuilding anything.</p>
+  <div class="actions"><a class="btn primary" href="mailto:{EMAIL}?subject=Buddy%20Maestro">Talk to us</a><a class="btn" href="security.html">How we handle data</a></div>
+</div></section>
+
+<section class="block"><div class="wrap">
+  <h2>What it is</h2>
+  <p class="lead">No single AI model is the best at everything, and the cheapest one is rarely the most careful. Maestro lets one assistant use several, each for what it does well, under one set of rules.</p>
+  <div class="grid">
+    <div class="card"><h3>Privacy decided first</h3><p>Before any model is chosen, Maestro asks what the request contains. Anything personal goes only to the one model trusted with it. That rule is checked in code, in one place, and no setting or fallback can change it.</p></div>
+    <div class="card"><h3>The right model for the task</h3><p>Sorting thousands of headlines needs a fast, inexpensive model. A hard question needs a strong one. Each kind of task has its own choice, so quality and cost are both matched to the work.</p></div>
+    <div class="card"><h3>Proven before it is trusted</h3><p>Any model can be run on a set of examples with known answers first. You see how often it was right, how long it took and what it cost, before it is given real work.</p></div>
+    <div class="card"><h3>A spending limit</h3><p>Paid models stop at a monthly limit you set. At the limit, work moves to free models until the month ends. Spending is shown per task.</p></div>
+    <div class="card"><h3>Keeps working when a model fails</h3><p>If the chosen model is unavailable or gives an unusable answer, the next one is tried. Personal work is the exception: it waits for its trusted model and is never sent elsewhere.</p></div>
+    <div class="card"><h3>Add a model later</h3><p>A new provider is added from a form: a name, its address, a model and its price. No rebuild, and a new arrival starts with no access to anything personal.</p></div>
+  </div>
+</div></section>
+
+<section class="block"><div class="wrap">
+  <h2>Choosing well</h2>
+  <p class="lead">Maestro includes a model finder: what exists, what it costs today, and what suits the job in front of you.</p>
+  <div class="grid">
+    <div class="card"><h3>By task</h3><p>Sorting and labelling, pulling out names and facts, summarising long texts, analysis and writing, code, and hard questions. Each comes with plain advice on what matters for it.</p></div>
+    <div class="card"><h3>Current prices</h3><p>Prices are read from a public price list, not typed in by hand, so they stay current. The date they were read is always shown.</p></div>
+    <div class="card"><h3>Honest about quality</h3><p>Price is not quality. The finder ranks by cost and fit, and says so; the test on real examples is what decides.</p></div>
+    <div class="card"><h3>One clear view</h3><p>Every provider on one screen: what it is for, what it may see, whether it is working, and its last problem if it had one.</p></div>
+    <div class="card"><h3>Guided setup</h3><p>A direct link to each provider's own page to create a key, and a check that the key works. You create the account yourself; Maestro never signs up on your behalf.</p></div>
+    <div class="card"><h3>Keys stay private</h3><p>A key is never typed into a conversation and never shown again once saved. An AI model never sees one.</p></div>
+  </div>
+  <p class="fine">Buddy Maestro is in private testing as part of Buddy. It works with the major AI model providers and with any provider that uses the common chat format. <a href="mailto:{EMAIL}?subject=Buddy%20Maestro%20access">Ask about access</a>.</p>
+</div></section>
+""", "maestro.html")
 
 page("intelligence.html", f"Buddy Intelligence Platform · {CO}", "Buddy Intelligence Platform: public evidence on emerging technologies, what is converging across industries and how far along each is, for people and AI agents through a simple API.", f"""
 <section class="hero"><div class="wrap">

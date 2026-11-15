@@ -8,21 +8,21 @@ Do general work for free, never with your personal data: translating, summarisin
 flowchart LR
     you(["You: voice, chat, the app"])
     subgraph Tools["What Buddy can do"]
-        t_ai_orchestra["ai_orchestra"]
+        t_maestro["maestro"]
         t_general_task["general_task"]
         t_free_answer_verdict["free_answer_verdict"]
         t_model_scout["model_scout"]
         t_model_advice["model_advice"]
     end
     subgraph Modules["Modules"]
-        orchestra_py["orchestra.py<br/>the one gateway every AI model call in Buddy is meant to go through"]
+        maestro_py["maestro.py<br/>the one gateway every AI model call in Buddy is meant to go through"]
         free_models_py["free_models.py<br/>Free-tier AI models for general tasks, chosen by what each is best at"]
         openrouter_catalog_py["openrouter_catalog.py<br/>Which free OpenRouter models to use for each kind of task, chosen…"]
         modelscout_py["modelscout.py<br/>every day it reads what each free AI provider publishes, checks that…"]
         model_advisor_py["model_advisor.py<br/>free when the task holds none of the owner's data and a free model is…"]
     end
-    you --> t_ai_orchestra
-    t_ai_orchestra --> orchestra_py
+    you --> t_maestro
+    t_maestro --> maestro_py
     you --> t_general_task
     t_general_task --> free_models_py
     you --> t_free_answer_verdict
@@ -31,27 +31,29 @@ flowchart LR
     t_model_scout --> modelscout_py
     you --> t_model_advice
     t_model_advice --> model_advisor_py
-    orchestra_py --> free_models_py
+    maestro_py --> free_models_py
+    maestro_py --> modelscout_py
+    maestro_py --> openrouter_catalog_py
     free_models_py --> modelscout_py
     free_models_py --> openrouter_catalog_py
     modelscout_py --> free_models_py
     model_advisor_py --> free_models_py
     s_added_ai["AI providers you added<br/>(public data only)"]
-    orchestra_py --> s_added_ai
+    maestro_py --> s_added_ai
     s_openai["OpenAI (paid AI, Intelligence Platform only)<br/>(public data only)"]
-    orchestra_py --> s_openai
+    maestro_py --> s_openai
     o_0["Buddy Connect"]
-    orchestra_py -. uses .-> o_0
+    maestro_py -. uses .-> o_0
     o_1["Buddy Intelligence Platform"]
-    orchestra_py -. uses .-> o_1
+    maestro_py -. uses .-> o_1
     o_2["Claude"]
-    orchestra_py -. uses .-> o_2
+    maestro_py -. uses .-> o_2
     o_3["Fixing and explaining itself"]
-    orchestra_py -. uses .-> o_3
+    maestro_py -. uses .-> o_3
     o_4["Investing"]
-    orchestra_py -. uses .-> o_4
+    maestro_py -. uses .-> o_4
     o_5["Memory"]
-    orchestra_py -. uses .-> o_5
+    maestro_py -. uses .-> o_5
 ```
 
 The diagram reads left to right: what you ask, the tools Buddy uses, the modules that do the work, and what they keep or call. Dashed arrows are other features this one relies on.
@@ -60,7 +62,7 @@ The diagram reads left to right: what you ask, the tools Buddy uses, the modules
 
 | Tool | What it is for | Actions | Module |
 |---|---|---|---|
-| `ai_orchestra` | Buddy Orchestra: the AI providers Buddy can use and which one does each job | show, set_model, set_limit, test_model, add_provider, remove_provider | orchestra.py |
+| `maestro` | Buddy Maestro: the AI providers Buddy can use and which one does each job | show, set_model, set_limit, test_model, add_provider, remove_provider, find_models, setup, check_key | maestro.py |
 | `general_task` | Hand a GENERAL task to a free AI model chosen for the job, to save money: translate a public text, summarize a public article or web page, rewrite or polish gen | - | free_models.py |
 | `free_answer_verdict` | After using a general_task answer, record your review of it, in the same response as your reply: used (good as it was), fixed (you corrected it), redone (you di | - | free_models.py |
 | `model_scout` | Keeps the free AI models working | status, scan, use | modelscout.py |
@@ -68,10 +70,10 @@ The diagram reads left to right: what you ask, the tools Buddy uses, the modules
 
 ## Technical design, module by module
 
-### orchestra.py
+### maestro.py
 
 ```text
-Buddy Orchestra: the one gateway every AI model call in Buddy is meant to go through.
+Buddy Maestro: the one gateway every AI model call in Buddy is meant to go through.
 
 Buddy uses several AI providers. This is the place that knows them all, decides which may see what, picks one
 for each job, counts what it cost, and lets a new provider be added later without changing any code.
@@ -104,8 +106,8 @@ them: the owner enters them from the provider's own page.
 ```
 
 - Outside services: AI providers you added, OpenAI (paid AI, Intelligence Platform only)
-- Settings: `BUDDY_AI_`, `BUDDY_GROQ_KEY`, `BUDDY_OPENAI_ANALYSIS`, `BUDDY_OPENAI_CHEAP`, `BUDDY_OPENAI_KEY`
-- Uses: agent.py, benefits.py, config.py, free_models.py, gateway.py, memory.py, themes.py, tools.py, usage.py
+- Settings: `BUDDY_AI_`, `BUDDY_CEREBRAS_KEY`, `BUDDY_GEMINI_KEY`, `BUDDY_GROQ_KEY`, `BUDDY_MISTRAL_KEY`, `BUDDY_NVIDIA_KEY`, `BUDDY_OPENAI_ANALYSIS`, `BUDDY_OPENAI_CHEAP`, `BUDDY_OPENAI_KEY`, `BUDDY_OPENROUTER_KEY`
+- Uses: agent.py, benefits.py, config.py, free_models.py, gateway.py, markets.py, memory.py, modelscout.py, openrouter_catalog.py, themes.py, tools.py, usage.py
 
 ### free_models.py
 

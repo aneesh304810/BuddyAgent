@@ -288,7 +288,7 @@ CATALOG: dict[str, dict] = {
                "privacy": "public", "used_for": "free models for general work", "reports": True},
     "added_ai": {"group": "AI models", "title": "AI providers you added", "auth": {"type": "none"}, "per_minute": 60,
                  "privacy": "public",
-                 "used_for": "providers added in Buddy Orchestra, for the jobs you assign to them; public work only, "
+                 "used_for": "providers added in Buddy Maestro, for the jobs you assign to them; public work only, "
                              "never anything about the owner", "moved": True},
     "nvidia": {"group": "AI models", "title": "NVIDIA (free AI)", "auth": {"type": "header", "secret": "BUDDY_NVIDIA_KEY"},
                "privacy": "public", "used_for": "free models for general work", "reports": True},

@@ -142,9 +142,9 @@ interesting ones, are left out. Results start counting from the day this is depl
 because records collected today for past dates would make the past look better than it was. It says nothing
 about whether the whole market goes up or down.
 
-## Which AI model does each job (orchestra.py)
+## Which AI model does each job (maestro.py)
 
-The app has an **Orchestra** screen (see ORCHESTRA.md). Most of the platform uses no AI: tagging, stages, convergences, the
+The app has an **Maestro** screen (see MAESTRO.md). Most of the platform uses no AI: tagging, stages, convergences, the
 patterns and the practice scoring are code. The jobs that do use a model each have their own setting.
 
 | Job | What it does | Used today |

@@ -69,7 +69,7 @@ PROVIDERS = {
                    "model_setting": "BUDDY_OPENROUTER_MODEL", "model": "openrouter/free",
                    "good_at": "a general fallback"},
 }
-# Not used for text any more (the owner's lineup, orchestra.py): GitHub Models kept hitting its limit, and Groq is
+# Not used for text any more (the owner's lineup, maestro.py): GitHub Models kept hitting its limit, and Groq is
 # kept for turning speech into text only (whisper.py). Their entries stay so old settings and records still read.
 TEXT_OFF = ("groq", "github")
 # Which providers to try first for each kind of task, by what they're best at.

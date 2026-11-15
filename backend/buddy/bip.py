@@ -464,9 +464,9 @@ async def interpret(memory: Memory, found: list[dict], ask=None, limit: int = 5)
 
 
 async def _ask(memory: Memory, prompt: str) -> dict | None:
-    """Public records only: the model chosen for the 'write' job (orchestra.py), free models unless changed."""
-    from . import orchestra  # noqa: PLC0415
-    got = await orchestra.ask(memory, "write", prompt, system="You describe what public records show. Answer "
+    """Public records only: the model chosen for the 'write' job (maestro.py), free models unless changed."""
+    from . import maestro  # noqa: PLC0415
+    got = await maestro.ask(memory, "write", prompt, system="You describe what public records show. Answer "
                                "with the one line of JSON asked for, nothing else.")
     return got if isinstance(got, dict) and got.get("how") else None
 

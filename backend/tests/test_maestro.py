@@ -5,7 +5,7 @@ import json
 
 import pytest
 
-from buddy import orchestra as models
+from buddy import maestro as models
 from buddy import gateway
 from buddy.connectors.hub import ConnectorHub
 from buddy.memory import Memory
@@ -132,13 +132,13 @@ def test_the_endpoints_need_the_owner(memory, monkeypatch):
     monkeypatch.setattr(server, "memory", memory)
     monkeypatch.setattr(server, "authorized", lambda t: t == "owner-token")
     client = TestClient(server.app)
-    assert client.get("/api/orchestra").status_code == 401
-    assert client.post("/api/orchestra", json={"job": "label", "choice": "claude:fast"}).status_code == 401
+    assert client.get("/api/maestro").status_code == 401
+    assert client.post("/api/maestro", json={"job": "label", "choice": "claude:fast"}).status_code == 401
     ok = {"Authorization": "Bearer owner-token"}
-    out = client.post("/api/orchestra", json={"job": "label", "choice": "claude:fast"}, headers=ok).json()
+    out = client.post("/api/maestro", json={"job": "label", "choice": "claude:fast"}, headers=ok).json()
     assert next(j for j in out["jobs"] if j["id"] == "label")["choice"] == "claude:fast"
-    assert client.post("/api/orchestra", json={"job": "label", "choice": "nope"}, headers=ok).status_code == 400
-    assert client.post("/api/orchestra", json={"cap": 12}, headers=ok).json()["spending"]["cap"] == 12.0
+    assert client.post("/api/maestro", json={"job": "label", "choice": "nope"}, headers=ok).status_code == 400
+    assert client.post("/api/maestro", json={"cap": 12}, headers=ok).json()["spending"]["cap"] == 12.0
 
 
 def test_only_claude_may_see_anything_about_the_owner():
@@ -234,3 +234,99 @@ def test_one_pool_provider_can_be_chosen_for_a_job(memory, monkeypatch):
     monkeypatch.delenv("BUDDY_MISTRAL_KEY")
     with pytest.raises(ToolError):
         models._pool_one(memory, "mistral", "p", "s")
+
+
+LIST = {"data": [
+    {"id": "anthropic/claude-haiku", "name": "Claude Haiku", "pricing": {"prompt": "0.0000001", "completion": "0.0000005"},
+     "context_length": 200000},
+    {"id": "mistralai/mistral-small", "name": "Mistral Small", "pricing": {"prompt": "0.0000002", "completion": "0.0000006"},
+     "context_length": 32000},
+    {"id": "meta-llama/llama-mini:free", "name": "Llama Mini (free)", "pricing": {"prompt": "0", "completion": "0"},
+     "context_length": 16000},
+    {"id": "openai/big-reasoner", "name": "Big Reasoner", "pricing": {"prompt": "0.00001", "completion": "0.00005"},
+     "context_length": 400000},
+    {"id": "deepseek/deepseek-coder", "name": "DeepSeek Coder", "pricing": {"prompt": "0.0000006", "completion": "0.000002"},
+     "context_length": 64000},
+    {"id": "acme/image-maker", "name": "Image Maker", "pricing": {"prompt": "0.000001", "completion": "0"},
+     "architecture": {"output_modalities": ["image"]}, "context_length": 4000},
+    {"id": "broken", "name": "No maker", "pricing": {"prompt": "x"}}]}
+
+
+def test_the_price_list_is_read_from_the_public_list_and_kept(memory):
+    asked = []
+
+    def fetch(url, headers=None):
+        asked.append(url)
+        return json.dumps(LIST)
+    got = models.refresh_catalog(memory, fetch)
+    assert asked == ["https://openrouter.ai/api/v1/models"] and len(got["models"]) == 5  # no image model, no broken row
+    haiku = next(m for m in got["models"] if m["id"] == "anthropic/claude-haiku")
+    assert (haiku["in"], haiku["out"], haiku["context"], haiku["free"]) == (0.1, 0.5, 200000, False)
+    assert models.refresh_catalog(memory, lambda u, h=None: json.dumps({"data": []}))["models"] == got["models"]
+    assert models.page(memory)["catalog_size"] == 5
+
+
+def test_the_finder_suits_models_to_a_task_and_says_how_buddy_can_use_each(memory):
+    models.refresh_catalog(memory, lambda u, h=None: json.dumps(LIST))
+    sort = models.find(memory, "sort", env={"BUDDY_MISTRAL_KEY": "m"})
+    assert [m["id"] for m in sort["models"]] == ["meta-llama/llama-mini:free", "anthropic/claude-haiku",
+                                                 "mistralai/mistral-small"]  # free first, then by price
+    assert "cheapest first" in sort["note"] and "48-headline test" in sort["advice"]
+    by = {m["id"]: m for m in sort["models"]}
+    assert by["mistralai/mistral-small"]["via"] == "Mistral directly" and by["mistralai/mistral-small"]["ready"]
+    assert "OpenRouter" in by["meta-llama/llama-mini:free"]["via"]
+    assert [m["id"] for m in models.find(memory, "summarise")["models"]] == ["anthropic/claude-haiku"]  # needs 200k
+    assert models.find(memory, "summarise")["models"][0]["via"] == "Claude, already set up"
+    assert [m["id"] for m in models.find(memory, "code")["models"]] == ["deepseek/deepseek-coder"]
+    hard = models.find(memory, "reason")
+    assert hard["models"][0]["id"] == "openai/big-reasoner" and "dearest first" in hard["note"]
+    assert "needs its key" in hard["models"][0]["via"]
+    mine = models.find(memory, "personal")
+    assert mine["models"] == [] and "nowhere else" in mine["note"] and len(mine["claude"]) == 3
+    found = models.find(memory, "", "claude haiku")
+    assert [m["id"] for m in found["models"]] == ["anthropic/claude-haiku"] and found["found"] == 1
+    assert len(models.find(memory)["models"]) == 5 and len(models.find(memory)["tasks"]) == 7
+
+
+def test_setup_gives_the_page_and_the_command_and_a_key_can_be_checked_without_showing_it(memory):
+    rows = {r["id"]: r for r in models.setup(memory, {"BUDDY_MISTRAL_KEY": "secret-key-value"})}
+    assert rows["mistral"]["set_up"] and not rows["nvidia"]["set_up"]
+    assert rows["nvidia"]["command"] == "sudo bash /opt/buddy/deploy/set.sh BUDDY_NVIDIA_KEY"
+    assert all(r["page"].startswith("https://") for r in rows.values())
+    seen = []
+
+    def lists(url, headers=None):
+        seen.append((url, headers))
+        return json.dumps({"data": [{"id": "mistral-small-latest"}, {"id": "mistral-large-latest"}]})
+    good = models.check_key(memory, "mistral", {"BUDDY_MISTRAL_KEY": "secret-key-value"}, lists)
+    assert good["ok"] and good["models"] == 2 and "works" in good["says"]
+    assert "secret-key-value" not in json.dumps(good) and seen[0][1]["Authorization"] == "Bearer secret-key-value"
+    assert models.check_key(memory, "mistral", {}, lists) == {"provider": "mistral", "ok": False,
+                                                              "says": "Its key isn't set yet."}
+
+    def refuses(url, headers=None):
+        raise OSError("401 unauthorized")
+    bad = models.check_key(memory, "mistral", {"BUDDY_MISTRAL_KEY": "wrong"}, refuses)
+    assert not bad["ok"] and "401" in bad["says"] and "wrong" not in bad["says"]
+    assert not models.check_key(memory, "claude", {})["ok"] and not models.check_key(memory, "added:nope", {})["ok"]
+
+
+def test_the_chat_tool_and_the_endpoints(memory, monkeypatch):
+    models.refresh_catalog(memory, lambda u, h=None: json.dumps(LIST))
+    out = json.loads(asyncio.run(models.run_tool(memory, {"action": "find_models", "task": "sort"})))
+    assert out["models"][0]["free"] and out["title"] == "Sort and label"
+    shown = json.loads(asyncio.run(models.run_tool(memory, {"action": "show"})))
+    assert "nowhere else" in shown["rule"] and len(shown["providers"]) == 9
+    assert "BUDDY_NVIDIA_KEY" in asyncio.run(models.run_tool(memory, {"action": "setup"}))
+    assert models.TOOL["name"] == "maestro" and "cannot sign up" in models.TOOL["description"]
+    from fastapi.testclient import TestClient
+
+    from buddy import server
+    monkeypatch.setattr(server, "memory", memory)
+    monkeypatch.setattr(server, "authorized", lambda t: t == "owner-token")
+    client = TestClient(server.app)
+    assert client.get("/api/maestro/models?task=sort").status_code == 401
+    ok = {"Authorization": "Bearer owner-token"}
+    assert client.get("/api/maestro/models?task=code", headers=ok).json()["models"][0]["id"] == "deepseek/deepseek-coder"
+    checked = client.post("/api/maestro", json={"check": "nvidia"}, headers=ok).json()
+    assert checked["checked"]["ok"] is False and "isn't set" in checked["text"]

@@ -105,7 +105,7 @@ database), never mixed with the owner's data, so free models may read it.
 ```
 
 - Tables: `bip_notes`, `bip_signals`
-- Uses: bip_links.py, bip_sources.py, factors.py, memory.py, orchestra.py, pricebook.py, themes.py, tools.py
+- Uses: bip_links.py, bip_sources.py, factors.py, maestro.py, memory.py, pricebook.py, themes.py, tools.py
 
 ### bip_sources.py
 
@@ -166,7 +166,7 @@ Stored in the public-data store beside the evidence: these are public prices and
 ```
 
 - Tables: `theme_events`, `theme_news`, `theme_tone`
-- Uses: bip.py, bip_links.py, bip_sources.py, markets.py, memory.py, modeltrain.py, orchestra.py, paper.py, tools.py
+- Uses: bip.py, bip_links.py, bip_sources.py, maestro.py, markets.py, memory.py, modeltrain.py, paper.py, tools.py
 
 ### factors.py
 
@@ -211,7 +211,7 @@ competes with whom.
       A federal award names the agency and the recipient; an NIH, NSF or small-business grant names the funder
       and the organisation. Each becomes "agency funds organisation", with the record as its proof.
   From headlines (an AI model reads the headline; standing: reported)
-      The model chosen for the 'extract' job (orchestra.py) is given headlines, a batch at a time, and asked
+      The model chosen for the 'extract' job (maestro.py) is given headlines, a batch at a time, and asked
       for the companies each names and any relationship the headline states. Its answer is checked in code
       before anything is kept: every name must appear in the headline itself, the relationship must be one of
       the eight kinds, and the two sides must differ. A name the headline does not contain is dropped, so the
@@ -223,7 +223,7 @@ and a single headline can be wrong. Only public records are read; nothing about 
 ```
 
 - Tables: `bip_extracted`, `bip_links`, `bip_mentions`
-- Uses: bip.py, bip_sources.py, memory.py, orchestra.py, tools.py
+- Uses: bip.py, bip_sources.py, maestro.py, memory.py, tools.py
 
 ## How it connects
 

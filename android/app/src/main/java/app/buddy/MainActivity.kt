@@ -140,7 +140,7 @@ sealed interface Screen {
     data object Alerts : Screen
     data object Security : Screen
     data object Intelligence : Screen
-    data object Orchestra : Screen
+    data object Maestro : Screen
     data object Travel : Screen
     data object Connections : Screen
     data class LibraryItem(val id: String) : Screen
@@ -347,7 +347,7 @@ private fun BuddyScreen(
                 Box {
                     TextButton(onClick = { menuOpen = true }) { Text("☰", fontSize = 24.sp, color = Pal.text) }
                     DropdownMenu(expanded = menuOpen, onDismissRequest = { menuOpen = false }) {
-                        listOf("✈  Travel" to Screen.Travel, "💳  Dashboard" to Screen.Dashboard, "💹  Investments" to Screen.Investments, "🏷️  Deals" to Screen.Deals, "🔔  Alerts" to Screen.Alerts, "🛡  Security" to Screen.Security, "🧭  Intelligence" to Screen.Intelligence, "🎼  Orchestra" to Screen.Orchestra, "📰  News" to Screen.News,
+                        listOf("✈  Travel" to Screen.Travel, "💳  Dashboard" to Screen.Dashboard, "💹  Investments" to Screen.Investments, "🏷️  Deals" to Screen.Deals, "🔔  Alerts" to Screen.Alerts, "🛡  Security" to Screen.Security, "🧭  Intelligence" to Screen.Intelligence, "🎼  Maestro" to Screen.Maestro, "📰  News" to Screen.News,
                             "📎  Library" to Screen.Library,
                             "📊  Insights" to Screen.Insights, "🔌  Connections" to Screen.Connections,
                             "📄  Reports" to Screen.Reports, "⚙  Settings" to Screen.Settings)
@@ -420,8 +420,8 @@ private fun BuddyScreen(
                 BuddyPage(prefs.link, "alerts.html")
                 return@Column
             }
-            Screen.Orchestra -> {  // Buddy Orchestra: AI providers, who may see what, which does each job (web/orchestra.html)
-                BuddyPage(prefs.link, "orchestra.html")
+            Screen.Maestro -> {  // Buddy Maestro: AI providers, who may see what, which does each job (web/maestro.html)
+                BuddyPage(prefs.link, "maestro.html")
                 return@Column
             }
             Screen.Intelligence -> {  // the Buddy Intelligence Platform: convergence, stages, evidence (web/intel.html)
