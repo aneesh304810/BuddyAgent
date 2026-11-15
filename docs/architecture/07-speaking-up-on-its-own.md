@@ -45,17 +45,17 @@ flowchart LR
     db[("Your database<br/>alerts, tasks")]
     attention_py --> db
     organiser_py --> db
-    o_0["Claude"]
+    o_0["Buddy Intelligence Platform"]
     proactive_py -. uses .-> o_0
-    o_1["Email, messages and apps"]
+    o_1["Claude"]
     proactive_py -. uses .-> o_1
-    o_2["Free AI models"]
+    o_2["Email, messages and apps"]
     proactive_py -. uses .-> o_2
-    o_3["Going out"]
+    o_3["Free AI models"]
     proactive_py -. uses .-> o_3
-    o_4["Home and health"]
+    o_4["Going out"]
     proactive_py -. uses .-> o_4
-    o_5["Insights and costs"]
+    o_5["Home and health"]
     proactive_py -. uses .-> o_5
 ```
 
@@ -82,7 +82,7 @@ Buddy speaking up on its own: due reminders, the morning briefing and the evenin
 ```
 
 - Settings: `BUDDY_CARD_LOOKUP`, `BUDDY_CREDIT_DEALS`, `BUDDY_DAILY_DEALS`, `BUDDY_MARKET_SCAN`, `BUDDY_MARKET_SCHOOL`, `BUDDY_OPENROUTER_KEY`, `BUDDY_SEC_CONTACT`, `BUDDY_SOC_MONTHLY`, `BUDDY_TRENDS`
-- Uses: advisor.py, agent.py, benefits.py, brain.py, budgets.py, cancelling.py, coach.py, commute.py, compliance.py, config.py, connect.py, credit.py, customize.py, daybrief.py, dealcollector.py, dealforecast.py, dealmail.py, dealnotif.py, finance.py, flights.py, funds.py, health.py, lifelog.py, lifemail.py, livewatch.py, mailbrain.py, mailorganizer.py, maps.py, market_school.py, markets.py, memory.py, modelscout.py, modeltrain.py, money.py, morning_tutor.py, nest.py, openrouter_catalog.py, organiser.py, oura.py, packages.py, patterns.py, pricebook.py, reasoning.py, recommend.py, review.py, routine.py, seasons.py, securitywatch.py, shopper.py, signals.py, subcancel.py, techradar.py, thinking.py, thrift.py, tools.py, transit.py, travel.py, travel_saved.py, trends.py, usage.py, voiceprint.py, weather.py, whentobuy.py
+- Uses: advisor.py, agent.py, benefits.py, bip.py, brain.py, budgets.py, cancelling.py, coach.py, commute.py, compliance.py, config.py, connect.py, credit.py, customize.py, daybrief.py, dealcollector.py, dealforecast.py, dealmail.py, dealnotif.py, finance.py, flights.py, funds.py, health.py, lifelog.py, lifemail.py, livewatch.py, mailbrain.py, mailorganizer.py, maps.py, market_school.py, markets.py, memory.py, modelscout.py, modeltrain.py, money.py, morning_tutor.py, nest.py, openrouter_catalog.py, organiser.py, oura.py, packages.py, patterns.py, pricebook.py, reasoning.py, recommend.py, review.py, routine.py, seasons.py, securitywatch.py, shopper.py, signals.py, subcancel.py, techradar.py, thinking.py, thrift.py, tools.py, transit.py, travel.py, travel_saved.py, trends.py, usage.py, voiceprint.py, weather.py, whentobuy.py
 
 ### attention.py
 
@@ -193,6 +193,6 @@ model Claude keeps correcting is tried later for that kind of task (free_models.
 
 ## How it connects
 
-- Relies on: Claude: the brain; Email, messages and apps; Free AI models (Groq, Gemini, Mistral, Cerebras, GitHub Models, OpenRouter); Going out: restaurants and events; Home and health; Insights and costs; Investing: signals, research and practice; Learning: the English and investing tutors; Memory; Money; News, trends and research; Security and privacy; Shopping and deals; The price book, pattern learning and trained models; Travel and getting around; Voice: Talk mode and Listen-in
+- Relies on: Buddy Intelligence Platform; Claude: the brain; Email, messages and apps; Free AI models (Groq, Gemini, Mistral, Cerebras, GitHub Models, OpenRouter); Going out: restaurants and events; Home and health; Insights and costs; Investing: signals, research and practice; Learning: the English and investing tutors; Memory; Money; News, trends and research; Security and privacy; Shopping and deals; The price book, pattern learning and trained models; Travel and getting around; Voice: Talk mode and Listen-in
 - Relied on by: Claude: the brain; Home and health; Memory; Phone calls; Security and privacy; The server and the app; Travel and getting around
 

@@ -139,6 +139,7 @@ sealed interface Screen {
     data object Deals : Screen
     data object Alerts : Screen
     data object Security : Screen
+    data object Intelligence : Screen
     data object Travel : Screen
     data object Connections : Screen
     data class LibraryItem(val id: String) : Screen
@@ -345,7 +346,7 @@ private fun BuddyScreen(
                 Box {
                     TextButton(onClick = { menuOpen = true }) { Text("☰", fontSize = 24.sp, color = Pal.text) }
                     DropdownMenu(expanded = menuOpen, onDismissRequest = { menuOpen = false }) {
-                        listOf("✈  Travel" to Screen.Travel, "💳  Dashboard" to Screen.Dashboard, "💹  Investments" to Screen.Investments, "🏷️  Deals" to Screen.Deals, "🔔  Alerts" to Screen.Alerts, "🛡  Security" to Screen.Security, "📰  News" to Screen.News,
+                        listOf("✈  Travel" to Screen.Travel, "💳  Dashboard" to Screen.Dashboard, "💹  Investments" to Screen.Investments, "🏷️  Deals" to Screen.Deals, "🔔  Alerts" to Screen.Alerts, "🛡  Security" to Screen.Security, "🧭  Intelligence" to Screen.Intelligence, "📰  News" to Screen.News,
                             "📎  Library" to Screen.Library,
                             "📊  Insights" to Screen.Insights, "🔌  Connections" to Screen.Connections,
                             "📄  Reports" to Screen.Reports, "⚙  Settings" to Screen.Settings)
@@ -416,6 +417,10 @@ private fun BuddyScreen(
             }
             Screen.Alerts -> {  // what Buddy sent on its own, by category, with thumbs and levels (web/alerts.html)
                 BuddyPage(prefs.link, "alerts.html")
+                return@Column
+            }
+            Screen.Intelligence -> {  // the Buddy Intelligence Platform: convergence, stages, evidence (web/intel.html)
+                BuddyPage(prefs.link, "intel.html")
                 return@Column
             }
             Screen.Security -> {  // the daily threat watch: layers, open and fixed findings (web/security.html)

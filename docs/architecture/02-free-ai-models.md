@@ -177,5 +177,5 @@ this" with the paid suggestion, never passed off as done.
 ## How it connects
 
 - Relies on: Buddy Connect; Claude: the brain; Fixing and explaining itself; Investing: signals, research and practice; Memory; Security and privacy
-- Relied on by: Buddy Connect; Claude: the brain; Fixing and explaining itself; Insights and costs; Investing: signals, research and practice; Learning: the English and investing tutors; Making and doing things; Money; News, trends and research; Speaking up on its own: briefing, reminders and alerts; The server and the app; Voice: Talk mode and Listen-in
+- Relied on by: Buddy Connect; Buddy Intelligence Platform; Claude: the brain; Fixing and explaining itself; Insights and costs; Investing: signals, research and practice; Learning: the English and investing tutors; Making and doing things; Money; News, trends and research; Speaking up on its own: briefing, reminders and alerts; The server and the app; Voice: Talk mode and Listen-in
 

@@ -92,13 +92,13 @@ flowchart LR
     agent_py -. uses .-> o_0
     o_1["Buddy Connect"]
     agent_py -. uses .-> o_1
-    o_2["Email, messages and apps"]
+    o_2["Buddy Intelligence Platform"]
     agent_py -. uses .-> o_2
-    o_3["Fixing and explaining itself"]
+    o_3["Email, messages and apps"]
     agent_py -. uses .-> o_3
-    o_4["Free AI models"]
+    o_4["Fixing and explaining itself"]
     agent_py -. uses .-> o_4
-    o_5["Going out"]
+    o_5["Free AI models"]
     agent_py -. uses .-> o_5
 ```
 
@@ -141,7 +141,7 @@ Replies are streamed sentence by sentence so the phone can start speaking
 before Claude has finished writing, which is what makes it feel live.
 ```
 
-- Uses: advisor.py, agents.py, amazon.py, attention.py, bankfeed.py, benefits.py, brain.py, browse.py, budgets.py, builder.py, calls.py, cards.py, claudefix.py, coach.py, codejob.py, commute.py, compliance.py, config.py, connect.py, convolog.py, costwatch.py, credit.py, customize.py, datatools.py, dealcollector.py, dealforecast.py, deals.py, dining.py, docedit.py, events.py, expert.py, finance.py, finops.py, flights.py, formfill.py, free_models.py, funds.py, gateway.py, health.py, health_data.py, hoteldirect.py, insights.py, investors.py, jobs.py, journal.py, lenses.py, library.py, lifelog.py, lifemail.py, location.py, mailbrain.py, mailorganizer.py, makers.py, maps.py, market_school.py, markets.py, memory.py, merchants.py, messaging.py, model_advisor.py, modelscout.py, money.py, morning_tutor.py, nest.py, organiser.py, oura.py, packages.py, paper.py, patterns.py, persona.py, plaid.py, pricebook.py, prices.py, privacy.py, reasoning.py, recommend.py, review.py, rides.py, router.py, routine.py, routing.py, sandbox.py, scheduling.py, seasons.py, seats.py, securitywatch.py, selfcheck.py, selfcode.py, selfdeploy.py, shopper.py, signals.py, social.py, subcancel.py, taste.py, techradar.py, thinking.py, thrift.py, tools.py, transcripts.py, transit.py, travel.py, travelcall.py, trends.py, tutor.py, usage.py, vocabulary.py, voiceprint.py, weather.py, webread.py, whentobuy.py
+- Uses: advisor.py, agents.py, amazon.py, attention.py, bankfeed.py, benefits.py, bip.py, brain.py, browse.py, budgets.py, builder.py, calls.py, cards.py, claudefix.py, coach.py, codejob.py, commute.py, compliance.py, config.py, connect.py, convolog.py, costwatch.py, credit.py, customize.py, datatools.py, dealcollector.py, dealforecast.py, deals.py, dining.py, docedit.py, events.py, expert.py, finance.py, finops.py, flights.py, formfill.py, free_models.py, funds.py, gateway.py, health.py, health_data.py, hoteldirect.py, insights.py, investors.py, jobs.py, journal.py, lenses.py, library.py, lifelog.py, lifemail.py, location.py, mailbrain.py, mailorganizer.py, makers.py, maps.py, market_school.py, markets.py, memory.py, merchants.py, messaging.py, model_advisor.py, modelscout.py, money.py, morning_tutor.py, nest.py, organiser.py, oura.py, packages.py, paper.py, patterns.py, persona.py, plaid.py, pricebook.py, prices.py, privacy.py, reasoning.py, recommend.py, review.py, rides.py, router.py, routine.py, routing.py, sandbox.py, scheduling.py, seasons.py, seats.py, securitywatch.py, selfcheck.py, selfcode.py, selfdeploy.py, shopper.py, signals.py, social.py, subcancel.py, taste.py, techradar.py, thinking.py, thrift.py, tools.py, transcripts.py, transit.py, travel.py, travelcall.py, trends.py, tutor.py, usage.py, vocabulary.py, voiceprint.py, weather.py, webread.py, whentobuy.py
 
 ### router.py
 
@@ -338,6 +338,6 @@ They are stored on the server (kv: custom:*) and applied at once; the list is in
 
 ## How it connects
 
-- Relies on: Agents and skills; Buddy Connect; Email, messages and apps; Fixing and explaining itself; Free AI models (Groq, Gemini, Mistral, Cerebras, GitHub Models, OpenRouter); Going out: restaurants and events; Home and health; Insights and costs; Investing: signals, research and practice; Learning: the English and investing tutors; Making and doing things; Memory; Money; News, trends and research; Phone calls; Security and privacy; Shopping and deals; Speaking up on its own: briefing, reminders and alerts; The price book, pattern learning and trained models; Travel and getting around; Voice: Talk mode and Listen-in
-- Relied on by: Agents and skills; Buddy Connect; Email, messages and apps; Fixing and explaining itself; Free AI models (Groq, Gemini, Mistral, Cerebras, GitHub Models, OpenRouter); Going out: restaurants and events; Home and health; Insights and costs; Investing: signals, research and practice; Learning: the English and investing tutors; Making and doing things; Memory; Money; News, trends and research; Phone calls; Security and privacy; Shopping and deals; Speaking up on its own: briefing, reminders and alerts; The price book, pattern learning and trained models; The server and the app; Travel and getting around; Voice: Talk mode and Listen-in
+- Relies on: Agents and skills; Buddy Connect; Buddy Intelligence Platform; Email, messages and apps; Fixing and explaining itself; Free AI models (Groq, Gemini, Mistral, Cerebras, GitHub Models, OpenRouter); Going out: restaurants and events; Home and health; Insights and costs; Investing: signals, research and practice; Learning: the English and investing tutors; Making and doing things; Memory; Money; News, trends and research; Phone calls; Security and privacy; Shopping and deals; Speaking up on its own: briefing, reminders and alerts; The price book, pattern learning and trained models; Travel and getting around; Voice: Talk mode and Listen-in
+- Relied on by: Agents and skills; Buddy Connect; Buddy Intelligence Platform; Email, messages and apps; Fixing and explaining itself; Free AI models (Groq, Gemini, Mistral, Cerebras, GitHub Models, OpenRouter); Going out: restaurants and events; Home and health; Insights and costs; Investing: signals, research and practice; Learning: the English and investing tutors; Making and doing things; Memory; Money; News, trends and research; Phone calls; Security and privacy; Shopping and deals; Speaking up on its own: briefing, reminders and alerts; The price book, pattern learning and trained models; The server and the app; Travel and getting around; Voice: Talk mode and Listen-in
 

@@ -103,6 +103,22 @@ CATALOG: dict[str, dict] = {
              "hosts": ["https://haveibeenpwned.com"], "auth": {"type": "none"}, "cost": 0.0, "per_minute": 4,
              "privacy": "public", "no_backup": True, "moved": True,
              "used_for": "the public list of companies that reported a data breach (nothing is sent)"},
+    # Buddy Intelligence Platform (bip_sources.py): free official sources, a technology's search phrase only.
+    "europepmc": {"group": "Intelligence", "title": "Europe PMC (biomedical papers)", "hosts": ["https://www.ebi.ac.uk"],
+                  "auth": {"type": "none"}, "cost": 0.0, "per_minute": 60, "privacy": "public", "no_backup": True,
+                  "used_for": "new biomedical research papers on a technology (the search phrase only)", "moved": True},
+    "clinicaltrials": {"group": "Intelligence", "title": "ClinicalTrials.gov (registered studies)",
+                       "hosts": ["https://clinicaltrials.gov"], "auth": {"type": "none"}, "cost": 0.0, "per_minute": 60,
+                       "privacy": "public", "no_backup": True,
+                       "used_for": "registered clinical studies on a technology, with sponsor and phase", "moved": True},
+    "usaspending": {"group": "Intelligence", "title": "USAspending.gov (federal contracts and grants)",
+                    "hosts": ["https://api.usaspending.gov"], "auth": {"type": "none"}, "cost": 0.0, "per_minute": 60,
+                    "privacy": "public", "no_backup": True,
+                    "used_for": "US federal awards that mention a technology, with recipient and amount", "moved": True},
+    "sec_search": {"group": "Intelligence", "title": "SEC EDGAR full-text search", "hosts": ["https://efts.sec.gov"],
+                   "auth": {"type": "none"}, "cost": 0.0, "per_minute": 120, "privacy": "public", "no_backup": True,
+                   "used_for": "company filings that mention a technology (sent with the contact email SEC asks for)",
+                   "moved": True},
     "eia": {"group": "Finance & markets", "title": "EIA (oil and gas prices)", "hosts": ["https://api.eia.gov"],
             "auth": {"type": "param", "secret": "BUDDY_EIA_KEY"}, "cost": 0.0, "per_minute": 60, "privacy": "public",
             "no_backup": True, "used_for": "oil and natural gas prices for Market school",
@@ -131,7 +147,7 @@ CATALOG: dict[str, dict] = {
     "hackernews": {"group": "News & trends", "title": "Hacker News", "hosts": ["https://hn.algolia.com"], "auth": {"type": "none"},
                    "cost": 0.0, "per_minute": 60, "privacy": "public", "used_for": "tech discussions", "moved": True},
     "arxiv": {"group": "News & trends", "title": "arXiv (papers)", "hosts": ["https://export.arxiv.org"], "auth": {"type": "none"},
-              "cost": 0.0, "per_minute": 20, "privacy": "public", "used_for": "new research papers", "moved": True},
+              "cost": 0.0, "per_minute": 40, "privacy": "public", "used_for": "new research papers", "moved": True},
     "serpapi": {"group": "News & trends", "title": "SerpApi (Google Trends)", "hosts": ["https://serpapi.com"],
                 "auth": {"type": "param", "secret": "BUDDY_SERPAPI_KEY"}, "cost": 0.01, "per_minute": 30,
                 "privacy": "public", "used_for": "rising searches", "moved": True},
@@ -281,7 +297,7 @@ CATALOG: dict[str, dict] = {
 
 
 GROUPS = ["Travel & transit", "Finance & markets", "Shopping", "Food & dining", "Entertainment", "Health", "Home", "Calls", "Search", "News & trends",
-          "Weather", "Security", "AI models"]  # app order
+          "Weather", "Security", "Intelligence", "AI models"]  # app order
 
 
 def group_of(name: str) -> str:

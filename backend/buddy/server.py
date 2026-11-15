@@ -1499,6 +1499,49 @@ async def api_invest() -> dict:
     return await asyncio.to_thread(invest.dashboard, memory)
 
 
+# --- Buddy Intelligence Platform (web/intel.html): emerging technologies, convergence, stages, sources
+@app.get("/api/intel", dependencies=[Depends(require_admin)])
+async def api_intel() -> dict:
+    from . import bip
+    return await asyncio.to_thread(bip.overview, memory)
+
+
+@app.get("/api/intel/technology", dependencies=[Depends(require_admin)])
+async def api_intel_technology(id: str = "") -> dict:
+    from . import bip
+    try:
+        return await asyncio.to_thread(bip.technology, memory, id)
+    except ToolError as e:
+        raise HTTPException(status_code=404, detail=str(e)) from e
+
+
+@app.post("/api/intel/switch", dependencies=[Depends(require_admin)])
+async def api_intel_switch(body: dict) -> dict:
+    from . import bip
+    try:
+        await asyncio.to_thread(bip.switch, memory, str(body.get("sector") or ""), bool(body.get("on")))
+    except ToolError as e:
+        raise HTTPException(status_code=400, detail=str(e)) from e
+    return await asyncio.to_thread(bip.overview, memory)
+
+
+@app.post("/api/intel/scan", dependencies=[Depends(require_admin)])
+async def api_intel_scan() -> dict:
+    """Start a collection now, in the background (it takes a few minutes); the page reloads to see it."""
+    from . import bip
+
+    async def go() -> None:
+        try:
+            got = await bip.run(memory)
+            text = bip.message(got)
+            if text:
+                await deliver("news", text, topic="news:intelligence")
+        except Exception:
+            log.exception("intelligence scan failed")
+    asyncio.create_task(go())
+    return {"text": "Collecting now. It takes a few minutes; pull to refresh."}
+
+
 # --- security (web/security.html): the daily threat watch, by layer, with what is open and what was fixed
 @app.get("/api/security", dependencies=[Depends(require_admin)])
 async def api_security() -> dict:

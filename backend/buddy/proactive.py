@@ -407,6 +407,18 @@ async def run(memory: Memory, deliver: Deliver, connected=None) -> None:
                             await deliver("followup", idea)
             except Exception:
                 log.exception("reasoning upkeep failed")
+            try:  # the Buddy Intelligence Platform: its nightly collection, convergences and formations
+                from . import bip  # noqa: PLC0415
+                if bip.due(memory):
+                    bip.mark_done(memory)
+                    found = await bip.run(memory)
+                    log.info("intelligence: %d new records, %d convergences, failed: %s", found["new"],
+                             found["convergences"], ", ".join(found["failed"]) or "none")
+                    text = bip.message(found)
+                    if text and not in_quiet_hours():
+                        await deliver("news", text, topic="news:intelligence")
+            except Exception:
+                log.exception("intelligence platform failed")
             try:  # technology that matters for Buddy: sorted and verified once a night, shown in Buddy News
                 from . import techradar  # noqa: PLC0415
                 if techradar.due(memory):

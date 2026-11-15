@@ -221,6 +221,10 @@ COMPONENTS = [  # every server module belongs to one feature (tests check none i
      ["makers.py", "docedit.py", "datatools.py", "browse.py", "formfill.py", "cards.py", "jobs.py"]),
     ("Agents and skills", "Specialist agents Buddy can connect or build, and its registry of tools and skills",
      ["agents.py", "builder.py", "registry.py"]),
+    ("Buddy Intelligence Platform", "A shared layer, like Buddy Connect, that collects public evidence on emerging "
+     "technologies (papers, clinical studies, company filings, federal awards, code, discussion), finds which are "
+     "converging across sectors and what stage each is at, and that Buddy's other features read from",
+     ["bip.py", "bip_sources.py"]),
     ("Security and privacy", "Who can reach Buddy, lockouts, secrets kept out of logs and prompts, the encrypted "
      "database", ["guard.py", "privacy.py", "db.py", "compliance.py", "securitywatch.py"]),
     ("Fixing and explaining itself", "Reads its own code and these docs, draws its own architecture, checks its own "
