@@ -185,12 +185,38 @@ Persistent=true
 [Install]
 WantedBy=timers.target
 UNIT
+    # "Patch now" from the Buddy app: Buddy (not root) leaves an empty request file; this root unit sees it and
+    # runs the same weekly job at once. Nothing in the file is read, so it can't be used to pass a command.
+    cat > /etc/systemd/system/buddy-patch.service <<UNIT
+[Unit]
+Description=Patch Buddy's server now (asked for from the Buddy app)
+After=network-online.target
+
+[Service]
+Type=oneshot
+ExecStartPre=/bin/rm -f /var/lib/buddy/patch-request
+ExecStart=/usr/bin/python3 $HERE/maintain.py
+Nice=10
+TimeoutStartSec=2h
+UNIT
+    cat > /etc/systemd/system/buddy-patch.path <<'UNIT'
+[Unit]
+Description=Watch for a patch request from the Buddy app
+
+[Path]
+PathExists=/var/lib/buddy/patch-request
+Unit=buddy-patch.service
+
+[Install]
+WantedBy=multi-user.target
+UNIT
     # Logs: kept a month, at most 500 MB.
     mkdir -p /etc/systemd/journald.conf.d
     printf '[Journal]\nMaxRetentionSec=1month\nSystemMaxUse=500M\n' > /etc/systemd/journald.conf.d/buddy.conf
     systemctl restart systemd-journald || true
     systemctl daemon-reload
     systemctl enable --now buddy-maintain.timer >/dev/null
+    systemctl enable --now buddy-patch.path >/dev/null
     echo "Weekly patching and security check: on (Sundays around 4am)." ;;
   *) echo "Unknown command: ${1:-}"; sed -n '2,14p' "$0"; exit 1 ;;
 esac

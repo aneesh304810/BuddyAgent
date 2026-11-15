@@ -1478,6 +1478,31 @@ async def api_invest() -> dict:
     return await asyncio.to_thread(invest.dashboard, memory)
 
 
+# --- security (web/security.html): the daily threat watch, by layer, with what is open and what was fixed
+@app.get("/api/security", dependencies=[Depends(require_admin)])
+async def api_security() -> dict:
+    from . import securitywatch
+    return await asyncio.to_thread(securitywatch.report, memory)
+
+
+@app.post("/api/security/scan", dependencies=[Depends(require_admin)])
+async def api_security_scan() -> dict:
+    from . import securitywatch
+    got = await asyncio.to_thread(securitywatch.scan, memory)
+    return {"new": len(got["new"]), "fixed": len(got["fixed"]),
+            **await asyncio.to_thread(securitywatch.report, memory)}
+
+
+@app.post("/api/security/accept", dependencies=[Depends(require_admin)])
+async def api_security_accept(body: dict) -> dict:
+    from . import securitywatch
+    try:
+        text = await asyncio.to_thread(securitywatch.accept, memory, body.get("id"), str(body.get("reason") or ""))
+    except ToolError as e:
+        raise HTTPException(status_code=400, detail=str(e)) from e
+    return {"text": text, **await asyncio.to_thread(securitywatch.report, memory)}
+
+
 @app.get("/api/invest/practice", dependencies=[Depends(require_admin)])
 async def api_invest_practice(fresh: int = 0) -> dict:
     """Buddy's paper trades with their reasons, the day's moves across markets, and how crypto moves with them."""

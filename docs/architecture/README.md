@@ -108,9 +108,9 @@ flowchart LR
 | [Home and health](17-home-and-health.md) | Your Nest thermostat, your phone's health data and Oura Ring, and your health plan with public medical sources | 4 |
 | [Making and doing things](18-making-and-doing-things.md) | Diagrams, charts, images, Word, PowerPoint, PDF and Excel; data crunching in the sandbox; a real browser Buddy drives; filling forms; rich cards in the chat; background jobs | 7 |
 | [Agents and skills](19-agents-and-skills.md) | Specialist agents Buddy can connect or build, and its registry of tools and skills | 3 |
-| [Security and privacy](20-security-and-privacy.md) | Who can reach Buddy, lockouts, secrets kept out of logs and prompts, the encrypted database | 4 |
+| [Security and privacy](20-security-and-privacy.md) | Who can reach Buddy, lockouts, secrets kept out of logs and prompts, the encrypted database | 5 |
 | [Fixing and explaining itself](21-fixing-and-explaining-itself.md) | Reads its own code and these docs, draws its own architecture, checks its own server, and fixes itself on a branch you review | 10 |
 | [Insights and costs](22-insights-and-costs.md) | What Buddy spends and how well it does, model by model and service by service, and what makes it feel slow | 4 |
 | [The server and the app](23-the-server-and-the-app.md) | The one server the phone talks to: the chat connection, the app's pages and their data | 1 |
 
-23 features, 142 server modules. The app (Kotlin) and the deploy scripts are documented by `python -m buddy.codedocs`.
+23 features, 143 server modules. The app (Kotlin) and the deploy scripts are documented by `python -m buddy.codedocs`.

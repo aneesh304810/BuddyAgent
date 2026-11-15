@@ -88,6 +88,17 @@ CATALOG: dict[str, dict] = {
             "auth": {"type": "none"}, "cost": 0.0, "per_minute": 5, "privacy": "public", "no_backup": True,
             "used_for": "monthly consumer price indexes by category, for seasonal price patterns (no key needed)",
             "moved": True},
+    "osv": {"group": "Security", "title": "OSV (open vulnerability database)", "hosts": ["https://api.osv.dev"],
+            "auth": {"type": "none"}, "cost": 0.0, "per_minute": 120, "privacy": "public", "no_backup": True,
+            "used_for": "published vulnerabilities for the exact package versions Buddy runs (names and versions only)",
+            "moved": True},
+    "cisa_kev": {"group": "Security", "title": "CISA Known Exploited Vulnerabilities", "hosts": ["https://www.cisa.gov"],
+                 "auth": {"type": "none"}, "cost": 0.0, "per_minute": 6, "privacy": "public", "no_backup": True,
+                 "used_for": "the US government's list of flaws being used in real attacks (nothing is sent)",
+                 "moved": True},
+    "epss": {"group": "Security", "title": "EPSS (exploit likelihood, FIRST.org)", "hosts": ["https://api.first.org"],
+             "auth": {"type": "none"}, "cost": 0.0, "per_minute": 30, "privacy": "public", "no_backup": True,
+             "used_for": "how likely a published vulnerability is to be exploited soon (CVE ids only)", "moved": True},
     "eia": {"group": "Finance & markets", "title": "EIA (oil and gas prices)", "hosts": ["https://api.eia.gov"],
             "auth": {"type": "param", "secret": "BUDDY_EIA_KEY"}, "cost": 0.0, "per_minute": 60, "privacy": "public",
             "no_backup": True, "used_for": "oil and natural gas prices for Market school",
@@ -266,7 +277,7 @@ CATALOG: dict[str, dict] = {
 
 
 GROUPS = ["Travel & transit", "Finance & markets", "Shopping", "Food & dining", "Entertainment", "Health", "Home", "Calls", "Search", "News & trends",
-          "Weather", "AI models"]  # app order
+          "Weather", "Security", "AI models"]  # app order
 
 
 def group_of(name: str) -> str:

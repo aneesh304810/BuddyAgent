@@ -407,6 +407,16 @@ async def run(memory: Memory, deliver: Deliver, connected=None) -> None:
                             await deliver("followup", idea)
             except Exception:
                 log.exception("reasoning upkeep failed")
+            try:  # the threat watch: once a day, what is newly published against what this server runs
+                from . import securitywatch  # noqa: PLC0415
+                if securitywatch.due(memory):
+                    memory.set(securitywatch.DAY_KEY, local_now().date().isoformat())
+                    got = await asyncio.to_thread(securitywatch.scan, memory)
+                    log.info("threat watch: %d new, %d fixed", len(got["new"]), len(got["fixed"]))
+                    for text in securitywatch.alerts(memory):
+                        await deliver("security", text)
+            except Exception:
+                log.exception("threat watch failed")
             try:  # life memory: appointments, school, home, family and travel documents in the owner's email
                 from . import lifemail  # noqa: PLC0415
                 for text in await lifemail.scan(memory):

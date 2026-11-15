@@ -222,7 +222,7 @@ COMPONENTS = [  # every server module belongs to one feature (tests check none i
     ("Agents and skills", "Specialist agents Buddy can connect or build, and its registry of tools and skills",
      ["agents.py", "builder.py", "registry.py"]),
     ("Security and privacy", "Who can reach Buddy, lockouts, secrets kept out of logs and prompts, the encrypted "
-     "database", ["guard.py", "privacy.py", "db.py", "compliance.py"]),
+     "database", ["guard.py", "privacy.py", "db.py", "compliance.py", "securitywatch.py"]),
     ("Fixing and explaining itself", "Reads its own code and these docs, draws its own architecture, checks its own "
      "server, and fixes itself on a branch you review",
      ["selfcode.py", "codedocs.py", "codedocs_features.py", "codedocs_qa.py", "codedocs_visual.py", "codejob.py",

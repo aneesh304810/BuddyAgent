@@ -23,6 +23,46 @@
 | **Uploads** | Life-log files are capped at 150 MB, zips at 400 MB unpacked and 5,000 files, and read without unpacking to disk. |
 | **Outbound links** | Buddy fetches only `https://` links. |
 
+## The daily threat watch
+
+Every day Buddy checks what is newly published about security against what this server actually runs, and the
+Buddy app's **Security** page (menu, 🛡 Security) shows the result.
+
+- **What is checked.** Every Python package Buddy has installed, by exact version, against OSV (the open
+  vulnerability database, which includes the GitHub and PyPI advisories). CISA's list of vulnerabilities being
+  used in real attacks: a finding on it is raised to critical, and new entries about the software the server
+  is built on (Linux, OpenSSH, OpenSSL, Docker, Tailscale, Python, SQLite, sudo, the phone's Android) are shown
+  even when the exact version can't be matched. EPSS, the chance a vulnerability is exploited in the next 30
+  days. Ubuntu security updates that are waiting. The weekly root check's findings (firewall, SSH, keys,
+  backups, exposure) and Buddy's own settings (the access token's strength, database encryption, developer
+  mode).
+- **The page.** The setup is drawn layer by layer: your phone and the app, the network edge, the server, Buddy
+  itself, the parts that read outside content, data and keys, the code sandbox, outside services. Each layer
+  shows its level (the most serious open finding there), how many are open and fixed, and how many defences
+  are on; tap a layer to drill in. Charts show open findings by severity and what was found and fixed each
+  week. Every finding says why it matters, how it could be used against this server (from the published
+  attack details and from where that software sits in Buddy), and the fix.
+- **Open and fixed.** A finding a later scan no longer finds is marked fixed, with the date. If a database
+  can't be reached, nothing from it is marked fixed. You can accept a risk with a reason; it stays listed.
+- **Patching.** Packages with a published fix are upgraded by the weekly root job, and rolled back if Buddy
+  doesn't come back healthy. "Patch now" (ask Buddy) runs that job at once after your yes: Buddy leaves an
+  empty request file and a root systemd unit runs the job; Buddy itself never runs as root.
+- **Alerts.** Only for a new critical or high finding, or one being exploited now.
+- **What leaves the server.** Package names and versions (to OSV) and CVE ids (to EPSS). Nothing personal.
+- **Limits.** This lowers the risk; it can't prove the server is safe. A flaw nobody has published yet is in
+  no database, and from inside Buddy the exact version of every operating-system package can't be seen:
+  that is why Ubuntu's own automatic security updates stay on.
+
+Ask Buddy: "security report", "any vulnerabilities?", "scan now", "explain finding 3", "patch now".
+
+## Review of 15 November 2026
+
+Scanned before the threat watch was added: no known vulnerability in any dependency (pip-audit), no medium or
+high finding in the code scan (bandit), and the endpoints without a sign-in were reviewed one by one: file
+links (signed, expiring), the phone-call path (random token and the carrier's signature), the bank and service
+sign-in returns (one-time state), and the health check (no data). Fixed in this review: the security alert
+that newly exploited flaws need was missing, and a table-name clash that the test suite caught before release.
+
 ## Checking it yourself
 
 ```

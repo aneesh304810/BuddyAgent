@@ -78,5 +78,5 @@ fails. Run on the server: sudo bash /opt/buddy/deploy/keys.sh  (never prints a k
 ## How it connects
 
 - Relies on: Claude: the brain; Free AI models (Groq, Gemini, Mistral, Cerebras, GitHub Models, OpenRouter); Investing: signals, research and practice; Travel and getting around
-- Relied on by: Claude: the brain; Fixing and explaining itself; Free AI models (Groq, Gemini, Mistral, Cerebras, GitHub Models, OpenRouter); Going out: restaurants and events; Home and health; Investing: signals, research and practice; Learning: the English and investing tutors; Money; News, trends and research; Phone calls; Shopping and deals; The server and the app; Travel and getting around
+- Relied on by: Claude: the brain; Fixing and explaining itself; Free AI models (Groq, Gemini, Mistral, Cerebras, GitHub Models, OpenRouter); Going out: restaurants and events; Home and health; Investing: signals, research and practice; Learning: the English and investing tutors; Money; News, trends and research; Phone calls; Security and privacy; Shopping and deals; The server and the app; Travel and getting around
 
