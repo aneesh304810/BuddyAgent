@@ -15,7 +15,7 @@ const $ = (id) => document.getElementById(id);
 const esc = (s) => String(s ?? "").replace(/[&<>"']/g, (c) => ({ "&": "&amp;", "<": "&lt;", ">": "&gt;", '"': "&quot;", "'": "&#39;" }[c]));
 const safe = (u) => /^https:\/\/[^\s"'<>]+$/.test(String(u || "")) ? u : "";
 const money = (v) => v == null ? "–" : "$" + Number(v).toLocaleString(undefined, { minimumFractionDigits: v % 1 ? 2 : 0, maximumFractionDigits: 2 });
-const TABS = [["product", "🛍️ Products"], ["flight", "✈️ Flights"], ["hotel", "🏨 Hotels"], ["predicted", "🔮 Predicted"], ["signals", "📈 Signals"]];
+const TABS = [["product", "🛍️ Products"], ["flight", "✈️ Flights"], ["hotel", "🏨 Hotels"], ["predicted", "🔮 Predicted"], ["alerts", "🔔 Alert settings"]];
 let predicted = null;
 let tab = TABS.some(([k]) => k === storageGet("dealsTab")) ? storageGet("dealsTab") : "product", data = null, timer = null;
 
@@ -29,7 +29,7 @@ async function api(path, body) {
 
 function tabs() {
   $("tabs").innerHTML = TABS.map(([k, label]) => {
-    const n = k === "predicted" || k === "signals" ? "" : data ? data.counts[k] || 0 : "";
+    const n = k === "predicted" || k === "alerts" ? "" : data ? data.counts[k] || 0 : "";
     return `<button class="chip${k === tab ? " on" : ""}" role="tab" aria-selected="${k === tab}" data-tab="${k}">${label}${n !== "" ? ` · ${n}` : ""}</button>`;
   }).join("");
   $("tabs").querySelectorAll("button").forEach((b) => b.onclick = () => { tab = b.dataset.tab; storageSet("dealsTab", tab); render(); });
@@ -38,30 +38,15 @@ function tabs() {
 async function renderPredicted() {
   try {
     predicted = predicted || (await api("/api/deals/predicted")).predictions;
-    const icon = { product: "🛍️", company: "🏬", sale: "📅" };
+    const icon = { product: "🛍️", company: "🏬", sale: "📅", flight: "✈️", hotel: "🏨" };
     $("main").innerHTML = (predicted.length ? predicted.map((p) => `
       <section class="card"><div class="deal"><div class="what">
         <b>${icon[p.type] || ""} ${esc(p.what)}</b>
         <small>${esc(p.why)}</small><br><span class="pill">${esc(p.confidence)} confidence</span></div>
         <div class="price"><b>${esc(p.when)}</b>${p.expect_price ? `<s style="text-decoration:none">about ${money(p.expect_price)}</s>` : ""}</div>
-      </div></section>`).join("") : `<p class="muted">No predictions yet. Buddy needs to see a product on deal at least twice, or a company's deals on three days, before it can predict the next one.</p>`) +
-      `<p class="muted">Predicted from the deal patterns Buddy has learned and the sales calendar. Rough, not promises. Say "watch for it" to Buddy to get an alert.</p>`;
+      </div></section>`).join("") : `<p class="muted">No predictions yet. Buddy needs to see a product, a flight route or a hotel place on deal at least twice, or a company's deals on three days, before it can predict the next one.</p>`) +
+      `<p class="muted">Predicted from the deal patterns Buddy has learned, the sales calendar, and for flights and hotels: your open book-or-wait calls, routes and places whose deals keep coming back, and the cheapest time to book that Buddy has seen. Rough, not promises. Say "watch for it" to Buddy to get an alert.</p>`;
   } catch (e) { $("main").innerHTML = `<p class="err">${esc(e.message)}</p>`; }
-}
-
-// Buddy's practice book: its own signals paper-traded by fixed rules, and what each reason has earned.
-function paperCard(p) {
-  if (!p) return "";
-  const pct = (v) => v == null ? "–" : `${v >= 0 ? "+" : ""}${(v * 100).toFixed(1)}%`;
-  const line = (label, g) => g ? `<div>${esc(label)}: <b>${g.won} of ${g.trades} won</b>, average ${pct(g.average_result)}${g.average_vs_spy != null ? ` (${pct(g.average_vs_spy)} against the S&P 500 fund)` : ""}</div>` : "";
-  const w = ["tone", "trend", "insiders", "analysts"].map((k) => `${k} ×${p.weights[k].weight}${p.weights[k].trades ? ` (${p.weights[k].trades} trades)` : ""}`).join(" · ");
-  return `<section class="card"><b>Practice book</b> <span class="pill">pretend money</span><br>
-    <small>Every signal is paper-traded automatically: ${esc(p.money.rules)}.</small>
-    <div>Book: <b>${money(p.money.equity)}</b> (${pct(p.money.return_pct)} from ${money(p.money.started_with)}) · worst fall ${pct(p.money.worst_drawdown_pct)} · at risk now ${money(p.money.open_risk)}${p.money.skipped_for_risk ? ` · ${p.money.skipped_for_risk} skipped at the risk cap` : ""}</div>
-    ${p.closed ? line("Buys", p.buys) + line("Avoids", p.avoids) : `<div class="muted">No paper trades have closed yet.</div>`}
-    <div><small>${p.open.length} open${p.open.length ? ": " + p.open.map((o) => esc(o.symbol)).join(", ") : ""}</small></div>
-    <div><small>How much each reason counts now: ${esc(w)}</small></div>
-    <div><small>${esc(p.note)}</small></div></section>`;
 }
 
 // Trained models: how close each kind of call is to having enough data, and whether a model is in use.
@@ -77,30 +62,20 @@ function modelCard(models) {
     ${Object.entries(models).map(row).join("")}</section>`;
 }
 
-// Signals: a switch per category, the recent buy and sell signals with how each did, and Buddy's record.
-async function renderSignals(fresh) {
+// Alert settings: a switch per shopping and travel category. Investing signals live on the Investments page.
+async function renderAlerts(fresh) {
   try {
     const s = fresh || await api("/api/deals/signals");
     const sw = (c) => `<button class="chip${s.categories[c] ? " on" : ""}" data-cat="${esc(c)}" aria-pressed="${!!s.categories[c]}">${esc(c)}</button>`;
-    const mark = { right: "✅ right", wrong: "❌ wrong", flat: "➖ flat", open: "⏳ open" };
-    const rec = (c) => { const r = s.record[c]; return `<span class="pill">${esc(c)}: ${r.scored ? `${r.right} right of ${r.scored}` : "none scored yet"}${r.proven ? "" : " · unproven"}</span>`; };
+    const models = s.models ? Object.fromEntries(Object.entries(s.models).filter(([name]) => !/invest/i.test(name))) : null;
     $("main").innerHTML = `
-      <section class="card"><b>Alerts on for</b><br><small>Tap a category to turn its buy and sell alerts on or off.</small>
-        <p><small>Shopping and travel</small></p><div class="chips" style="flex-wrap:wrap">${s.shopping.map(sw).join("")}</div>
-        <p><small>Investing</small></p><div class="chips" style="flex-wrap:wrap">${s.investing.map(sw).join("")}</div></section>
-      <section class="card"><b>Buddy's record</b><br>${s.investing.map(rec).join(" ")}</section>` + paperCard(s.paper) + modelCard(s.models) +
-      (s.signals.length ? s.signals.map((g) => `
-      <section class="card"><div class="deal"><div class="what">
-        <b>${g.action === "buy" ? "📈" : g.action === "sell" ? "📉" : "⚠️"} ${esc(g.key)} · ${esc(g.action === "sell" ? "sell or avoid" : g.action)}</b>
-        <small>${esc(g.reasons.join("; "))}</small><br><span class="pill">${esc(g.category)}</span> <span class="pill">${esc(mark[g.status] || g.status)}</span></div>
-        <div class="price"><b>${esc(g.day)}</b><s style="text-decoration:none">${money(g.price_then)}${g.price_after ? ` → ${money(g.price_after)}` : ""}</s></div>
-      </div></section>`).join("") : `<p class="muted">No signals yet. Buddy makes them on weekday mornings when a stock or fund gets unusual attention and its price trend and the tone agree.</p>`) +
-      (s.trending.length ? `<section class="card"><b>Most talked about last night</b><br><small>${s.trending.map((t) => `${esc(t.key)} (${t.mentions}${t.times_usual ? `, ${t.times_usual}× usual` : ""})`).join(" · ")}</small></section>` : "") +
-      `<p class="muted">${esc(s.note)} Signals are scored a week later; a category is "unproven" until 20 are scored.</p>`;
+      <section class="card"><b>Deal alerts on for</b><br><small>Tap a category to turn its deal alerts and buy-or-wait calls on or off.</small>
+        <div class="chips" style="flex-wrap:wrap;margin-top:8px">${s.shopping.map(sw).join("")}</div></section>` + modelCard(models) +
+      `<p class="muted">Buy and sell signals for stocks and funds, and Buddy's practice book, are on the Investments page under Signals and Practice.</p>`;
     $("main").querySelectorAll("[data-cat]").forEach((b) => b.onclick = async () => {
       try {
         const got = await api("/api/deals/signals/switch", { category: b.dataset.cat, on: !s.categories[b.dataset.cat] });
-        renderSignals({ ...s, categories: got.categories });
+        renderAlerts({ ...s, categories: got.categories });
       } catch (e) { $("main").insertAdjacentHTML("afterbegin", `<p class="err">${esc(e.message)}</p>`); }
     });
   } catch (e) { $("main").innerHTML = `<p class="err">${esc(e.message)}</p>`; }
@@ -109,7 +84,7 @@ async function renderSignals(fresh) {
 function render() {
   tabs();
   if (tab === "predicted") { renderPredicted(); return; }
-  if (tab === "signals") { renderSignals(); return; }
+  if (tab === "alerts") { renderAlerts(); return; }
   const list = (data?.deals || []).filter((d) => d.domain === tab);
   if (!list.length) {
     $("main").innerHTML = `<p class="muted">No ${tab === "product" ? "product" : tab} deals here yet. Deals arrive from the deal feeds every morning and from your deals inbox every night.</p>`;

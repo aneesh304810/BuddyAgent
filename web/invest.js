@@ -14,8 +14,8 @@ if (params.get("token") && storageGet("buddyToken") === token) history.replaceSt
 const $ = (id) => document.getElementById(id);
 const esc = (s) => String(s ?? "").replace(/[&<>"']/g, (c) => ({ "&": "&amp;", "<": "&lt;", ">": "&gt;", '"': "&quot;", "'": "&#39;" }[c]));
 const safe = (u) => /^https:\/\/[^\s"'<>]+$/.test(String(u || "")) ? u : "";
-const TABS = [["strategy", "Strategy"], ["practice", "Practice"], ["trends", "Trends"], ["accounts", "Accounts"], ["watch", "Watchlist"]];
-let practiceData = null, practiceBusy = false;
+const TABS = [["strategy", "Strategy"], ["signals", "Signals"], ["practice", "Practice"], ["trends", "Trends"], ["accounts", "Accounts"], ["watch", "Watchlist"]];
+let practiceData = null, practiceBusy = false, signalsData = null, signalsBusy = false;
 let data = null, tab = TABS.some(([k]) => k === storageGet("investTab")) ? storageGet("investTab") : "strategy", busy = false;
 
 const px = (v, m) => v == null ? "–" : (m === "india" ? "₹" : "$") +
@@ -256,9 +256,47 @@ function practiceTab() {
     `<p class="note">${esc(p.limits || "")}</p><p><button class="btn" id="practice-refresh">Refresh</button></p>`;
 }
 
+// --- Signals: buy and sell signals for stocks and funds, a switch per category, and Buddy's own record
+async function loadSignals() {
+  if (signalsBusy) return;
+  signalsBusy = true;
+  try { signalsData = await api("/api/deals/signals"); }
+  catch (e) { signalsData = { failed: e.message }; }
+  signalsBusy = false;
+  if (tab === "signals") render();
+}
+function signalsTab() {
+  if (!signalsData) { loadSignals(); return `<p class="muted">Loading signals…</p>`; }
+  const s = signalsData;
+  if (s.failed) return `<p class="err">${esc(s.failed)}</p>`;
+  const sw = (c) => `<button class="chip${s.categories[c] ? " on" : ""}" data-sigcat="${esc(c)}" aria-pressed="${!!s.categories[c]}">${esc(c)}</button>`;
+  const mark = { right: "✅ right", wrong: "❌ wrong", flat: "➖ flat", open: "⏳ open" };
+  const rec = (c) => { const r = s.record[c]; return `<span class="pill">${esc(c)}: ${r.scored ? `${r.right} right of ${r.scored}` : "none scored yet"}${r.proven ? "" : " · unproven"}</span>`; };
+  const m = s.models ? Object.entries(s.models).find(([name]) => /invest/i.test(name)) : null;
+  const list = s.signals.length ? s.signals.map((g) => `<div class="idea"><div class="top">
+      <b>${g.action === "buy" ? "📈" : g.action === "sell" ? "📉" : "⚠️"} ${esc(g.key)}</b>
+      <span class="pill${g.action === "buy" ? " hot" : ""}">${esc(g.action === "sell" ? "sell or avoid" : g.action)}</span>
+      <span class="muted">${esc(g.category)} · ${esc(g.day)} · ${px(g.price_then)}${g.price_after ? ` → ${px(g.price_after)}` : ""}</span>
+      <span class="pill">${esc(mark[g.status] || g.status)}</span></div>
+      ${why(g.reasons)}</div>`).join("")
+    : `<p class="muted">No signals yet. Buddy makes them on weekday mornings when a stock or fund gets unusual attention and its price trend and the tone agree.</p>`;
+  return card("Signals on for", `<p class="muted">Tap a category to turn its buy and sell signals on or off.</p><div class="chips" style="flex-wrap:wrap">${s.investing.map(sw).join("")}</div>`)
+    + card("Buddy's record", `<div style="display:flex;flex-wrap:wrap;gap:6px">${s.investing.map(rec).join("")}</div>`
+        + (m ? `<p class="muted" style="margin-top:10px"><b>Trained model:</b> ${m[1].model_in_use ? "in use" : "not in use yet"}; ${esc(m[1].rows)} of ${esc(m[1].needed)} judged signals collected.</p>` : ""),
+        "A signal is scored a week later; a category is unproven until 20 are scored. How the signals did as paper trades is under Practice.")
+    + card("Recent signals", list, s.note)
+    + (s.trending.length ? card("Most talked about last night", `<p class="muted">${s.trending.map((t) => `${esc(t.key)} (${esc(t.mentions)}${t.times_usual ? `, ${esc(t.times_usual)}× usual` : ""})`).join(" · ")}</p>`, "Attention, not advice.") : "");
+}
+async function switchSignal(category) {
+  try { const got = await api("/api/deals/signals/switch", { category, on: !signalsData.categories[category] });
+    signalsData = { ...signalsData, categories: got.categories }; render(); }
+  catch (e) { notice(e.message); }
+}
+
 function render() {
   tabs();
-  $("main").innerHTML = { strategy, practice: practiceTab, trends: trendsTab, accounts: accountsTab, watch: watchTab }[tab]();
+  $("main").innerHTML = { strategy, signals: signalsTab, practice: practiceTab, trends: trendsTab, accounts: accountsTab, watch: watchTab }[tab]();
+  document.querySelectorAll("[data-sigcat]").forEach((b) => b.onclick = () => switchSignal(b.dataset.sigcat));
   if ($("practice-refresh")) $("practice-refresh").onclick = () => { practiceData = null; render(); loadPractice(true); };
   document.querySelectorAll("[data-sold]").forEach((b) => b.onclick = () => sold(b.dataset.sold));
   document.querySelectorAll("[data-unwatch]").forEach((b) => b.onclick = () => watch("remove", b.dataset.unwatch));

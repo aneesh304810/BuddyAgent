@@ -115,3 +115,40 @@ def test_company_playbook_and_upfront_predictions(tmp_path, memory):
     sony = next(p for p in preds if p["what"] == "sony wh-1000xm6")
     assert sony["when"] == "2026-11-29" and sony["expect_price"] == 305.0
     assert [p["when"] for p in preds] == sorted(p["when"] for p in preds)
+
+
+def test_flights_and_hotels_are_predicted_too(memory):
+    from datetime import timedelta
+    today = date(2026, 11, 16)
+    pricebook.deals_page(memory)  # the tables exist
+    for day, price in (("2026-10-05", 420), ("2026-10-19", 398), ("2026-11-02", 410)):
+        pricebook.run(memory, "INSERT INTO deals (seen_on, source, title, url, price, store, domain, item) VALUES "
+                              "(?, 'inbox', 'JFK to LIM', ?, ?, 'Delta', 'flight', 'jfk-lim')",
+                      (day, f"https://delta.example/{day}", price))
+    pricebook.run(memory, "INSERT INTO deals (seen_on, source, title, url, price, store, domain, item) VALUES "
+                          "('2026-11-10', 'inbox', 'Nairobi stay', 'https://agoda.example/1', 90, 'Agoda', 'hotel', "
+                          "'hotels:nairobi')")
+    learned = {"flights": {"ewr-nbo": {"cheapest_window": "61-120", "median": 900.0, "prices": 80,
+                                       "by_days_before": {"8-21": 1.2, "61-120": 0.9}}},
+               "hotels": {"hotels:nairobi": {"by_month": {"5": 0.8, "12": 1.3}, "weekend_premium": 0.12,
+                                             "median": 150.0, "prices": 30}}}
+    got = {p["what"]: p for p in df.travel(memory, learned, today)}
+    fare = got["Flight JFK to LIM"]
+    assert fare["when"] == "2026-11-16" and fare["expect_price"] == 398 and fare["type"] == "flight"
+    assert "on deal 3 times" in fare["why"] and "about every 14 days" in fare["why"]
+    assert "Hotels in Nairobi" in got and "Flight JFK to LIM" in got  # one deal alone predicts nothing by itself
+    route = got["Flight EWR to NBO (any date)"]
+    assert route["expect_price"] == 810 and "2 to 4 months before departure" in route["why"]
+    assert "10% under" in route["why"] and route["confidence"] == "medium"
+    stay = got["Hotels in Nairobi"]
+    assert stay["when"] == "2027-05-01" and stay["expect_price"] == 120
+    assert "cheapest month is May" in stay["why"] and "Friday and Saturday nights cost about 12% more" in stay["why"]
+    pricebook.run(memory, "ALTER TABLE predictions ADD COLUMN IF NOT EXISTS travel_date DATE")
+    pricebook.run(memory, "INSERT INTO predictions (made_on, domain, item, price, decision, chance, target, by_date, "
+                          "travel_date) VALUES ('2026-11-10', 'flight', 'ewr-nbo', 950, 'wait', 0.7, 860, "
+                          "'2026-12-01', '2027-02-10')")
+    call = next(p for p in df.travel(memory, {}, today) if "travelling" in p["what"])
+    assert call["what"] == "Flight EWR to NBO, travelling Feb 10" and call["when"] == "2026-12-01"
+    assert call["expect_price"] == 860 and "my call: wait" in call["why"] and "70%" in call["why"]
+    assert any(p["type"] == "flight" for p in df.predictions(memory, today=today))  # they reach the tab
+    assert df.travel(memory, {}, today + timedelta(days=400)) == []  # old deals and expired calls say nothing

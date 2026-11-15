@@ -253,7 +253,108 @@ def predictions(memory: Memory, days: int = 45, today: date | None = None) -> li
                 out.append({"when": max(e["start"], today).isoformat(), "what": e["name"], "type": "sale",
                             "expect_price": None, "why": f"usually {e['discount'][0]}–{e['discount'][1]}% off "
                                                          f"({', '.join(sorted(e['for']))})", "confidence": "calendar"})
-    return sorted(out, key=lambda p: p["when"])[:60]
+    try:
+        out += travel(memory, learned, today, days)
+    except Exception:  # the price book may be empty or new: the product predictions still show
+        import logging  # noqa: PLC0415
+        logging.getLogger(__name__).info("travel predictions failed", exc_info=True)
+    return sorted(out, key=lambda p: p["when"])[:90]
+
+
+MONTHS = ("January", "February", "March", "April", "May", "June", "July", "August", "September", "October",
+          "November", "December")
+WINDOW_DAYS = {"0-7": (0, 7), "8-21": (8, 21), "22-60": (22, 60), "61-120": (61, 120), "121+": (121, 200)}
+WINDOW_WORDS = {"0-7": "in the last week before departure", "8-21": "1 to 3 weeks before departure",
+                "22-60": "3 weeks to 2 months before departure", "61-120": "2 to 4 months before departure",
+                "121+": "more than 4 months before departure"}
+
+
+def _name(domain: str, item: str) -> str:
+    item = str(item)
+    if domain == "flight":
+        return "Flight " + (item.upper().replace("-", " to ") if re.fullmatch(r"[a-z]{3}-[a-z]{3}", item.lower()) else item)
+    return "Hotels in " + item.replace("hotels:", "").title() if item.startswith("hotels:") else "Hotel: " + item.title()
+
+
+def travel(memory: Memory, learned: dict, today: date, days: int = 45) -> list[dict]:
+    """Flight and hotel predictions: the trips Buddy made a book-or-wait call on, the routes and places whose
+    deals keep coming back, and what the learned price patterns say about when each is cheapest."""
+    from . import pricebook  # noqa: PLC0415
+    out, until = [], today + timedelta(days=days)
+    # 1. open book-now-or-wait calls: a trip with a date
+    seen_calls = set()
+    try:
+        calls = pricebook.run(memory, "SELECT COALESCE(domain, 'product') AS domain, item, price, decision, chance, "
+                                      "target, by_date, travel_date FROM predictions WHERE outcome = '' AND domain IN "
+                                      "('flight', 'hotel') AND by_date >= ? ORDER BY id DESC", (today.isoformat(),))
+    except Exception:
+        calls = []
+    for c in calls:
+        key = (c["domain"], c["item"], str(c["travel_date"] or ""))
+        if key in seen_calls:
+            continue
+        seen_calls.add(key)
+        trip = f", travelling {date.fromisoformat(str(c['travel_date'])):%b %d}" if c["travel_date"] else ""
+        wait = c["decision"] == "wait"
+        out.append({"when": str(c["by_date"]) if wait else today.isoformat(), "type": c["domain"],
+                    "what": _name(c["domain"], c["item"]) + trip, "expect_price": c["target"] if wait else c["price"],
+                    "why": (f"my call: wait. About a {c['chance']:.0%} chance it drops to the target by "
+                            f"{date.fromisoformat(str(c['by_date'])):%b %d}; it was {c['price']:,.0f} when I looked"
+                            if wait else f"my call: book now at about {c['price']:,.0f}. Only a {c['chance']:.0%} "
+                                         "chance of a better price before the trip"),
+                    "confidence": "medium" if abs(c["chance"] - 0.5) >= 0.2 else "low"})
+    # 2. routes and places whose deals keep coming back (the deal feeds and the deals inbox)
+    try:
+        rows = pricebook.run(memory, "SELECT domain, item, seen_on, MIN(price) AS price FROM deals WHERE domain IN "
+                                     "('flight', 'hotel') AND item != '' AND seen_on >= ? GROUP BY domain, item, seen_on "
+                                     "ORDER BY seen_on", ((today - timedelta(days=365)).isoformat(),))
+    except Exception:
+        rows = []
+    by: dict = {}
+    for r in rows:
+        by.setdefault((r["domain"], r["item"]), []).append((date.fromisoformat(str(r["seen_on"])), r["price"]))
+    for (domain, item), seen in by.items():
+        dates = [d for d, _ in seen]
+        gaps = sorted((b - a).days for a, b in zip(dates, dates[1:]) if (b - a).days >= 3)
+        prices = [p for _, p in seen if p]
+        if len(dates) < 2 or not gaps:
+            continue
+        gap = gaps[len(gaps) // 2]
+        nxt = dates[-1] + timedelta(days=gap)
+        while nxt < today:
+            nxt += timedelta(days=gap)
+        if nxt <= until:
+            out.append({"when": nxt.isoformat(), "type": domain, "what": _name(domain, item),
+                        "expect_price": min(prices) if prices else None,
+                        "why": f"on deal {len(dates)} times in your deal emails and feeds, about every {gap} days"
+                               + (f"; lowest seen {min(prices):,.0f}" if prices else ""),
+                        "confidence": "medium" if len(dates) >= 4 else "low"})
+    # 3. what the learned price patterns say: the cheapest time to book a route, the cheapest month for a place
+    for route, v in (learned.get("flights") or {}).items():
+        window, ratios = v.get("cheapest_window") or "", v.get("by_days_before") or {}
+        if window not in WINDOW_WORDS or len(ratios) < 2:
+            continue
+        saving = 1 - ratios.get(window, 1.0)
+        out.append({"when": today.isoformat(), "type": "flight", "what": _name("flight", route) + " (any date)",
+                    "expect_price": round(v["median"] * ratios[window], 0) if v.get("median") else None,
+                    "why": f"usually cheapest {WINDOW_WORDS[window]}"
+                           + (f", about {saving:.0%} under its usual fare" if saving >= 0.03 else "")
+                           + f" (from {v.get('prices', 0)} prices seen)",
+                    "confidence": "medium" if v.get("prices", 0) >= 60 else "low"})
+    for place, v in (learned.get("hotels") or {}).items():
+        months = {int(k): r for k, r in (v.get("by_month") or {}).items() if str(k).isdigit()}
+        if len(months) < 2:
+            continue
+        best = min(months, key=months.get)
+        start = date(today.year + (1 if best < today.month else 0), best, 1)
+        extra = v.get("weekend_premium")
+        out.append({"when": max(start, today).isoformat(), "type": "hotel", "what": _name("hotel", place),
+                    "expect_price": round(v["median"] * months[best], 0) if v.get("median") else None,
+                    "why": f"cheapest month is {MONTHS[best - 1]}, about {1 - months[best]:.0%} under the usual rate"
+                           + (f"; Friday and Saturday nights cost about {extra:.0%} more" if extra and extra >= 0.05 else "")
+                           + f" (from {v.get('prices', 0)} prices seen)",
+                    "confidence": "medium" if v.get("prices", 0) >= 60 else "low"})
+    return out
 
 
 # --- alerts -------------------------------------------------------------------------------------------------------

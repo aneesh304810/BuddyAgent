@@ -348,6 +348,11 @@ decide each differently), and uses it whenever you ask about a purchase.
   can end with "you need to call them yourself" (you get the number and hours); the email route needs your
   email account set up for sending, and many cloud servers (DigitalOcean included) block the mail-sending
   ports: then Buddy saves the email in your Drafts folder for you to tap Send, and says so; phone calls need the Calls setup (CALLS.md).
+- **Where things are.** Buy and sell signals for stocks and funds, their switches and Buddy's record are on
+  the Investments page under **Signals** (they used to sit on the Deals page). The Deals page keeps deal
+  **Alert settings** (a switch per shopping and travel category). Its **Predicted** tab now includes flights
+  and hotels: your open book-or-wait calls, routes and places whose deals keep coming back in your deal emails
+  and feeds, the cheapest booking window Buddy has seen for a route, and the cheapest month for a place.
 - **The Practice tab (Investments page).** Shows the practice book as it happens: the book's value now, each
   open paper position with its price now and the reasons it was bought, each closed trade with what it was
   bought and sold at, why it was sold, its result and what the S&P 500 did over the same days, the signals the
