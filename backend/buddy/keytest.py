@@ -199,6 +199,63 @@ def trace(env, name: str) -> list[str]:
     return out
 
 
+# Keys the code reads that are not a service in Buddy Connect's catalogue: (group, name, keys, what for).
+EXTRA = [
+    ("Buddy itself", "The app's access token", ["BUDDY_TOKEN"], "lets your phone reach Buddy"),
+    ("Buddy itself", "Database key", ["BUDDY_DB_KEY"], "encrypts everything Buddy remembers"),
+    ("Email", "Your mailbox", ["BUDDY_EMAIL_ADDRESS", "BUDDY_EMAIL_APP_PASSWORD"], "bills, appointments, travel, urgent mail"),
+    ("Email", "A second mailbox", ["BUDDY_EMAIL_2_ADDRESS", "BUDDY_EMAIL_2_APP_PASSWORD"], "the same, for another address"),
+    ("Finance & markets", "Alpaca secret", ["BUDDY_ALPACA_SECRET"], "the second half of the Alpaca key"),
+    ("Finance & markets", "Plaid secret", ["BUDDY_PLAID_SECRET"], "the second half of the Plaid key"),
+    ("News & trends", "Your Reddit app", ["BUDDY_REDDIT_CLIENT_ID", "BUDDY_REDDIT_SECRET"],
+     "Reddit's own API for signals; without it the public feed is used"),
+    ("Travel & transit", "FlightAware", ["BUDDY_AEROAPI_KEY"], "live flight status (paid per query)"),
+    ("Travel & transit", "Duffel", ["BUDDY_DUFFEL_TOKEN"], "flight fare search"),
+    ("Travel & transit", "Travelpayouts", ["BUDDY_TRAVELPAYOUTS_TOKEN"], "fare history"),
+    ("Shopping", "17TRACK", ["BUDDY_17TRACK_KEY"], "live package tracking"),
+    ("Intelligence", "Intelligence API key", ["BUDDY_INTEL_API_KEY"], "lets another program read the Intelligence API"),
+    ("Server", "DigitalOcean (read-only)", ["BUDDY_DO_TOKEN"], "server size and cost, for the self-check"),
+    ("Server", "Tailscale", ["BUDDY_TAILSCALE_API_KEY"], "removing a device from your network"),
+    ("Server", "Anthropic admin key", ["BUDDY_ANTHROPIC_ADMIN_KEY"], "Claude's own spending report"),
+]
+REQUIRED = {"ANTHROPIC_API_KEY", "BUDDY_TOKEN", "BUDDY_DB_KEY"}
+
+
+def _keys_of(auth: dict) -> list[str]:
+    found = [auth[k] for k in ("secret",) if isinstance(auth.get(k), str)]
+    found += [v for v in (auth.get("fields") or {}).values() if isinstance(v, str)]
+    return [k for k in found if k.isupper()]
+
+
+def inventory(env) -> list[str]:
+    """Every key the code reads, by group: set, MISSING, or needs no key. Reads the settings only; nothing is
+    called and no key is shown. A service with several keys is set only when all of them are."""
+    from . import gateway
+    rows = [(e.get("group") or "Other", e["title"], _keys_of(e.get("auth") or {}), e.get("used_for") or "",
+             (e.get("auth") or {}).get("type") or "none") for e in gateway.CATALOG.values()]
+    rows += [(g, title, keys, what, "key") for g, title, keys, what in EXTRA]
+    out, counts = [], {"set": 0, "missing": 0, "no key": 0}
+    for group in sorted({r[0] for r in rows}):
+        out.append(f"\n{group}")
+        for _, title, keys, what, kind in sorted((r for r in rows if r[0] == group), key=lambda r: r[1].lower()):
+            if not keys:
+                state = "on the phone" if kind == "phone" else "no key needed"
+                counts["no key"] += 1
+            else:
+                lacking = [k for k in keys if not (env.get(k) or "").strip()]
+                state = "set" if not lacking else "MISSING " + ", ".join(lacking)
+                counts["set" if not lacking else "missing"] += 1
+                if lacking and REQUIRED & set(lacking):
+                    state += "  (required)"
+            out.append(f"  {state:<14.60} {title}" + (f": {what[:70]}" if what else "") if len(state) <= 14
+                       else f"  {state}\n  {'':<14} {title}" + (f": {what[:70]}" if what else ""))
+    out.append(f"\n{counts['set']} set, {counts['missing']} missing, {counts['no key']} need no key. To add one: "
+               "sudo bash /opt/buddy/deploy/set.sh NAME (the value is typed hidden).")
+    if not (env.get("BUDDY_SEC_CONTACT") or "").strip():
+        out.append("BUDDY_SEC_CONTACT is not a key but an email address the SEC asks for; company filings need it.")
+    return out
+
+
 def read_env(path: str) -> dict:
     """KEY=value lines of Buddy's settings file (as systemd reads it), without running anything."""
     env = {}
@@ -212,6 +269,11 @@ def read_env(path: str) -> dict:
 if __name__ == "__main__":
     env = read_env(sys.argv[1]) if len(sys.argv) > 1 else dict(os.environ)
     os.environ.update({k: v for k, v in env.items() if k == "ANTHROPIC_API_KEY"})  # Buddy's modules expect it
+    if len(sys.argv) > 2 and sys.argv[2] == "list":  # keys.sh list: what is set and what is missing, no calls
+        print("Every key Buddy's code reads (nothing is called; keys are never shown):")
+        for row in inventory(env):
+            print(row)
+        sys.exit(0)
     if len(sys.argv) > 2:  # keys.sh github: every hop of one request, to see why it fails
         print(f"Tracing one request to {sys.argv[2]} (redirects not followed; the key is never shown):")
         for row in trace(env, sys.argv[2]):
