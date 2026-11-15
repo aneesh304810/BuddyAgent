@@ -1620,6 +1620,30 @@ async def api_security_accept(body: dict) -> dict:
     return {"text": text, **await asyncio.to_thread(securitywatch.report, memory)}
 
 
+@app.get("/api/intel/models", dependencies=[Depends(require_admin)])
+async def api_intel_models() -> dict:
+    """Which AI model does each Intelligence job, the month's spending and limit, and test results."""
+    from . import bip_models
+    return await asyncio.to_thread(bip_models.page, memory)
+
+
+@app.post("/api/intel/models", dependencies=[Depends(require_admin)])
+async def api_intel_models_set(body: dict) -> dict:
+    """Set a job's model ({job, choice}), the monthly limit ({cap}), or run the test on a choice ({test})."""
+    from . import bip_models
+    try:
+        if body.get("test"):
+            got = await bip_models.test(memory, str(body["test"]))
+            text = f"{got['title']}: {got['right']} of {got['headlines']} right, ${got['usd']:.4f}, {got['seconds']:.0f} seconds."
+        elif "cap" in body:
+            text = bip_models.set_cap(memory, body.get("cap"))
+        else:
+            text = bip_models.set_choice(memory, str(body.get("job") or ""), str(body.get("choice") or ""))
+    except ToolError as e:
+        raise HTTPException(400, str(e)) from None
+    return {"text": text, **await asyncio.to_thread(bip_models.page, memory)}
+
+
 @app.get("/api/invest/themes", dependencies=[Depends(require_admin)])
 async def api_invest_themes() -> dict:
     """The Intelligence Platform's evidence joined to the market: themes, pattern events, the practice record."""

@@ -274,6 +274,12 @@ CATALOG: dict[str, dict] = {
              "setup_command": "sudo bash /opt/buddy/deploy/nest.sh", "health": {"custom": "nest.devices"},
              "moved": True},
     # The free AI models keep their own failover (rests, model swaps) and report each result here.
+    "openai": {"group": "AI models", "title": "OpenAI (paid AI, Intelligence Platform only)",
+               "hosts": ["https://api.openai.com"],
+               "auth": {"type": "header", "secret": "BUDDY_OPENAI_KEY", "prefix": "Bearer "}, "per_minute": 60,
+               "privacy": "public", "no_backup": True,
+               "used_for": "optional: public records only (headlines, titles), for the Intelligence Platform's jobs "
+                           "the owner assigns to it; never anything about the owner", "moved": True},
     "groq": {"group": "AI models", "title": "Groq (free AI)", "auth": {"type": "header", "secret": "BUDDY_GROQ_KEY"},
              "privacy": "public", "used_for": "free models for general work", "reports": True},
     "cerebras": {"group": "AI models", "title": "Cerebras (free AI)", "auth": {"type": "header", "secret": "BUDDY_CEREBRAS_KEY"},

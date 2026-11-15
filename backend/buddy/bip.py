@@ -464,24 +464,11 @@ async def interpret(memory: Memory, found: list[dict], ask=None, limit: int = 5)
 
 
 async def _ask(memory: Memory, prompt: str) -> dict | None:
-    """Public records only: a free model writes it; Claude's cheap model if none answers."""
-    from .benefits import last_json  # noqa: PLC0415
-    from .free_models import FreeModels, NeedsClaude  # noqa: PLC0415
-    from .markets import _ask_claude  # noqa: PLC0415
-    free = FreeModels(memory)
-    if free.enabled():
-        try:
-            got = await free.run("explain", prompt, system="You describe what public records show. Answer with the "
-                                 "one line of JSON asked for, nothing else.", purpose="intelligence",
-                                 claude_fallback=False, check_text=False)
-            parsed = last_json(got["answer"])
-            if parsed and parsed.get("how"):
-                return parsed
-        except NeedsClaude:
-            log.info("bip: no free model answered")
-        except Exception:
-            log.info("bip: the free model failed", exc_info=True)
-    return await _ask_claude(memory, prompt)
+    """Public records only: the model chosen for the 'write' job (bip_models.py), free models unless changed."""
+    from . import bip_models  # noqa: PLC0415
+    got = await bip_models.ask(memory, "write", prompt, system="You describe what public records show. Answer "
+                               "with the one line of JSON asked for, nothing else.")
+    return got if isinstance(got, dict) and got.get("how") else None
 
 
 async def run(memory: Memory, fetch=None, ask=None, today: date | None = None) -> dict:
@@ -689,15 +676,19 @@ TOOL = {
         "its filings name, which are on the owner's watchlist, and the evidence patterns active now. patterns: "
         "what happened to practice baskets after each kind of evidence change (how many beat the market); the "
         "only basis for saying which way a pattern has leaned, and say 'not enough history' when it says so. "
-        "Use it for 'what industries are emerging', 'what is "
+        "models: which AI model does each of the platform's jobs, this month's spending and limit, and test "
+        "results. set_model (job, choice), set_limit (dollars a month), test_model (choice): only when the owner "
+        "asks. Use it for 'what industries are emerging', 'what is "
         "converging with AI', 'who is working on small modular reactors', 'how mature is X'. Always say what kind "
         "of evidence a statement rests on (official record, company disclosure, published research, reported) and "
         "mark interpretations as such. Never give a market size or a buy or sell view from it, and never predict "
         "a price: report the pattern record as past results only.",
     "input_schema": {"type": "object", "properties": {
-        "action": {"type": "string", "enum": ["overview", "technology", "organisation", "search", "switch", "scan", "themes", "patterns"]},
+        "action": {"type": "string", "enum": ["overview", "technology", "organisation", "search", "switch", "scan", "themes", "patterns", "models",
+                                            "set_model", "set_limit", "test_model"]},
         "id": {"type": "string"}, "name": {"type": "string"}, "query": {"type": "string"},
-        "sector": {"type": "string", "enum": list(SECTORS)}, "on": {"type": "boolean"}},
+        "sector": {"type": "string", "enum": list(SECTORS)}, "on": {"type": "boolean"},
+        "job": {"type": "string"}, "choice": {"type": "string"}, "dollars": {"type": "number"}},
         "required": ["action"], "additionalProperties": False},
 }
 
@@ -714,6 +705,15 @@ async def run_tool(memory: Memory, args: dict) -> str:
     if action == "switch":
         on = switch(memory, str(args.get("sector") or ""), bool(args.get("on", True)))
         return "Collecting for: " + ", ".join(SECTORS[s][0] for s in on) + ". New sectors fill in from the next nightly run."
+    if action in ("models", "set_model", "set_limit", "test_model"):
+        from . import bip_models  # noqa: PLC0415
+        if action == "set_model":
+            return bip_models.set_choice(memory, str(args.get("job") or ""), str(args.get("choice") or ""))
+        if action == "set_limit":
+            return bip_models.set_cap(memory, args.get("dollars"))
+        if action == "test_model":
+            return json.dumps(await bip_models.test(memory, str(args.get("choice") or "free")), ensure_ascii=False)
+        return json.dumps(bip_models.page(memory), ensure_ascii=False)
     if action in ("themes", "patterns"):
         import asyncio  # noqa: PLC0415
         from . import themes  # noqa: PLC0415

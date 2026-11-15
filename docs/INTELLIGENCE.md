@@ -141,3 +141,32 @@ that file with the SEC and have a ticker can be in a basket, so private companie
 interesting ones, are left out. Results start counting from the day this is deployed; nothing is back-filled,
 because records collected today for past dates would make the past look better than it was. It says nothing
 about whether the whole market goes up or down.
+
+## Which AI model does each job (bip_models.py)
+
+Intelligence has an **AI models** tab. Most of the platform uses no AI: tagging, stages, convergences, the
+patterns and the practice scoring are code. The jobs that do use a model each have their own setting.
+
+| Job | What it does | Used today |
+|---|---|---|
+| Label headlines | good, bad or neutral; up to 120 a night | yes |
+| Write up a convergence | what two technologies add together; about 5 a night | yes |
+| Find the companies in a record | names the companies a headline is about | not yet |
+| Analyse a company or theme | evidence for and against, on request | not yet |
+| Hard research questions | the strongest model, on request | not yet |
+
+- **Choices.** Free models first with Claude's cheap model behind them (the default), Claude's cheap, mid or
+  strongest model, and two optional OpenAI choices (a volume model and an analysis model).
+- **OpenAI is optional and off until you set it up.** It needs three settings per choice, each entered with
+  `sudo bash /opt/buddy/deploy/set.sh NAME`: `BUDDY_OPENAI_KEY`; `BUDDY_OPENAI_CHEAP_MODEL` (the model's id
+  from OpenAI's model page); `BUDDY_OPENAI_CHEAP_PRICE` (input and output price in dollars per million tokens,
+  for example `0.10,0.50`, from OpenAI's pricing page). The analysis choice uses `BUDDY_OPENAI_ANALYSIS_MODEL`
+  and `BUDDY_OPENAI_ANALYSIS_PRICE`. No id or price is built in, because they change and Buddy cannot check
+  them. Only public records are sent to it, and it is used for nothing else in Buddy.
+- **A monthly limit.** Paid choices stop at a dollar limit you set ($5 to start). At the limit, a job goes
+  back to the free choice until the month ends. Spending is shown per job.
+- **A fallback.** If the chosen model fails or gives an unusable answer, the free choice is tried.
+- **A test before you switch.** Any choice can be run on 48 headlines that each have a known right label
+  (18 good, 17 bad, 13 neutral). The tab shows how many it got right, what it cost and how long it took.
+  The headlines were written for the test, not taken from the news, so use the result as a guide and also
+  look at the real labels on the Themes tab.

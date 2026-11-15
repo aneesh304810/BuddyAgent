@@ -14,18 +14,24 @@ flowchart LR
         bip_py["bip.py<br/>a shared intelligence layer inside Buddy, the way Buddy Connect is…"]
         bip_sources_py["bip_sources.py<br/>where its evidence comes from"]
         themes_py["themes.py<br/>the Intelligence Platform's evidence joined to the market, and tested…"]
+        bip_models_py["bip_models.py<br/>Which AI model does each job of the Intelligence Platform, what it…"]
     end
     you --> t_intelligence
     t_intelligence --> bip_py
+    bip_py --> bip_models_py
     bip_py --> bip_sources_py
     bip_py --> themes_py
     themes_py --> bip_py
+    themes_py --> bip_models_py
     themes_py --> bip_sources_py
+    bip_models_py --> themes_py
     db[("Your database<br/>bip_notes, bip_signals, theme_events, theme_news, theme_tone")]
     bip_py --> db
     themes_py --> db
     s_nsf["NSF (research grants)<br/>(public data only)"]
     bip_sources_py --> s_nsf
+    s_openai["OpenAI (paid AI, Intelligence Platform only)<br/>(public data only)"]
+    bip_models_py --> s_openai
     o_0["Buddy Connect"]
     bip_py -. uses .-> o_0
     o_1["Claude"]
@@ -46,7 +52,7 @@ The diagram reads left to right: what you ask, the tools Buddy uses, the modules
 
 | Tool | What it is for | Actions | Module |
 |---|---|---|---|
-| `intelligence` | The Buddy Intelligence Platform: public evidence about emerging technologies and industries (research papers, registered clinical studies, company filings, US f | overview, technology, organisation, search, switch, scan, themes, patterns | bip.py |
+| `intelligence` | The Buddy Intelligence Platform: public evidence about emerging technologies and industries (research papers, registered clinical studies, company filings, US f | overview, technology, organisation, search, switch, scan, themes, patterns, models, set_model, set_limit, test_model | bip.py |
 
 ## Technical design, module by module
 
@@ -93,7 +99,7 @@ database), never mixed with the owner's data, so free models may read it.
 ```
 
 - Tables: `bip_notes`, `bip_signals`
-- Uses: benefits.py, bip_sources.py, free_models.py, markets.py, memory.py, pricebook.py, themes.py, tools.py
+- Uses: bip_models.py, bip_sources.py, memory.py, pricebook.py, themes.py, tools.py
 
 ### bip_sources.py
 
@@ -154,7 +160,38 @@ Stored in the public-data store beside the evidence: these are public prices and
 ```
 
 - Tables: `theme_events`, `theme_news`, `theme_tone`
-- Uses: benefits.py, bip.py, bip_sources.py, free_models.py, markets.py, memory.py, paper.py, tools.py
+- Uses: bip.py, bip_models.py, bip_sources.py, markets.py, memory.py, paper.py, tools.py
+
+### bip_models.py
+
+```text
+Which AI model does each job of the Intelligence Platform, what it has cost, and a test to compare them.
+
+Most of the platform uses no AI at all: tagging, stages, convergences, the patterns and the practice scoring are
+code. The jobs that do use a model (JOBS) each have their own setting, so the cheapest model that does a job
+well can be used for it and a dearer one kept for the few jobs that need it.
+
+  Choices   free           Buddy's free models first, the cheap Claude model if none answers (the default)
+            claude:fast    Claude's cheap model      claude:chat   its mid model      claude:deep   its strongest
+            openai:cheap   an OpenAI model for volume work       openai:analysis   one for deeper analysis
+            The OpenAI choices are there only when the owner has set its key (BUDDY_OPENAI_KEY), the model's id
+            and its price (BUDDY_OPENAI_CHEAP_MODEL and _PRICE, BUDDY_OPENAI_ANALYSIS_MODEL and _PRICE; a price
+            is "input,output" in US dollars per million tokens, from OpenAI's own pricing page). No id or price
+            is built in, because they change and Buddy cannot check them.
+  Limit     a monthly spending limit in dollars for the paid choices (CAP_KEY, $5 unless changed). At the limit
+            a job goes back to the free choice until the month ends. Spending is counted per job.
+  Test      a fixed set of headlines with the right label beside each (TEST). Any choice can be run on it to see
+            how often it agrees, how long it took and what it cost, before a job is switched to it. The set was
+            written for this purpose, not taken from the news, so treat a result as a guide and look at the
+            labels on the Themes tab as well.
+
+Only public records go through here (headlines, titles of papers and filings). Nothing about the owner does,
+so a provider other than Claude is allowed for these jobs and for nothing else in Buddy.
+```
+
+- Outside services: OpenAI (paid AI, Intelligence Platform only)
+- Settings: `BUDDY_OPENAI_ANALYSIS`, `BUDDY_OPENAI_ANALYSIS_MODEL`, `BUDDY_OPENAI_CHEAP`, `BUDDY_OPENAI_CHEAP_MODEL`, `BUDDY_OPENAI_KEY`
+- Uses: agent.py, benefits.py, config.py, free_models.py, gateway.py, memory.py, themes.py, tools.py, usage.py
 
 ## How it connects
 

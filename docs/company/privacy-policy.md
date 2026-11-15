@@ -1,6 +1,6 @@
 # Buddy Privacy and Data Retention Policy
 
-Source: https://claude.ai/artifact/MJVGZ7pWQvi26tg1MS914P, revision 104
+Source: https://claude.ai/artifact/MJVGZ7pWQvi26tg1MS914P, revision 105
 
 Nov 1, 2026 · @Aneesh
 
@@ -111,6 +111,7 @@ Buddy uses a few service providers to work. Each sees only what its job needs, u
 | Groq | Turns the owner's speech into text | Short voice clips, not stored by Buddy afterwards |
 | Google Gemini (free tier) | General tasks with no personal data, such as summarising public web pages | General text only; personal or financial data is never sent. This includes public market notes (chart numbers, Reddit posts and headlines about a stock) and a card issuer's public pages with the card's name, to look up its published benefits; Buddy's own program code, for small fixes to itself (it holds none of the owner's data); and general factual claims overheard in Listen-in, rewritten without names or personal details, to check whether they are true |
 | Other free AI models (GitHub Models, OpenRouter, Mistral, Groq, Cerebras), when the owner sets them up | The same general tasks as Gemini, so Buddy can use the best free model for each | The same rule: general text only, never personal or financial data |
+| OpenAI, only if the owner sets up its key and assigns a job to it | Optional paid model for the Buddy Intelligence Platform's jobs (labelling headlines, writing up what public records show) | Public records only: headlines and the titles of papers, filings and awards. Never anything about the owner |
 | Google (Nest Smart Device Management API) | Reading and, after the owner's yes, changing the owner's Nest thermostat | Requests for the thermostat Google already manages for the owner; the sign-in tokens stay on Buddy's server |
 | Oura (API v2) | Reading the owner's own ring data | Requests for the data Oura already holds for the owner; read only; the sign-in tokens stay on Buddy's server |
 | Google (Places API) | Finding restaurants for the owner | The search words and a neighbourhood or city (for example "Italian in Chelsea, New York"); never the owner's exact location |
