@@ -327,6 +327,21 @@ def _company_view(memory: Memory, today: date) -> dict[str, dict]:
     return out
 
 
+def _company(memory: Memory, n: dict, about: dict, today: date) -> dict:
+    """A company with its headlines (those found by its name, then the technology's headlines that name it), any
+    open signal, and how many relationships name it."""
+    got = {**n, **about.get(n["symbol"], {"news": [], "signal": None})}
+    try:
+        from . import bip_links  # noqa: PLC0415
+        seen = {x["title"] for x in got["news"]}
+        got["news"] = (got["news"] + [m for m in bip_links.mentions(memory, n["name"], today=today)
+                                      if m["title"] not in seen])[:4]
+        got["relationships"] = bip_links.count(memory, n["name"], today=today)
+    except Exception:
+        log.debug("themes: no relationships yet", exc_info=True)
+    return got
+
+
 def detect(memory: Memory, today: date | None = None, data=None) -> list[dict]:
     """Write an event, with today's closes, for each pattern that fires on a technology with public companies.
     A pattern is written once per technology in any 30 days."""
@@ -480,7 +495,7 @@ def themes(memory: Memory, today: date | None = None, events: list[dict] | None 
             continue
         told = [r for r in mine if r["kind"] in NEWS_KINDS and r["day"] >= recent]
         out.append({**{k: t[k] for k in ("id", "name", "sector_name", "stage", "growth", "signals_90_days", "kinds")},
-                    "companies": [{**n, **about.get(n["symbol"], {"news": [], "signal": None})} for n in names[:8]],
+                    "companies": [_company(memory, n, about, today) for n in names[:8]],
                     "news_14_days": {tone: sum(1 for r in told if r["tone"] == tone) for tone in TONES}
                     | {"unlabelled": sum(1 for r in told if not r["tone"])},
                     "headlines": [{"title": r["title"], "url": r["url"], "day": r["day"], "tone": r["tone"]}

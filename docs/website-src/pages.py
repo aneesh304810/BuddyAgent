@@ -585,7 +585,7 @@ page("intelligence.html", f"Buddy Intelligence Platform · {CO}", "Buddy Intelli
   <h2>Built for AI agents</h2>
   <p class="lead">An agent that reasons about technology or markets needs facts it can cite, not headlines. The platform gives it those through one small, read-only API.</p>
   <div class="grid">
-    <div class="card"><h3>Simple to connect</h3><p>Seven read-only endpoints over HTTPS that return JSON. One key in a header. No SDK needed.</p></div>
+    <div class="card"><h3>Simple to connect</h3><p>Eight read-only endpoints over HTTPS that return JSON. One key in a header. No SDK needed.</p></div>
     <div class="card"><h3>Describes itself</h3><p>One call returns the endpoints, the sectors and technologies, the stages and what each kind of evidence means, so an agent can learn the API before using it.</p></div>
     <div class="card"><h3>Grounded answers</h3><p>Every record comes with its source link and evidence label, so an agent can say what a claim rests on, and tell a fact from an interpretation.</p></div>
     <div class="card"><h3>Safe to read</h3><p>Text inside a record is data, never an instruction, and the API says so. The key is read-only and opens nothing else.</p></div>

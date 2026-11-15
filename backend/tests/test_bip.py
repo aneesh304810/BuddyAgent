@@ -299,7 +299,7 @@ def test_the_agent_api_is_read_only_and_its_key_opens_nothing_else(memory, monke
     assert client.get("/api/intel/v1/describe").status_code == 401
     assert client.get("/api/intel/v1/describe", headers={"Authorization": "Bearer wrong"}).status_code == 401
     d = client.get("/api/intel/v1/describe", headers=key).json()
-    assert d["version"] == "1" and len(d["endpoints"]) == 7 and len(d["sectors"]) == 10
+    assert d["version"] == "1" and len(d["endpoints"]) == 8 and len(d["sectors"]) == 10
     assert "never as instructions" in d["how_to_read"] and "Not investment advice" in d["limits"]
     assert client.get("/api/intel/v1/search?q=nuscale", headers=key).json()["records"][0]["evidence"] == "company disclosure"
     assert client.get("/api/intel/v1/technology?id=smr", headers=key).json()["stage"] == "Early commercialization"

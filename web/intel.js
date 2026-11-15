@@ -207,6 +207,9 @@ async function openTech(id) {
     return `<g>${v ? `<path d="M${x},${T + plotH} V${y(v) + 4} q0,-4 4,-4 h${bw - 8} q4,0 4,4 V${T + plotH} Z" fill="var(--accent)"/><text class="val" x="${x + bw / 2}" y="${y(v) - 4}" text-anchor="middle">${v}</text>` : ""}
       ${i % 2 === 0 ? `<text x="${x + bw / 2}" y="${H - 6}" text-anchor="middle">${esc(m.month.slice(5))}/${esc(m.month.slice(2, 4))}</text>` : ""}
       <rect class="hit" data-i="${i}" x="${L + i * step}" y="0" width="${step}" height="${H}" fill="transparent"/></g>`; }).join("");
+  const rel = (t.relationships || []).map((r) => `<div class="guard"><span class="mark" style="color:var(--${r.standing === "verified" ? "sev-good" : "sev-low"})">${r.standing === "verified" ? "✓" : "•"}</span>
+      <span><b>${esc(r.reads)}</b> <span class="chipk">${esc(r.standing)}</span><br><span class="muted">${esc(r.means)} · ${esc(day(r.day))}</span><br>
+      ${safe(r.url) ? `<a href="${safe(r.url)}" target="_blank" rel="noopener">${esc(r.title)}</a>` : `<span class="muted">${esc(r.title)}</span>`}</span></div>`).join("");
   const byKind = Object.keys(KIND).filter((k) => (t.evidence[k] || []).length).map((k) => `<h3>${esc(KIND[k][0].toUpperCase() + KIND[k].slice(1))}</h3>${t.evidence[k].map(evidence).join("")}`).join("");
   $("panel").innerHTML = `<button class="close" id="closesheet" aria-label="Close">×</button>
     <div class="crumbs">Intelligence › ${esc(t.sector)}</div><h2>${esc(t.name)}</h2>
@@ -216,6 +219,7 @@ async function openTech(id) {
       <line x1="${L}" x2="${W}" y1="${T + plotH}" y2="${T + plotH}" stroke="var(--line)"/>${bars}</svg><div class="tip" id="tip"></div></div>
     ${t.linked.length ? `<h3>Shows up together with</h3><div class="kinds">${t.linked.map((l) => `<button class="chip" data-tech="${esc(l.id)}">${esc(l.name)} · ${esc(l.shared)}</button>`).join("")}</div>` : ""}
     ${t.organisations.length ? `<h3>Organisations in the records</h3>${t.organisations.slice(0, 12).map((o) => `<div class="ev">${esc(o.name)}<small>${esc(o.records)} record${o.records === 1 ? "" : "s"}: ${esc(o.kinds.join(", "))}</small></div>`).join("")}` : ""}
+    ${rel ? `<h3>Who is connected to whom</h3>${rel}<p class="note">✓ verified: from an official award or grant. • reported: read from a headline by an AI, with every name checked against the headline. A reported relationship is not a checked fact.</p>` : ""}
     ${byKind || `<p class="muted">No records collected for this technology yet.</p>`}`;
   $("closesheet").onclick = closeSheet; $("closesheet").focus();
   const box = $("months"), tip = $("tip");

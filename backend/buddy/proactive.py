@@ -417,6 +417,13 @@ async def run(memory: Memory, deliver: Deliver, connected=None) -> None:
                     text = bip.message(found)
                     if text and not in_quiet_hours():
                         await deliver("news", text, topic="news:intelligence")
+                    from . import bip_links  # noqa: PLC0415  who funds, supplies or partners with whom
+                    try:
+                        linked = await bip_links.nightly(memory)
+                        log.info("links: %d official, %d headlines read, %d companies named, %d relationships",
+                                 linked["official"], linked["read"], linked["companies"], linked["links"])
+                    except Exception:
+                        log.exception("reading relationships failed")
                     from . import themes  # noqa: PLC0415  the evidence joined to the market, with practice money
                     moved = await themes.nightly(memory)
                     log.info("themes: %d new events, %d results filled in, %d company headlines, %d labelled",

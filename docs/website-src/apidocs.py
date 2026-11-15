@@ -263,6 +263,7 @@ curl -H "Authorization: Bearer $BIP_KEY" "https://YOUR-BUDDY-HOST/api/intel/v1/t
 <tr><td><code>/api/intel/v1/technology?id=</code></td><td>One technology: records per month for a year, evidence by kind, the organisations in the records, and the technologies it appears with.</td></tr>
 <tr><td><code>/api/intel/v1/convergences</code></td><td>Pairs of technologies from different sectors that share records: counts, growth, stage, the newest records, and an <code>interpretation</code> when one exists.</td></tr>
 <tr><td><code>/api/intel/v1/organisation?name=</code></td><td>Where a company or sponsor appears: the technologies and the records.</td></tr>
+<tr><td><code>/api/intel/v1/relationships?name=</code></td><td>Who funds, supplies, buys from, partners with, acquires, invests in, licenses to or competes with an organisation (or <code>?id=</code> for a technology). Each has the record it came from and a <code>standing</code>: verified (an official award or grant) or reported (read from a headline).</td></tr>
 <tr><td><code>/api/intel/v1/search?q=</code></td><td>Records whose title or organisation match the words.</td></tr>
 </table>
 

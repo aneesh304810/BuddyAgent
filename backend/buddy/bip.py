@@ -587,8 +587,21 @@ def technology(memory: Memory, tech_id: str, today: date | None = None) -> dict:
             "evidence": {k: [_view(r) for r in rows if r["kind"] == k][:8] for k in src.KINDS},
             "organisations": sorted(({**w, "kinds": sorted(w["kinds"])} for w in who.values()),
                                     key=lambda w: -w["records"])[:25],
+            "relationships": _links(memory, tech=tech_id),
             "linked": sorted(({"id": o, "name": TECHS[o]["name"], "sector": SECTORS[TECHS[o]["sector"]][0], "shared": n}
                               for o, n in linked.items()), key=lambda x: -x["shared"])[:10]}
+
+
+def _links(memory: Memory, tech: str = "", name: str = "") -> list[dict]:
+    """Relationships between organisations (bip_links.py), for a technology or for one organisation."""
+    try:
+        from . import bip_links  # noqa: PLC0415
+        return bip_links.of_technology(memory, tech) if tech else bip_links.of(memory, name)
+    except ToolError:
+        raise
+    except Exception:
+        log.info("bip: relationships unavailable", exc_info=True)
+        return []
 
 
 def organisation(memory: Memory, name: str, today: date | None = None) -> dict:
@@ -608,6 +621,7 @@ def organisation(memory: Memory, name: str, today: date | None = None) -> dict:
     return {"query": name, "names": sorted({r["who"] for r in rows})[:8], "records": len(rows),
             "technologies": sorted(({"id": t, "name": TECHS[t]["name"], "records": n} for t, n in techs.items()),
                                    key=lambda x: -x["records"]),
+            "relationships": _links(memory, name=name),
             "evidence": [_view(r) for r in rows[:20]]}
 
 
@@ -643,6 +657,9 @@ def describe() -> dict:
             {"get": "/api/intel/v1/convergences", "returns": "pairs of technologies from different sectors that share "
                                                              "records, with their evidence"},
             {"get": "/api/intel/v1/organisation?name=", "returns": "where a company or sponsor appears"},
+            {"get": "/api/intel/v1/relationships?name=", "returns": "who funds, supplies, buys from, partners "
+                "with, acquires, invests in, licenses to or competes with an organisation (or ?id= for a "
+                "technology), each with the record it came from and whether it is verified or reported"},
             {"get": "/api/intel/v1/search?q=", "returns": "the records themselves"},
         ],
         "parameters": {"limit": "1 to 50 (default 20) on overview, technologies, convergences and search"},
@@ -676,7 +693,9 @@ TOOL = {
         "its filings name, which are on the owner's watchlist, and the evidence patterns active now. patterns: "
         "what happened to practice baskets after each kind of evidence change (how many beat the market); the "
         "only basis for saying which way a pattern has leaned, and say 'not enough history' when it says so. "
-        "predictions: the three prediction engines (investing, flights and hotels, shopping): what each learns "
+        "relationships (name, or id for a technology): who funds, supplies, buys from, partners with, acquires, "
+        "invests in, licenses to or competes with whom, each with its record; say whether it is verified (an "
+        "official award or grant) or reported (read from a headline, not a checked fact). predictions: the three prediction engines (investing, flights and hotels, shopping): what each learns "
         "from, how many judged calls it has, and whether a tested model is in use. models: which AI model does each of the platform's jobs, this month's spending and limit, and test "
         "results. set_model (job, choice), set_limit (dollars a month), test_model (choice): only when the owner "
         "asks. Use it for 'what industries are emerging', 'what is "
@@ -685,7 +704,7 @@ TOOL = {
         "mark interpretations as such. Never give a market size or a buy or sell view from it, and never predict "
         "a price: report the pattern record as past results only.",
     "input_schema": {"type": "object", "properties": {
-        "action": {"type": "string", "enum": ["overview", "technology", "organisation", "search", "switch", "scan", "themes", "patterns", "predictions", "models",
+        "action": {"type": "string", "enum": ["overview", "technology", "organisation", "search", "switch", "scan", "relationships", "themes", "patterns", "predictions", "models",
                                             "set_model", "set_limit", "test_model"]},
         "id": {"type": "string"}, "name": {"type": "string"}, "query": {"type": "string"},
         "sector": {"type": "string", "enum": list(SECTORS)}, "on": {"type": "boolean"},
@@ -706,6 +725,10 @@ async def run_tool(memory: Memory, args: dict) -> str:
     if action == "switch":
         on = switch(memory, str(args.get("sector") or ""), bool(args.get("on", True)))
         return "Collecting for: " + ", ".join(SECTORS[s][0] for s in on) + ". New sectors fill in from the next nightly run."
+    if action == "relationships":
+        found = _links(memory, tech=str(args.get("id") or "")) if args.get("id") else _links(
+            memory, name=str(args.get("name") or args.get("query") or ""))
+        return json.dumps(found, ensure_ascii=False) if found else "No relationships found for that yet."
     if action == "predictions":
         import asyncio  # noqa: PLC0415
         from . import factors  # noqa: PLC0415

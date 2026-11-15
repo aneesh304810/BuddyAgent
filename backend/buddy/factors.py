@@ -41,6 +41,7 @@ WHAT = {
     "investing": ["Intelligence evidence for the company's technologies (records, growth, kinds, stage)",
                   "Good and bad headlines in 14 days, for the technology and the company",
                   "Evidence patterns that fired in the last 30 days",
+                  "Relationships that named the company in 90 days (funding, supply, partnerships)",
                   "Already in each signal: Reddit mentions and tone, price trend, insider trades, analysts"],
     "travel": ["The season for the month of travel and for now (government price data)",
                "Oil's move over 30 days", "Flight or hotel deals in your inbox and the feeds, 30 days against the 30 before",
@@ -92,7 +93,15 @@ def _evidence(memory: Memory, symbol: str, today: date) -> dict:
             "f_evidence_kinds": len(kinds), "f_stage": stage, "f_themes": len(techs),
             "f_good_news_14": sum(1 for r in news if r["tone"] == "good") + sum(1 for r in own if r["tone"] == "good"),
             "f_bad_news_14": sum(1 for r in news if r["tone"] == "bad") + sum(1 for r in own if r["tone"] == "bad"),
-            "f_patterns_30": fired}
+            "f_patterns_30": fired, "f_links_90": _links_90(memory, symbol, rows, techs, today)}
+
+
+def _links_90(memory: Memory, symbol: str, rows: list[dict], techs: list[str], today: date) -> int:
+    """How many relationships (funding, supply, partnership...) named the company in 90 days."""
+    from . import bip_links, themes  # noqa: PLC0415
+    name = next((c["name"] for t in techs for c in themes.tickers([r for r in rows if t in r["techs"]], t)
+                 if c["symbol"] == symbol), "")
+    return bip_links.count(memory, name, 90, today) if name else 0
 
 
 def investing(memory: Memory, symbol: str, today: date | None = None) -> dict:
@@ -286,6 +295,15 @@ def running(memory: Memory, now=None) -> list[dict]:
     news = count("SELECT COUNT(*) AS n, MAX(seen) AS last FROM theme_news")
     line("News about companies", "ok" if news.get("n") else "never",
          f"{news.get('n', 0)} headlines kept" + (f", the latest on {news['last']}" if news.get("last") else ""))
+    try:
+        from . import bip_links  # noqa: PLC0415
+        links = bip_links.totals(memory)
+    except Exception:
+        links = {}
+    line("Companies and relationships", "ok" if links.get("links") or links.get("companies_named") else "never",
+         f"{links.get('links', 0)} relationships ({links.get('official', 0)} from official records, "
+         f"{links.get('from_headlines', 0)} read from headlines); {links.get('companies_named', 0)} company names "
+         "found in headlines" + (f"; the latest on {links['last']}" if links.get("last") else ""))
     events = count("SELECT COUNT(*) AS n, SUM(CASE WHEN backfilled THEN 1 ELSE 0 END) AS old, MAX(day) AS last, "
                    "SUM(CASE WHEN r90 IS NOT NULL THEN 1 ELSE 0 END) AS done FROM theme_events")
     line("Evidence events and practice baskets", "ok" if events.get("n") else "never",

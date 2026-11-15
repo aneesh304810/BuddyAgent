@@ -205,7 +205,7 @@ def test_the_running_panel_says_never_until_a_job_has_really_run(memory):
     from datetime import datetime, timezone
     now = datetime(2026, 11, 16, 12, tzinfo=timezone.utc)
     first = {r["what"]: r for r in factors.running(memory, now)}
-    assert all(r["state"] == "never" for r in first.values()) and len(first) == 8
+    assert all(r["state"] == "never" for r in first.values()) and len(first) == 9
     memory.set(bip.LAST_KEY, json.dumps({"at": "2026-11-16T03:00:00+00:00", "new": 42, "asked": 300, "failed": {"gdelt": "x"}}))
     filings(memory)
     themes.detect(memory, TODAY, Prices({"OKLO": 50.0, "SMR": 20.0, "SPY": 600.0}))
@@ -216,4 +216,4 @@ def test_the_running_panel_says_never_until_a_job_has_really_run(memory):
     late = {r["what"]: r for r in factors.running(memory, datetime(2026, 11, 19, 12, tzinfo=timezone.utc))}
     assert late["Nightly evidence collection"]["state"] == "late"
     out = factors.overview(memory)
-    assert len(out["running"]) == 8 and "chosen today" in out["hindsight"]
+    assert len(out["running"]) == 9 and "chosen today" in out["hindsight"]

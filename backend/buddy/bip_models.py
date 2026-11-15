@@ -36,7 +36,7 @@ log = logging.getLogger(__name__)
 JOBS = {  # name -> (title, what it does, in use today?)
     "label": ("Label headlines", "good, bad or neutral for a technology or company; up to 120 a night", True),
     "write": ("Write up a convergence", "what two technologies add together, from record titles; about 5 a night", True),
-    "extract": ("Find the companies in a record", "names the companies a headline or title is about", False),
+    "extract": ("Find the companies in a record", "the companies a headline names and the relationships it states; up to 100 a night", True),
     "analyse": ("Analyse a company or theme", "compares the evidence for and against; on request", False),
     "deep": ("Hard research questions", "long questions that need the strongest model; on request", False),
 }

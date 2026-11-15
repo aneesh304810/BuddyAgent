@@ -1550,6 +1550,8 @@ async def api_intel_v1(what: str, id: str = "", name: str = "", q: str = "", lim
             return {"convergences": await asyncio.to_thread(bip.convergences, memory, None, limit)}
         if what == "organisation":
             return await asyncio.to_thread(bip.organisation, memory, name)
+        if what == "relationships":
+            return {"relationships": await asyncio.to_thread(bip._links, memory, id, name)}
         if what == "search":
             return {"records": await asyncio.to_thread(bip.search, memory, q, limit)}
     except ToolError as e:

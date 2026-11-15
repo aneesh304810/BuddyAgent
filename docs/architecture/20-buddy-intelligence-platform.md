@@ -16,23 +16,31 @@ flowchart LR
         themes_py["themes.py<br/>the Intelligence Platform's evidence joined to the market, and tested…"]
         bip_models_py["bip_models.py<br/>Which AI model does each job of the Intelligence Platform, what it…"]
         factors_py["factors.py<br/>facts any of Buddy's prediction engines can look up when it makes a…"]
+        bip_links_py["bip_links.py<br/>the companies a record names, and the relationships between…"]
     end
     you --> t_intelligence
     t_intelligence --> bip_py
+    bip_py --> bip_links_py
     bip_py --> bip_models_py
     bip_py --> bip_sources_py
     bip_py --> factors_py
     bip_py --> themes_py
     themes_py --> bip_py
+    themes_py --> bip_links_py
     themes_py --> bip_models_py
     themes_py --> bip_sources_py
     bip_models_py --> themes_py
     factors_py --> bip_py
+    factors_py --> bip_links_py
     factors_py --> bip_sources_py
     factors_py --> themes_py
-    db[("Your database<br/>bip_notes, bip_signals, theme_events, theme_news, theme_tone")]
+    bip_links_py --> bip_py
+    bip_links_py --> bip_models_py
+    bip_links_py --> bip_sources_py
+    db[("Your database<br/>bip_extracted, bip_links, bip_mentions, bip_notes, bip_signals, theme_events, theme_news, theme_tone")]
     bip_py --> db
     themes_py --> db
+    bip_links_py --> db
     s_nsf["NSF (research grants)<br/>(public data only)"]
     bip_sources_py --> s_nsf
     s_openai["OpenAI (paid AI, Intelligence Platform only)<br/>(public data only)"]
@@ -57,7 +65,7 @@ The diagram reads left to right: what you ask, the tools Buddy uses, the modules
 
 | Tool | What it is for | Actions | Module |
 |---|---|---|---|
-| `intelligence` | The Buddy Intelligence Platform: public evidence about emerging technologies and industries (research papers, registered clinical studies, company filings, US f | overview, technology, organisation, search, switch, scan, themes, patterns, predictions, models, set_model, set_limit, test_model | bip.py |
+| `intelligence` | The Buddy Intelligence Platform: public evidence about emerging technologies and industries (research papers, registered clinical studies, company filings, US f | overview, technology, organisation, search, switch, scan, relationships, themes, patterns, predictions, models, set_model, set_limit, test_model | bip.py |
 
 ## Technical design, module by module
 
@@ -104,7 +112,7 @@ database), never mixed with the owner's data, so free models may read it.
 ```
 
 - Tables: `bip_notes`, `bip_signals`
-- Uses: bip_models.py, bip_sources.py, factors.py, memory.py, pricebook.py, themes.py, tools.py
+- Uses: bip_links.py, bip_models.py, bip_sources.py, factors.py, memory.py, pricebook.py, themes.py, tools.py
 
 ### bip_sources.py
 
@@ -165,7 +173,7 @@ Stored in the public-data store beside the evidence: these are public prices and
 ```
 
 - Tables: `theme_events`, `theme_news`, `theme_tone`
-- Uses: bip.py, bip_models.py, bip_sources.py, markets.py, memory.py, modeltrain.py, paper.py, tools.py
+- Uses: bip.py, bip_links.py, bip_models.py, bip_sources.py, markets.py, memory.py, modeltrain.py, paper.py, tools.py
 
 ### bip_models.py
 
@@ -226,7 +234,34 @@ a model uses them only after it has passed its test on calls it never saw.
 Only public data is read here: evidence, headlines, prices, deals. Nothing about the owner goes anywhere.
 ```
 
-- Uses: bip.py, bip_sources.py, market_school.py, memory.py, modeltrain.py, pricebook.py, seasons.py, themes.py, tools.py
+- Uses: bip.py, bip_links.py, bip_sources.py, market_school.py, memory.py, modeltrain.py, pricebook.py, seasons.py, themes.py, tools.py
+
+### bip_links.py
+
+```text
+Who is connected to whom: the companies a record names, and the relationships between organisations.
+
+The evidence store knows that two technologies share records. This adds the organisations: which companies a
+headline is about, and who funds, supplies, buys from, partners with, acquires, invests in, licenses to or
+competes with whom.
+
+  From official records (code, no AI; standing: verified)
+      A federal award names the agency and the recipient; an NIH, NSF or small-business grant names the funder
+      and the organisation. Each becomes "agency funds organisation", with the record as its proof.
+  From headlines (an AI model reads the headline; standing: reported)
+      The model chosen for the 'extract' job (bip_models.py) is given headlines, a batch at a time, and asked
+      for the companies each names and any relationship the headline states. Its answer is checked in code
+      before anything is kept: every name must appear in the headline itself, the relationship must be one of
+      the eight kinds, and the two sides must differ. A name the headline does not contain is dropped, so the
+      model cannot add a company from its own memory. A headline is read once.
+
+Every relationship keeps the record it came from, its date and its standing, so "A supplies B" can always be
+traced to one headline or one award. A relationship from a headline is what was reported, not a checked fact,
+and a single headline can be wrong. Only public records are read; nothing about the owner is involved.
+```
+
+- Tables: `bip_extracted`, `bip_links`, `bip_mentions`
+- Uses: bip.py, bip_models.py, bip_sources.py, memory.py, tools.py
 
 ## How it connects
 

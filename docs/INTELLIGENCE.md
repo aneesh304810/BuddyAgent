@@ -61,7 +61,7 @@ A small read-only API, so another AI agent or app can use the platform without t
 - **Key:** set one with `sudo bash /opt/buddy/deploy/set.sh BUDDY_INTEL_API_KEY` (at least 32 characters). It
   opens this API only: not your data, not the settings, not the rest of Buddy. Your own access token works too.
 - **Endpoints** (all `GET`, JSON, `Authorization: Bearer <key>`): `/api/intel/v1/describe`, `overview`,
-  `technologies`, `technology?id=`, `convergences`, `organisation?name=`, `search?q=`.
+  `technologies`, `technology?id=`, `convergences`, `organisation?name=`, `relationships?name=` (or `?id=`), `search?q=`.
 - **describe** returns the endpoints, the sectors and technology ids, the stages, what each evidence label
   means and how to read the data, so an agent can learn the API from one call.
 - **Where it runs:** on your own Buddy server, reachable where that server is (your private network). There is
@@ -151,7 +151,7 @@ patterns and the practice scoring are code. The jobs that do use a model each ha
 |---|---|---|
 | Label headlines | good, bad or neutral; up to 120 a night | yes |
 | Write up a convergence | what two technologies add together; about 5 a night | yes |
-| Find the companies in a record | names the companies a headline is about | not yet |
+| Find the companies in a record | the companies a headline names and the relationships it states; up to 100 a night | yes |
 | Analyse a company or theme | evidence for and against, on request | not yet |
 | Hard research questions | the strongest model, on request | not yet |
 
@@ -249,3 +249,30 @@ direction.
 came to matter. Results from loaded history therefore look better than a list chosen back then would have.
 Events written from switch-on forward do not have this problem, which is why the live record after
 promotion matters more than the history test.
+
+## Companies and relationships (bip_links.py)
+
+Open a technology in Intelligence to see **Who is connected to whom**, or ask "who funds Oklo" or "who
+supplies whom in small modular reactors".
+
+- **From official records (code, no AI; verified).** A federal award names the agency and the recipient. An
+  NIH, NSF or small-business grant names the funder and the organisation. Each becomes "agency funds
+  organisation", with the record as its proof.
+- **From headlines (an AI reads the headline; reported).** Each night the model chosen for the "Find the
+  companies in a record" job reads up to 100 new headlines, twelve at a time, and gives the companies each
+  names and any relationship the headline states: funds, supplies, is a customer of, partners with,
+  acquires, invests in, licenses to, competes with.
+- **Checked in code before anything is kept.** Every name must appear in the headline itself as whole
+  words, the kind must be one of the eight, and the two sides must differ. A company the headline does not
+  contain is dropped, so the model cannot add one from its own memory. A headline is read once; a headline
+  the model gave no usable answer for is tried again another night.
+- **Where it shows up.** The technology view and the organisation view list the relationships. On the Themes
+  tab, a company now also gets the technology headlines that name it, with their good or bad labels, and a
+  count of relationships. The investing engine saves "relationships naming the company in 90 days" with
+  each signal. The agent API has `relationships?name=` and `relationships?id=`.
+
+**Limits.** A reported relationship is what one headline said, not a checked fact, and a headline can be
+wrong or out of date. Names are matched by their normalised form, so two different organisations with the
+same name are merged and a parent and its subsidiary are not. Only headlines are read, not the full
+article or filing, so most real supplier and customer relationships will not be found this way. Official
+funding links cover US agencies only.
