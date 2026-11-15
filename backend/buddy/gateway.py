@@ -117,7 +117,8 @@ CATALOG: dict[str, dict] = {
                     "used_for": "US federal awards that mention a technology, with recipient and amount", "moved": True},
     "gdelt": {"group": "Intelligence", "title": "GDELT (news worldwide)", "hosts": ["https://api.gdeltproject.org"],
               "auth": {"type": "none"}, "cost": 0.0, "per_minute": 40, "privacy": "public", "no_backup": True,
-              "used_for": "news coverage of a technology: title, outlet and date (the search phrase only)", "moved": True},
+              "used_for": "news coverage of a technology: title, outlet and date (the search phrase only); asked "
+                          "at most once every 5.5 seconds, as the service requires", "moved": True},
     "openalex": {"group": "Intelligence", "title": "OpenAlex (scholarly works)", "hosts": ["https://api.openalex.org"],
                  "auth": {"type": "none"}, "cost": 0.0, "per_minute": 60, "privacy": "public", "no_backup": True,
                  "used_for": "new scholarly works on a technology across every field", "moved": True},

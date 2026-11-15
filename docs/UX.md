@@ -73,5 +73,8 @@ Trading (the old Practice tab) shows the strategies in use, what the closed trad
 patterns still only being measured, and what each paper trade used from Reddit, the price, company facts,
 news and the Intelligence evidence.
 
-Not yet: "how this was answered" on a reply, source and freshness lines everywhere, and the wide-screen
-layout for the Fold.
+Under each reply a small line says how it was answered: which AI answered, whether a free model helped
+with a public part, and the tools used. It is built from the calls logged for that turn, and is left out
+when nothing was logged.
+
+Not yet: source and freshness lines everywhere, and the wide-screen layout for the Fold.

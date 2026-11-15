@@ -359,3 +359,34 @@ def test_news_grants_and_fundraising_notices_are_collected_and_names_merge(memor
     assert oklo["records"] == 2
     assert bip.organisation(memory, "Oklo", TODAY)["records"] == 2
     assert bip.maturity({"grant": 3}, 0)["stage"] == "Scientific research"
+
+
+def test_awards_asks_contracts_and_grants_separately_and_counts_each_award_once(memory):
+    asked = []
+
+    def fetch(url, data=None, headers=None):
+        asked.append(json.loads(data)["filters"]["award_type_codes"])
+        return json.dumps({"results": [{"Award ID": "X1", "Recipient Name": "Acme", "Award Amount": 5.0,
+                                        "Start Date": "2026-05-01"}]})
+
+    src.gateway._recent.clear()
+    got = src.awards(memory, "small modular reactor", fetch)
+    assert asked == [["A", "B", "C", "D"], ["02", "03", "04", "05"]]  # one group of award types per request
+    assert [r["key"] for r in got] == ["usa:X1"]
+
+
+def test_a_paced_source_is_never_asked_faster_than_it_allows_whoever_asks():
+    now, slept = [100.0], []
+
+    def sleep(s):
+        slept.append(round(s, 2))
+        now[0] += s
+
+    src._last.clear()
+    assert src._wait("gdelt", sleep, lambda: now[0]) == 0  # first call goes straight out
+    now[0] += 2
+    assert round(src._wait("gdelt", sleep, lambda: now[0]), 2) == 3.5  # 5.5 s after the last, from any caller
+    now[0] += 9
+    assert src._wait("gdelt", sleep, lambda: now[0]) == 0 and slept == [3.5]
+    assert src._wait("openalex", sleep, lambda: now[0]) == 0  # sources that ask for no pause are not held
+    src._last.clear()

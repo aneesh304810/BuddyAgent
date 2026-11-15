@@ -322,7 +322,6 @@ fun ConnectionsScreen(link: ServerLink?) {
         // header: title, one quiet summary line, refresh
         Row(Modifier.fillMaxWidth(), verticalAlignment = Alignment.CenterVertically) {
             Column(Modifier.weight(1f)) {
-                Text("Connections", color = Pal.text, fontSize = 22.sp, fontWeight = FontWeight.Bold)
                 if (services.isNotEmpty()) {
                     val cost = services.sumOf { it.cost }
                     val active = services.count { it.setUp }

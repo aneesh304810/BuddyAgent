@@ -25,6 +25,7 @@ A source that fails is recorded and skipped; the others still run.
 import json
 import logging
 import re
+import threading
 import time
 import urllib.parse
 from datetime import date, datetime, timedelta, timezone
@@ -66,7 +67,29 @@ def org_key(name: str) -> str:
 STATUS_PREFIX = "bip:source:"
 
 
+PACED = True  # the tests switch this off: they never reach a real source, so there is nothing to pace
+_last: dict[str, float] = {}  # when each paced source was last asked, on this server's clock
+_pace_lock = threading.Lock()
+
+
+def _wait(name: str, sleep=time.sleep, clock=time.monotonic) -> float:
+    """Hold until the pause a source asks for has passed since anyone here last asked it. Every caller goes
+    through this, so two jobs running at once cannot ask the same source too fast. Returns the seconds waited."""
+    gap = PAUSE.get(name)
+    if not gap:
+        return 0.0
+    with _pace_lock:
+        due = _last.get(name, float("-inf")) + gap
+        held = max(0.0, due - clock())
+        if held:
+            sleep(held)
+        _last[name] = clock()
+    return held
+
+
 def _get(memory, name: str, url: str, fetch=None, headers=None, data=None, raw=False):
+    if fetch is None and PACED:
+        _wait(name)
     return gateway.call_url(memory, name, [url], data=data, headers=headers or {}, raw=raw, fetch=fetch,
                             purpose="intelligence")
 
@@ -155,21 +178,28 @@ def filings(memory, phrase: str, fetch=None, env=None, today: date | None = None
     return out
 
 
+AWARD_GROUPS = (("A", "B", "C", "D"), ("02", "03", "04", "05"))  # contracts, then grants
+
+
 def awards(memory, phrase: str, fetch=None, today: date | None = None) -> list[dict]:
     today = today or datetime.now(timezone.utc).date()
-    body = {"filters": {"keywords": [phrase], "award_type_codes": ["A", "B", "C", "D", "02", "03", "04", "05"],
-                        "time_period": [{"start_date": (today - timedelta(days=365)).isoformat(),
-                                         "end_date": today.isoformat()}]},
-            "fields": ["Award ID", "Recipient Name", "Award Amount", "Start Date", "Awarding Agency", "Description",
-                       "generated_internal_id"],
-            "limit": 20, "page": 1, "sort": "Award Amount", "order": "desc"}
-    got = _get(memory, "usaspending", "https://api.usaspending.gov/api/v2/search/spending_by_award/", fetch,
-               headers={"Content-Type": "application/json"}, data=json.dumps(body).encode())
+    rows, seen = [], set()
+    for codes in AWARD_GROUPS:  # the service takes one group of award types per request
+        body = {"filters": {"keywords": [phrase], "award_type_codes": list(codes),
+                            "time_period": [{"start_date": (today - timedelta(days=365)).isoformat(),
+                                             "end_date": today.isoformat()}]},
+                "fields": ["Award ID", "Recipient Name", "Award Amount", "Start Date", "Awarding Agency", "Description",
+                           "generated_internal_id"],
+                "limit": 20, "page": 1, "sort": "Award Amount", "order": "desc"}
+        got = _get(memory, "usaspending", "https://api.usaspending.gov/api/v2/search/spending_by_award/", fetch,
+                   headers={"Content-Type": "application/json"}, data=json.dumps(body).encode())
+        rows += (got or {}).get("results") or []
     out = []
-    for r in (got or {}).get("results") or []:
+    for r in rows:
         award = r.get("Award ID") or r.get("generated_internal_id")
-        if not award:
+        if not award or award in seen:
             continue
+        seen.add(award)
         amount = r.get("Award Amount")
         out.append({"key": f"usa:{award}", "kind": "award", "source": "USAspending.gov",
                     "title": f"{r.get('Awarding Agency') or 'US government'} award to {r.get('Recipient Name') or 'a recipient'}"
@@ -300,7 +330,7 @@ def nsf(memory, phrase: str, fetch=None, today: date | None = None) -> list[dict
 
 def sbir(memory, phrase: str, fetch=None, today: date | None = None) -> list[dict]:
     got = _get(memory, "sbir", "https://api.www.sbir.gov/public/api/awards?" + urllib.parse.urlencode(
-        {"keyword": phrase, "rows": 25}), fetch)
+        {"keyword": phrase, "rows": 25}), fetch, headers={"Accept": "application/json"})
     out = []
     for a in got if isinstance(got, list) else (got or {}).get("results") or []:
         title, firm = a.get("award_title") or a.get("title"), a.get("firm") or a.get("company")

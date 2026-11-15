@@ -88,7 +88,7 @@ def test_turn_id_reaches_the_phone_and_thumbs_come_back(monkeypatch):
     with TestClient(server.app) as c, c.websocket_connect("/ws") as ws:
         ws.send_json({"type": "user", "text": "hello"})
         got = [ws.receive_json() for _ in range(3)]
-        assert got[-1] == {"type": "done", "turn": "abc123"}
+        assert got[-1] == {"type": "done", "turn": "abc123", "how": ""}
         server.memory.db.execute("INSERT INTO model_calls (at, provider, model, purpose, turn) "
                                  "VALUES ('2026-10-30', 'claude', 'm', 'chat', 'abc123')")
         ws.send_json({"type": "rate", "turn": "abc123", "up": True})

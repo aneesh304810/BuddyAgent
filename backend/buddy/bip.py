@@ -237,8 +237,6 @@ def collect(memory: Memory, fetch=None, today: date | None = None, pause: float 
                 if misses[name] >= 3:
                     broken.add(name)  # three failures in a row: not asked again tonight
                 log.info("bip: %s for %s failed: %s", name, tid, why)
-            if pause and fetch is None and name in src.PAUSE:
-                time.sleep(src.PAUSE[name])  # these sources ask for a pause between requests
     _run(memory, "DELETE FROM bip_signals WHERE day < ?", ((today - timedelta(days=KEEP_DAYS)).isoformat(),))
     return out
 

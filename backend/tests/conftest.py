@@ -26,6 +26,10 @@ os.environ.setdefault("BUDDY_COMPANY_DOCS", "")  # its tests sync on their own
 
 import pytest  # noqa: E402
 
+from buddy import bip_sources  # noqa: E402
+
+bip_sources.PACED = False  # no real source is reached in tests, so nothing needs pacing
+
 
 @pytest.fixture(autouse=True)
 def _no_lockouts():

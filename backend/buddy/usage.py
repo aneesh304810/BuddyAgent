@@ -1,5 +1,6 @@
 """Track Claude token usage and cost, and enforce the monthly budget."""
 
+import re
 import time
 from contextvars import ContextVar
 from datetime import datetime, timedelta, timezone
@@ -139,6 +140,36 @@ def set_verdict(memory: Memory, call_id: int, verdict: str, note: str = "") -> b
         "WHERE id = ? AND provider != 'claude'", (verdict, note, ("review: " + note)[:200], int(call_id)))
     memory.db.commit()
     return cursor.rowcount > 0
+
+
+def how(memory: Memory, turn: str) -> str:
+    """One plain line on how a reply was made, from the calls logged for its turn: which AI answered, whether a
+    free model helped with a public part, and the tools used. Empty when nothing was logged for the turn."""
+    if not turn:
+        return ""
+    rows = memory.db.execute("SELECT provider, tools FROM model_calls WHERE turn = ? ORDER BY id", (turn,)).fetchall()
+    if not rows:
+        return ""
+    providers = {str(r["provider"]).split(" ")[0].lower() for r in rows} - {"cpu", ""}
+    from . import free_models  # noqa: PLC0415
+    others = sorted(providers & (set(free_models.PROVIDERS) | {"openai"}))  # AI models only, not other services
+    if "claude" not in providers and not others:
+        return ""
+    if "claude" in providers and others:
+        said = f"Answered by Claude, with a free model ({', '.join(others)}) for a public part"
+    elif others:
+        said = f"Answered by a free model ({', '.join(others)}); nothing personal was sent to it"
+    else:
+        said = "Answered by Claude"
+    tools = []
+    for r in rows:
+        for t in re.split(r"[,\s]+", str(r["tools"] or "")):
+            name = t.strip("[]'\"").replace("_", " ")
+            if name and name not in tools:
+                tools.append(name)
+    if tools:
+        said += " · used " + ", ".join(tools[:3]) + (f" and {len(tools) - 3} more" if len(tools) > 3 else "")
+    return said
 
 
 def rate_turn(memory: Memory, turn: str, up: bool | None) -> int:

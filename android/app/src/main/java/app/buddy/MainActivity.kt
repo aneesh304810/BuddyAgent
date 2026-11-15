@@ -602,6 +602,8 @@ private fun BuddyBubble(line: Line, onOpenInsights: () -> Unit, onOpenReport: (I
         if (line.text.isNotEmpty() && (line.from == Speaker.BUDDY || line.from == Speaker.NUDGE)) {
             val turn = line.turn
             val nudgeId = line.nudgeId
+            if (line.how.isNotBlank())  // how this was answered: which AI, and the tools it used
+                Text(line.how, fontSize = 12.sp, color = Muted, modifier = Modifier.padding(start = 36.dp, top = 2.dp))
             Row(Modifier.padding(start = 30.dp), verticalAlignment = Alignment.CenterVertically) {
                 if (line.from == Speaker.BUDDY && turn != null)
                     Thumbs(line.rating) { BuddyService.instance?.rate(turn, it) }

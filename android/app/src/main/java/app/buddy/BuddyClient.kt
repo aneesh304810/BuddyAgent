@@ -15,7 +15,7 @@ import java.util.concurrent.TimeUnit
 sealed interface ServerEvent {
     /** text is spoken; display (if any) is shown instead, e.g. Malayalam spoken, English on screen. */
     data class Say(val text: String, val filler: Boolean = false, val display: String? = null) : ServerEvent
-    data class Done(val turn: String) : ServerEvent  // turn: lets you rate the reply
+    data class Done(val turn: String, val how: String = "") : ServerEvent  // turn: to rate it; how: how it was answered
     data class Cards(val json: String) : ServerEvent  // results to show under the reply
     data class Words(val words: List<String>) : ServerEvent  // names and words to recognise
     data object Thinking : ServerEvent
@@ -62,7 +62,7 @@ sealed interface ServerEvent {
             when (msg.optString("type")) {
                 "say" -> Say(msg.getString("text"), msg.optBoolean("filler"),
                     msg.optString("display").takeIf { it.isNotBlank() })
-                "done" -> Done(msg.optString("turn"))
+                "done" -> Done(msg.optString("turn"), msg.optString("how"))
                 "cards" -> Cards(msg.getJSONArray("cards").toString())
                 "vocabulary" -> msg.getJSONArray("words").let { a -> Words((0 until a.length()).map { a.getString(it) }) }
                 "thinking" -> Thinking

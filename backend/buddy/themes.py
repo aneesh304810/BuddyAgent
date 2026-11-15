@@ -239,8 +239,6 @@ def company_news(memory: Memory, fetch=None, today: date | None = None, pause: b
         words = src.org_key(c["name"]).split()
         if len("".join(words)) < 4:
             continue  # too short a name to search for without picking up other things
-        if i and pause and fetch is None:
-            time.sleep(src.PAUSE["gdelt"])
         try:
             found = src.gdelt(memory, " ".join(words), fetch, today)
         except Exception as e:

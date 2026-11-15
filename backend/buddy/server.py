@@ -23,7 +23,8 @@ Protocol (JSON messages):
                                                       (display: what to show instead, e.g. English)
                                                       (filler: "hang on, checking" while tools run)
                    {"type": "cards", "turn": "a1b2c3", "cards": [...]}  results to show under the reply
-                   {"type": "done", "turn": "a1b2c3"} reply finished (turn: for a thumbs rating)
+                   {"type": "done", "turn": "a1b2c3", "how": "Answered by Claude · used calendar"} reply
+                     finished (turn: for a thumbs rating; how: one line on how it was answered)
                    {"type": "nudge", "kind": "...", "text": "...", "job_id": 3, "id": "ab12", "category":
                     "Investing", "level": "alert" | "notify" | "quiet"}   (level: pop up and speak / silent
                                                       notification / chat only; id: for a thumbs rating, sent
@@ -2302,7 +2303,10 @@ async def talk(ws: WebSocket) -> None:
             if convo.cards.picked:
                 await send({"type": "cards", "turn": convo.turn_key,
                             "cards": _absolute(convo.cards.picked, ws)})
-            await send({"type": "done", "turn": convo.turn_key})
+            how = ""
+            with contextlib.suppress(Exception):
+                how = usage.how(memory, convo.turn_key)
+            await send({"type": "done", "turn": convo.turn_key, "how": how})
         except asyncio.CancelledError:
             raise
         except anthropic.APIError as e:

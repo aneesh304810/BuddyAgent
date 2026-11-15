@@ -566,7 +566,7 @@ class BuddyService : Service() {
             is ServerEvent.Words -> Vocabulary.words = event.words
             is ServerEvent.Done -> {
                 replyOpen = false
-                BuddyState.replyDone(event.turn)
+                BuddyState.replyDone(event.turn, event.how)
                 if (pendingMode != null && !mouth.speaking) main.postDelayed({ applyPendingMode() }, 400)
             }
             ServerEvent.Thinking -> thinking(true)

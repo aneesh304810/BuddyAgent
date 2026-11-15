@@ -21,6 +21,7 @@ data class Line(
     val kind: String = "",               // nudges: reminder, job_done, health...
     val nudgeId: String? = null,         // nudges: lets you rate it, so Buddy learns which kinds matter
     val category: String = "",           // nudges: Investing, Deals, Travel, Reminders...
+    val how: String = "",                // replies: one line on how it was answered (which AI, which tools)
     val at: Long = System.currentTimeMillis(),
 )
 
@@ -57,10 +58,10 @@ object BuddyState {
     fun add(line: Line) = update { it.copy(lines = (it.lines + line).takeLast(200)) }
 
     /** The reply just finished: tag its bubble with the turn so it can be rated. */
-    fun replyDone(turn: String) = update {
+    fun replyDone(turn: String, how: String = "") = update {
         val last = it.lines.lastOrNull()
         if (turn.isEmpty() || last?.from != Speaker.BUDDY || last.turn != null) it
-        else it.copy(lines = it.lines.dropLast(1) + last.copy(turn = turn))
+        else it.copy(lines = it.lines.dropLast(1) + last.copy(turn = turn, how = how))
     }
 
     /** Cards arrive just before the reply ends: they go under its bubble. */
