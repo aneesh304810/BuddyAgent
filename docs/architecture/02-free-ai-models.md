@@ -8,17 +8,21 @@ Do general work for free, never with your personal data: translating, summarisin
 flowchart LR
     you(["You: voice, chat, the app"])
     subgraph Tools["What Buddy can do"]
+        t_ai_orchestra["ai_orchestra"]
         t_general_task["general_task"]
         t_free_answer_verdict["free_answer_verdict"]
         t_model_scout["model_scout"]
         t_model_advice["model_advice"]
     end
     subgraph Modules["Modules"]
+        orchestra_py["orchestra.py<br/>the one gateway every AI model call in Buddy is meant to go through"]
         free_models_py["free_models.py<br/>Free-tier AI models for general tasks, chosen by what each is best at"]
         openrouter_catalog_py["openrouter_catalog.py<br/>Which free OpenRouter models to use for each kind of task, chosen…"]
         modelscout_py["modelscout.py<br/>every day it reads what each free AI provider publishes, checks that…"]
         model_advisor_py["model_advisor.py<br/>free when the task holds none of the owner's data and a free model is…"]
     end
+    you --> t_ai_orchestra
+    t_ai_orchestra --> orchestra_py
     you --> t_general_task
     t_general_task --> free_models_py
     you --> t_free_answer_verdict
@@ -27,22 +31,27 @@ flowchart LR
     t_model_scout --> modelscout_py
     you --> t_model_advice
     t_model_advice --> model_advisor_py
+    orchestra_py --> free_models_py
     free_models_py --> modelscout_py
     free_models_py --> openrouter_catalog_py
     modelscout_py --> free_models_py
     model_advisor_py --> free_models_py
+    s_added_ai["AI providers you added<br/>(public data only)"]
+    orchestra_py --> s_added_ai
+    s_openai["OpenAI (paid AI, Intelligence Platform only)<br/>(public data only)"]
+    orchestra_py --> s_openai
     o_0["Buddy Connect"]
-    free_models_py -. uses .-> o_0
-    o_1["Claude"]
-    free_models_py -. uses .-> o_1
-    o_2["Fixing and explaining itself"]
-    free_models_py -. uses .-> o_2
-    o_3["Investing"]
-    free_models_py -. uses .-> o_3
-    o_4["Memory"]
-    free_models_py -. uses .-> o_4
-    o_5["Security and privacy"]
-    free_models_py -. uses .-> o_5
+    orchestra_py -. uses .-> o_0
+    o_1["Buddy Intelligence Platform"]
+    orchestra_py -. uses .-> o_1
+    o_2["Claude"]
+    orchestra_py -. uses .-> o_2
+    o_3["Fixing and explaining itself"]
+    orchestra_py -. uses .-> o_3
+    o_4["Investing"]
+    orchestra_py -. uses .-> o_4
+    o_5["Memory"]
+    orchestra_py -. uses .-> o_5
 ```
 
 The diagram reads left to right: what you ask, the tools Buddy uses, the modules that do the work, and what they keep or call. Dashed arrows are other features this one relies on.
@@ -51,12 +60,52 @@ The diagram reads left to right: what you ask, the tools Buddy uses, the modules
 
 | Tool | What it is for | Actions | Module |
 |---|---|---|---|
+| `ai_orchestra` | Buddy Orchestra: the AI providers Buddy can use and which one does each job | show, set_model, set_limit, test_model, add_provider, remove_provider | orchestra.py |
 | `general_task` | Hand a GENERAL task to a free AI model chosen for the job, to save money: translate a public text, summarize a public article or web page, rewrite or polish gen | - | free_models.py |
 | `free_answer_verdict` | After using a general_task answer, record your review of it, in the same response as your reply: used (good as it was), fixed (you corrected it), redone (you di | - | free_models.py |
 | `model_scout` | Keeps the free AI models working | status, scan, use | modelscout.py |
 | `model_advice` | Which model a task should use, and why: free when it holds none of the user's data and a free model is good enough; otherwise it says no free model is good for  | - | model_advisor.py |
 
 ## Technical design, module by module
+
+### orchestra.py
+
+```text
+Buddy Orchestra: the one gateway every AI model call in Buddy is meant to go through.
+
+Buddy uses several AI providers. This is the place that knows them all, decides which may see what, picks one
+for each job, counts what it cost, and lets a new provider be added later without changing any code.
+
+  Providers (PROVIDERS)
+      Claude      the only provider that may see anything about the owner. Three tiers: cheap, mid, strongest.
+      OpenAI      optional, paid; public records only. Off until the owner sets its key, model id and price.
+      Mistral, Cerebras, Google, NVIDIA   the free pool for public work, tried in the order each is best at.
+      OpenRouter  the fallback only: used when none of the pool answers.
+      Ollama      a place kept for a local model on a machine the owner controls. Not set up.
+      Groq        speech to text only; not used for text.
+      Added       any provider that speaks the common chat format can be added from the page: a name, its
+                  address, a model id and its price. Its key is entered with the hidden prompt, never in chat.
+  The privacy rule (may_see, in one place)
+      Anything about the owner goes to Claude and nowhere else. No fallback, no added provider and no setting
+      changes that. If Claude cannot answer, a personal task waits; it is never sent elsewhere. Text that is
+      meant to be public is checked for personal details before it leaves (free_models.check_general), and if
+      it has any it goes to Claude instead.
+  Jobs and choices
+      Each job (JOBS) has its own model choice, so the cheapest model that does a job well can do it:
+      the free pool, one named pool provider, a Claude tier, OpenAI, or an added provider.
+  Limit     a monthly spending limit in dollars for the paid choices (CAP_KEY, $5 unless changed). At the limit
+            a job goes back to the free pool until the month ends. Spending is counted per job.
+  Test      a fixed set of headlines with the right label beside each (TEST). Any choice can be run on it to see
+            how often it agrees, how long it took and what it cost, before a job is switched to it. The set was
+            written for this purpose, not taken from the news, so treat a result as a guide.
+
+No model id or price for OpenAI or an added provider is built in, because they change and Buddy cannot check
+them: the owner enters them from the provider's own page.
+```
+
+- Outside services: AI providers you added, OpenAI (paid AI, Intelligence Platform only)
+- Settings: `BUDDY_AI_`, `BUDDY_GROQ_KEY`, `BUDDY_OPENAI_ANALYSIS`, `BUDDY_OPENAI_CHEAP`, `BUDDY_OPENAI_KEY`
+- Uses: agent.py, benefits.py, config.py, free_models.py, gateway.py, memory.py, themes.py, tools.py, usage.py
 
 ### free_models.py
 
@@ -86,7 +135,7 @@ tried, then Claude's cheap model. Model names change often: each provider's mode
 a setting, checked against the provider's model list.
 ```
 
-- Settings: `BUDDY_CEREBRAS_KEY`, `BUDDY_CEREBRAS_MODEL`, `BUDDY_DEEPSEEK_MODEL`, `BUDDY_FREE_MODELS`, `BUDDY_GEMINI_KEY`, `BUDDY_GEMINI_MODEL`, `BUDDY_GITHUB_MODEL`, `BUDDY_GITHUB_MODELS_KEY`, `BUDDY_GROQ_KEY`, `BUDDY_GROQ_MODEL`, `BUDDY_MISTRAL_KEY`, `BUDDY_MISTRAL_MODEL` and 2 more
+- Settings: `BUDDY_CEREBRAS_KEY`, `BUDDY_CEREBRAS_MODEL`, `BUDDY_DEEPSEEK_MODEL`, `BUDDY_FREE_MODELS`, `BUDDY_GEMINI_KEY`, `BUDDY_GEMINI_MODEL`, `BUDDY_GITHUB_MODEL`, `BUDDY_GITHUB_MODELS_KEY`, `BUDDY_GROQ_KEY`, `BUDDY_GROQ_MODEL`, `BUDDY_MISTRAL_KEY`, `BUDDY_MISTRAL_MODEL` and 4 more
 - Uses: agent.py, budgets.py, config.py, gateway.py, modelscout.py, openrouter_catalog.py, privacy.py, tools.py, usage.py
 
 ### openrouter_catalog.py
@@ -176,6 +225,6 @@ this" with the paid suggestion, never passed off as done.
 
 ## How it connects
 
-- Relies on: Buddy Connect; Claude: the brain; Fixing and explaining itself; Investing: signals, research and practice; Memory; Security and privacy
+- Relies on: Buddy Connect; Buddy Intelligence Platform; Claude: the brain; Fixing and explaining itself; Investing: signals, research and practice; Memory; Money; Security and privacy
 - Relied on by: Buddy Connect; Buddy Intelligence Platform; Claude: the brain; Fixing and explaining itself; Insights and costs; Investing: signals, research and practice; Learning: the English and investing tutors; Making and doing things; Money; News, trends and research; Speaking up on its own: briefing, reminders and alerts; The server and the app; Voice: Talk mode and Listen-in
 

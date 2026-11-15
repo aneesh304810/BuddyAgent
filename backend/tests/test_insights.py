@@ -100,10 +100,10 @@ def test_turn_id_reaches_the_phone_and_thumbs_come_back(monkeypatch):
 def test_insights_list_free_models_and_tools(monkeypatch):
     mem = Memory(":memory:")
     monkeypatch.setenv("BUDDY_FREE_MODELS", "1")
-    monkeypatch.setenv("BUDDY_GROQ_KEY", "q")
+    monkeypatch.setenv("BUDDY_CEREBRAS_KEY", "c")
     monkeypatch.setenv("BUDDY_ZAPIER_PLAN_USD", "20")
     monkeypatch.setenv("BUDDY_ZAPIER_TASKS_PER_MONTH", "750")
-    usage.log_call(mem, provider="groq", model="llama", purpose="general:translate", seconds=0.5)
+    usage.log_call(mem, provider="cerebras", model="llama", purpose="general:translate", seconds=0.5)
     usage.log_tool(mem, "zapier__notion_create_page", 1.2, True)
     usage.log_tool(mem, "zapier__notion_create_page", 0.8, False, "401 unauthorized")
     usage.log_tool(mem, "set_reminder", 0.01, True)
@@ -113,7 +113,7 @@ def test_insights_list_free_models_and_tools(monkeypatch):
                  response=SimpleNamespace(content=[SimpleNamespace(type="server_tool_use", name="web_search")],
                                           stop_reason="end_turn"), label="chat")
     r = insights.report(mem)
-    groq = next(p for p in r["free_models"]["providers"] if p["name"] == "groq")
+    groq = next(p for p in r["free_models"]["providers"] if p["name"] == "cerebras")
     assert groq["on"] and groq["requests"] == 1 and "quick answer" in groq["first_choice_for"]
     assert not next(p for p in r["free_models"]["providers"] if p["name"] == "gemini")["on"]
     zap = next(t for t in r["tools"] if t["agent"] == "zapier")

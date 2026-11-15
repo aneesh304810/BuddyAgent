@@ -14,28 +14,23 @@ flowchart LR
         bip_py["bip.py<br/>a shared intelligence layer inside Buddy, the way Buddy Connect is…"]
         bip_sources_py["bip_sources.py<br/>where its evidence comes from"]
         themes_py["themes.py<br/>the Intelligence Platform's evidence joined to the market, and tested…"]
-        bip_models_py["bip_models.py<br/>Which AI model does each job of the Intelligence Platform, what it…"]
         factors_py["factors.py<br/>facts any of Buddy's prediction engines can look up when it makes a…"]
         bip_links_py["bip_links.py<br/>the companies a record names, and the relationships between…"]
     end
     you --> t_intelligence
     t_intelligence --> bip_py
     bip_py --> bip_links_py
-    bip_py --> bip_models_py
     bip_py --> bip_sources_py
     bip_py --> factors_py
     bip_py --> themes_py
     themes_py --> bip_py
     themes_py --> bip_links_py
-    themes_py --> bip_models_py
     themes_py --> bip_sources_py
-    bip_models_py --> themes_py
     factors_py --> bip_py
     factors_py --> bip_links_py
     factors_py --> bip_sources_py
     factors_py --> themes_py
     bip_links_py --> bip_py
-    bip_links_py --> bip_models_py
     bip_links_py --> bip_sources_py
     db[("Your database<br/>bip_extracted, bip_links, bip_mentions, bip_notes, bip_signals, theme_events, theme_news, theme_tone")]
     bip_py --> db
@@ -43,8 +38,6 @@ flowchart LR
     bip_links_py --> db
     s_nsf["NSF (research grants)<br/>(public data only)"]
     bip_sources_py --> s_nsf
-    s_openai["OpenAI (paid AI, Intelligence Platform only)<br/>(public data only)"]
-    bip_models_py --> s_openai
     o_0["Buddy Connect"]
     bip_py -. uses .-> o_0
     o_1["Claude"]
@@ -65,7 +58,7 @@ The diagram reads left to right: what you ask, the tools Buddy uses, the modules
 
 | Tool | What it is for | Actions | Module |
 |---|---|---|---|
-| `intelligence` | The Buddy Intelligence Platform: public evidence about emerging technologies and industries (research papers, registered clinical studies, company filings, US f | overview, technology, organisation, search, switch, scan, relationships, themes, patterns, predictions, models, set_model, set_limit, test_model | bip.py |
+| `intelligence` | The Buddy Intelligence Platform: public evidence about emerging technologies and industries (research papers, registered clinical studies, company filings, US f | overview, technology, organisation, search, switch, scan, relationships, themes, patterns, predictions | bip.py |
 
 ## Technical design, module by module
 
@@ -112,7 +105,7 @@ database), never mixed with the owner's data, so free models may read it.
 ```
 
 - Tables: `bip_notes`, `bip_signals`
-- Uses: bip_links.py, bip_models.py, bip_sources.py, factors.py, memory.py, pricebook.py, themes.py, tools.py
+- Uses: bip_links.py, bip_sources.py, factors.py, memory.py, orchestra.py, pricebook.py, themes.py, tools.py
 
 ### bip_sources.py
 
@@ -173,38 +166,7 @@ Stored in the public-data store beside the evidence: these are public prices and
 ```
 
 - Tables: `theme_events`, `theme_news`, `theme_tone`
-- Uses: bip.py, bip_links.py, bip_models.py, bip_sources.py, markets.py, memory.py, modeltrain.py, paper.py, tools.py
-
-### bip_models.py
-
-```text
-Which AI model does each job of the Intelligence Platform, what it has cost, and a test to compare them.
-
-Most of the platform uses no AI at all: tagging, stages, convergences, the patterns and the practice scoring are
-code. The jobs that do use a model (JOBS) each have their own setting, so the cheapest model that does a job
-well can be used for it and a dearer one kept for the few jobs that need it.
-
-  Choices   free           Buddy's free models first, the cheap Claude model if none answers (the default)
-            claude:fast    Claude's cheap model      claude:chat   its mid model      claude:deep   its strongest
-            openai:cheap   an OpenAI model for volume work       openai:analysis   one for deeper analysis
-            The OpenAI choices are there only when the owner has set its key (BUDDY_OPENAI_KEY), the model's id
-            and its price (BUDDY_OPENAI_CHEAP_MODEL and _PRICE, BUDDY_OPENAI_ANALYSIS_MODEL and _PRICE; a price
-            is "input,output" in US dollars per million tokens, from OpenAI's own pricing page). No id or price
-            is built in, because they change and Buddy cannot check them.
-  Limit     a monthly spending limit in dollars for the paid choices (CAP_KEY, $5 unless changed). At the limit
-            a job goes back to the free choice until the month ends. Spending is counted per job.
-  Test      a fixed set of headlines with the right label beside each (TEST). Any choice can be run on it to see
-            how often it agrees, how long it took and what it cost, before a job is switched to it. The set was
-            written for this purpose, not taken from the news, so treat a result as a guide and look at the
-            labels on the Themes tab as well.
-
-Only public records go through here (headlines, titles of papers and filings). Nothing about the owner does,
-so a provider other than Claude is allowed for these jobs and for nothing else in Buddy.
-```
-
-- Outside services: OpenAI (paid AI, Intelligence Platform only)
-- Settings: `BUDDY_OPENAI_ANALYSIS`, `BUDDY_OPENAI_ANALYSIS_MODEL`, `BUDDY_OPENAI_CHEAP`, `BUDDY_OPENAI_CHEAP_MODEL`, `BUDDY_OPENAI_KEY`
-- Uses: agent.py, benefits.py, config.py, free_models.py, gateway.py, memory.py, themes.py, tools.py, usage.py
+- Uses: bip.py, bip_links.py, bip_sources.py, markets.py, memory.py, modeltrain.py, orchestra.py, paper.py, tools.py
 
 ### factors.py
 
@@ -249,7 +211,7 @@ competes with whom.
       A federal award names the agency and the recipient; an NIH, NSF or small-business grant names the funder
       and the organisation. Each becomes "agency funds organisation", with the record as its proof.
   From headlines (an AI model reads the headline; standing: reported)
-      The model chosen for the 'extract' job (bip_models.py) is given headlines, a batch at a time, and asked
+      The model chosen for the 'extract' job (orchestra.py) is given headlines, a batch at a time, and asked
       for the companies each names and any relationship the headline states. Its answer is checked in code
       before anything is kept: every name must appear in the headline itself, the relationship must be one of
       the eight kinds, and the two sides must differ. A name the headline does not contain is dropped, so the
@@ -261,10 +223,10 @@ and a single headline can be wrong. Only public records are read; nothing about 
 ```
 
 - Tables: `bip_extracted`, `bip_links`, `bip_mentions`
-- Uses: bip.py, bip_models.py, bip_sources.py, memory.py, tools.py
+- Uses: bip.py, bip_sources.py, memory.py, orchestra.py, tools.py
 
 ## How it connects
 
-- Relies on: Buddy Connect; Claude: the brain; Free AI models (Groq, Gemini, Mistral, Cerebras, GitHub Models, OpenRouter); Investing: signals, research and practice; Learning: the English and investing tutors; Memory; Money; Shopping and deals; The price book, pattern learning and trained models
-- Relied on by: Claude: the brain; Investing: signals, research and practice; Shopping and deals; Speaking up on its own: briefing, reminders and alerts; The price book, pattern learning and trained models; The server and the app; Travel and getting around
+- Relies on: Buddy Connect; Claude: the brain; Free AI models (Groq, Gemini, Mistral, Cerebras, GitHub Models, OpenRouter); Investing: signals, research and practice; Learning: the English and investing tutors; Memory; Shopping and deals; The price book, pattern learning and trained models
+- Relied on by: Claude: the brain; Free AI models (Groq, Gemini, Mistral, Cerebras, GitHub Models, OpenRouter); Investing: signals, research and practice; Shopping and deals; Speaking up on its own: briefing, reminders and alerts; The price book, pattern learning and trained models; The server and the app; Travel and getting around
 

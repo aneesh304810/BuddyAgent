@@ -5,7 +5,7 @@ import json
 
 import pytest
 
-from buddy import bip_models as models
+from buddy import orchestra as models
 from buddy import gateway
 from buddy.connectors.hub import ConnectorHub
 from buddy.memory import Memory
@@ -132,10 +132,105 @@ def test_the_endpoints_need_the_owner(memory, monkeypatch):
     monkeypatch.setattr(server, "memory", memory)
     monkeypatch.setattr(server, "authorized", lambda t: t == "owner-token")
     client = TestClient(server.app)
-    assert client.get("/api/intel/models").status_code == 401
-    assert client.post("/api/intel/models", json={"job": "label", "choice": "claude:fast"}).status_code == 401
+    assert client.get("/api/orchestra").status_code == 401
+    assert client.post("/api/orchestra", json={"job": "label", "choice": "claude:fast"}).status_code == 401
     ok = {"Authorization": "Bearer owner-token"}
-    out = client.post("/api/intel/models", json={"job": "label", "choice": "claude:fast"}, headers=ok).json()
+    out = client.post("/api/orchestra", json={"job": "label", "choice": "claude:fast"}, headers=ok).json()
     assert next(j for j in out["jobs"] if j["id"] == "label")["choice"] == "claude:fast"
-    assert client.post("/api/intel/models", json={"job": "label", "choice": "nope"}, headers=ok).status_code == 400
-    assert client.post("/api/intel/models", json={"cap": 12}, headers=ok).json()["spending"]["cap"] == 12.0
+    assert client.post("/api/orchestra", json={"job": "label", "choice": "nope"}, headers=ok).status_code == 400
+    assert client.post("/api/orchestra", json={"cap": 12}, headers=ok).json()["spending"]["cap"] == 12.0
+
+
+def test_only_claude_may_see_anything_about_the_owner():
+    for name, _title, _role, personal, _paid in models.PROVIDERS:
+        assert models.may_see(name, True) is (name == "claude") and personal is (name == "claude")
+        assert models.may_see(name, False) is True
+    assert models.may_see("claude:fast", True) and not models.may_see("added:anything", True)
+    assert not models.may_see("pool:mistral", True) and not models.may_see("openai:cheap", True)
+    assert not models.may_see("free", True)
+
+
+def test_personal_work_goes_to_claude_whatever_the_job_is_set_to_and_never_falls_back(memory, monkeypatch):
+    asked = []
+
+    async def fake(memory_, choice, prompt, system, fetch=None, env=None):
+        asked.append(choice)
+        if len(asked) == 3:
+            raise RuntimeError("Claude is down")
+        return {"text": '{"ok": 1}', "usd": 0.001, "in": 5, "out": 2, "seconds": 0}
+    monkeypatch.setattr(models, "ask_with", fake)
+    models.set_choice(memory, "label", "pool:mistral", {"BUDDY_MISTRAL_KEY": "m"})
+    assert asyncio.run(models.ask(memory, "label", "about my salary", personal=True)) == {"ok": 1}
+    assert asyncio.run(models.ask(memory, "label", "write to jane.doe@example.com about it")) == {"ok": 1}  # found by the check
+    assert asked == ["claude:chat", "claude:chat"]  # never the job's own choice
+    assert asyncio.run(models.ask(memory, "label", "my bank login", personal=True)) is None
+    assert asked == ["claude:chat"] * 3  # Claude failed: nothing else was tried
+    models.set_choice(memory, "label", "claude:fast")
+    asyncio.run(models.ask(memory, "label", "my diary", personal=True))
+    assert asked[-1] == "claude:fast"  # a Claude tier chosen for the job is kept
+
+
+def test_a_provider_can_be_added_later_used_for_a_job_and_removed(memory):
+    env = {"BUDDY_AI_TOGETHER_KEY": "t" * 30}
+    with pytest.raises(ToolError, match="https"):
+        models.add_provider(memory, "together", "http://api.together.xyz/v1", "some-model")
+    for bad in ("https://10.0.0.5/v1", "https://box.internal/v1", "https://localhost/v1"):
+        with pytest.raises(ToolError):
+            models.add_provider(memory, "together", bad, "some-model")
+    for name in ("claude", "openai", "free", "x", "has space", "Bad-Name"):
+        with pytest.raises(ToolError):
+            models.add_provider(memory, name, "https://api.together.xyz/v1", "some-model")
+    with pytest.raises(ToolError):
+        models.add_provider(memory, "together", "https://api.together.xyz/v1", "some-model", "cheap", 1)
+    said = models.add_provider(memory, "together", "https://api.together.xyz/v1/", "some-model", 0.2, 0.6)
+    assert "BUDDY_AI_TOGETHER_KEY" in said and "public work only" in said
+    listed = {c["id"]: c for c in models.choices({}, memory)}
+    assert not listed["added:together"]["ready"] and "BUDDY_AI_TOGETHER_KEY" in listed["added:together"]["setup"]
+    with pytest.raises(ToolError):
+        models.set_choice(memory, "label", "added:together", {})
+    assert "Together" in models.set_choice(memory, "label", "added:together", env)
+    sent = []
+
+    def fetch(url, data=None, headers=None):
+        sent.append((url, json.loads(data), headers))
+        return json.dumps({"choices": [{"message": {"content": '{"labels": {"1": "good"}}'}}],
+                           "usage": {"prompt_tokens": 1_000_000, "completion_tokens": 500_000}})
+    got = asyncio.run(models.ask(memory, "label", "Utility orders four reactors", fetch=fetch, env=env))
+    assert got == {"labels": {"1": "good"}} and sent[0][0] == "https://api.together.xyz/v1/chat/completions"
+    assert sent[0][1]["model"] == "some-model" and sent[0][2]["Authorization"] == "Bearer " + "t" * 30
+    assert models.spending(memory)["jobs"]["label"]["usd"] == pytest.approx(0.5)  # 0.2 in + 0.3 out
+    row = next(p for p in models.providers(memory, env) if p.get("added") == "together")
+    assert row["set_up"] and row["may_see_personal"] is False and row["paid"] == "paid per use"
+    assert "back on the free pool" in models.remove_provider(memory, "together")
+    assert models.choice_for(memory, "label") == "free" and models.added(memory) == []
+    with pytest.raises(ToolError):
+        models.remove_provider(memory, "together")
+
+
+def test_the_page_lists_every_provider_with_its_role_and_the_rule(memory):
+    page = models.page(memory, {"BUDDY_MISTRAL_KEY": "m", "BUDDY_GROQ_KEY": "q"})
+    by = {p["id"]: p for p in page["providers"]}
+    assert list(by) == ["claude", "openai", "mistral", "cerebras", "gemini", "nvidia", "openrouter", "ollama", "groq"]
+    assert by["claude"]["may_see_personal"] and by["claude"]["set_up"] and by["mistral"]["set_up"]
+    assert not by["ollama"]["set_up"] and not by["cerebras"]["set_up"] and "Speech to text only" in by["groq"]["role"]
+    assert "Fallback only" in by["openrouter"]["role"] and "nowhere else" in page["rule"]
+    listed = {c["id"]: c for c in page["choices"]}
+    assert listed["pool:mistral"]["ready"] and not listed["pool:nvidia"]["ready"]
+
+
+def test_one_pool_provider_can_be_chosen_for_a_job(memory, monkeypatch):
+    from buddy import free_models as fm
+    monkeypatch.setenv("BUDDY_FREE_MODELS", "1")
+    monkeypatch.setenv("BUDDY_MISTRAL_KEY", "m")
+    called = []
+
+    def call(self, name, system, prompt, *a, **k):
+        called.append(name)
+        return '{"labels": {"1": "bad"}}', {}
+    monkeypatch.setattr(fm.FreeModels, "_call", call)
+    models.set_choice(memory, "label", "pool:mistral")
+    assert asyncio.run(models.ask(memory, "label", "Reactor project cancelled")) == {"labels": {"1": "bad"}}
+    assert called == ["mistral"]  # that provider and no other
+    monkeypatch.delenv("BUDDY_MISTRAL_KEY")
+    with pytest.raises(ToolError):
+        models._pool_one(memory, "mistral", "p", "s")

@@ -1,25 +1,33 @@
-"""Which AI model does each job of the Intelligence Platform, what it has cost, and a test to compare them.
+"""Buddy Orchestra: the one gateway every AI model call in Buddy is meant to go through.
 
-Most of the platform uses no AI at all: tagging, stages, convergences, the patterns and the practice scoring are
-code. The jobs that do use a model (JOBS) each have their own setting, so the cheapest model that does a job
-well can be used for it and a dearer one kept for the few jobs that need it.
+Buddy uses several AI providers. This is the place that knows them all, decides which may see what, picks one
+for each job, counts what it cost, and lets a new provider be added later without changing any code.
 
-  Choices   free           Buddy's free models first, the cheap Claude model if none answers (the default)
-            claude:fast    Claude's cheap model      claude:chat   its mid model      claude:deep   its strongest
-            openai:cheap   an OpenAI model for volume work       openai:analysis   one for deeper analysis
-            The OpenAI choices are there only when the owner has set its key (BUDDY_OPENAI_KEY), the model's id
-            and its price (BUDDY_OPENAI_CHEAP_MODEL and _PRICE, BUDDY_OPENAI_ANALYSIS_MODEL and _PRICE; a price
-            is "input,output" in US dollars per million tokens, from OpenAI's own pricing page). No id or price
-            is built in, because they change and Buddy cannot check them.
+  Providers (PROVIDERS)
+      Claude      the only provider that may see anything about the owner. Three tiers: cheap, mid, strongest.
+      OpenAI      optional, paid; public records only. Off until the owner sets its key, model id and price.
+      Mistral, Cerebras, Google, NVIDIA   the free pool for public work, tried in the order each is best at.
+      OpenRouter  the fallback only: used when none of the pool answers.
+      Ollama      a place kept for a local model on a machine the owner controls. Not set up.
+      Groq        speech to text only; not used for text.
+      Added       any provider that speaks the common chat format can be added from the page: a name, its
+                  address, a model id and its price. Its key is entered with the hidden prompt, never in chat.
+  The privacy rule (may_see, in one place)
+      Anything about the owner goes to Claude and nowhere else. No fallback, no added provider and no setting
+      changes that. If Claude cannot answer, a personal task waits; it is never sent elsewhere. Text that is
+      meant to be public is checked for personal details before it leaves (free_models.check_general), and if
+      it has any it goes to Claude instead.
+  Jobs and choices
+      Each job (JOBS) has its own model choice, so the cheapest model that does a job well can do it:
+      the free pool, one named pool provider, a Claude tier, OpenAI, or an added provider.
   Limit     a monthly spending limit in dollars for the paid choices (CAP_KEY, $5 unless changed). At the limit
-            a job goes back to the free choice until the month ends. Spending is counted per job.
+            a job goes back to the free pool until the month ends. Spending is counted per job.
   Test      a fixed set of headlines with the right label beside each (TEST). Any choice can be run on it to see
             how often it agrees, how long it took and what it cost, before a job is switched to it. The set was
-            written for this purpose, not taken from the news, so treat a result as a guide and look at the
-            labels on the Themes tab as well.
+            written for this purpose, not taken from the news, so treat a result as a guide.
 
-Only public records go through here (headlines, titles of papers and filings). Nothing about the owner does,
-so a provider other than Claude is allowed for these jobs and for nothing else in Buddy.
+No model id or price for OpenAI or an added provider is built in, because they change and Buddy cannot check
+them: the owner enters them from the provider's own page.
 """
 
 import json
@@ -44,6 +52,21 @@ CLAUDE = {"claude:fast": ("fast_model", "Claude, cheap model"), "claude:chat": (
           "claude:deep": ("model", "Claude, strongest model")}
 OPENAI = {"openai:cheap": ("BUDDY_OPENAI_CHEAP", "OpenAI, volume model"),
           "openai:analysis": ("BUDDY_OPENAI_ANALYSIS", "OpenAI, analysis model")}
+POOL = ("mistral", "cerebras", "gemini", "nvidia")  # the free pool's primaries (free_models.py), each a choice too
+ADDED_KEY = "orchestra:providers"
+PROVIDERS = (  # id, title, role, may it see anything about the owner?, how it is paid for
+    ("claude", "Claude (Anthropic)", "Everything about you, and the main assistant", True, "paid per use"),
+    ("openai", "OpenAI", "Optional: public records only, for jobs you assign to it", False, "paid per use"),
+    ("mistral", "Mistral", "Free pool: public work; writing and European languages", False, "free tier"),
+    ("cerebras", "Cerebras", "Free pool: public work; the fastest answers", False, "free tier"),
+    ("gemini", "Google (Gemini)", "Free pool: public work; long texts and many languages", False, "free tier"),
+    ("nvidia", "NVIDIA", "Free pool: public work; open models it hosts", False, "free tier"),
+    ("openrouter", "OpenRouter", "Fallback only: used when none of the pool answers", False, "free models"),
+    ("ollama", "Ollama (local)", "A place kept for a model on a machine you control. Not set up", False, "your own machine"),
+    ("groq", "Groq", "Speech to text only; not used for text", False, "paid per use"),
+)
+RULE = ("Anything about you goes to Claude and nowhere else. No fallback, no added provider and no setting changes "
+        "that. If Claude cannot answer, a personal task waits.")
 CAP_KEY, CAP = "intel:cap", 5.0
 TEST_KEY = "intel:test"
 
@@ -67,9 +90,82 @@ def openai_setting(choice: str, env=None) -> dict | None:
     return {"model": model, "in": price_in, "out": price_out}
 
 
-def choices(env=None) -> list[dict]:
+def may_see(provider: str, personal: bool) -> bool:
+    """The privacy rule, in one place: only Claude may see anything about the owner."""
+    return not personal or provider == "claude" or provider.startswith("claude:")
+
+
+def added(memory: Memory) -> list[dict]:
+    """The providers the owner added from the page."""
+    try:
+        got = json.loads(memory.get(ADDED_KEY) or "[]")
+    except ValueError:
+        got = []
+    return [g for g in got if isinstance(g, dict) and g.get("name")]
+
+
+def key_name(name: str) -> str:
+    return f"BUDDY_AI_{name.upper()}_KEY"
+
+
+def add_provider(memory: Memory, name: str, base: str, model: str, price_in=0, price_out=0, title: str = "") -> str:
+    """Add a provider that speaks the common chat format (POST {base}/chat/completions). Public work only."""
+    import re  # noqa: PLC0415
+    import urllib.parse  # noqa: PLC0415
+    name = str(name or "").strip().lower()
+    if not re.fullmatch(r"[a-z][a-z0-9]{1,19}", name):
+        raise ToolError("Give it a short name: letters and numbers only, starting with a letter.")
+    if name in {p[0] for p in PROVIDERS} or name in ("free", "pool", "added", "deepseek", "github"):
+        raise ToolError(f"{name} is already one of Buddy's providers.")
+    url = urllib.parse.urlsplit(str(base or "").strip().rstrip("/"))
+    host = url.hostname or ""
+    if url.scheme != "https" or "." not in host or re.fullmatch(r"[\d.]+", host) or host.endswith((".local", ".internal")):
+        raise ToolError("Its address must start with https:// and be a public host name.")
+    model = " ".join(str(model or "").split())
+    if not model or len(model) > 120:
+        raise ToolError("Give the model's id, as the provider's own page writes it.")
+    try:
+        cost = (float(price_in), float(price_out))
+    except (TypeError, ValueError):
+        raise ToolError("Prices are numbers: dollars per million tokens in, and out (0 and 0 if it is free).") from None
+    if min(cost) < 0:
+        raise ToolError("A price can't be negative.")
+    kept = [g for g in added(memory) if g["name"] != name]
+    if len(kept) >= 10:
+        raise ToolError("Ten added providers is the limit. Remove one first.")
+    kept.append({"name": name, "title": (" ".join(str(title or "").split()) or name.title())[:40],
+                 "base": urllib.parse.urlunsplit(url), "model": model, "in": cost[0], "out": cost[1]})
+    memory.set(ADDED_KEY, json.dumps(kept))
+    return (f"Added {kept[-1]['title']}. Enter its key with: sudo bash /opt/buddy/deploy/set.sh {key_name(name)} . "
+            "It is for public work only, and is used only for the jobs you assign to it.")
+
+
+def remove_provider(memory: Memory, name: str) -> str:
+    kept = [g for g in added(memory) if g["name"] != str(name).strip().lower()]
+    if len(kept) == len(added(memory)):
+        raise ToolError("No added provider has that name.")
+    memory.set(ADDED_KEY, json.dumps(kept))
+    for job in JOBS:  # a job that used it goes back to the free pool
+        if choice_for(memory, job) == f"added:{str(name).strip().lower()}":
+            memory.set(f"intel:model:{job}", "free")
+    return "Removed. Any job that used it is back on the free pool."
+
+
+def choices(env=None, memory: Memory | None = None) -> list[dict]:
     from .config import settings  # noqa: PLC0415
-    out = [{"id": "free", "title": "Free models, then Claude's cheap model", "ready": True, "paid": False}]
+    from .free_models import PROVIDERS as pool_providers  # noqa: PLC0415
+    out = [{"id": "free", "title": "The free pool, then Claude's cheap model", "ready": True, "paid": False}]
+    for name in POOL:
+        key = pool_providers[name]["key"]
+        ready = bool((_env(env).get(key) or "").strip())
+        out.append({"id": f"pool:{name}", "title": f"{next(t for i, t, *_ in PROVIDERS if i == name)} only (free)",
+                    "ready": ready, "paid": False, "setup": "" if ready else f"Set {key} with sudo bash "
+                    "/opt/buddy/deploy/set.sh NAME"})
+    for g in added(memory) if memory is not None else []:
+        ready = bool((_env(env).get(key_name(g["name"])) or "").strip())
+        out.append({"id": f"added:{g['name']}", "title": f"{g['title']} ({g['model']})", "ready": ready,
+                    "paid": bool(g["in"] or g["out"]), "added": True,
+                    "setup": "" if ready else f"Set {key_name(g['name'])} with sudo bash /opt/buddy/deploy/set.sh NAME"})
     out += [{"id": c, "title": f"{title} ({getattr(settings, attr)})", "ready": True, "paid": True}
             for c, (attr, title) in CLAUDE.items()]
     for c, (prefix, title) in OPENAI.items():
@@ -87,9 +183,9 @@ def choice_for(memory: Memory, job: str) -> str:
 def set_choice(memory: Memory, job: str, choice: str, env=None) -> str:
     if job not in JOBS:
         raise ToolError("Jobs are: " + ", ".join(JOBS))
-    found = next((c for c in choices(env) if c["id"] == choice), None)
+    found = next((c for c in choices(env, memory) if c["id"] == choice), None)
     if not found:
-        raise ToolError("Choices are: " + ", ".join(c["id"] for c in choices(env)))
+        raise ToolError("Choices are: " + ", ".join(c["id"] for c in choices(env, memory)))
     if not found["ready"]:
         raise ToolError(found["setup"])
     memory.set(f"intel:model:{job}", choice)
@@ -168,6 +264,33 @@ def _openai(memory: Memory, choice: str, prompt: str, system: str, fetch=None, e
             "out": tokens_out}
 
 
+def _added(memory: Memory, choice: str, prompt: str, system: str, fetch=None, env=None) -> dict:
+    """An added provider: the common chat format, through Buddy Connect so it is logged and can be switched off."""
+    g = next((x for x in added(memory) if f"added:{x['name']}" == choice), None)
+    key = (_env(env).get(key_name(g["name"])) or "").strip() if g else ""
+    if not g or not key:
+        raise ToolError("That provider isn't set up.")
+    body = json.dumps({"model": g["model"], "messages": [{"role": "system", "content": system},
+                                                         {"role": "user", "content": prompt}]}).encode()
+    got = gateway.call_url(memory, "added_ai", [g["base"] + "/chat/completions"], data=body, fetch=fetch,
+                           headers={"Authorization": f"Bearer {key}", "Content-Type": "application/json"},
+                           purpose="orchestra")
+    used = (got or {}).get("usage") or {}
+    tokens_in, tokens_out = int(used.get("prompt_tokens") or 0), int(used.get("completion_tokens") or 0)
+    return {"text": str((((got or {}).get("choices") or [{}])[0].get("message") or {}).get("content") or ""),
+            "usd": (tokens_in * g["in"] + tokens_out * g["out"]) / 1_000_000, "in": tokens_in, "out": tokens_out}
+
+
+def _pool_one(memory: Memory, name: str, prompt: str, system: str) -> dict:
+    """One named provider of the free pool, and no other."""
+    from .free_models import FreeModels  # noqa: PLC0415
+    free = FreeModels(memory)
+    if name not in free.enabled():
+        raise ToolError(f"{name} isn't set up or is switched off.")
+    text, _ = free._call(name, system, prompt)
+    return {"text": text, "usd": 0.0, "in": 0, "out": 0}
+
+
 async def _free(memory: Memory, prompt: str, system: str) -> dict:
     """Free models first; the cheap Claude model if none answers (its small cost is counted too)."""
     from .free_models import FreeModels, NeedsClaude  # noqa: PLC0415
@@ -191,6 +314,10 @@ async def ask_with(memory: Memory, choice: str, prompt: str, system: str, fetch=
     started = time.monotonic()
     if choice in OPENAI:
         got = await asyncio.to_thread(_openai, memory, choice, prompt, system, fetch, env)
+    elif choice.startswith("added:"):
+        got = await asyncio.to_thread(_added, memory, choice, prompt, system, fetch, env)
+    elif choice.startswith("pool:"):
+        got = await asyncio.to_thread(_pool_one, memory, choice.split(":", 1)[1], prompt, system)
     elif choice in CLAUDE:
         got = await _claude(memory, choice, prompt, system)
     else:
@@ -201,11 +328,20 @@ async def ask_with(memory: Memory, choice: str, prompt: str, system: str, fetch=
 SYSTEM = "You work from public records only. Answer with the one line of JSON asked for, nothing else."
 
 
-async def ask(memory: Memory, job: str, prompt: str, system: str = SYSTEM, fetch=None, env=None) -> dict | None:
+async def ask(memory: Memory, job: str, prompt: str, system: str = SYSTEM, fetch=None, env=None,
+              personal: bool = False) -> dict | None:
     """The JSON answer for a job, from the model chosen for it. A paid choice that has reached the month's limit,
-    or that fails, falls back to the free choice."""
+    or that fails, falls back to the free choice. personal=True: Claude only, whatever the job's choice."""
     from .benefits import last_json  # noqa: PLC0415
     choice = choice_for(memory, job)
+    if personal or not _public(prompt, memory):  # the privacy rule: nothing about the owner leaves Claude
+        try:
+            got = await ask_with(memory, choice if may_see(choice, True) else "claude:chat", prompt, system)
+        except Exception as e:
+            log.info("orchestra: Claude could not answer a personal %s (%s); it is not sent elsewhere", job, type(e).__name__)
+            return None
+        _spent(memory, job, got["usd"], got["in"], got["out"])
+        return last_json(got["text"])
     if choice != "free" and spending(memory)["total"] >= cap(memory):
         log.info("intelligence models: the month's limit is reached; %s uses the free choice", job)
         choice = "free"
@@ -221,6 +357,16 @@ async def ask(memory: Memory, job: str, prompt: str, system: str = SYSTEM, fetch
         if parsed:
             return parsed
     return None
+
+
+def _public(text: str, memory: Memory) -> bool:
+    """Does this text hold nothing about the owner? (Emails, phone numbers, secrets, things from memory.)"""
+    from .free_models import PersonalData, check_general  # noqa: PLC0415
+    try:
+        check_general(text, memory)
+        return True
+    except PersonalData:
+        return False
 
 
 # --- the test ------------------------------------------------------------------------------------------------
@@ -280,9 +426,9 @@ async def test(memory: Memory, choice: str, ask_one=None, fetch=None, env=None, 
     """Run one choice on the test headlines: how many it got right, how long it took, what it cost."""
     from .benefits import last_json  # noqa: PLC0415
     from .themes import LABEL, TONES  # noqa: PLC0415
-    found = next((c for c in choices(env) if c["id"] == choice), None)
+    found = next((c for c in choices(env, memory) if c["id"] == choice), None)
     if not found or not found["ready"]:
-        raise ToolError(found["setup"] if found else "Choices are: " + ", ".join(c["id"] for c in choices(env)))
+        raise ToolError(found["setup"] if found else "Choices are: " + ", ".join(c["id"] for c in choices(env, memory)))
     right = answered = 0
     usd = seconds = 0.0
     wrong = []
@@ -324,8 +470,86 @@ def page(memory: Memory, env=None) -> dict:
         tests = {}
     return {"jobs": [{"id": j, "title": title, "does": does, "in_use": used, "choice": choice_for(memory, j)}
                      for j, (title, does, used) in JOBS.items()],
-            "choices": choices(env), "spending": spending(memory), "tests": list(tests.values()),
+            "choices": choices(env, memory), "spending": spending(memory), "tests": list(tests.values()),
+            "providers": providers(memory, env), "rule": RULE, "added": added(memory),
             "test_size": len(TEST),
             "note": "Only public records go to these models. A job on a paid model goes back to the free choice when "
                     "the month's limit is reached. The test headlines were written for the test, not taken from the "
                     "news, so use a result as a guide."}
+
+
+def providers(memory: Memory, env=None) -> list[dict]:
+    """Every provider: its role, whether it may see anything about the owner, whether it is set up, and how it
+    has been doing (from Buddy Connect's record of its calls)."""
+    from .free_models import PROVIDERS as pool_providers  # noqa: PLC0415
+    env_ = _env(env)
+    connect = {"gemini": "gemini", "openai": "openai", "claude": "claude"}
+    try:
+        rows = {r["name"]: r for r in gateway.status(memory, env)}
+    except Exception:
+        log.debug("orchestra: no Connect status", exc_info=True)
+        rows = {}
+    out = []
+    for name, title, role, personal, paid in PROVIDERS:
+        if name == "claude":
+            ready = True
+        elif name == "openai":
+            ready = any(openai_setting(c, env) for c in OPENAI)
+        elif name == "ollama":
+            ready = False
+        elif name == "groq":
+            ready = bool((env_.get("BUDDY_GROQ_KEY") or "").strip())
+        else:
+            ready = bool((env_.get(pool_providers[name]["key"]) or "").strip())
+        row = {"id": name, "title": title, "role": role, "may_see_personal": personal, "paid": paid, "set_up": ready,
+               "off": False, "state": "", "detail": ""}
+        seen = rows.get(connect.get(name, name))
+        if seen:  # how its calls have gone, from Buddy Connect's record
+            row["off"] = gateway.is_off(memory, connect.get(name, name))
+            row["state"] = gateway.state_of(seen)
+            row["detail"] = str(seen.get("last_error") or "")[:120]
+        out.append(row)
+    for g in added(memory):
+        out.append({"id": f"added:{g['name']}", "title": g["title"], "role": f"Added by you: {g['model']} at {g['base']}",
+                    "may_see_personal": False, "paid": "paid per use" if g["in"] or g["out"] else "free",
+                    "set_up": bool((env_.get(key_name(g["name"])) or "").strip()), "off": False, "state": "",
+                    "detail": "", "added": g["name"]})
+    return out
+
+
+TOOL = {
+    "name": "ai_orchestra",
+    "description":
+        "Buddy Orchestra: the AI providers Buddy can use and which one does each job. show: every provider (its "
+        "role, whether it may see the owner's data, whether it is set up and working), the model chosen for each "
+        "job, this month's spending and limit, and test results. set_model (job, choice), set_limit (dollars a "
+        "month), test_model (choice: scores it on 48 labelled headlines), add_provider (name, base address, "
+        "model id, price_in, price_out per million tokens), remove_provider (name): only when the owner asks. "
+        "Use it for 'which models are you using', 'what are you spending on AI', 'add a model'. Only Claude may "
+        "see anything about the owner, and nothing here can change that. Never ask for a key in chat: after "
+        "add_provider, give the set.sh command it returns.",
+    "input_schema": {"type": "object", "properties": {
+        "action": {"type": "string", "enum": ["show", "set_model", "set_limit", "test_model", "add_provider",
+                                              "remove_provider"]},
+        "job": {"type": "string"}, "choice": {"type": "string"}, "dollars": {"type": "number"},
+        "name": {"type": "string"}, "base": {"type": "string"}, "model": {"type": "string"},
+        "price_in": {"type": "number"}, "price_out": {"type": "number"}},
+        "required": ["action"], "additionalProperties": False},
+}
+
+
+async def run_tool(memory: Memory, args: dict) -> str:
+    action = args.get("action")
+    if action == "set_model":
+        return set_choice(memory, str(args.get("job") or ""), str(args.get("choice") or ""))
+    if action == "set_limit":
+        return set_cap(memory, args.get("dollars"))
+    if action == "test_model":
+        return json.dumps(await test(memory, str(args.get("choice") or "free")), ensure_ascii=False)
+    if action == "add_provider":
+        return add_provider(memory, args.get("name"), args.get("base"), args.get("model"), args.get("price_in") or 0,
+                            args.get("price_out") or 0)
+    if action == "remove_provider":
+        return remove_provider(memory, str(args.get("name") or ""))
+    got = page(memory)
+    return json.dumps({k: got[k] for k in ("rule", "providers", "jobs", "spending", "tests", "added")}, ensure_ascii=False)

@@ -9,7 +9,7 @@ from buddy import free_models as fm
 from buddy.finops import FinOps
 from buddy.memory import Memory
 
-ENV = {"BUDDY_FREE_MODELS": "1", "BUDDY_GEMINI_KEY": "g", "BUDDY_GROQ_KEY": "q", "BUDDY_MISTRAL_KEY": "m"}
+ENV = {"BUDDY_FREE_MODELS": "1", "BUDDY_GEMINI_KEY": "g", "BUDDY_CEREBRAS_KEY": "c", "BUDDY_MISTRAL_KEY": "m"}
 
 
 class FakeHTTP:
@@ -38,13 +38,19 @@ def free(http, env=ENV, memory=None):
 
 def test_off_unless_switched_on_with_a_key():
     assert fm.FreeModels(Memory(":memory:"), env={}).enabled() == []
-    assert fm.FreeModels(Memory(":memory:"), env={"BUDDY_GROQ_KEY": "q"}).enabled() == []
-    assert fm.FreeModels(Memory(":memory:"), env={"BUDDY_FREE_MODELS": "1", "BUDDY_GROQ_KEY": "q"}).enabled() == ["groq"]
+    assert fm.FreeModels(Memory(":memory:"), env={"BUDDY_CEREBRAS_KEY": "c"}).enabled() == []
+    on = {"BUDDY_FREE_MODELS": "1", "BUDDY_CEREBRAS_KEY": "c"}
+    assert fm.FreeModels(Memory(":memory:"), env=on).enabled() == ["cerebras"]
+    # Groq (speech only) and GitHub Models (always at its limit) are not used for text, even with a key
+    off = {"BUDDY_FREE_MODELS": "1", "BUDDY_GROQ_KEY": "q", "BUDDY_GITHUB_MODELS_KEY": "h"}
+    assert fm.FreeModels(Memory(":memory:"), env=off).enabled() == []
+    assert not any(n in order for order in fm.BEST_FOR.values() for n in fm.TEXT_OFF)
+    assert all(order[-1] == "openrouter" for order in fm.BEST_FOR.values())  # OpenRouter is only the fallback
 
 
 def test_capability_order_for_quality_tasks():
     f = free(FakeHTTP())
-    assert f.order("summarize") == ["gemini", "mistral", "groq"]
+    assert f.order("summarize") == ["gemini", "mistral", "cerebras"]
     assert f.order("rewrite")[0] == "mistral"
 
 
@@ -94,7 +100,7 @@ def test_rate_limit_and_failure_move_on_then_cool_down():
     http = FakeHTTP(fail={"gemini"}, limited={"mistral"})
     f = free(http)
     result = asyncio.run(f.run("summarize", "a public article about tides"))
-    assert result["answer"] == "answer from groq"
+    assert result["answer"] == "answer from cerebras"
     assert {"gemini", "mistral"} <= set(f.status()["busy"])
     asyncio.run(f.run("summarize", "another public article"))
     assert http.calls.count("gemini") == 1  # cooling down, not retried
@@ -123,11 +129,13 @@ def test_general_text_still_goes_free_when_memory_has_facts():
 
 
 ENV_CODE = {**ENV, "BUDDY_OPENROUTER_KEY": "o", "BUDDY_GITHUB_MODELS_KEY": "h"}
+ONLY_OPENROUTER = {"BUDDY_FREE_MODELS": "1", "BUDDY_OPENROUTER_KEY": "o"}
 
 
-def test_small_code_questions_go_to_deepseek_first():
+def test_small_code_questions_fall_back_to_deepseek_when_no_primary_is_set():
     http = FakeHTTP()
-    f = free(http, env=ENV_CODE)
+    assert free(FakeHTTP(), env=ENV_CODE).order("code")[-2:] == ["deepseek", "openrouter"]  # after the primaries
+    f = free(http, env=ONLY_OPENROUTER)
     assert f.order("code")[0] == "deepseek"
     result = asyncio.run(f.run("code", "a regex that matches a US zip code"))
     assert result["model"].startswith("deepseek/") and http.calls == ["deepseek"]
@@ -167,7 +175,7 @@ def test_broken_python_moves_on_to_the_next_model():
                 return {"choices": [{"message": {"content": "```python\ndef f(:\n```"}}]}
             return super().__call__(url, body, headers, timeout)
     http = Broken()
-    f = free(http, env=ENV_CODE)
+    f = free(http, env=ONLY_OPENROUTER)
     result = asyncio.run(f.run("code", "a function that reverses a string"))
     assert http.calls[0] == "deepseek" and not result["model"].startswith("deepseek")
     out = asyncio.run(fm.run_general_tool(free(FakeHTTP(), env=ENV_CODE), {"kind": "code", "text": "reverse a list"}))

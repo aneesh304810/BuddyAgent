@@ -464,9 +464,9 @@ async def interpret(memory: Memory, found: list[dict], ask=None, limit: int = 5)
 
 
 async def _ask(memory: Memory, prompt: str) -> dict | None:
-    """Public records only: the model chosen for the 'write' job (bip_models.py), free models unless changed."""
-    from . import bip_models  # noqa: PLC0415
-    got = await bip_models.ask(memory, "write", prompt, system="You describe what public records show. Answer "
+    """Public records only: the model chosen for the 'write' job (orchestra.py), free models unless changed."""
+    from . import orchestra  # noqa: PLC0415
+    got = await orchestra.ask(memory, "write", prompt, system="You describe what public records show. Answer "
                                "with the one line of JSON asked for, nothing else.")
     return got if isinstance(got, dict) and got.get("how") else None
 
@@ -696,19 +696,17 @@ TOOL = {
         "relationships (name, or id for a technology): who funds, supplies, buys from, partners with, acquires, "
         "invests in, licenses to or competes with whom, each with its record; say whether it is verified (an "
         "official award or grant) or reported (read from a headline, not a checked fact). predictions: the three prediction engines (investing, flights and hotels, shopping): what each learns "
-        "from, how many judged calls it has, and whether a tested model is in use. models: which AI model does each of the platform's jobs, this month's spending and limit, and test "
-        "results. set_model (job, choice), set_limit (dollars a month), test_model (choice): only when the owner "
-        "asks. Use it for 'what industries are emerging', 'what is "
+        "from, how many judged calls it has, and whether a tested model is in use. "
+        "Use it for 'what industries are emerging', 'what is "
         "converging with AI', 'who is working on small modular reactors', 'how mature is X'. Always say what kind "
         "of evidence a statement rests on (official record, company disclosure, published research, reported) and "
         "mark interpretations as such. Never give a market size or a buy or sell view from it, and never predict "
         "a price: report the pattern record as past results only.",
     "input_schema": {"type": "object", "properties": {
-        "action": {"type": "string", "enum": ["overview", "technology", "organisation", "search", "switch", "scan", "relationships", "themes", "patterns", "predictions", "models",
-                                            "set_model", "set_limit", "test_model"]},
+        "action": {"type": "string", "enum": ["overview", "technology", "organisation", "search", "switch", "scan", "relationships", "themes", "patterns", "predictions"]},
         "id": {"type": "string"}, "name": {"type": "string"}, "query": {"type": "string"},
         "sector": {"type": "string", "enum": list(SECTORS)}, "on": {"type": "boolean"},
-        "job": {"type": "string"}, "choice": {"type": "string"}, "dollars": {"type": "number"}},
+        },
         "required": ["action"], "additionalProperties": False},
 }
 
@@ -733,15 +731,6 @@ async def run_tool(memory: Memory, args: dict) -> str:
         import asyncio  # noqa: PLC0415
         from . import factors  # noqa: PLC0415
         return json.dumps(await asyncio.to_thread(factors.overview, memory), ensure_ascii=False)
-    if action in ("models", "set_model", "set_limit", "test_model"):
-        from . import bip_models  # noqa: PLC0415
-        if action == "set_model":
-            return bip_models.set_choice(memory, str(args.get("job") or ""), str(args.get("choice") or ""))
-        if action == "set_limit":
-            return bip_models.set_cap(memory, args.get("dollars"))
-        if action == "test_model":
-            return json.dumps(await bip_models.test(memory, str(args.get("choice") or "free")), ensure_ascii=False)
-        return json.dumps(bip_models.page(memory), ensure_ascii=False)
     if action in ("themes", "patterns"):
         import asyncio  # noqa: PLC0415
         from . import themes  # noqa: PLC0415

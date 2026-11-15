@@ -62,21 +62,29 @@ PROVIDERS = {
                "headers": {"Accept": "application/vnd.github+json", "X-GitHub-Api-Version": "2022-11-28"},
                "model_setting": "BUDDY_GITHUB_MODEL", "model": "openai/gpt-4.1-mini",
                "good_at": "OpenAI's GPT models, free with a GitHub account; careful writing and explaining"},
+    "nvidia": {"base": "https://integrate.api.nvidia.com/v1", "key": "BUDDY_NVIDIA_KEY",
+               "model_setting": "BUDDY_NVIDIA_MODEL", "model": "meta/llama-3.3-70b-instruct",
+               "good_at": "open models hosted by NVIDIA; a general alternative"},
     "openrouter": {"base": "https://openrouter.ai/api/v1", "key": "BUDDY_OPENROUTER_KEY",
                    "model_setting": "BUDDY_OPENROUTER_MODEL", "model": "openrouter/free",
                    "good_at": "a general fallback"},
 }
+# Not used for text any more (the owner's lineup, orchestra.py): GitHub Models kept hitting its limit, and Groq is
+# kept for turning speech into text only (whisper.py). Their entries stay so old settings and records still read.
+TEXT_OFF = ("groq", "github")
 # Which providers to try first for each kind of task, by what they're best at.
+# The owner's lineup first (Mistral, Cerebras, Google, NVIDIA); OpenRouter, and DeepSeek through it, only as the
+# fallback when none of those answers.
 BEST_FOR = {
-    "translate": ["gemini", "github", "mistral", "groq", "cerebras", "openrouter"],
-    "summarize": ["gemini", "github", "mistral", "groq", "openrouter", "cerebras"],
-    "rewrite": ["mistral", "github", "groq", "gemini", "cerebras", "openrouter"],
-    "brainstorm": ["gemini", "github", "cerebras", "groq", "mistral", "openrouter"],
-    "explain": ["gemini", "github", "groq", "mistral", "cerebras", "openrouter"],
-    "quick_answer": ["groq", "cerebras", "github", "gemini", "mistral", "openrouter"],
-    "classify": ["groq", "cerebras", "github", "gemini", "mistral", "openrouter"],
-    "code": ["deepseek", "github", "gemini", "mistral", "groq", "cerebras", "openrouter"],
-    "small_talk": ["groq", "cerebras", "github", "gemini", "mistral", "openrouter"],
+    "translate": ["gemini", "mistral", "cerebras", "nvidia", "openrouter"],
+    "summarize": ["gemini", "mistral", "cerebras", "nvidia", "openrouter"],
+    "rewrite": ["mistral", "gemini", "cerebras", "nvidia", "openrouter"],
+    "brainstorm": ["gemini", "cerebras", "mistral", "nvidia", "openrouter"],
+    "explain": ["gemini", "mistral", "cerebras", "nvidia", "openrouter"],
+    "quick_answer": ["cerebras", "gemini", "mistral", "nvidia", "openrouter"],
+    "classify": ["cerebras", "gemini", "mistral", "nvidia", "openrouter"],
+    "code": ["gemini", "mistral", "cerebras", "nvidia", "deepseek", "openrouter"],
+    "small_talk": ["cerebras", "gemini", "mistral", "nvidia", "openrouter"],
 }
 INSTRUCTIONS = {
     "translate": "Translate the text into {target}. Keep the meaning and tone; output only the translation.",
@@ -375,7 +383,7 @@ class FreeModels:
         if (self.env.get("BUDDY_FREE_MODELS") or "").strip() != "1":
             return []
         from . import gateway  # noqa: PLC0415  a provider the owner disconnected is never called
-        return [name for name, p in PROVIDERS.items() if (self.env.get(p["key"]) or "").strip()
+        return [name for name, p in PROVIDERS.items() if name not in TEXT_OFF and (self.env.get(p["key"]) or "").strip()
                 and not gateway.is_off(self.memory, CONNECT_NAMES.get(name, name))]
 
     def model_of(self, name: str, kind: str = "") -> str:

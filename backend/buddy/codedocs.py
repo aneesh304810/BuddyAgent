@@ -167,7 +167,7 @@ COMPONENTS = [  # every server module belongs to one feature (tests check none i
       "thinking.py", "tools.py", "config.py", "customize.py"]),
     ("Free AI models (Groq, Gemini, Mistral, Cerebras, GitHub Models, OpenRouter)", "Do general work for free, never "
      "with your personal data: translating, summarising public text, brainstorming, general code questions",
-     ["free_models.py", "openrouter_catalog.py", "modelscout.py", "model_advisor.py"]),
+     ["orchestra.py", "free_models.py", "openrouter_catalog.py", "modelscout.py", "model_advisor.py"]),
     ("Buddy Connect", "One catalog and one way of calling every outside service: keys, backup hosts, rate limits, the "
      "personal-data check, logging and costs", ["gateway.py", "keytest.py"]),
     ("Memory", "What Buddy knows and remembers: facts, the conversation log and its search, the documents library, "
@@ -224,7 +224,7 @@ COMPONENTS = [  # every server module belongs to one feature (tests check none i
     ("Buddy Intelligence Platform", "A shared layer, like Buddy Connect, that collects public evidence on emerging "
      "technologies (papers, clinical studies, company filings, federal awards, code, discussion), finds which are "
      "converging across sectors and what stage each is at, and that Buddy's other features read from",
-     ["bip.py", "bip_sources.py", "themes.py", "bip_models.py", "factors.py", "bip_links.py"]),
+     ["bip.py", "bip_sources.py", "themes.py", "factors.py", "bip_links.py"]),
     ("Security and privacy", "Who can reach Buddy, lockouts, secrets kept out of logs and prompts, the encrypted "
      "database", ["guard.py", "privacy.py", "db.py", "compliance.py", "securitywatch.py"]),
     ("Fixing and explaining itself", "Reads its own code and these docs, draws its own architecture, checks its own "

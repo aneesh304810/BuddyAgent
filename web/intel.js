@@ -14,9 +14,8 @@ if (params.get("token") && storageGet("buddyToken") === token) history.replaceSt
 const $ = (id) => document.getElementById(id);
 const esc = (s) => String(s ?? "").replace(/[&<>"']/g, (c) => ({ "&": "&amp;", "<": "&lt;", ">": "&gt;", '"': "&quot;", "'": "&#39;" }[c]));
 const safe = (u) => /^https:\/\/[^\s"'<>]+$/.test(String(u || "")) ? u : "";
-const TABS = [["overview", "Overview"], ["convergence", "Convergence"], ["sectors", "Sectors"], ["sources", "Sources"], ["predict", "Predictions"], ["models", "AI models"]];
+const TABS = [["overview", "Overview"], ["convergence", "Convergence"], ["sectors", "Sectors"], ["sources", "Sources"], ["predict", "Predictions"]];
 let predictData = null, predictBusy = false;
-let modelData = null, modelBusy = false;
 const KIND = { research: "papers", trial: "clinical studies", filing: "company filings", award: "federal awards", grant: "research grants", funding: "fundraising notices", code: "code projects", news: "news reports", discussion: "stories" };
 let data = null, tab = TABS.some(([k]) => k === storageGet("intelTab")) ? storageGet("intelTab") : "overview";
 
@@ -159,42 +158,6 @@ function predict() {
     `<p class="note">${esc(predictData.note)}</p>`;
 }
 
-// --- AI models: which model does each job, the month's spending and limit, and a test to compare them
-async function loadModels() {
-  if (modelBusy) return;
-  modelBusy = true;
-  try { modelData = await api("/api/intel/models"); } catch (e) { modelData = { failed: e.message }; }
-  modelBusy = false;
-  if (tab === "models") render();
-}
-async function modelSet(body, button) {
-  if (button) { button.disabled = true; button.textContent = "Working…"; }
-  try { const out = await api("/api/intel/models", body); modelData = out; render(); notice(out.text); }
-  catch (e) { notice(e.message); render(); }
-}
-function models() {
-  if (!modelData) { loadModels(); return `<p class="muted">Loading…</p>`; }
-  if (modelData.failed) return `<p class="err">${esc(modelData.failed)}</p>`;
-  const m = modelData, sp = m.spending, ready = m.choices.filter((c) => c.ready);
-  const options = (picked) => ready.map((c) => `<option value="${esc(c.id)}"${c.id === picked ? " selected" : ""}>${esc(c.title)}</option>`).join("");
-  const jobs = m.jobs.map((j) => `<div class="guard"><span><b>${esc(j.title)}</b> ${j.in_use ? "" : `<span class="chipk">not used yet</span>`}<br><span class="muted">${esc(j.does)}</span><br>
-      <select data-job="${esc(j.id)}" aria-label="Model for ${esc(j.title)}">${options(j.choice)}</select></span></div>`).join("");
-  const spent = Object.entries(sp.jobs).map(([job, r]) => `<div class="guard"><span><b>${esc(job)}</b>: $${Number(r.usd).toFixed(4)} <span class="muted">in ${esc(r.calls)} calls</span></span></div>`).join("");
-  const used = sp.cap ? Math.min(100, Math.round(100 * sp.total / sp.cap)) : 0;
-  const tests = (m.tests || []).map((t) => `<tr><td><b>${esc(t.title)}</b><br><small class="muted">${esc(day(t.at))}</small></td><td>${esc(t.right)} of ${esc(t.headlines)} (${Math.round(t.share * 100)}%)</td><td>$${Number(t.usd).toFixed(4)}</td><td>${esc(t.seconds)}s</td></tr>`).join("");
-  const missing = m.choices.filter((c) => !c.ready).map((c) => `<li><b>${esc(c.title)}</b>: ${esc(c.setup)}</li>`).join("");
-  return card("Which model does each job", jobs, "Most of the platform uses no AI: tagging, stages, convergences and the practice scoring are code.") +
-    card(`Spending this month (${esc(sp.month)})`, `<div class="kpis">${kpi("$" + Number(sp.total).toFixed(2), "spent on paid models")}${kpi("$" + Number(sp.cap).toFixed(2), "monthly limit")}${kpi(used + "%", "of the limit used")}</div>
-      ${spent || `<p class="muted">Nothing spent yet.</p>`}
-      <p style="margin-top:10px"><label>Monthly limit in dollars <input id="cap" type="number" min="0" max="500" step="1" value="${esc(sp.cap)}" style="width:90px"></label> <button class="btn" id="capset">Save</button></p>`,
-      "At the limit, a job on a paid model goes back to the free choice until the month ends.") +
-    card(`Test a model on ${esc(m.test_size)} headlines`, `<p><select id="testpick" aria-label="Model to test">${options("")}</select> <button class="btn" id="testrun">Run the test</button></p>
-      ${tests ? `<div style="overflow-x:auto"><table class="grid"><tr><th>Model</th><th>Right</th><th>Cost</th><th>Time</th></tr>${tests}</table></div>` : `<p class="muted">No tests run yet. Run one before moving a job to a different model.</p>`}`,
-      "Each headline has a known right label. A paid model's test costs a fraction of a cent and counts toward the limit.") +
-    (missing ? card("Not set up", `<ul>${missing}</ul>`, "The model's id and price come from the provider's own pricing page. Buddy has none built in because they change.") : "") +
-    `<p class="note">${esc(m.note)}</p>`;
-}
-
 async function openTech(id) {
   $("panel").innerHTML = `<p class="muted">Loading…</p>`; $("sheet").classList.add("open");
   let t;
@@ -240,16 +203,14 @@ function closeSheet() { $("sheet").classList.remove("open"); }
 
 function render() {
   tabs();
-  $("main").innerHTML = { overview, sectors, sources, models, predict,
+  $("main").innerHTML = { overview, sectors, sources, predict,
     convergence: () => card("Technologies converging across sectors", data.convergences.length ? data.convergences.map((c, i) => convergence(c, i === 0)).join("")
       : `<p class="muted">None yet. It needs a few nights of records.</p>`, "The stage and rank come from the records by fixed rules. The interpretation, where there is one, is written by an AI from those records only and is marked as such.") }[tab]();
   document.querySelectorAll("#main [data-tech]").forEach((b) => b.onclick = () => openTech(b.dataset.tech));
   document.querySelectorAll("[data-sector]").forEach((b) => b.onclick = () => follow(b.dataset.sector, b.dataset.on === "1"));
   if ($("scan")) $("scan").onclick = scan;
-  document.querySelectorAll("[data-job]").forEach((el) => el.onchange = () => modelSet({ job: el.dataset.job, choice: el.value }));
   if ($("history")) $("history").onclick = () => loadHistory($("history"));
-  if ($("capset")) $("capset").onclick = () => modelSet({ cap: Number($("cap").value) });
-  if ($("testrun")) $("testrun").onclick = () => modelSet({ test: $("testpick").value }, $("testrun"));
+
 }
 async function follow(sector, on) {
   try { data = await api("/api/intel/switch", { sector, on }); render(); notice(on ? "Following. Its evidence fills in from tonight's collection." : "No longer followed. It still gets a light weekly check."); }

@@ -8,7 +8,7 @@ competes with whom.
       A federal award names the agency and the recipient; an NIH, NSF or small-business grant names the funder
       and the organisation. Each becomes "agency funds organisation", with the record as its proof.
   From headlines (an AI model reads the headline; standing: reported)
-      The model chosen for the 'extract' job (bip_models.py) is given headlines, a batch at a time, and asked
+      The model chosen for the 'extract' job (orchestra.py) is given headlines, a batch at a time, and asked
       for the companies each names and any relationship the headline states. Its answer is checked in code
       before anything is kept: every name must appear in the headline itself, the relationship must be one of
       the eight kinds, and the two sides must differ. A name the headline does not contain is dropped, so the
@@ -118,7 +118,7 @@ def from_records(memory: Memory, today: date | None = None) -> int:
 
 async def extract(memory: Memory, ask=None, today: date | None = None) -> dict:
     """Read the headlines not yet read: the companies each names and the relationships it states."""
-    from . import bip_models  # noqa: PLC0415
+    from . import orchestra  # noqa: PLC0415
     today = today or local_now().date()
     _ready(memory)
     todo = _todo(memory, ("news", "discussion"), (today - timedelta(days=30)).isoformat(), HEADLINES_A_NIGHT)
@@ -127,7 +127,7 @@ async def extract(memory: Memory, ask=None, today: date | None = None) -> dict:
         batch = todo[i:i + BATCH]
         items = "\n".join(f"{n}. {' '.join(r['title'].split())[:220]}" for n, r in enumerate(batch, 1))
         try:
-            got = await (ask or (lambda m, p: bip_models.ask(m, "extract", p)))(memory, PROMPT.format(items=items))
+            got = await (ask or (lambda m, p: orchestra.ask(m, "extract", p)))(memory, PROMPT.format(items=items))
         except Exception as e:
             log.info("links: reading headlines failed: %s", type(e).__name__)
             break

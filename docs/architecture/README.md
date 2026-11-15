@@ -90,7 +90,7 @@ flowchart LR
 | Feature | What it does | Modules |
 |---|---|---|
 | [Claude: the brain](01-claude.md) | Understands you, decides what to do, picks the cheapest Claude model that does the job well, thinks from memory before calling the AI, follows your standing instructions, and asks before spending more | 12 |
-| [Free AI models (Groq, Gemini, Mistral, Cerebras, GitHub Models, OpenRouter)](02-free-ai-models.md) | Do general work for free, never with your personal data: translating, summarising public text, brainstorming, general code questions | 4 |
+| [Free AI models (Groq, Gemini, Mistral, Cerebras, GitHub Models, OpenRouter)](02-free-ai-models.md) | Do general work for free, never with your personal data: translating, summarising public text, brainstorming, general code questions | 5 |
 | [Buddy Connect](03-buddy-connect.md) | One catalog and one way of calling every outside service: keys, backup hosts, rate limits, the personal-data check, logging and costs | 2 |
 | [Memory](04-memory.md) | What Buddy knows and remembers: facts, the conversation log and its search, the documents library, your taste and daily routine, and connecting what it knows | 9 |
 | [Voice: Talk mode and Listen-in](05-voice.md) | Hearing you (Whisper on your server or Groq), knowing when you talk to Buddy, your voice match, how you pause, the words it should hear right, and Listen-in's whispers | 7 |
@@ -108,7 +108,7 @@ flowchart LR
 | [Home and health](17-home-and-health.md) | Your Nest thermostat, your phone's health data and Oura Ring, and your health plan with public medical sources | 4 |
 | [Making and doing things](18-making-and-doing-things.md) | Diagrams, charts, images, Word, PowerPoint, PDF and Excel; data crunching in the sandbox; a real browser Buddy drives; filling forms; rich cards in the chat; background jobs | 7 |
 | [Agents and skills](19-agents-and-skills.md) | Specialist agents Buddy can connect or build, and its registry of tools and skills | 3 |
-| [Buddy Intelligence Platform](20-buddy-intelligence-platform.md) | A shared layer, like Buddy Connect, that collects public evidence on emerging technologies (papers, clinical studies, company filings, federal awards, code, discussion), finds which are converging across sectors and what stage each is at, and that Buddy's other features read from | 6 |
+| [Buddy Intelligence Platform](20-buddy-intelligence-platform.md) | A shared layer, like Buddy Connect, that collects public evidence on emerging technologies (papers, clinical studies, company filings, federal awards, code, discussion), finds which are converging across sectors and what stage each is at, and that Buddy's other features read from | 5 |
 | [Security and privacy](21-security-and-privacy.md) | Who can reach Buddy, lockouts, secrets kept out of logs and prompts, the encrypted database | 5 |
 | [Fixing and explaining itself](22-fixing-and-explaining-itself.md) | Reads its own code and these docs, draws its own architecture, checks its own server, and fixes itself on a branch you review | 10 |
 | [Insights and costs](23-insights-and-costs.md) | What Buddy spends and how well it does, model by model and service by service, and what makes it feel slow | 4 |

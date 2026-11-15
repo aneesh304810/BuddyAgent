@@ -1661,28 +1661,35 @@ async def api_intel_predict_do(body: dict) -> dict:
     return {"text": text, **await asyncio.to_thread(factors.overview, memory)}
 
 
-@app.get("/api/intel/models", dependencies=[Depends(require_admin)])
-async def api_intel_models() -> dict:
-    """Which AI model does each Intelligence job, the month's spending and limit, and test results."""
-    from . import bip_models
-    return await asyncio.to_thread(bip_models.page, memory)
+@app.get("/api/orchestra", dependencies=[Depends(require_admin)])
+async def api_orchestra() -> dict:
+    """Buddy Orchestra: every AI provider, what each may see, which does each job, spending and test results."""
+    from . import orchestra
+    return await asyncio.to_thread(orchestra.page, memory)
 
 
-@app.post("/api/intel/models", dependencies=[Depends(require_admin)])
-async def api_intel_models_set(body: dict) -> dict:
-    """Set a job's model ({job, choice}), the monthly limit ({cap}), or run the test on a choice ({test})."""
-    from . import bip_models
+@app.post("/api/orchestra", dependencies=[Depends(require_admin)])
+async def api_orchestra_set(body: dict) -> dict:
+    """Set a job's model ({job, choice}), the monthly limit ({cap}), run the test on a choice ({test}), add a
+    provider ({add: {name, base, model, price_in, price_out}}) or remove one ({remove: name})."""
+    from . import orchestra
     try:
         if body.get("test"):
-            got = await bip_models.test(memory, str(body["test"]))
+            got = await orchestra.test(memory, str(body["test"]))
             text = f"{got['title']}: {got['right']} of {got['headlines']} right, ${got['usd']:.4f}, {got['seconds']:.0f} seconds."
         elif "cap" in body:
-            text = bip_models.set_cap(memory, body.get("cap"))
+            text = orchestra.set_cap(memory, body.get("cap"))
+        elif body.get("add"):
+            new = body["add"] if isinstance(body["add"], dict) else {}
+            text = orchestra.add_provider(memory, new.get("name"), new.get("base"), new.get("model"),
+                                          new.get("price_in") or 0, new.get("price_out") or 0, new.get("title") or "")
+        elif body.get("remove"):
+            text = orchestra.remove_provider(memory, str(body["remove"]))
         else:
-            text = bip_models.set_choice(memory, str(body.get("job") or ""), str(body.get("choice") or ""))
+            text = orchestra.set_choice(memory, str(body.get("job") or ""), str(body.get("choice") or ""))
     except ToolError as e:
         raise HTTPException(400, str(e)) from None
-    return {"text": text, **await asyncio.to_thread(bip_models.page, memory)}
+    return {"text": text, **await asyncio.to_thread(orchestra.page, memory)}
 
 
 @app.get("/api/invest/themes", dependencies=[Depends(require_admin)])

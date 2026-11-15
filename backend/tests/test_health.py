@@ -92,7 +92,7 @@ def test_free_models_learn_from_claudes_reviews():
     for i in range(6):
         call(mem, 1, provider="deepseek", purpose="general:code", verdict="redone")
     f._accuracy = (0.0, {})  # refresh now instead of in 10 minutes
-    assert f.order("code")[0] == "github"
+    assert f.order("code")[0] == "openrouter"  # GitHub Models is no longer used for text
 
 
 def test_speed_in_insights():
