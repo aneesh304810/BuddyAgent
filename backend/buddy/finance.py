@@ -6,7 +6,8 @@ steady rhythm (weekly, monthly, quarterly, yearly) with a similar amount. No AI 
 transactions; Claude only ever sees the finished list. For each one: amount, how often, card, next
 charge, yearly cost, and flags (new, price went up, on two cards, a free trial that turned paid).
 The user marks each keep / cancel / not sure; cancel opens the service's cancel page on the phone
-(Buddy never cancels anything itself) and then watches that no charge comes after.
+and then watches that no charge comes after. Cancelling for the owner, after their yes for each one, is
+subcancel.py (an email from their address, or a phone call by the call agent).
 
 Cards: closing day, due day, statement balance, minimum due, limit and APR, from card statement
 emails and from statements uploaded to the library (read once when filed, card numbers masked to
@@ -867,7 +868,7 @@ FINANCE_TOOL = {
     "with send_email after their yes. dispute_help (what): charges after they cancelled, a letter for the card issuer "
     "with the proof, and where to file it in the issuer's app (they file it). trials: free trials Buddy noted from "
     "signup emails (ends, price) and the cancellation proofs saved; keep_trial (what) stops a trial's reminders. "
-    "You never cancel anything yourself. cards: each card's next due date, closing date, statement balance, minimum, limit, credit "
+    "This tool never cancels anything itself (cancelling for the user, after their yes, is the cancel_subscription tool). cards: each card's next due date, closing date, statement balance, minimum, limit, credit "
     "used and APR. card (name, issuer, last4, due_day, closing_day, credit_limit, apr: add or correct a card the user "
     "tells you about; only ever the last four digits). import_statement (id of a card statement in the library). "
     "report: the numbers for subscription advice (biggest, price rises, duplicates, monthly ones worth switching to "

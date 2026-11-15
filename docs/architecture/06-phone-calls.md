@@ -73,7 +73,8 @@ Kinds of call:
 Rules, in code and in the call's instructions: every call is approved by the owner first (thrift.ask_action);
 Buddy introduces itself truthfully as the owner's assistant, never claims to be the owner, and never denies being
 an AI when asked; it shares only the allowed facts (never SSN, card numbers, passwords); it books only inside the
-allowed times and never pays, cancels or agrees to fees; calls aren't recorded (only a written summary of the
+allowed times and never pays or agrees to fees; it cancels only a subscription the owner approved cancelling
+(kind cancellation, started by subcancel.py); calls aren't recorded (only a written summary of the
 outcome is kept, 180 days). At most CALLS_PER_DAY calls a day; 15 minutes each (90 for hold_connect).
 
 Plivo reaches only /calls/* on the public address (Tailscale Funnel on port 8443, set up by deploy/calls.sh);
@@ -120,5 +121,5 @@ Calendar permission). Buddy never commits the owner's time by itself.
 ## How it connects
 
 - Relies on: Buddy Connect; Claude: the brain; Memory; Speaking up on its own: briefing, reminders and alerts; Travel and getting around
-- Relied on by: Claude: the brain; Email, messages and apps; Insights and costs; The server and the app
+- Relied on by: Claude: the brain; Email, messages and apps; Insights and costs; Money; The server and the app
 

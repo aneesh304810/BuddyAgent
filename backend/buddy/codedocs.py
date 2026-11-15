@@ -189,7 +189,7 @@ COMPONENTS = [  # every server module belongs to one feature (tests check none i
     ("Money", "Bank and card feeds (read-only), bills, the money advisor and review, card choices and benefits, "
      "cancelling subscriptions; never moves money",
      ["money.py", "bankfeed.py", "plaid.py", "finance.py", "advisor.py", "credit.py", "card_optimizer.py", "finops.py",
-      "benefits.py", "cancelling.py", "merchants.py", "review.py"]),
+      "benefits.py", "cancelling.py", "subcancel.py", "merchants.py", "review.py"]),
     ("Shopping and deals", "Your shopping profile, buy now or wait, the daily deals collector, the deals inbox, deal "
      "forecasts and watches, price history, Amazon prices and seasonal prices; never buys",
      ["shopper.py", "whentobuy.py", "dealcollector.py", "dealmail.py", "dealnotif.py", "dealforecast.py", "deals.py",

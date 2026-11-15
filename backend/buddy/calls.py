@@ -16,7 +16,8 @@ Kinds of call:
 Rules, in code and in the call's instructions: every call is approved by the owner first (thrift.ask_action);
 Buddy introduces itself truthfully as the owner's assistant, never claims to be the owner, and never denies being
 an AI when asked; it shares only the allowed facts (never SSN, card numbers, passwords); it books only inside the
-allowed times and never pays, cancels or agrees to fees; calls aren't recorded (only a written summary of the
+allowed times and never pays or agrees to fees; it cancels only a subscription the owner approved cancelling
+(kind cancellation, started by subcancel.py); calls aren't recorded (only a written summary of the
 outcome is kept, 180 days). At most CALLS_PER_DAY calls a day; 15 minutes each (90 for hold_connect).
 
 Plivo reaches only /calls/* on the public address (Tailscale Funnel on port 8443, set up by deploy/calls.sh);
@@ -43,7 +44,8 @@ from .tools import ToolError, local_now
 
 log = logging.getLogger("buddy.calls")
 CALLS_PER_DAY = 5
-LIMIT_S = {"appointment": 15 * 60, "question": 15 * 60, "hold_connect": 90 * 60, "screen": 5 * 60, "tell_me": 20 * 60, "reservation": 10 * 60}
+LIMIT_S = {"appointment": 15 * 60, "question": 15 * 60, "hold_connect": 90 * 60, "screen": 5 * 60, "tell_me": 20 * 60, "reservation": 10 * 60,
+           "cancellation": 30 * 60}
 SCREEN = "screen"                 # a call to the owner that they didn't pick up, answered by Buddy
 SCREENS_PER_DAY = 30              # a flood of robocalls can't run up the bill
 PRIORITIES = ("urgent", "normal", "low", "scam")
@@ -96,7 +98,7 @@ FLUX_EOT = 0.7                     # how sure Flux must be that they've finished
 FLUX_EOT_TIMEOUT_MS = 900          # and at most this much quiet before the turn ends anyway: a bare "Hello?" or
                                    # "OK" leaves Flux unsure, and with its 3 s default the caller sat in silence
 FLUX_TAIL_S = 1.2                  # audio still sent after Silero hears silence, so Flux can hear the pause
-KINDS = ("appointment", "question", "hold_connect", "tell_me", "reservation")  # tell_me: Buddy phones the owner to tell them something
+KINDS = ("appointment", "question", "hold_connect", "tell_me", "reservation", "cancellation")  # tell_me: Buddy phones the owner to tell them something
 QUIET_START_S = 4.0  # nobody speaks this long after the pick-up: Buddy speaks first
 OWNER_OPEN_S = 1.0   # a call to the owner: if they haven't said hello this long after picking up, Buddy greets first
 VAD_STOP_S = 0.3     # silence that ends their first "Hello?" (Flux decides the end of real turns; 0.5 without it)
@@ -195,7 +197,7 @@ def per_day(env=None) -> int:
 def plan(memory: Memory, who: str, number: str, kind: str, goal: str, windows: str = "") -> dict:
     _ready(memory)
     if kind not in KINDS:
-        raise ToolError("The kind of call is appointment, question, hold_connect or tell_me.")
+        raise ToolError("The kind of call is appointment, question, reservation, hold_connect, cancellation or tell_me.")
     if not (goal or "").strip():
         raise ToolError("What is the call for?")
     today = local_now().date().isoformat()
@@ -616,6 +618,10 @@ def system_prompt(memory: Memory, call: dict, env=None) -> str:
             may.append(f"date of birth: {o['dob']}")
         if o["insurance"]:
             may.append(f"insurance: {o['insurance']}")
+    if call["kind"] == "cancellation":
+        may.append("the account's email address, if the goal states one")
+    never = ("Never pay, agree to a fee or a new plan, or do anything outside the goal."
+             if call["kind"] == "cancellation" else "Never pay, cancel, or agree to fees or anything outside the goal.")
     today = local_now().strftime("%A %d %B %Y, %I:%M %p")
     kind = {
         "appointment": "Book the appointment. Agree a time only inside the allowed times and when the calendar is "
@@ -628,6 +634,18 @@ def system_prompt(memory: Memory, call: dict, env=None) -> str:
                        "date, time) and ask about anything to know (deposit, time limit, dress code). If they need "
                        f"a card to hold the table, never give one: say {first} will book it online or call back. "
                        f"If you reach voicemail, leave a short message asking them to call {first} back, then end.",
+        "cancellation": "Cancel the subscription named in the goal. Say you are calling on "
+                        f"{first}'s behalf to cancel it. If a phone menu answers, choose cancel, billing or "
+                        "'representative'. Give the name on the account and, if asked, the account's email "
+                        "address from the goal. Turn down offers to stay, pause or downgrade politely and firmly "
+                        "('No thank you, please just cancel it'), unless the goal says an offer may be accepted. "
+                        "Before ending, ask for three things and repeat them back: a confirmation or reference "
+                        "number, the date the subscription ends, and whether any further charge will be made; "
+                        "ask them to email a confirmation to the account's address. If they will only cancel "
+                        "with the account holder, or need a card number, password, security answer or anything "
+                        f"you may not give, don't argue: ask what {first} should do (the number to call, the "
+                        "hours, a page), thank them and end, and say so plainly in the outcome. Never say it "
+                        "was cancelled unless they confirmed it. If you reach voicemail, end without a message.",
         "question": "Ask the question, note the answer exactly, then thank them and say goodbye. If you reach "
                     "voicemail, end "
                     "without a message.",
@@ -651,8 +669,8 @@ Introduce yourself as: "Hi, this is {o['name']}'s assistant, calling on {first}'
 {first}. If anyone asks whether you're a real person, a robot or an AI, answer honestly: "I'm an AI assistant \
 calling for {first}." Never deny it.
 You may share only: {'; '.join(may)}. Never give a Social Security number, card or account numbers, passwords \
-or anything not listed. If they need something else, say you'll check with {first} and call back. Never pay, \
-cancel, or agree to fees or anything outside the goal. The call isn't recorded.
+or anything not listed. If they need something else, say you'll check with {first} and call back. {never} \
+The call isn't recorded.
 
 Reply in two parts. First, exactly the words to say out loud now, as natural speech (nothing at all if you \
 should stay silent, e.g. on hold). Then, on a new line, ## followed by one line of JSON: {{"digits": "keys to press, e.g. \
@@ -1677,6 +1695,9 @@ async def run_tool(memory: Memory, thrift, args: dict) -> str:
         if not owner()["phone"]:
             return f"Your mobile number isn't saved yet: {SETUP}"
         number = owner()["phone"]
+    if kind == "cancellation":
+        return ("Cancelling a subscription by phone goes through the cancel_subscription tool (start, route phone): "
+                "it asks for the yes, makes the call and then checks the charges stop.")
     call = plan(memory, "you" if kind == "tell_me" else (args.get("who") or "the business"), number, kind,
                 args.get("goal") or "", args.get("windows") or "")
     first = (owner()["name"].split() or ["your"])[0]

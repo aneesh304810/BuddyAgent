@@ -662,6 +662,17 @@ async def run(memory: Memory, deliver: Deliver, connected=None) -> None:
                     for alert in trials.trial_alerts():  # free trials about to start charging
                         if await deliver("money", alert["text"]):
                             trials.told_trial(alert)
+                    from . import subcancel  # noqa: PLC0415
+                    try:  # cancellations in progress: confirmed, stopped, or still charging
+                        for text in await asyncio.to_thread(subcancel.check, memory):
+                            await deliver("money", text)
+                        if subcancel.review_due(memory):  # the monthly subscription check
+                            subcancel.mark_reviewed(memory)
+                            text = await asyncio.to_thread(subcancel.review_message, memory)
+                            if text:
+                                await deliver("money", text)
+                    except Exception:
+                        log.exception("subscription cancel check failed")
                     if CARD_LOOKUP and not memory.get("benefits:setup_done") \
                             and memory.get("benefits:setup_tried") != today and perks.known_cards():
                         memory.set("benefits:setup_tried", today)  # the first time: every card at once

@@ -97,7 +97,7 @@ flowchart LR
 | [Phone calls](06-phone-calls.md) | Calls businesses for you after your yes and answers calls: Plivo, Pipecat on your server, Deepgram, Claude and ElevenLabs; your contacts and meeting proposals | 3 |
 | [Speaking up on its own: briefing, reminders and alerts](07-speaking-up-on-its-own.md) | The morning briefing with news, finance and events that follows what you talk about; reminders; and alerts whose loudness is learned from your thumbs | 6 |
 | [Learning: the English and investing tutors](08-learning.md) | The morning investing lesson, the morning English lesson, the evening English review and live tips, and Market school | 3 |
-| [Money](09-money.md) | Bank and card feeds (read-only), bills, the money advisor and review, card choices and benefits, cancelling subscriptions; never moves money | 12 |
+| [Money](09-money.md) | Bank and card feeds (read-only), bills, the money advisor and review, card choices and benefits, cancelling subscriptions; never moves money | 13 |
 | [Shopping and deals](10-shopping-and-deals.md) | Your shopping profile, buy now or wait, the daily deals collector, the deals inbox, deal forecasts and watches, price history, Amazon prices and seasonal prices; never buys | 10 |
 | [The price book, pattern learning and trained models](11-the-price-book-pattern-learning-and-trained-models.md) | A separate market-price database, nightly pattern learning in the sandbox, and models trained on judged calls once there is enough data | 3 |
 | [Investing: signals, research and practice](12-investing.md) | Chart setups and trade ideas, Reddit and news signals, buy and sell signals with a track record, live triggers, investor checklists, fund holdings, the committee and journal, a paper portfolio and Buddy's own practice book; never trades | 13 |
@@ -113,4 +113,4 @@ flowchart LR
 | [Insights and costs](22-insights-and-costs.md) | What Buddy spends and how well it does, model by model and service by service, and what makes it feel slow | 4 |
 | [The server and the app](23-the-server-and-the-app.md) | The one server the phone talks to: the chat connection, the app's pages and their data | 1 |
 
-23 features, 139 server modules. The app (Kotlin) and the deploy scripts are documented by `python -m buddy.codedocs`.
+23 features, 140 server modules. The app (Kotlin) and the deploy scripts are documented by `python -m buddy.codedocs`.

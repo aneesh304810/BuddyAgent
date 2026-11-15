@@ -333,6 +333,20 @@ decide each differently), and uses it whenever you ask about a purchase.
   20% of the book or more than the cash left, and all open positions together may not risk more than 6% of the
   book; a signal that would break that is written down as skipped. The Signals tab shows the book's value, its
   worst fall from a peak, what is at risk now, and the average result per trade in units of the amount risked.
+- **The subscription cancel service.** Once a month Buddy lists every subscription it found in your card and
+  bank charges with the monthly and yearly cost and what changed (new, price went up, charged on two cards,
+  marked to cancel but still charging); "what am I paying for?" shows it any time. Buddy can't see whether you
+  use a service, so you choose. "Cancel Hulu" then cancels it after your yes, asked for each one on its own,
+  by the route that service takes: an email sent from your own address (you see the exact words first), a
+  phone call by Buddy's call agent (it says it is your assistant, turns down offers to stay unless you set one
+  you'd take, asks for a confirmation number and the end date, shares only your name, callback number and the
+  account's email, and never a card number or password), or, for services that cancel only inside your
+  signed-in account, the cancel page opened on the phone with Buddy walking you through it while you tap the
+  last button. Buddy never signs in to your accounts. Afterwards it saves the confirmation email as proof,
+  tells you when the next charge fails to come, and if a charge does come after the cancellation it says so
+  and offers the dispute letter. Honest limits: many services only cancel for the account holder, so a call
+  can end with "you need to call them yourself" (you get the number and hours); the email route needs your
+  email account set up for sending; phone calls need the Calls setup (CALLS.md).
 - **The Practice tab (Investments page).** Shows the practice book as it happens: the book's value now, each
   open paper position with its price now and the reasons it was bought, each closed trade with what it was
   bought and sold at, why it was sold, its result and what the S&P 500 did over the same days, the signals the

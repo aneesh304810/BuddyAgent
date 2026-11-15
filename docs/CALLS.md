@@ -123,7 +123,8 @@ Built-in rules:
 - 15 minutes a call (90 for hold calls, 20 for calls to you);
 - it says it's an AI assistant if asked;
 - it never gives card or account numbers, SSN or passwords;
-- it never pays, cancels or agrees to fees;
+- it never pays or agrees to fees, and it cancels nothing, except a subscription you asked it to cancel
+  (the cancel service: one yes per cancellation, see MONEY.md);
 - no recording.
 
 What each call costs (estimated, part by part: line, listening, voice, Claude) is in the app's **Insights →

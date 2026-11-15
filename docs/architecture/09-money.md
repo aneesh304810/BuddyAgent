@@ -30,6 +30,7 @@ flowchart LR
         finops_py["finops.py<br/>what running Buddy costs, all in, this month"]
         benefits_py["benefits.py<br/>credits and perks that quietly expire, tracked so none is wasted"]
         cancelling_py["cancelling.py<br/>Cancelling subscriptions, made easy"]
+        subcancel_py["subcancel.py<br/>Buddy finds what you pay for, you say which to cancel, and Buddy does…"]
         merchants_py["merchants.py<br/>Clean merchant names before they reach Money, the dashboard and the…"]
         review_py["review.py<br/>a detailed report of where the money went, what changed, and how to…"]
     end
@@ -69,12 +70,14 @@ flowchart LR
     card_optimizer_py --> benefits_py
     benefits_py --> finance_py
     cancelling_py --> finance_py
+    subcancel_py --> cancelling_py
+    subcancel_py --> finance_py
     review_py --> advisor_py
     review_py --> benefits_py
     review_py --> credit_py
     review_py --> finance_py
     review_py --> plaid_py
-    db[("Your database<br/>bank_accounts, bills, fin_benefit_uses, fin_benefits, fin_cancel_proofs, fin_card_catalog, fin_cards, fin_credit_deals and more")]
+    db[("Your database<br/>bank_accounts, bills, fin_benefit_uses, fin_benefits, fin_cancel_jobs, fin_cancel_proofs, fin_card_catalog, fin_cards and more")]
     money_py --> db
     bankfeed_py --> db
     plaid_py --> db
@@ -83,19 +86,20 @@ flowchart LR
     credit_py --> db
     benefits_py --> db
     cancelling_py --> db
+    subcancel_py --> db
     merchants_py --> db
     review_py --> db
     o_0["Buddy Connect"]
     money_py -. uses .-> o_0
     o_1["Claude"]
     money_py -. uses .-> o_1
-    o_2["Free AI models"]
+    o_2["Email, messages and apps"]
     money_py -. uses .-> o_2
-    o_3["Making and doing things"]
+    o_3["Free AI models"]
     money_py -. uses .-> o_3
-    o_4["Memory"]
+    o_4["Making and doing things"]
     money_py -. uses .-> o_4
-    o_5["News, trends and research"]
+    o_5["Memory"]
     money_py -. uses .-> o_5
 ```
 
@@ -116,6 +120,7 @@ The diagram reads left to right: what you ask, the tools Buddy uses, the modules
 | `credit` | The user's credit score and credit report changes | overview, read_screen, full_report, add_score, add_event, it_was_me, not_me, forget | credit.py |
 | `cost_report` | What running Buddy costs this month, all in, service by service: Claude, the server (DigitalOcean), Zapier, Plaid (banks connected and calls), speech to text an | - | finops.py |
 | `card_benefits` | The user's credit card credits and perks that expire (store, travel, dining, streaming credits...) and their wish list | add, list, used, remove, wish_add, wishes, wish_remove, plan, lookup, lookup_all, setup, add_from_catalog, deals, cards, name_card | benefits.py |
+| `cancel_subscription` | The subscription cancel service | review, start, status, check | subcancel.py |
 | `merchants` | Clean shop names in Money and the dashboard: banks spell one place many ways ("SQ *SON CUBANO", "SON CUBANO RESTAURANT ON THE HUDSON"), and Buddy groups them | list, merge, rename | merchants.py |
 
 ## Technical design, module by module
@@ -195,7 +200,8 @@ steady rhythm (weekly, monthly, quarterly, yearly) with a similar amount. No AI 
 transactions; Claude only ever sees the finished list. For each one: amount, how often, card, next
 charge, yearly cost, and flags (new, price went up, on two cards, a free trial that turned paid).
 The user marks each keep / cancel / not sure; cancel opens the service's cancel page on the phone
-(Buddy never cancels anything itself) and then watches that no charge comes after.
+and then watches that no charge comes after. Cancelling for the owner, after their yes for each one, is
+subcancel.py (an email from their address, or a phone call by the call agent).
 
 Cards: closing day, due day, statement balance, minimum due, limit and APR, from card statement
 emails and from statements uploaded to the library (read once when filed, card numbers masked to
@@ -371,6 +377,39 @@ Cancelling subscriptions, made easy. Buddy helps with every step; the user taps 
 - Tables: `fin_cancel_proofs`, `fin_trials`
 - Uses: config.py, finance.py, memory.py, tools.py
 
+### subcancel.py
+
+```text
+The subscription cancel service: Buddy finds what you pay for, you say which to cancel, and Buddy does the
+cancelling and then checks it really stopped.
+
+  1. Review    once a month (and on request): every subscription found in the card and bank charges, what it
+               costs a month and a year, and what changed (new, price went up, charged on two cards, marked to
+               cancel but still charging). Buddy can't see whether you use a service, so it doesn't guess.
+  2. One yes   each cancellation is asked for on its own: the service, the price, the route and exactly what
+               will be sent or said. Nothing is cancelled without that yes.
+  3. Cancel    by the route that works for that service:
+                 email    Buddy sends the cancellation email from your own address (the account's SMTP)
+                 phone    Buddy's phone agent calls the service as your assistant, asks to cancel, turns down
+                          offers to stay unless you set one you'd accept, and asks for a confirmation number
+                          and the date it ends. It is honest about being an AI, gives only your name, callback
+                          number and the account's email, never a card number, password or SSN, and never agrees
+                          to a fee. Many services will only cancel for the account holder: then it says so and
+                          you get the number to call.
+                 guided   services that cancel only inside your signed-in account: the cancel page opens on the
+                          phone and Buddy walks you through it; you tap the last button. Buddy never signs in
+                          to your accounts and never holds their passwords.
+  4. Check     the confirmation email is saved as proof (cancelling.py); the call's outcome is kept; then the
+               charges are watched: if the next one doesn't come, it's reported as stopped; if a charge does
+               come after the cancellation, Buddy says so and offers the dispute letter for the card issuer.
+
+The phone number or email address to cancel with comes from the service's own official help page (looked up at
+the time), never from memory. Everything here stays in the encrypted database.
+```
+
+- Tables: `fin_cancel_jobs`
+- Uses: calls.py, cancelling.py, config.py, email_accounts.py, finance.py, memory.py, tools.py
+
 ### merchants.py
 
 ```text
@@ -419,6 +458,6 @@ yearly dollar amount · a suggested monthly budget · the few things to do first
 
 ## How it connects
 
-- Relies on: Buddy Connect; Claude: the brain; Free AI models (Groq, Gemini, Mistral, Cerebras, GitHub Models, OpenRouter); Making and doing things; Memory; News, trends and research; Security and privacy; Travel and getting around
+- Relies on: Buddy Connect; Claude: the brain; Email, messages and apps; Free AI models (Groq, Gemini, Mistral, Cerebras, GitHub Models, OpenRouter); Making and doing things; Memory; News, trends and research; Phone calls; Security and privacy; Travel and getting around
 - Relied on by: Claude: the brain; Email, messages and apps; Investing: signals, research and practice; Learning: the English and investing tutors; Memory; News, trends and research; Security and privacy; Shopping and deals; Speaking up on its own: briefing, reminders and alerts; The server and the app; Travel and getting around; Voice: Talk mode and Listen-in
 

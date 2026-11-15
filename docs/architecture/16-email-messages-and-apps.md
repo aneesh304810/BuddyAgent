@@ -185,5 +185,5 @@ delayed or a problem. Only tracking numbers go to 17TRACK. Delivered packages ar
 ## How it connects
 
 - Relies on: Claude: the brain; Memory; Money; Phone calls; Shopping and deals; Travel and getting around
-- Relied on by: Claude: the brain; Memory; Shopping and deals; Speaking up on its own: briefing, reminders and alerts; The server and the app
+- Relied on by: Claude: the brain; Memory; Money; Shopping and deals; Speaking up on its own: briefing, reminders and alerts; The server and the app
 
