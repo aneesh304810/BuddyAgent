@@ -77,4 +77,7 @@ Under each reply a small line says how it was answered: which AI answered, wheth
 with a public part, and the tools used. It is built from the calls logged for that turn, and is left out
 when nothing was logged.
 
-Not yet: source and freshness lines everywhere, and the wide-screen layout for the Fold.
+On a screen 600 points wide or more (the Fold opened, a tablet) the five places move from the bar at the
+bottom to a rail down the left side, and the buy-now-or-wait cards in Deals sit two across.
+
+Not yet: source and freshness lines everywhere.

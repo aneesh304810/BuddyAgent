@@ -42,6 +42,8 @@ import androidx.compose.foundation.background
 import androidx.compose.foundation.clickable
 import androidx.compose.foundation.layout.Arrangement
 import androidx.compose.foundation.layout.Box
+import androidx.compose.foundation.layout.BoxWithConstraints
+import androidx.compose.foundation.layout.fillMaxHeight
 import androidx.compose.foundation.layout.Column
 import androidx.compose.foundation.layout.Row
 import androidx.compose.foundation.layout.Spacer
@@ -347,7 +349,12 @@ private fun BuddyScreen(
 
     // One header, the screen, then the bar with the five places (Nav.kt). The conversation lives on the Buddy
     // place only; on every other screen a microphone button talks to the same conversation.
-    Column(Modifier.fillMaxSize().background(Ink).safeDrawingPadding()) {
+    // On a wide screen (the Fold opened, a tablet) the five places move to a rail on the left side.
+    BoxWithConstraints(Modifier.fillMaxSize().background(Ink).safeDrawingPadding()) {
+    val wide = maxWidth >= 600.dp
+    Row(Modifier.fillMaxSize()) {
+    if (wide) SideRail(placeOf(screen)) { onNavigate(homeOf(it)) }
+    Column(Modifier.weight(1f).fillMaxHeight()) {
         Row(Modifier.fillMaxWidth().padding(horizontal = 16.dp, vertical = 10.dp),
             verticalAlignment = Alignment.CenterVertically) {
             val parent = parentOf(screen)
@@ -465,7 +472,9 @@ private fun BuddyScreen(
               TalkAnywhere(ui, Modifier.align(Alignment.BottomEnd).padding(16.dp))
           }
         }
-        BottomBar(placeOf(screen)) { onNavigate(homeOf(it)) }
+        if (!wide) BottomBar(placeOf(screen)) { onNavigate(homeOf(it)) }
+    }
+    }
     }
 }
 

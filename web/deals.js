@@ -48,7 +48,7 @@ async function renderForYou() {
         <span class="muted">${c.wait ? Math.round(c.chance * 100) + "% chance of a lower price" : Math.round((1 - c.chance) * 100) + "% chance this is as low as it gets"}</span></p>
       <p class="muted" style="margin:0 0 6px">${esc(c.why)}</p>
       <small class="muted">Buddy's call on ${esc(c.made_on)} · ${esc(c.record)}</small></section>`;
-    $("main").innerHTML = (calls.calls.length ? calls.calls.map(card).join("")
+    $("main").innerHTML = (calls.calls.length ? `<div class="two">${calls.calls.map(card).join("")}</div>`
       : `<p class="muted">No open calls. Ask Buddy "should I buy this now?" or "is this a good fare?" and the call shows here until it is settled.</p>`)
       + `<p class="muted">${esc(calls.note)} How these calls have turned out is in Intelligence, under Predictions.</p>`;
   } catch (e) { $("main").innerHTML = `<p class="err">${esc(e.message)}</p>`; }

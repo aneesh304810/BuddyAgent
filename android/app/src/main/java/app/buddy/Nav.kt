@@ -10,6 +10,7 @@ import androidx.compose.foundation.layout.Box
 import androidx.compose.foundation.layout.Column
 import androidx.compose.foundation.layout.Row
 import androidx.compose.foundation.layout.Spacer
+import androidx.compose.foundation.layout.fillMaxHeight
 import androidx.compose.foundation.layout.fillMaxSize
 import androidx.compose.foundation.layout.fillMaxWidth
 import androidx.compose.foundation.layout.height
@@ -47,6 +48,7 @@ import androidx.compose.ui.semantics.Role
 import androidx.compose.ui.semantics.contentDescription
 import androidx.compose.ui.semantics.semantics
 import androidx.compose.ui.text.font.FontWeight
+import androidx.compose.ui.text.style.TextAlign
 import androidx.compose.ui.text.style.TextOverflow
 import androidx.compose.ui.unit.Dp
 import androidx.compose.ui.unit.dp
@@ -218,6 +220,37 @@ fun BottomBar(current: Place, onPick: (Place) -> Unit) {
                 }
             }
         }
+    }
+}
+
+/** The same five places as the bar, down the left side, for a wide screen. */
+@Composable
+fun SideRail(current: Place, onPick: (Place) -> Unit) {
+    Row(Modifier.fillMaxHeight()) {
+        Column(
+            Modifier.fillMaxHeight().width(92.dp).background(Pal.panel).padding(vertical = 12.dp, horizontal = 6.dp),
+            verticalArrangement = Arrangement.spacedBy(6.dp),
+        ) {
+            Place.entries.forEach { place ->
+                val on = place == current
+                val tint = if (on) Pal.link else Pal.dim
+                Column(
+                    Modifier.fillMaxWidth().heightIn(min = 60.dp).clip(RoundedCornerShape(14.dp))
+                        .background(if (on) Pal.track else Pal.panel)
+                        .clickable(role = Role.Tab) { onPick(place) }
+                        .semantics { contentDescription = place.label + if (on) ", selected" else "" }
+                        .padding(vertical = 6.dp),
+                    horizontalAlignment = Alignment.CenterHorizontally,
+                    verticalArrangement = Arrangement.Center,
+                ) {
+                    GlyphIcon(glyphOf(place), tint, 24.dp)
+                    Spacer(Modifier.height(3.dp))
+                    Text(place.label, color = tint, fontSize = 11.sp, maxLines = 2, overflow = TextOverflow.Ellipsis,
+                        textAlign = TextAlign.Center, fontWeight = if (on) FontWeight.SemiBold else FontWeight.Normal)
+                }
+            }
+        }
+        Box(Modifier.fillMaxHeight().width(1.dp).background(Pal.track))
     }
 }
 
