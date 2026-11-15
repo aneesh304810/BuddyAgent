@@ -16,7 +16,7 @@ const esc = (s) => String(s ?? "").replace(/[&<>"']/g, (c) => ({ "&": "&amp;", "
 const safe = (u) => /^https:\/\/[^\s"'<>]+$/.test(String(u || "")) ? u : "";
 const SEV = { critical: ["⛔", "Critical"], high: ["◆", "High"], medium: ["▲", "Medium"], low: ["ℹ", "Low"], good: ["✓", "Good"] };
 const ORDER = ["critical", "high", "medium", "low"];
-const TABS = [["overview", "Overview"], ["open", "Open"], ["fixed", "Fixed"], ["defences", "Defences"]];
+const TABS = [["overview", "Overview"], ["open", "Open"], ["fixed", "Fixed"], ["services", "Services"], ["defences", "Defences"]];
 let data = null, tab = TABS.some(([k]) => k === storageGet("securityTab")) ? storageGet("securityTab") : "overview", busy = false;
 
 async function api(path, body) {
@@ -37,7 +37,7 @@ const kpi = (value, label) => `<div class="kpi"><b>${value}</b><span>${esc(label
 const layerName = (key) => (data.layers.find((l) => l.key === key) || {}).name || key;
 
 function tabs() {
-  const n = { open: data.open.length, fixed: data.fixed.length };
+  const n = { open: data.open.length, fixed: data.fixed.length, services: data.services.length };
   $("tabs").innerHTML = TABS.map(([k, label]) => `<button class="chip${k === tab ? " on" : ""}" role="tab" aria-selected="${k === tab}" data-tab="${k}">${label}${n[k] != null ? ` (${n[k]})` : ""}</button>`).join("");
   document.querySelectorAll("[data-tab]").forEach((b) => b.onclick = () => { tab = b.dataset.tab; storageSet("securityTab", tab); render(); });
 }
@@ -49,7 +49,32 @@ function node(key) {
                 l.defences ? `${l.defences_on} of ${l.defences} defences on` : ""].filter(Boolean).join(" · ");
   return `<button class="node" data-layer="${esc(l.key)}" data-level="${esc(l.level)}" aria-label="${esc(l.name)}: ${SEV[l.level][1]}, ${esc(bits)}">
     <span class="top"><b>${esc(l.name)}</b>${badge(l.level)}</span>
-    <small>${esc(bits)}</small>${l.exploited ? `<small><span class="hot">${l.exploited} being exploited now</span></small>` : ""}</button>`;
+    <small>${esc(bits)}</small>${key === "outside" ? `<small>${esc(servicesLine())}</small>` : ""}${l.exploited ? `<small><span class="hot">${l.exploited} being exploited now</span></small>` : ""}</button>`;
+}
+function servicesLine() {
+  const s = data.services_summary;
+  return `${s.connected} services connected · ${s.see_personal_data} can see personal data`
+    + (s.disconnected ? ` · ${s.disconnected} disconnected` : "") + (s.with_incidents ? ` · ${s.with_incidents} with an incident` : "");
+}
+function service(x) {
+  const act = x.calls_7_days ? `${x.calls_7_days} call${x.calls_7_days === 1 ? "" : "s"} in 7 days${x.failed_7_days ? `, ${x.failed_7_days} failed` : ""}` : "no calls in 7 days";
+  const last = x.last_used ? `last used ${day(x.last_used)}` : "never used";
+  return `<div class="svc${x.off ? " off" : ""}"><div class="top"><b>${esc(x.title)}</b>
+      <span class="badge"><i style="background:var(--${x.personal ? "sev-medium" : "sev-low"})"></i>${x.personal ? "sees personal data" : "public data only"}</span>
+      ${x.off ? `<span class="hot">disconnected</span>` : ""}</div>
+    <div class="muted">${esc(x.used_for || x.group)}</div>
+    <div class="muted">${esc(act)} · ${esc(last)}${x.reaches.length ? " · reaches " + esc(x.reaches.join(", ")) : ""}</div>
+    ${x.incidents.map((i) => `<div class="inc">▲ ${esc(i)}</div>`).join("")}
+    ${x.last_error ? `<div class="inc">▲ Last call failed: ${esc(x.last_error)}</div>` : ""}
+    <div class="act">${x.can_disconnect ? `<button class="btn${x.off ? " solid" : ""}" data-svc="${esc(x.name)}" data-off="${x.off ? "0" : "1"}">${x.off ? "Reconnect" : "Disconnect"}</button>`
+      : `<span class="muted">${esc(x.why_not)}</span>`}</div></div>`;
+}
+function servicesList() {
+  const rows = [...data.services].sort((a, b) => (b.incidents.length - a.incidents.length) || (b.personal - a.personal) || a.title.localeCompare(b.title));
+  const groups = [["With an incident or disconnected", (x) => x.incidents.length || x.off], ["Can see your personal data", (x) => x.personal && !x.incidents.length && !x.off],
+                  ["Public data only", (x) => !x.personal && !x.incidents.length && !x.off]];
+  return groups.map(([title, pick]) => { const mine = rows.filter(pick);
+    return mine.length ? `<h3>${title} (${mine.length})</h3>${mine.map(service).join("")}` : ""; }).join("") || `<p class="muted">No outside service is connected.</p>`;
 }
 function diagram() {
   return `<div class="dia">
@@ -59,7 +84,7 @@ function diagram() {
     <div class="wire">only what the edge lets through</div>
     <div class="boundary"><span class="tag">Inside the server</span>
       ${node("server")}
-      <div class="inner">${node("app")}${node("content")}${node("data")}${node("sandbox")}</div>
+      <div class="inner">${node("app")}${node("content")}${node("database")}${node("keys")}${node("sandbox")}</div>
     </div>
     <div class="wire">encrypted calls out, through one gateway, with each service's own key</div>
     ${node("outside")}
@@ -145,7 +170,9 @@ function openLayer(key) {
     <h3>Open (${l.open})</h3>${findings(mine(data.open), "Nothing is open in this layer.")}
     <h3>Defences in this layer</h3>${guards(data.defences.filter((g) => g.layer === key)) || `<p class="muted">None listed for this layer.</p>`}
     <h3>Fixed (${mine(data.fixed).length})</h3>${findings(mine(data.fixed), "Nothing has needed fixing here in the last 90 days.")}
-    ${mine(data.accepted).length ? `<h3>Accepted</h3>${findings(mine(data.accepted), "")}` : ""}`;
+    ${mine(data.accepted).length ? `<h3>Accepted</h3>${findings(mine(data.accepted), "")}` : ""}
+    ${key === "outside" ? `<h2 style="margin-top:18px">Every service Buddy is connected to</h2>
+      <p class="muted">Disconnect stops Buddy sending anything to a service at once. Its key stays stored: after a breach, also make a new key at the provider.</p>${servicesList()}` : ""}`;
   $("sheet").classList.add("open");
   $("closesheet").onclick = closeSheet; $("closesheet").focus();
   wire($("panel"));
@@ -175,6 +202,8 @@ function render() {
     fixed: () => card(`Fixed in the last 90 days (${data.fixed.length})`, findings(data.fixed, "Nothing has needed fixing yet."), "A finding is marked fixed when a later scan no longer finds it.")
       + ((data.server_check.done || []).length ? card("What the weekly patch run did last", `<ul>${data.server_check.done.map((d) => `<li>${esc(d)}</li>`).join("")}</ul>`,
           data.server_check.at ? `Run on ${esc(day(data.server_check.at))}.` : "") : ""),
+    services: () => card("Outside services", `<p class="muted">${esc(servicesLine())}. Disconnect stops Buddy sending anything to a service at once; its key stays stored, so after a breach also make a new key at the provider.</p>${servicesList()}`,
+      "Activity is from Buddy's own call log. Incidents come from the daily scan: published breaches at that provider, a flaw in its product being exploited, or its key being refused."),
     defences: () => data.layers.map((l) => { const g = data.defences.filter((x) => x.layer === l.key);
       return g.length ? card(esc(l.name), guards(g)) : ""; }).join(""),
   }[tab]();
@@ -183,6 +212,7 @@ function render() {
 }
 function wire(root) {
   root.querySelectorAll("[data-layer]").forEach((b) => b.onclick = () => openLayer(b.dataset.layer));
+  root.querySelectorAll("[data-svc]").forEach((b) => b.onclick = () => switchService(b.dataset.svc, b.dataset.off === "1", root));
   root.querySelectorAll("[data-accept]").forEach((b) => b.onclick = () => accept(b.dataset.accept, root.querySelector(`[data-reason="${b.dataset.accept}"]`).value));
 }
 async function scan() {
@@ -192,6 +222,11 @@ async function scan() {
     notice(out.new || out.fixed ? `${out.new} new, ${out.fixed} fixed.` : "Scan done: nothing changed."); }
   catch (e) { notice(e.message); }
   busy = false; render();
+}
+async function switchService(name, off, root) {
+  try { const out = await api("/api/security/service", { name, off }); data = out; notice(out.text);
+    render(); if (root === $("panel")) openLayer("outside"); }
+  catch (e) { notice(e.message); }
 }
 async function accept(id, reason) {
   try { const out = await api("/api/security/accept", { id: +id, reason }); data = out; closeSheet(); render(); notice("Marked as accepted."); }

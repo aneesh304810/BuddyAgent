@@ -1493,6 +1493,17 @@ async def api_security_scan() -> dict:
             **await asyncio.to_thread(securitywatch.report, memory)}
 
 
+@app.post("/api/security/service", dependencies=[Depends(require_admin)])
+async def api_security_service(body: dict) -> dict:
+    """Disconnect or reconnect one outside service (the owner's own tap on the Security page)."""
+    from . import gateway, securitywatch
+    try:
+        text = gateway.set_off(memory, str(body.get("name") or ""), bool(body.get("off")), "from the Security page")
+    except ToolError as e:
+        raise HTTPException(status_code=400, detail=str(e)) from e
+    return {"text": text, **await asyncio.to_thread(securitywatch.report, memory)}
+
+
 @app.post("/api/security/accept", dependencies=[Depends(require_admin)])
 async def api_security_accept(body: dict) -> dict:
     from . import securitywatch

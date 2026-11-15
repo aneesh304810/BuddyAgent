@@ -87,15 +87,20 @@ LAYERS = (
     ("server", "The server", "The Ubuntu machine: its updates, SSH, accounts and the lockdown around Buddy's service."),
     ("app", "Buddy itself", "The web server, the sign-in, and the packages that handle connections and Buddy's logic."),
     ("content", "Reading outside content", "The parts that open email attachments, web pages and uploaded files."),
-    ("data", "Data and keys", "The encrypted database, the key store, the logs and the backups."),
+    ("database", "The database", "One encrypted file (SQLCipher) holding everything Buddy remembers: email, money, "
+                                 "health, documents and the vault. Market prices are in a separate plain file "
+                                 "with nothing personal in it."),
+    ("keys", "Keys, logs and backups", "The sealed key store, the logs (keys and tokens are masked) and the "
+                                       "encrypted nightly backups."),
     ("sandbox", "The code sandbox", "The locked-down container where analysis code runs, with no network and no keys."),
     ("outside", "Outside services", "Claude, the banks' feed, email and the data providers Buddy calls."),
 )
 LAYER_OF_PLATFORM = {"android": "device", "chromium": "device", "samsung": "device", "tailscale": "network",
-                     "docker": "sandbox", "runc": "sandbox", "containerd": "sandbox", "sqlite": "data",
-                     "sqlcipher": "data", "openssl": "network"}
+                     "docker": "sandbox", "runc": "sandbox", "containerd": "sandbox", "sqlite": "database",
+                     "sqlcipher": "database", "openssl": "network"}
 LAYER_WORDS = (("network", r"firewall|funnel|listens on all|tailnet|tailscale"),
-               ("data", r"key|unencrypted|log lines|backup|database|secret"),
+               ("database", r"database"),
+               ("keys", r"key|unencrypted|log lines|backup|secret"),
                ("sandbox", r"sandbox|docker"),
                ("outside", r"older than|rotate"),
                ("server", r"ssh|update|reboot|exposure|access|account|sudo|disk|check"))
@@ -104,13 +109,15 @@ LAYER_WORDS = (("network", r"firewall|funnel|listens on all|tailnet|tailscale"),
 def layer_of(f: dict) -> str:
     if f["source"] == "packages":
         name = f.get("component", "")
-        return "data" if name in ("cryptography", "duckdb", "sqlcipher3", "sqlcipher3-binary") else \
-            "content" if name in PARSERS else "app"
+        return "database" if name in ("duckdb", "sqlcipher3", "sqlcipher3-binary") else \
+            "keys" if name == "cryptography" else "content" if name in PARSERS else "app"
     text = f"{f.get('component', '')} {f.get('title', '')}".lower()
     if f["source"] == "exploited":
         return next((layer for name, layer in LAYER_OF_PLATFORM.items() if name in text), "server")
+    if f["source"] == "outside":
+        return "outside"
     if f["source"] == "settings":
-        return "data" if "database" in text else "app"
+        return "database" if "database" in text else "app"
     return next((layer for layer, words in LAYER_WORDS if re.search(words, text)), "server")
 SCAN_KEY, DAY_KEY = "securitywatch:last", "securitywatch:day"
 PATCH_REQUEST = Path(os.getenv("BUDDY_PATCH_REQUEST", "/var/lib/buddy/patch-request"))
@@ -167,6 +174,8 @@ EXPLAIN = (  # (words in a server finding's title, why it matters, how it could 
 def _ready(memory: Memory) -> None:
     memory.db.executescript(SCHEMA_SQL)
     memory._add_columns("sec_findings", {"layer": "TEXT NOT NULL DEFAULT 'app'"})
+    memory.db.execute("UPDATE sec_findings SET layer = CASE WHEN title LIKE '%database%' THEN 'database' ELSE 'keys' "
+                      "END WHERE layer = 'data'")  # the data layer became two
 
 
 # --- what is installed --------------------------------------------------------------------------------------
@@ -394,6 +403,120 @@ def from_exploited(entries: list[dict], findings: list[dict], today: date) -> li
     return out
 
 
+# --- outside services: what Buddy is connected to, what they did lately, and whether one was breached ---------
+BREACH_DAYS, IDLE_DAYS = 365, 60
+
+
+def _domain(host: str) -> str:
+    name = re.sub(r"^https?://", "", str(host)).split("/")[0].split(":")[0].lower()
+    parts = name.split(".")
+    return ".".join(parts[-3:] if len(parts) > 2 and parts[-2] in ("co", "com", "org", "gov") and len(parts[-1]) == 2
+                    else parts[-2:])
+
+
+def services(memory: Memory, env=None, today: date | None = None) -> list[dict]:
+    """Every outside service Buddy is set up to talk to: what it is for, whether it may see personal data,
+    its recent activity, and whether the owner disconnected it."""
+    today = today or local_now().date()
+    week = (datetime.now(timezone.utc) - timedelta(days=7)).isoformat()
+    recent = {}
+    for table in ("api_calls", "model_calls"):
+        try:
+            for r in memory.db.execute(f"SELECT provider, COUNT(*) AS n, SUM(1 - ok) AS bad, MAX(at) AS last FROM "  # nosec B608
+                                       f"{table} WHERE at >= ? GROUP BY provider", (week,)):
+                recent[r["provider"]] = (r["n"], r["bad"] or 0)
+        except Exception:
+            log.debug("securitywatch: no %s table yet", table)
+    out = []
+    for row in gateway.status(memory, env):
+        if not row["set_up"] and not gateway.is_off(memory, row["name"]):
+            continue
+        entry = gateway.CATALOG[row["name"]]
+        aliases = gateway.MODEL_NAMES.get(row["name"], (row["name"],))
+        n = sum(recent.get(a, (0, 0))[0] for a in aliases)
+        bad = sum(recent.get(a, (0, 0))[1] for a in aliases)
+        last = row["last_at"][:10]
+        idle = (today - date.fromisoformat(last)).days if last else None
+        out.append({"name": row["name"], "title": row["title"], "group": row["group"], "used_for": row["used_for"],
+                    "sees": "your personal data" if row["privacy"] == "personal" else "public data only",
+                    "personal": row["privacy"] == "personal",
+                    "reaches": sorted({_domain(h) for h in entry.get("hosts") or []}),
+                    "calls_7_days": n, "failed_7_days": bad, "last_used": last, "idle_days": idle,
+                    "last_error": row["last_error"][:120] if row["last_ok"] is False else "",
+                    "off": gateway.is_off(memory, row["name"]),
+                    "can_disconnect": row["name"] not in gateway.ALWAYS_ON,
+                    "why_not": gateway.ALWAYS_ON.get(row["name"], ""), "incidents": []})
+    return out
+
+
+def breaches(memory: Memory, fetch=None) -> list[dict]:
+    """The public list of companies that reported a data breach (Have I Been Pwned). Nothing is sent."""
+    got = gateway.call(memory, "hibp", "/api/v3/breaches", fetch=fetch, purpose="security",
+                       headers={"User-Agent": "buddy-security-watch"})
+    return got if isinstance(got, list) else []
+
+
+def from_services(rows: list[dict], breached: list[dict] | None, exploited: list[dict], today: date) -> list[dict]:
+    """Findings about the services Buddy is connected to: a published breach, a flaw in their product being
+    exploited, a key that suddenly stopped being accepted, and keys for services no longer used."""
+    out = []
+    since = (today - timedelta(days=BREACH_DAYS)).isoformat()
+    for s in rows:
+        domains, word = set(s["reaches"]), s["name"].split("_")[0].lower()
+        for b in breached or []:
+            added = str(b.get("AddedDate") or b.get("BreachDate") or "")[:10]
+            if added < since or str(b.get("Domain") or "").lower() not in domains:
+                continue
+            fresh = added >= (today - timedelta(days=90)).isoformat()
+            what = ", ".join((b.get("DataClasses") or [])[:5]) or "not stated"
+            s["incidents"].append(f"Reported a data breach, published {added}")
+            out.append({
+                "key": f"vendor:{s['name']}:{b.get('Name')}", "source": "outside", "component": s["title"],
+                "severity": "high" if s["personal"] and fresh else "medium",
+                "title": f"{s['title']} reported a data breach (published {added})",
+                "why": (f"Buddy is connected to {s['title']} ({s['used_for'] or s['group']}), which can see "
+                        f"{s['sees']}. The breach, dated {b.get('BreachDate', 'unknown')}, exposed: {what}. "
+                        "A published breach is about their customers' accounts; it doesn't by itself mean your "
+                        "key or your data was taken, but the key Buddy uses there should be treated as exposed."),
+                "exploit": ("With a stolen key someone could use the service as you: run up charges, and for a "
+                            "service that sees personal data, read what Buddy sends or stores there."),
+                "fix": (f"Rotate its key: sudo bash /opt/buddy/deploy/keys.sh rotate. To cut it off meanwhile, "
+                        f"disconnect {s['title']} on the Security page (Outside services)."),
+                "link": f"https://haveibeenpwned.com/PwnedWebsites#{b.get('Name', '')}"})
+        for e in exploited:
+            if str(e.get("dateAdded") or "") < (today - timedelta(days=90)).isoformat():
+                continue
+            if str(e.get("vendorProject") or "").lower().strip() == word and len(word) > 3:
+                cve = str(e.get("cveID") or "")
+                s["incidents"].append(f"A flaw in their product is being exploited ({cve})")
+                out.append({
+                    "key": f"vendor:{s['name']}:{cve}", "source": "outside", "severity": "medium", "exploited": 1,
+                    "component": s["title"], "ids": [cve],
+                    "title": f"A flaw in {s['title']}'s product is being exploited: {e.get('vulnerabilityName') or cve}",
+                    "why": (f"Buddy is connected to {s['title']}, which can see {s['sees']}. "
+                            + " ".join(str(e.get("shortDescription") or "").split())[:300]),
+                    "exploit": "This is in their product, not on your server. It matters if they haven't patched "
+                               "their own service; watch their status page.",
+                    "fix": f"If they confirm customer impact, rotate the key and disconnect {s['title']} until it is fixed.",
+                    "link": f"https://nvd.nist.gov/vuln/detail/{cve}"})
+        if re.search(r"\b(401|403|unauthori[sz]ed|forbidden|invalid.{0,12}key)\b", s["last_error"], re.I) and not s["off"]:
+            s["incidents"].append("Its key was refused on the last call")
+            out.append({
+                "key": f"vendor:{s['name']}:refused", "source": "outside", "severity": "medium", "component": s["title"],
+                "title": f"{s['title']} refused Buddy's key on its last call",
+                "why": "A key that suddenly stops working was revoked, expired, or changed by someone.",
+                "exploit": "If you didn't change it, check the account at the provider for sign-ins you don't recognise.",
+                "fix": "Sign in at the provider, check recent activity, make a new key and save it with keys.sh rotate."})
+        if s["idle_days"] is not None and s["idle_days"] >= IDLE_DAYS and not s["off"] and s["can_disconnect"]:
+            out.append({
+                "key": f"vendor:{s['name']}:idle", "source": "outside", "severity": "low", "component": s["title"],
+                "title": f"{s['title']} has a key but hasn't been used for {s['idle_days']} days",
+                "why": "Every stored key is one more thing that can leak. One you don't use is all risk and no benefit.",
+                "exploit": "A leaked key for a forgotten service can be abused for a long time before anyone notices.",
+                "fix": f"Disconnect {s['title']} on the Security page, and remove its key if you won't use it."})
+    return out
+
+
 def from_server(report: dict, waiting: list[str] | None, today: date) -> list[dict]:
     out = []
     if not report:
@@ -517,12 +640,27 @@ def scan(memory: Memory, fetch=None, pkgs: dict | None = None, report: dict | No
     except Exception as e:
         log.warning("securitywatch: OSV failed: %s", type(e).__name__)
         sources["Buddy's packages (OSV)"] = f"couldn't be reached ({type(e).__name__}); earlier findings kept as they were"
+    exploited_list: list[dict] = []
     try:
-        found += from_exploited(kev(memory, fetch), found, today)
+        exploited_list = kev(memory, fetch)
+        found += from_exploited(exploited_list, found, today)
         sources["Exploited now (CISA KEV)"], _ = "ok", ran.add("exploited")
     except Exception as e:
         log.warning("securitywatch: KEV failed: %s", type(e).__name__)
         sources["Exploited now (CISA KEV)"] = f"couldn't be reached ({type(e).__name__})"
+    try:  # the services Buddy is connected to: breaches, exploited flaws, refused or forgotten keys
+        connected = services(memory, env, today)
+        breached = None
+        try:
+            breached = breaches(memory, fetch)
+            sources["Breaches at connected services (Have I Been Pwned)"] = "ok"
+        except Exception as e:
+            sources["Breaches at connected services (Have I Been Pwned)"] = f"couldn't be reached ({type(e).__name__})"
+        found += from_services(connected, breached, exploited_list, today)
+        if breached is not None:
+            ran.add("outside")
+    except Exception:
+        log.warning("securitywatch: the services check failed", exc_info=True)
     cves = sorted({i for f in found for i in f.get("ids") or [] if i.startswith("CVE-")})
     if cves:
         try:
@@ -577,7 +715,7 @@ def _view(r: dict) -> dict:
     out = {k: r[k] for k in ("id", "layer", "severity", "title", "component", "version", "fixed_in", "why", "exploit", "fix",
                              "link", "status", "note", "first_seen", "last_seen", "closed_on", "score") if r[k] not in ("", None)}
     out["source"] = {"packages": "Buddy's packages", "exploited": "Exploited now", "server": "The server",
-                     "settings": "Buddy's settings"}.get(r["source"], r["source"])
+                     "settings": "Buddy's settings", "outside": "Outside services"}.get(r["source"], r["source"])
     out["ids"] = json.loads(r["ids"] or "[]")
     out["exploited"] = bool(r["exploited"])
     if r["epss"] is not None:
@@ -596,7 +734,7 @@ def defences(report: dict, env=None) -> list[dict]:
                    "internet and checks a signature on every request."},
         {"name": "Access token on every request", "layer": "app", "ok": len(token) >= 32,
          "detail": f"{len(token)} characters, compared in constant time."},
-        {"name": "Database encrypted", "layer": "data", "ok": bool((env.get("BUDDY_DB_KEY") or "").strip()),
+        {"name": "Database encrypted", "layer": "database", "ok": bool((env.get("BUDDY_DB_KEY") or "").strip()),
          "detail": "SQLCipher, with the key outside the database file."},
         {"name": "Lockout after failed sign-ins", "layer": "app", "ok": True,
          "detail": "Ten wrong tokens from one address in 15 minutes block it for 15 minutes; each is logged."},
@@ -607,6 +745,13 @@ def defences(report: dict, env=None) -> list[dict]:
         {"name": "Known-vulnerable packages blocked before release", "layer": "app", "ok": True,
          "detail": "Every code change is scanned on GitHub: tests, dependency vulnerabilities, a code scan and leaked secrets."},
     ]
+    out += [{"name": "Private documents sit in a vault", "layer": "database", "ok": True,
+             "detail": "Vault documents show only a summary; the full text opens after your yes."},
+            {"name": "Personal data is kept out of the plain price file", "layer": "database", "ok": True,
+             "detail": "The price book holds market and deal prices only; your journal, portfolio and offers "
+                       "are in the encrypted database."},
+            {"name": "Keys and tokens masked in logs and prompts", "layer": "keys", "ok": True,
+             "detail": "A filter removes anything shaped like a key before a log line is written."}]
     out += [{"name": "Outside services reached only through Buddy Connect", "layer": "outside", "ok": True,
              "detail": "Every outside call goes through one gateway: rate-limited, logged, and services marked "
                        "public can never be sent personal data."},
@@ -614,9 +759,9 @@ def defences(report: dict, env=None) -> list[dict]:
              "detail": "Buddy can read balances and transactions; it has no way to move money."}]
     for key, name, layer in (("firewall", "Firewall blocking incoming connections", "network"),
                              ("ssh_keys_only", "SSH keys only, no passwords", "server"),
-                             ("secrets_sealed", "Keys encrypted at rest", "data"),
+                             ("secrets_sealed", "Keys encrypted at rest", "keys"),
                              ("auto_updates", "Automatic security updates", "server"),
-                             ("backup_recent", "Recent encrypted backup", "data")):
+                             ("backup_recent", "Recent encrypted backup", "keys")):
         if key in facts:
             out.append({"name": name, "layer": layer, "ok": bool(facts[key]), "detail": "From the weekly server check."})
     return out
@@ -667,8 +812,16 @@ def report(memory: Memory, env=None) -> dict:
     worst = next((s for s in ORDER if counts[s]), "")
     check = server_check()
     guards = defences(check, env)
+    connected = services(memory, env)
+    for s in connected:  # what the last scan said about each service
+        s["incidents"] = [f["title"] for f in open_ if f.get("component") == s["title"] and f["source"] == "Outside services"]
     all_fixed = [_view(r) for r in rows if r["status"] == "fixed"]
     return {
+        "services": connected,
+        "services_summary": {"connected": sum(1 for s in connected if not s["off"]),
+                             "see_personal_data": sum(1 for s in connected if s["personal"] and not s["off"]),
+                             "disconnected": sum(1 for s in connected if s["off"]),
+                             "with_incidents": sum(1 for s in connected if s["incidents"])},
         "layers": layers(open_, all_fixed, accepted, guards), "trend": trend(rows, local_now().date()),
         "status": {"critical": "Act now", "high": "Needs attention", "medium": "A few things to tidy",
                    "low": "Good, with small notes", "": "Good: nothing open"}[worst] if last else "Not scanned yet",
@@ -720,10 +873,16 @@ TOOL = {
         "'security report', 'what did you fix'. scan: run every check now. explain (id): one finding in full. "
         "accept (id, reason): the owner accepts a risk. patch_now: install the fixes at once (asks the owner; "
         "Buddy may restart). Explain findings in plain words; never say the server is safe or secure, only "
-        "what was checked and what is open. The SOC 2 readiness document is the security_report tool.",
+        "what was checked and what is open. services: every outside service Buddy is connected to (what it is "
+        "for, whether it sees personal data, calls and failures in the last 7 days, last used, any published "
+        "breach or exploited flaw at that provider). disconnect (service, reason): stop sending anything to a "
+        "service at once (its key stays stored; say to rotate it after a breach); reconnect (service) undoes it. "
+        "The SOC 2 readiness document is the security_report tool.",
     "input_schema": {"type": "object", "properties": {
-        "action": {"type": "string", "enum": ["report", "scan", "explain", "accept", "patch_now"]},
-        "id": {"type": "integer"}, "reason": {"type": "string"}},
+        "action": {"type": "string", "enum": ["report", "scan", "explain", "accept", "patch_now", "services",
+                                              "disconnect", "reconnect"]},
+        "id": {"type": "integer"}, "reason": {"type": "string"},
+        "service": {"type": "string", "description": "disconnect, reconnect: the service's name from services"}},
         "required": ["action"], "additionalProperties": False},
 }
 
@@ -754,6 +913,15 @@ async def run_tool(memory: Memory, args: dict, thrift=None) -> str:
         return thrift.ask_action("Install the security fixes now? Ubuntu's updates, Buddy's vulnerable packages and "
                                  "the sandbox image; Buddy may restart for a minute, and a broken package update is "
                                  "rolled back by itself.", go)
+    if action == "services":
+        return json.dumps({"services": services(memory), "note": "incidents are filled by the daily scan; see "
+                           "report for the findings"}, ensure_ascii=False)
+    if action in ("disconnect", "reconnect"):
+        wanted = str(args.get("service") or "").strip().lower()
+        match = next((n for n, e in gateway.CATALOG.items() if wanted and (wanted == n or wanted in e["title"].lower())), "")
+        if not match:
+            raise ToolError("Which service? Use its name from the services list.")
+        return gateway.set_off(memory, match, action == "disconnect", str(args.get("reason") or ""))
     full = report(memory)
     full["open"], full["fixed"] = full["open"][:25], full["fixed"][:25]
     return json.dumps(full, ensure_ascii=False)

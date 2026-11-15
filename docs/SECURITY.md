@@ -42,6 +42,18 @@ Buddy app's **Security** page (menu, 🛡 Security) shows the result.
   are on; tap a layer to drill in. Charts show open findings by severity and what was found and fixed each
   week. Every finding says why it matters, how it could be used against this server (from the published
   attack details and from where that software sits in Buddy), and the fix.
+- **Outside services.** The Services tab (and the Outside services layer) lists every service Buddy is
+  connected to: what it is for, whether it can see personal data or public data only, the addresses it
+  reaches, its calls and failures in the last 7 days and when it was last used. The daily scan checks each
+  provider against the public list of reported data breaches (Have I Been Pwned; nothing is sent) and the
+  exploited-flaws list, and flags a key that was suddenly refused or a key for a service not used in 60 days.
+  **Disconnect** stops Buddy sending anything to a service at once (also by asking Buddy: "disconnect
+  Plivo"); its key stays stored, so after a breach also make a new key at the provider. Reconnect undoes it.
+  Claude can't be disconnected (it is Buddy's thinking), and data the phone sends in is switched off in the app.
+  A published breach is about that company's customers: it doesn't by itself mean your key or data was
+  taken, and a breach nobody has published is not on any list.
+- **The database** has its own box in the diagram: one encrypted file for everything personal, a vault for
+  private documents, and a separate plain file that holds market and deal prices only.
 - **Open and fixed.** A finding a later scan no longer finds is marked fixed, with the date. If a database
   can't be reached, nothing from it is marked fixed. You can accept a risk with a reason; it stays listed.
 - **Patching.** Packages with a published fix are upgraded by the weekly root job, and rolled back if Buddy

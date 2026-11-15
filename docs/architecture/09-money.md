@@ -187,7 +187,7 @@ same address added under Allowed redirect URIs in the Plaid dashboard.
 
 - Tables: `fin_income`, `fin_loans`, `fin_transfers`, `plaid_accounts`, `plaid_items`
 - Settings: `BUDDY_PLAID_CLIENT_ID`, `BUDDY_PLAID_COST_PER_BALANCE_CALL_USD`, `BUDDY_PLAID_ENV`, `BUDDY_PLAID_REDIRECT_URI`, `BUDDY_PLAID_SECRET`
-- Uses: bankfeed.py, finance.py, memory.py, money.py, tools.py, travel.py
+- Uses: bankfeed.py, finance.py, gateway.py, memory.py, money.py, tools.py, travel.py
 
 ### finance.py
 

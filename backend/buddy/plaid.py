@@ -588,6 +588,9 @@ class Plaid:
 
     def sync(self, force: bool = False) -> dict:
         totals = {"added": 0, "removed": 0, "cards": 0, "problems": []}
+        from . import gateway  # noqa: PLC0415
+        if gateway.is_off(self.memory, "plaid"):  # the owner disconnected the bank feed on the Security page
+            return {**totals, "problems": ["The bank feed is disconnected."]}
         soon = self.memory.get("plaid:sync_soon") or ""  # a card email just arrived: the bank likely has it too
         now = datetime.now(timezone.utc)
         for item in self.items():

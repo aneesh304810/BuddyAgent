@@ -196,6 +196,9 @@ def per_day(env=None) -> int:
 
 def plan(memory: Memory, who: str, number: str, kind: str, goal: str, windows: str = "") -> dict:
     _ready(memory)
+    off = [gateway.CATALOG[n]["title"] for n in ("plivo", "deepgram", "elevenlabs") if gateway.is_off(memory, n)]
+    if off:
+        raise ToolError(f"Calls are off: {', '.join(off)} is disconnected on the Security page.")
     if kind not in KINDS:
         raise ToolError("The kind of call is appointment, question, reservation, hold_connect, cancellation or tell_me.")
     if not (goal or "").strip():

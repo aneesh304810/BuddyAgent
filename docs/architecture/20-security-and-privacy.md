@@ -31,6 +31,8 @@ flowchart LR
     securitywatch_py --> s_cisa_kev
     s_epss["EPSS (exploit likelihood, FIRST.org)<br/>(public data only)"]
     securitywatch_py --> s_epss
+    s_hibp["Have I Been Pwned (published breaches)<br/>(public data only)"]
+    securitywatch_py --> s_hibp
     s_osv["OSV (open vulnerability database)<br/>(public data only)"]
     securitywatch_py --> s_osv
     o_0["Agents and skills"]
@@ -54,7 +56,7 @@ The diagram reads left to right: what you ask, the tools Buddy uses, the modules
 | Tool | What it is for | Actions | Module |
 |---|---|---|---|
 | `security_report` | Buddy's SOC 2 readiness assessment (security, availability, confidentiality, privacy): every control checked against live evidence from the server, the gaps and | report, status | compliance.py |
-| `security_watch` | Buddy's own security: a daily check of newly published vulnerabilities and flaws being exploited now against what this server runs, plus the server and settings | report, scan, explain, accept, patch_now | securitywatch.py |
+| `security_watch` | Buddy's own security: a daily check of newly published vulnerabilities and flaws being exploited now against what this server runs, plus the server and settings | report, scan, explain, accept, patch_now, services, disconnect, reconnect | securitywatch.py |
 
 ## Technical design, module by module
 
@@ -163,7 +165,7 @@ server is safe: a flaw nobody has published yet is in no database.
 ```
 
 - Tables: `sec_findings`
-- Outside services: CISA Known Exploited Vulnerabilities, EPSS (exploit likelihood, FIRST.org), OSV (open vulnerability database)
+- Outside services: CISA Known Exploited Vulnerabilities, EPSS (exploit likelihood, FIRST.org), Have I Been Pwned (published breaches), OSV (open vulnerability database)
 - Settings: `BUDDY_ACCESS_TOKEN`, `BUDDY_DB_KEY`, `BUDDY_DEV_MODE`, `BUDDY_PATCH_REQUEST`
 - Uses: config.py, gateway.py, health.py, memory.py, tools.py
 

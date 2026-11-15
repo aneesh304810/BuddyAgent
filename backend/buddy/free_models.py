@@ -372,7 +372,9 @@ class FreeModels:
     def enabled(self) -> list[str]:
         if (self.env.get("BUDDY_FREE_MODELS") or "").strip() != "1":
             return []
-        return [name for name, p in PROVIDERS.items() if (self.env.get(p["key"]) or "").strip()]
+        from . import gateway  # noqa: PLC0415  a provider the owner disconnected is never called
+        return [name for name, p in PROVIDERS.items() if (self.env.get(p["key"]) or "").strip()
+                and not gateway.is_off(self.memory, CONNECT_NAMES.get(name, name))]
 
     def model_of(self, name: str, kind: str = "") -> str:
         p = PROVIDERS[name]

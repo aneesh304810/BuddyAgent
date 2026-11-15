@@ -41,7 +41,7 @@ def memory(tmp_path, monkeypatch):
     return m
 
 
-def net(vulns=None, kev=KEV, epss=None, down=()):
+def net(vulns=None, kev=KEV, epss=None, down=(), breaches=()):
     """A stand-in for the three public databases. vulns: {package: [detail, ...]}."""
     vulns = vulns or {}
     seen = []
@@ -59,6 +59,9 @@ def net(vulns=None, kev=KEV, epss=None, down=()):
             return json.dumps(next(v for vs in vulns.values() for v in vs if v["id"] == wanted))
         if "known_exploited" in url:
             return json.dumps({"vulnerabilities": kev})
+        if "haveibeenpwned" in url:
+            assert "buddy" in (headers or {}).get("User-Agent", "")
+            return json.dumps(list(breaches))
         if "epss" in url:
             return json.dumps({"data": [{"cve": c, "epss": str(p)} for c, p in (epss or {}).items()]})
         raise AssertionError(url)
@@ -103,7 +106,8 @@ def test_a_vulnerable_package_is_found_with_why_how_and_the_fix(memory):
 def test_only_names_and_versions_are_sent_out(memory):
     fetch = net()
     run(memory, fetch, pkgs={"h11": "0.14.0"})
-    assert all(u.startswith(("https://api.osv.dev/", "https://www.cisa.gov/", "https://api.first.org/"))
+    assert all(u.startswith(("https://api.osv.dev/", "https://www.cisa.gov/", "https://api.first.org/",
+                              "https://haveibeenpwned.com/"))
                for u in fetch.seen)
 
 
@@ -162,7 +166,7 @@ def test_server_and_settings_findings_carry_their_explanations(memory, monkeypat
         by["2 Ubuntu security updates are waiting"]["component"] == "openssl, libc6"
     assert by["The weekly server check last ran 20 days ago"]["severity"] == "medium"
     assert by["The access token is short (5 characters)"]["severity"] == "high"
-    assert by["The database is not encrypted"]["layer"] == "data"
+    assert by["The database is not encrypted"]["layer"] == "database"
     guards = {g["name"]: g for g in sw.report(memory, {})["defences"]}
     assert guards["Firewall blocking incoming connections"]["ok"] is False
     assert guards["Database encrypted"]["ok"] is False and guards["Access token on every request"]["ok"] is False
@@ -224,4 +228,101 @@ def test_the_page_endpoints_need_the_owner(memory, monkeypatch):
     assert client.get("/api/security").status_code == 401
     assert client.post("/api/security/scan").status_code == 401
     out = client.get("/api/security", headers={"Authorization": "Bearer s3cret"}).json()
-    assert out["status"] == "Not scanned yet" and len(out["layers"]) == 8
+    assert out["status"] == "Not scanned yet" and len(out["layers"]) == 9
+
+
+# --- outside services: what Buddy is connected to, breaches at them, and the disconnect switch ----------------
+def used(memory, provider, days_ago=1, ok=1, error=""):
+    from buddy import gateway
+    gateway._table(memory)
+    at = (sw.datetime.now(sw.timezone.utc) - timedelta(days=days_ago)).isoformat()
+    memory.db.execute("INSERT INTO api_calls (at, provider, endpoint, ok, seconds, error) VALUES (?, ?, '/x', ?, 0.1, ?)",
+                      (at, provider, ok, error))
+    memory.db.commit()
+
+
+SERVICE_ENV = {**GOOD_ENV, "BUDDY_FINNHUB_KEY": "k", "BUDDY_PLIVO_AUTH_ID": "k", "BUDDY_PLIVO_AUTH_TOKEN": "k", "BUDDY_PLIVO_NUMBER": "+12015550100", "BUDDY_SERPER_KEY": "k"}
+
+
+def test_services_lists_what_buddy_is_connected_to_with_its_activity(memory):
+    used(memory, "finnhub"), used(memory, "finnhub", ok=0, error="timeout")
+    rows = {s["name"]: s for s in sw.services(memory, SERVICE_ENV)}
+    fin = rows["finnhub"]
+    assert fin["calls_7_days"] == 2 and fin["failed_7_days"] == 1 and fin["sees"] == "public data only"
+    assert fin["reaches"] == ["finnhub.io"] and fin["can_disconnect"] and not fin["off"]
+    assert rows["plivo"]["sees"] == "your personal data"
+    assert "bestbuy" not in rows  # no key set: not connected, so not listed
+    assert sw._domain("https://api.example.co.uk/v1") == "example.co.uk"
+
+
+def test_a_breach_at_a_connected_service_is_found_and_one_elsewhere_is_not(memory):
+    used(memory, "finnhub")
+    real = sw.local_now().date()
+    recent = (real - timedelta(days=20)).isoformat()
+    hits = [{"Name": "Plivo", "Domain": "plivo.com", "BreachDate": recent, "AddedDate": recent + "T00:00:00Z",
+             "DataClasses": ["Email addresses", "Phone numbers"]},
+            {"Name": "Finnhub", "Domain": "finnhub.io", "BreachDate": "2020-01-01", "AddedDate": "2020-02-01T00:00:00Z"},
+            {"Name": "Other", "Domain": "nothing-we-use.example", "BreachDate": recent, "AddedDate": recent}]
+    got = run(memory, net(kev=[], breaches=hits), pkgs={}, env=SERVICE_ENV, today=real)
+    assert got["sources"]["Breaches at connected services (Have I Been Pwned)"] == "ok"
+    r = sw.report(memory, SERVICE_ENV)
+    found = [f for f in r["open"] if f["source"] == "Outside services"]
+    assert len(found) == 1 and found[0]["severity"] == "high" and found[0]["layer"] == "outside"
+    assert "Plivo" in found[0]["title"] and "Phone numbers" in found[0]["why"] and "your personal data" in found[0]["why"]
+    assert "doesn't by itself mean your key" in found[0]["why"] and "disconnect" in found[0]["fix"]
+    plivo = next(s for s in r["services"] if s["name"] == "plivo")
+    assert plivo["incidents"] and r["services_summary"]["with_incidents"] == 1
+    assert next(layer for layer in r["layers"] if layer["key"] == "outside")["level"] == "high"
+    later = run(memory, net(kev=[], breaches=[]), pkgs={}, env=SERVICE_ENV, today=real)
+    assert any("Plivo" in t for t in later["fixed"])  # off the list: closed
+
+
+def test_a_refused_key_and_a_forgotten_key_are_flagged(memory):
+    used(memory, "finnhub", ok=0, error="HTTP 401 Unauthorized")
+    used(memory, "serper", days_ago=90)
+    run(memory, net(kev=[]), pkgs={}, env=SERVICE_ENV, today=sw.local_now().date())
+    titles = {f["title"]: f for f in sw.report(memory, SERVICE_ENV)["open"]}
+    assert any("refused Buddy's key" in t and "Finnhub" in t for t in titles)
+    idle = next(f for t, f in titles.items() if "hasn't been used for" in t)
+    assert idle["severity"] == "low" and "Serper" in idle["title"]
+
+
+def test_disconnecting_stops_calls_at_once_and_can_be_undone(memory):
+    from buddy import gateway
+    calls = []
+
+    def fetch(url, data=None, headers=None):
+        calls.append(url)
+        return "{}"
+    env = {"BUDDY_FINNHUB_KEY": "k"}
+    gateway.call(memory, "finnhub", "/quote?symbol=X", fetch=fetch, env=env)
+    out = asyncio.run(sw.run_tool(memory, {"action": "disconnect", "service": "finnhub", "reason": "breach"}))
+    assert "is disconnected" in out and "key is still stored" in out
+    with pytest.raises(gateway.ConnectError, match="disconnected"):
+        gateway.call(memory, "finnhub", "/quote?symbol=X", fetch=fetch, env=env)
+    assert len(calls) == 1
+    row = next(s for s in sw.services(memory, env) if s["name"] == "finnhub")
+    assert row["off"] is True  # still listed, shown as disconnected
+    assert "connected again" in asyncio.run(sw.run_tool(memory, {"action": "reconnect", "service": "Finnhub"}))
+    gateway.call(memory, "finnhub", "/quote?symbol=X", fetch=fetch, env=env)
+    assert len(calls) == 2
+    with pytest.raises(ToolError, match="own thinking"):
+        gateway.set_off(memory, "claude", True)
+
+
+def test_a_disconnected_phone_service_blocks_calls_and_the_page_can_switch(memory, monkeypatch):
+    from fastapi.testclient import TestClient
+
+    from buddy import calls, gateway, server
+    gateway.set_off(memory, "plivo", True)
+    with pytest.raises(ToolError, match="Calls are off"):
+        calls.plan(memory, "Dr", "2015550123", "question", "hours")
+    monkeypatch.setattr(server, "memory", memory)
+    monkeypatch.setattr(server, "authorized", lambda t: t == "s3cret")
+    client = TestClient(server.app)
+    assert client.post("/api/security/service", json={"name": "plivo", "off": False}).status_code == 401
+    out = client.post("/api/security/service", json={"name": "plivo", "off": False},
+                      headers={"Authorization": "Bearer s3cret"}).json()
+    assert "connected again" in out["text"] and not gateway.is_off(memory, "plivo")
+    assert client.post("/api/security/service", json={"name": "claude", "off": True},
+                       headers={"Authorization": "Bearer s3cret"}).status_code == 400

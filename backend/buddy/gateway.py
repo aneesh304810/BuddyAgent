@@ -99,6 +99,10 @@ CATALOG: dict[str, dict] = {
     "epss": {"group": "Security", "title": "EPSS (exploit likelihood, FIRST.org)", "hosts": ["https://api.first.org"],
              "auth": {"type": "none"}, "cost": 0.0, "per_minute": 30, "privacy": "public", "no_backup": True,
              "used_for": "how likely a published vulnerability is to be exploited soon (CVE ids only)", "moved": True},
+    "hibp": {"group": "Security", "title": "Have I Been Pwned (published breaches)",
+             "hosts": ["https://haveibeenpwned.com"], "auth": {"type": "none"}, "cost": 0.0, "per_minute": 4,
+             "privacy": "public", "no_backup": True, "moved": True,
+             "used_for": "the public list of companies that reported a data breach (nothing is sent)"},
     "eia": {"group": "Finance & markets", "title": "EIA (oil and gas prices)", "hosts": ["https://api.eia.gov"],
             "auth": {"type": "param", "secret": "BUDDY_EIA_KEY"}, "cost": 0.0, "per_minute": 60, "privacy": "public",
             "no_backup": True, "used_for": "oil and natural gas prices for Market school",
@@ -351,6 +355,32 @@ _lock = threading.Lock()
 _recent: dict[str, list[float]] = {}
 
 
+OFF_PREFIX = "connect:off:"
+ALWAYS_ON = {"claude": "Claude is Buddy's own thinking: without it Buddy can't answer. To cut it off, stop Buddy.",
+             "health_connect": "This is data your phone sends in; turn it off in the Buddy app's settings.",
+             "phone_contacts": "This is data your phone sends in; turn it off in the Buddy app's settings."}
+
+
+def is_off(memory, name: str) -> bool:
+    """Whether the owner disconnected this service (the Security page). Its key stays; nothing is sent to it."""
+    try:
+        return memory is not None and bool(memory.get(OFF_PREFIX + name))
+    except Exception:
+        return False
+
+
+def set_off(memory, name: str, off: bool, why: str = "") -> str:
+    entry = CATALOG.get(name)
+    if entry is None:
+        raise ToolError(f"There is no service called {name}.")
+    if name in ALWAYS_ON and off:
+        raise ToolError(ALWAYS_ON[name])
+    memory.set(OFF_PREFIX + name, json.dumps({"at": datetime.now(timezone.utc).isoformat(), "why": why[:200]}) if off else "")
+    return (f"{entry['title']} is disconnected: Buddy sends it nothing until you reconnect it. Its key is still "
+            "stored; rotate or remove the key if the service was breached." if off else
+            f"{entry['title']} is connected again.")
+
+
 def _rate_ok(name: str) -> bool:
     limit = CATALOG[name].get("per_minute")
     if not limit:
@@ -420,6 +450,8 @@ def call_url(memory, name: str, urls: list[str], *, data: bytes | None = None, h
     entry = CATALOG.get(name)
     if entry is None:
         raise ConnectError(name, f"{name} isn't in Buddy Connect's catalog.")
+    if is_off(memory, name):
+        raise ConnectError(name, f"{entry['title']} is disconnected (you switched it off on the Security page).", 403)
     if personal and entry.get("privacy") != "personal":
         raise ConnectError(name, f"{entry['title']} may not see personal data, so I didn't send this there.")
     if not _rate_ok(name):
