@@ -1429,6 +1429,12 @@ async def api_news() -> dict:
     except Exception:
         log.exception("tech radar page failed")
         feed["tech"] = {"items": [], "by_area": {}, "last_run": "", "note": ""}
+    try:  # the section "Themes moving in the evidence" (themes.py)
+        from . import themes
+        feed["themes"] = await asyncio.to_thread(themes.news, memory)
+    except Exception:
+        log.exception("themes for the news page failed")
+        feed["themes"] = []
     return feed
 
 
@@ -1612,6 +1618,13 @@ async def api_security_accept(body: dict) -> dict:
     except ToolError as e:
         raise HTTPException(status_code=400, detail=str(e)) from e
     return {"text": text, **await asyncio.to_thread(securitywatch.report, memory)}
+
+
+@app.get("/api/invest/themes", dependencies=[Depends(require_admin)])
+async def api_invest_themes() -> dict:
+    """The Intelligence Platform's evidence joined to the market: themes, pattern events, the practice record."""
+    from . import themes
+    return await asyncio.to_thread(themes.page, memory)
 
 
 @app.get("/api/invest/practice", dependencies=[Depends(require_admin)])

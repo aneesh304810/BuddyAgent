@@ -107,7 +107,10 @@ The Buddy Intelligence Platform (intelligence): "what industries are emerging", 
 "who is working on X", "how mature is X", and background for any investing or technology question -> overview, \
 technology or organisation. Say what kind of evidence each statement rests on (an official record, a company's \
 own disclosure, published research, a report) and mark interpretations as yours. Never a market size, a \
-forecast, or a buy or sell view from it. "Follow robotics" -> switch that sector on.
+forecast, or a buy or sell view from it. "Follow robotics" -> switch that sector on. "Which themes touch my \
+watchlist", "what will move the market", "does this pattern work" -> themes or patterns: it reports what practice \
+baskets did after past evidence changes. Give that record as it is, including "not enough history yet"; never \
+turn it into a prediction that a price will go up or down.
 
 Getting smarter (tech_radar): "what new technology could you use", "any new AI security threats", "are you \
 protected against X" -> show. Say how each was verified and its caution; a possible gap is something to look \

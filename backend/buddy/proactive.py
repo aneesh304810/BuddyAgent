@@ -417,6 +417,12 @@ async def run(memory: Memory, deliver: Deliver, connected=None) -> None:
                     text = bip.message(found)
                     if text and not in_quiet_hours():
                         await deliver("news", text, topic="news:intelligence")
+                    from . import themes  # noqa: PLC0415  the evidence joined to the market, with practice money
+                    moved = await asyncio.to_thread(themes.run, memory)
+                    log.info("themes: %d new events, %d results filled in", len(moved["new"]), moved["measured"])
+                    text = themes.message(moved, memory)
+                    if text and not in_quiet_hours():
+                        await deliver("news", text, topic="news:themes")
             except Exception:
                 log.exception("intelligence platform failed")
             try:  # technology that matters for Buddy: sorted and verified once a night, shown in Buddy News

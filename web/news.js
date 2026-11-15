@@ -87,6 +87,16 @@ function techItem(t, security) {
       <button class="rate${t.status === "interested" ? " on" : ""}" data-tech="${esc(t.id)}" data-status="${t.status === "interested" ? "new" : "interested"}" aria-label="${security ? "Look into this" : "Interested"}">👍 ${security ? "Look into it" : "Interested"}</button>
       <button class="rate" data-tech="${esc(t.id)}" data-status="dismissed" aria-label="Not for Buddy">👎 Not for Buddy</button></div></div>`;
 }
+function themeCards() {
+  const items = data.themes || [];
+  if (!items.length) return "";
+  return `<section class="card"><div class="head"><h2>📈 Themes: the evidence changed</h2></div>
+    <p class="muted">From Buddy Intelligence, joined to the companies its filings name. A record of evidence, not advice.</p>
+    ${items.slice(0, 6).map((t) => `<div class="story"><b>${esc(t.name)}</b>: ${esc(t.title.toLowerCase())} <span class="muted">(${esc(t.why)})</span>
+      <div class="muted">Companies: ${esc((t.symbols || []).join(", "))}${(t.yours || []).length ? ` · on your lists: <b>${esc(t.yours.join(", "))}</b>` : ""} · ${esc(t.record)}</div>
+      ${(t.evidence || []).map((x) => x.url ? `<div><a href="${safe(x.url)}" target="_blank" rel="noopener">${esc(x.title)}</a></div>` : "").join("")}</div>`).join("")}
+    <p class="muted">The practice results are in Investments, under Themes.</p></section>`;
+}
 function techCards() {
   const t = data.tech;
   if (!t) return "";
@@ -105,7 +115,7 @@ function techCards() {
       : `<p class="muted">Each night Buddy reads AI and data security news and matches every threat against the defences it already has. Threats no defence answers are listed first.</p>`}
     ${(sec.defences || []).length ? `<details><summary>The ${sec.defences.length} defences Buddy checks against</summary><ul class="defs">${sec.defences.map((d) => `<li>${esc(d)}</li>`).join("")}</ul></details>` : ""}
     <p class="note">${esc(sec.note || "")}</p></section>`;
-  return tech + security;
+  return themeCards() + tech + security;
 }
 async function techRate(id, status) {
   try { const out = await api("/api/news/tech", { id: Number(id), status }); data.tech = out.tech; render(); notice(out.text); }

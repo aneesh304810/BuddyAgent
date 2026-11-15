@@ -13,12 +13,17 @@ flowchart LR
     subgraph Modules["Modules"]
         bip_py["bip.py<br/>a shared intelligence layer inside Buddy, the way Buddy Connect is…"]
         bip_sources_py["bip_sources.py<br/>where its evidence comes from"]
+        themes_py["themes.py<br/>the Intelligence Platform's evidence joined to the market, and tested…"]
     end
     you --> t_intelligence
     t_intelligence --> bip_py
     bip_py --> bip_sources_py
-    db[("Your database<br/>bip_notes, bip_signals")]
+    bip_py --> themes_py
+    themes_py --> bip_py
+    themes_py --> bip_sources_py
+    db[("Your database<br/>bip_notes, bip_signals, theme_events")]
     bip_py --> db
+    themes_py --> db
     s_nsf["NSF (research grants)<br/>(public data only)"]
     bip_sources_py --> s_nsf
     o_0["Buddy Connect"]
@@ -41,7 +46,7 @@ The diagram reads left to right: what you ask, the tools Buddy uses, the modules
 
 | Tool | What it is for | Actions | Module |
 |---|---|---|---|
-| `intelligence` | The Buddy Intelligence Platform: public evidence about emerging technologies and industries (research papers, registered clinical studies, company filings, US f | overview, technology, organisation, search, switch, scan | bip.py |
+| `intelligence` | The Buddy Intelligence Platform: public evidence about emerging technologies and industries (research papers, registered clinical studies, company filings, US f | overview, technology, organisation, search, switch, scan, themes, patterns | bip.py |
 
 ## Technical design, module by module
 
@@ -88,7 +93,7 @@ database), never mixed with the owner's data, so free models may read it.
 ```
 
 - Tables: `bip_notes`, `bip_signals`
-- Uses: benefits.py, bip_sources.py, free_models.py, markets.py, memory.py, pricebook.py, tools.py
+- Uses: benefits.py, bip_sources.py, free_models.py, markets.py, memory.py, pricebook.py, themes.py, tools.py
 
 ### bip_sources.py
 
@@ -119,6 +124,32 @@ A source that fails is recorded and skipped; the others still run.
 
 - Outside services: NSF (research grants)
 - Uses: funds.py, gateway.py
+
+### themes.py
+
+```text
+Themes: the Intelligence Platform's evidence joined to the market, and tested with practice money.
+
+  Themes     each technology the platform follows, with the public companies its filings name, how its evidence
+             is moving, and which of those companies are on the owner's watchlist or in their trade ideas and
+             practice portfolio. Matching is plain code: no model sees the owner's lists.
+  Patterns   fixed rules that notice a change in the evidence (PATTERNS below): several kinds rising at once,
+             a jump in company filings, a jump in news, a jump in research, a large award or grant, a run of
+             private fundraising notices. Each time a rule fires for a technology that has public companies, an
+             event is written with that day's closing prices.
+  Practice   every event is a practice basket: pretend money split equally across up to five of the companies,
+             measured after 30 and after 90 days against the S&P 500 fund (SPY) over the same days. Nothing is
+             bought. No costs or taxes are taken off, so real results would be a little worse.
+  Record     per pattern: how many baskets have finished, how many beat the market, the middle result. Until a
+             pattern has MIN_EVENTS finished baskets Buddy says only that there is not enough history. After
+             that it says which way the pattern has leaned so far. It is a record of the past, never a promise,
+             and events close together in time are not independent tests.
+
+Stored in the public-data store beside the evidence: these are public prices and Buddy's own practice results.
+```
+
+- Tables: `theme_events`
+- Uses: bip.py, bip_sources.py, markets.py, memory.py, paper.py, tools.py
 
 ## How it connects
 

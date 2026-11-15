@@ -685,12 +685,17 @@ TOOL = {
         "evidence by kind, the organisations in the records, what it is linked to. organisation (name): where a "
         "company or sponsor shows up. search (query): the records themselves. switch (sector, on): turn a "
         "sector's collection on or off (sectors that are off still get a light weekly check, and Buddy says "
-        "when one has a lot of movement). scan: collect now. Use it for 'what industries are emerging', 'what is "
+        "when one has a lot of movement). scan: collect now. themes: each technology with the public companies "
+        "its filings name, which are on the owner's watchlist, and the evidence patterns active now. patterns: "
+        "what happened to practice baskets after each kind of evidence change (how many beat the market); the "
+        "only basis for saying which way a pattern has leaned, and say 'not enough history' when it says so. "
+        "Use it for 'what industries are emerging', 'what is "
         "converging with AI', 'who is working on small modular reactors', 'how mature is X'. Always say what kind "
         "of evidence a statement rests on (official record, company disclosure, published research, reported) and "
-        "mark interpretations as such. Never give a market size, a forecast or a buy or sell view from it.",
+        "mark interpretations as such. Never give a market size or a buy or sell view from it, and never predict "
+        "a price: report the pattern record as past results only.",
     "input_schema": {"type": "object", "properties": {
-        "action": {"type": "string", "enum": ["overview", "technology", "organisation", "search", "switch", "scan"]},
+        "action": {"type": "string", "enum": ["overview", "technology", "organisation", "search", "switch", "scan", "themes", "patterns"]},
         "id": {"type": "string"}, "name": {"type": "string"}, "query": {"type": "string"},
         "sector": {"type": "string", "enum": list(SECTORS)}, "on": {"type": "boolean"}},
         "required": ["action"], "additionalProperties": False},
@@ -709,6 +714,14 @@ async def run_tool(memory: Memory, args: dict) -> str:
     if action == "switch":
         on = switch(memory, str(args.get("sector") or ""), bool(args.get("on", True)))
         return "Collecting for: " + ", ".join(SECTORS[s][0] for s in on) + ". New sectors fill in from the next nightly run."
+    if action in ("themes", "patterns"):
+        import asyncio  # noqa: PLC0415
+        from . import themes  # noqa: PLC0415
+        got = await asyncio.to_thread(themes.page, memory)
+        if action == "patterns":
+            return json.dumps({k: got[k] for k in ("patterns", "practice", "needed", "note")}, ensure_ascii=False)
+        return json.dumps({"themes": got["themes"][:15], "recent_events": got["events"][:8], "note": got["note"]},
+                          ensure_ascii=False)
     if action == "scan":
         got = await run(memory)
         return json.dumps({"new_records": got["new"], "sources_failed": got["failed"], "convergences": got["convergences"],

@@ -14,8 +14,8 @@ if (params.get("token") && storageGet("buddyToken") === token) history.replaceSt
 const $ = (id) => document.getElementById(id);
 const esc = (s) => String(s ?? "").replace(/[&<>"']/g, (c) => ({ "&": "&amp;", "<": "&lt;", ">": "&gt;", '"': "&quot;", "'": "&#39;" }[c]));
 const safe = (u) => /^https:\/\/[^\s"'<>]+$/.test(String(u || "")) ? u : "";
-const TABS = [["strategy", "Strategy"], ["signals", "Signals"], ["practice", "Practice"], ["trends", "Trends"], ["accounts", "Accounts"], ["watch", "Watchlist"]];
-let practiceData = null, practiceBusy = false, signalsData = null, signalsBusy = false;
+const TABS = [["strategy", "Strategy"], ["signals", "Signals"], ["practice", "Practice"], ["themes", "Themes"], ["trends", "Trends"], ["accounts", "Accounts"], ["watch", "Watchlist"]];
+let themesData = null, themesBusy = false, practiceData = null, practiceBusy = false, signalsData = null, signalsBusy = false;
 let data = null, tab = TABS.some(([k]) => k === storageGet("investTab")) ? storageGet("investTab") : "strategy", busy = false;
 
 const px = (v, m) => v == null ? "–" : (m === "india" ? "₹" : "$") +
@@ -256,6 +256,52 @@ function practiceTab() {
     `<p class="note">${esc(p.limits || "")}</p><p><button class="btn" id="practice-refresh">Refresh</button></p>`;
 }
 
+// --- Themes: the Intelligence evidence joined to public companies, with practice baskets against the market
+async function loadThemes() {
+  if (themesBusy) return;
+  themesBusy = true;
+  try { themesData = await api("/api/invest/themes"); }
+  catch (e) { themesData = { failed: e.message }; }
+  themesBusy = false;
+  if (tab === "themes") render();
+}
+const LEAN = { up: "▲ has beaten the market so far", down: "▼ has trailed the market so far", flat: "● no clear edge so far", none: "○ not enough history" };
+const against = (a, b) => a == null ? "–" : `${pct(a)} <small class="muted">market ${pct(b)}</small>`;
+function themeCard(t) {
+  const companies = (t.companies || []).map((c) => `<button class="chip" data-check="${esc(c.symbol)}" title="${esc(c.name)}: ${esc(c.records)} filings">${esc(c.symbol)}</button>`).join("");
+  const mine = (t.yours || []).map((y) => `<b>${esc(y.symbol)}</b> (${esc(y.where)})`).join(", ");
+  const active = (t.active || []).map((a) => `<li><b>${esc(a.title)}</b> <small class="muted">${esc(LEAN[a.lean] || "")}. ${esc(a.record)}</small></li>`).join("");
+  return `<div class="tx" style="display:block"><b>${esc(t.name)}</b> <small class="muted">${esc(t.sector_name)} · ${esc(t.stage)} · ${esc(t.signals_90_days)} records in 90 days${t.growth == null ? "" : ", " + (t.growth > 0 ? "+" : "") + Math.round(t.growth * 100) + "% on the 90 before"}</small>
+    ${mine ? `<p class="note">On your lists: ${mine}</p>` : ""}
+    ${companies ? `<div class="chips" style="flex-wrap:wrap;margin-top:6px">${companies}</div>` : `<p class="note">No public company named in its filings yet.</p>`}
+    ${active ? `<ul class="why">${active}</ul>` : ""}</div>`;
+}
+function themeEvent(e) {
+  const proof = (e.evidence || []).slice(0, 3).map((x) => `<li>${x.url ? `<a href="${safe(x.url)}" target="_blank" rel="noopener">${esc(x.title)}</a>` : esc(x.title)} <small class="muted">${esc(x.day)}</small></li>`).join("");
+  return `<div class="tx" style="display:block"><b>${esc(e.name)}</b>: ${esc(e.title.toLowerCase())} <small class="muted">${esc(e.day)} · ${esc(e.why)}</small>
+    <p class="note">Basket: ${esc((e.symbols || []).join(", "))}. After 30 days ${against(e.after_30, e.market_30)}; after 90 days ${against(e.after_90, e.market_90)}${e.so_far == null ? "" : `; so far (${esc(e.days)} days) ${against(e.so_far, e.market_so_far)}`}</p>
+    ${proof ? `<ul class="why">${proof}</ul>` : ""}</div>`;
+}
+function themesTab() {
+  if (!themesData) { loadThemes(); return `<p class="muted">Loading themes…</p>`; }
+  if (themesData.failed) return `<p class="err">${esc(themesData.failed)}</p><button class="btn" id="themes-refresh">Try again</button>`;
+  const d = themesData, p = d.practice || {};
+  const cell = (r) => r.finished ? `${esc(r.beat_market)} of ${esc(r.finished)} beat the market, middle ${pct(r.middle_against_market)}<br><small class="muted">${esc(LEAN[r.lean] || "")}</small>` : `<small class="muted">none finished</small>`;
+  const rows = (d.patterns || []).map((r) => `<tr><td><b>${esc(r.title)}</b><br><small class="muted">${esc(r.rule)}</small></td><td>${esc(r.events)}</td><td>${cell(r.days_30)}</td><td>${cell(r.days_90)}</td></tr>`).join("");
+  const score = `<div class="kpis">${kpi(esc(p.baskets || 0), "practice baskets")}${kpi(esc(p.open || 0), "still open")}${kpi(p.finished ? `${esc(p.beat_market)} of ${esc(p.finished)}` : "–", "beat the market")}
+    ${kpi(money(p.finished ? p.profit : null), "practice profit")}${kpi(money(p.finished ? p.market_profit : null), "same money in the market")}</div>
+    <p class="note">${esc(p.rule || "")} ${esc(p.says || "")}</p>`;
+  const mine = (d.themes || []).filter((t) => (t.yours || []).length), rest = (d.themes || []).filter((t) => !(t.yours || []).length);
+  return card("Practice: does acting on the evidence beat the market?", score) +
+    card("What followed each kind of evidence change", rows ? `<div style="overflow-x:auto"><table class="grid"><tr><th>Pattern</th><th>Events</th><th>After 30 days</th><th>After 90 days</th></tr>${rows}</table></div>` : "",
+      `Buddy says which way a pattern has leaned only after ${esc(d.needed)} finished baskets. Events close together are not independent tests.`) +
+    (mine.length ? card("Themes touching what you follow", mine.map(themeCard).join("")) : "") +
+    card(`Themes (${rest.length})`, rest.length ? rest.slice(0, 30).map(themeCard).join("") : `<p class="muted">No evidence collected yet. It fills in after the nightly Intelligence run.</p>`,
+      d.yours ? "" : "Nothing is on your watchlist yet, so no theme can be matched to it.") +
+    card(`Evidence changes (${(d.events || []).length})`, (d.events || []).length ? d.events.map(themeEvent).join("") : `<p class="muted">None yet. An event is written when a rule above fires for a technology whose filings name a public company.</p>`) +
+    `<p class="note">${esc(d.note || "")}</p><p><button class="btn" id="themes-refresh">Refresh</button></p>`;
+}
+
 // --- Signals: buy and sell signals for stocks and funds, a switch per category, and Buddy's own record
 async function loadSignals() {
   if (signalsBusy) return;
@@ -295,8 +341,9 @@ async function switchSignal(category) {
 
 function render() {
   tabs();
-  $("main").innerHTML = { strategy, signals: signalsTab, practice: practiceTab, trends: trendsTab, accounts: accountsTab, watch: watchTab }[tab]();
+  $("main").innerHTML = { strategy, signals: signalsTab, practice: practiceTab, themes: themesTab, trends: trendsTab, accounts: accountsTab, watch: watchTab }[tab]();
   document.querySelectorAll("[data-sigcat]").forEach((b) => b.onclick = () => switchSignal(b.dataset.sigcat));
+  if ($("themes-refresh")) $("themes-refresh").onclick = () => { themesData = null; render(); };
   if ($("practice-refresh")) $("practice-refresh").onclick = () => { practiceData = null; render(); loadPractice(true); };
   document.querySelectorAll("[data-sold]").forEach((b) => b.onclick = () => sold(b.dataset.sold));
   document.querySelectorAll("[data-unwatch]").forEach((b) => b.onclick = () => watch("remove", b.dataset.unwatch));

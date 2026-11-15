@@ -92,3 +92,41 @@ interpretation for up to five convergences a night, on a free model when one ans
 
 Companies in depth (funding filings, institutional holdings, financials), transparent research scores, weekly
 reports, a Themes view on the Investments page, and a graph view of the convergences.
+
+## Themes: the evidence joined to the market (themes.py)
+
+Investments has a **Themes** tab, and Buddy News shows a short "the evidence changed" card when something new
+is found. Ask "which themes touch my watchlist" or "does this pattern work".
+
+- **Themes.** Each technology with the public companies its SEC filings name (the ticker is in the filing),
+  its stage and growth, and which of those companies are on your watchlist, in your trade ideas or in the
+  practice portfolio. That matching is plain code. No model sees your lists.
+- **Patterns.** Fixed rules that notice a change in the evidence for a technology:
+
+  | Pattern | Rule |
+  |---|---|
+  | Several kinds rising together | three or more kinds of evidence each at 3 or more records and 1.5 times the 30 days before |
+  | A jump in company filings | 3 or more in 30 days and at least double the 30 days before |
+  | A jump in news and discussion | 5 or more in 14 days and at least double the 14 days before |
+  | A jump in research | 5 or more papers in 30 days and at least double the 30 days before |
+  | A large award or grant | $10 million or more in the last 30 days |
+  | A run of private fundraising | 3 or more notices in 30 days |
+
+  When a rule fires for a technology that has public companies, an event is written with that day's closing
+  prices. The same pattern is written at most once per technology in any 30 days.
+- **Practice baskets.** Every event is measured as pretend money split equally across up to five of the
+  companies, after 30 and after 90 days, against the S&P 500 fund (SPY) over the same days. The practice
+  strategy is the first pattern only: $10,000 of pretend money per basket, closed after 90 days. Nothing is
+  bought, and no costs or taxes are taken off.
+- **The record, and when Buddy speaks.** For each pattern the tab shows how many baskets finished, how many
+  beat the market, and the middle result. Buddy says which way a pattern has leaned only after 30 finished
+  baskets: up (60% or more beat the market and the middle result is above it), down (40% or fewer and below
+  it), or no clear edge. Before that it says "not enough history".
+
+**What this cannot do.** It is a record of the past, not a prediction. More evidence about a technology does
+not mean its shares rise, and the price often moves before the records do. Events close together in time are
+not independent tests, so 30 baskets in one hot quarter prove less than 30 spread over years. Only companies
+that file with the SEC and have a ticker can be in a basket, so private companies, which are often the most
+interesting ones, are left out. Results start counting from the day this is deployed; nothing is back-filled,
+because records collected today for past dates would make the past look better than it was. It says nothing
+about whether the whole market goes up or down.
