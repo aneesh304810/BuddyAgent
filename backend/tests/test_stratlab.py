@@ -153,3 +153,26 @@ def test_an_uploaded_strategy_waits_for_approval_then_trades_in_the_lab(memory):
     assert pricebook.run(memory, "SELECT 1 FROM lab_trades WHERE strategy = 'u_year_high'") == []
     with pytest.raises(stratrules.ToolError):
         asyncio.run(stratrules.propose(memory, "x.txt", "too short", ask))
+
+
+def test_results_are_after_costs_and_history_is_cut_by_market_period_and_year(memory):
+    from buddy import modeltrain
+    stratlab._ready(memory)
+    def trade(day, ret, spy, regime, strategy="trend"):
+        pricebook.run(memory, "INSERT INTO lab_trades (strategy, symbol, opened, entry, stop, target, shares, hold_days, why, "
+                              "features, spy_entry, closed, exit, ret, spy_ret, why_closed, regime, status, backfilled) VALUES "
+                              "(?, 'AAPL', ?, 100, 95, 110, 10, 28, 'x', ?, 400, ?, 101, ?, ?, 'x', ?, 'closed', TRUE)",
+                      (strategy, day, json.dumps({"rsi": 55.0, "above_50": 0.03, "high_20": True}), day, ret, spy, regime))
+    for i in range(28):
+        trade(f"2023-{1 + i % 12:02d}-15", 0.03, 0.01, "up")       # the earlier years: beats the market
+    for i in range(12):
+        trade(f"2025-{1 + i:02d}-15", 0.001, 0.02, "down")         # the latest stretch: does not
+    h = next(s for s in stratlab.view(memory)["strategies"] if s["key"] == "trend")["history"]
+    assert h["closed"] == 40 and h["won"] == 28                      # +0.1% is a loss once 0.2% of costs come off
+    assert h["rising_market"]["average_vs_market"] == round(0.03 - 0.002 - 0.01, 4) and h["falling_market"]["closed"] == 12
+    assert h["verdict"] == "beat the market earlier but not in the latest stretch"
+    assert [y["year"] for y in h["by_year"]] == ["2023", "2025"] and "0.2%" in stratlab.view(memory)["note"]
+    rows = modeltrain.rows(memory, "lab")
+    assert len(rows) == 40 and rows[0]["when"] < rows[-1]["when"] and rows[-1]["y"] == 0 and rows[0]["y"] == 1
+    assert rows[0]["x"] == {"rsi": 55.0, "above_50": 0.03, "high_20": 1.0, "rule_trend": 1.0, "market_rising": 1.0}
+    assert rows[-1]["regime"] == "down" and "lab" in modeltrain.DOMAINS and modeltrain.readiness(memory, "lab")["rows"] == 40

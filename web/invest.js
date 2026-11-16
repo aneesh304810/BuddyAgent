@@ -309,8 +309,11 @@ function labCards(p) {
   if (!lab) return "";
   const vs = (r) => !r || !r.closed ? `<small class="muted">none</small>` : `${esc(r.won)} of ${esc(r.closed)} made money<br>${pct(r.average_result)} a trade
       <small class="muted">market ${r.average_vs_market == null ? "–" : pct(r.average_result - r.average_vs_market)}</small>`;
+  const part = (label, r) => r && r.closed ? `<br><small class="muted">${label}: ${pct(r.average_vs_market)} against the market (${esc(r.closed)})</small>` : "";
+  const splits = (h) => !h || !h.verdict ? "" : `<br><small><b>${esc(h.verdict)}</b></small>${part("rising market", h.rising_market)}${part("falling market", h.falling_market)}${part("earlier 70%", h.earlier)}${part("latest 30%", h.latest)}
+      <details><summary><small class="muted">year by year</small></summary>${(h.by_year || []).map((y) => `<small class="muted">${esc(y.year)}: ${pct(y.average_vs_market)} against the market (${esc(y.closed)})</small>`).join("<br>")}</details>`;
   const rows = lab.strategies.map((s) => `<tr><td><b>${esc(s.name)}</b>${s.yours ? ` <span class="pill">yours</span>` : ""}<br><small class="muted">${esc(s.rule)} Reads: ${esc(s.reads)}; held up to ${esc(s.hold_days)} days.</small></td>
-      <td>${esc(s.open)} open<br>${vs(s)}<br><small class="muted">${esc(s.says)}</small></td><td>${vs(s.history)}</td></tr>`).join("");
+      <td>${esc(s.open)} open<br>${vs(s)}<br><small class="muted">${esc(s.says)}</small></td><td>${vs(s.history)}${splits(s.history)}</td></tr>`).join("");
   const rp = lab.replay || {};
   const replayLine = rp.state === "running" ? "A replay over past prices is running; refresh in a minute or two."
     : rp.state === "failed" ? "The last replay failed: " + (rp.why || "")

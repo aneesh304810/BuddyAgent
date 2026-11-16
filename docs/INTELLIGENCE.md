@@ -364,3 +364,13 @@ and your notes on books. Their terms allow a person to read or download, not a p
 **Every file is opened in the sandbox** (`docread.py`): a throwaway container with no network takes the
 text out and only the text comes back. When the sandbox is not set up the same script runs inside Buddy,
 and the result says which was used.
+
+### Costs, splits and the model
+
+Every lab result has 0.2% taken off for buying and selling. A rule's history is also shown three ways: by
+the market when the trade opened (the S&P 500 fund above or below its 200-day average), for the earlier 70%
+of the period against the latest 30%, and year by year, with a plain verdict. Closed lab trades, live and
+replayed, are rows for the shared learning core under the domain "strategy lab trades": the model learns
+which figures, rules and market conditions went with trades that made money after costs. It is trained in
+the sandbox, tested on the newest 30% of trades it never saw, and used only if it passes; then each new lab
+trade shows its odds. The rules keep trading either way.

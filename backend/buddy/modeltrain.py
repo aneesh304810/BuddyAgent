@@ -30,12 +30,12 @@ from .tools import local_now
 
 log = logging.getLogger(__name__)
 
-DOMAINS = ("investing", "theme", "product", "flight", "hotel")
+DOMAINS = ("lab", "investing", "theme", "product", "flight", "hotel")
 MIN_ROWS, MIN_EACH, RETRAIN_NEW = 200, 30, 50
 WORKSPACE = "model-training"
 SCRIPT = Path(__file__).parent / "sandbox_jobs" / "train_model.py"
 WEEK_KEY = "modeltrain:week"
-NAMES = {"investing": "investing signals", "theme": "theme baskets", "product": "shopping calls", "flight": "flight calls",
+NAMES = {"lab": "strategy lab trades", "investing": "investing signals", "theme": "theme baskets", "product": "shopping calls", "flight": "flight calls",
          "hotel": "hotel calls"}
 
 
@@ -49,6 +49,9 @@ def _ready(memory: Memory) -> None:
 def rows(memory: Memory, domain: str) -> list[dict]:
     """The judged rows for a domain: [{"when", "x": features, "y": 1 or 0}]."""
     from . import pricebook, simbook, whentobuy  # noqa: PLC0415
+    if domain == "lab":  # did a rule-based paper trade (live or replayed over past prices) make money after costs?
+        from . import stratlab  # noqa: PLC0415
+        return stratlab.model_rows(memory)
     if domain == "theme":  # did the basket beat the market over the 90 days after the evidence changed?
         from . import themes  # noqa: PLC0415
         return [{"when": e["day"], "x": themes.features_of(e), "y": int(e["r90"] - themes.COST > e["s90"]),

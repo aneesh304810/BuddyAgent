@@ -129,7 +129,7 @@ many calls, and whether it is now in use. A model is one more opinion with a tra
 ```
 
 - Tables: `models`
-- Uses: memory.py, pricebook.py, sandbox.py, simbook.py, themes.py, tools.py, whentobuy.py
+- Uses: memory.py, pricebook.py, sandbox.py, simbook.py, stratlab.py, themes.py, tools.py, whentobuy.py
 
 ## How it connects
 

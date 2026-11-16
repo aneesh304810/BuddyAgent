@@ -281,17 +281,25 @@ rule below open paper trades by itself. No AI decides a trade, and no real order
 
   History      so that a rule does not need months of live trades to be judged, every rule is also replayed over
                the past years of daily prices, day by day, seeing only what was known on each day. Those trades
-               are kept apart and marked as history. Two cautions the page states: the list of companies is
-               today's (those that failed or shrank are missing, which flatters the past), and no costs are
-               taken off.
+               are kept apart and marked as history. One caution the page states: the list of companies is
+               today's (those that failed or shrank are missing, which flatters the past).
   Your rules   a strategy document you upload becomes a rule here once you approve it (stratrules.py).
 
-Daily prices decide stops and targets, so a real fill could differ; costs and taxes are not taken off. A rule is
-called unproven until 30 of its trades have closed.
+  Costs        every result shown has 0.2% taken off for buying and selling.
+  The splits   a rule's history is also shown by the market when the trade opened (rising or falling), for the
+               earlier 70% of the period against the latest 30%, and year by year, so one good stretch cannot
+               carry it.
+  The model    closed lab trades, live and replayed, are rows for the shared learning core (modeltrain.py, domain
+               "lab"): did the trade make money after costs, given the figures it was opened on, the rule, and
+               the market then. A model is used only if it passes the core's tests; then each new trade shows
+               its odds. The rules keep trading either way, so the data keeps coming.
+
+Daily prices decide stops and targets, so a real fill could differ; taxes are not taken off. A rule is called
+unproven until 30 of its trades have closed.
 ```
 
 - Tables: `lab_trades`
-- Uses: benchmarks.py, finnhub.py, market_school.py, markets.py, memory.py, pricebook.py, stratrules.py, tools.py, watchpicks.py
+- Uses: benchmarks.py, finnhub.py, market_school.py, markets.py, memory.py, modeltrain.py, pricebook.py, stratrules.py, tools.py, watchpicks.py
 
 ### stratrules.py
 
