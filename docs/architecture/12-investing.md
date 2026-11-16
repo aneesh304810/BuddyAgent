@@ -21,6 +21,7 @@ flowchart LR
         recommend_py["recommend.py<br/>Buy and sell signals by category, each with its reasons and Buddy's…"]
         signals_py["signals.py<br/>what people are saying on Reddit about deals, travel, products and…"]
         simbook_py["simbook.py<br/>every signal Buddy makes is paper-traded automatically, by fixed…"]
+        stratlab_py["stratlab.py<br/>well-known trading rules, each paper-traded every weekday, to see…"]
         crossmarket_py["crossmarket.py<br/>The Practice tab of the Investments page: Buddy's paper trades (what…"]
         markets_py["markets.py<br/>Buddy scans for chart setups, finds entry and exit levels, reads what…"]
         livewatch_py["livewatch.py<br/>during US market hours Buddy checks the price of each symbol being…"]
@@ -58,8 +59,11 @@ flowchart LR
     signals_py --> finnhub_py
     signals_py --> markets_py
     simbook_py --> markets_py
+    stratlab_py --> finnhub_py
+    stratlab_py --> markets_py
     crossmarket_py --> markets_py
     crossmarket_py --> simbook_py
+    crossmarket_py --> stratlab_py
     livewatch_py --> finnhub_py
     livewatch_py --> markets_py
     livewatch_py --> recommend_py
@@ -74,10 +78,11 @@ flowchart LR
     paper_py --> finnhub_py
     paper_py --> markets_py
     invest_py --> markets_py
-    db[("Your database<br/>api_calls, fund_filings, fund_holdings, fundamentals, inv_journal, live_events, mkt_positions, mkt_setups and more")]
+    db[("Your database<br/>api_calls, fund_filings, fund_holdings, fundamentals, inv_journal, lab_trades, live_events, mkt_positions and more")]
     recommend_py --> db
     signals_py --> db
     simbook_py --> db
+    stratlab_py --> db
     markets_py --> db
     livewatch_py --> db
     lenses_py --> db
@@ -224,6 +229,42 @@ not taken off. A few dozen trades prove little: results say so until there are e
 - Tables: `sim_trades`
 - Uses: markets.py, memory.py, pricebook.py, tools.py
 
+### stratlab.py
+
+```text
+Strategy lab: well-known trading rules, each paper-traded every weekday, to see which hold up and to collect
+the data a model needs.
+
+The Signals book (simbook.py) waits for a Reddit spike or Intelligence evidence. The lab does not wait for
+anything: each weekday it reads the daily prices of about a hundred large US stocks and funds and lets each
+rule below open paper trades by itself. No AI decides a trade, and no real order is ever placed.
+
+  trend       Trend following: the price is above its 50-day average, that is above the 200-day average, and
+              today's close is the highest of the last 20 days.
+  momentum    Momentum: the three strongest of the list over the last six months (leaving out the last week),
+              each still above its 200-day average.
+  dip         Buy the dip: a stock in a long-term rise (above its 200-day average) that has fallen hard in the
+              short term (14-day RSI under 30). Held 10 days at most.
+  breakout    Breakout: a new one-year high on at least one and a half times the usual volume.
+  sectors     Sector rotation: the three strongest of the eleven sector funds over three months.
+  insiders    Insider buying: a company on the recommended watchlist or yours whose insiders have been net
+              buyers for three months, with the price above its 50-day average (needs the Finnhub key).
+
+  Every trade   is $1,000 of pretend money, bought at that day's close. The stop is twice the average daily range
+                below (never under 4% or over 12%), the target twice as far above, and it is sold after the
+                rule's time limit if neither is reached. A rule opens at most three new trades a day and holds a
+                symbol once at a time.
+  Every close   keeps the result, the S&P 500 fund's move over the same days, and the figures the trade was
+                opened on (RSI, distance from the averages, recent returns, volume, daily range), so a model can
+                later learn which conditions went with the wins.
+
+Daily prices decide stops and targets, so a real fill could differ; costs and taxes are not taken off. A rule is
+called unproven until 30 of its trades have closed.
+```
+
+- Tables: `lab_trades`
+- Uses: finnhub.py, market_school.py, markets.py, memory.py, pricebook.py, tools.py, watchpicks.py
+
 ### crossmarket.py
 
 ```text
@@ -244,7 +285,7 @@ US stocks and funds only (the signals come from tickers people discuss): crypto 
 and the links, not in the trades. Market prices are public data; nothing here is personal. Cached for 30 minutes.
 ```
 
-- Uses: market_school.py, markets.py, memory.py, modeltrain.py, pricebook.py, simbook.py, themes.py, tools.py
+- Uses: market_school.py, markets.py, memory.py, modeltrain.py, pricebook.py, simbook.py, stratlab.py, themes.py, tools.py
 
 ### markets.py
 

@@ -80,4 +80,7 @@ when nothing was logged.
 On a screen 600 points wide or more (the Fold opened, a tablet) the five places move from the bar at the
 bottom to a rail down the left side, and the buy-now-or-wait cards in Deals sit two across.
 
+Trading also shows the strategy lab: six rule-based strategies that paper-trade every weekday, each with
+its record against the market, and the trades it bought and sold.
+
 Not yet: source and freshness lines everywhere.

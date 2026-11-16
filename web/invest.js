@@ -257,6 +257,26 @@ function strategiesCards(p) {
     (testing ? card("New strategies being tested", testing + `<p class="note">${esc(s.note)}</p>`) : "");
 }
 
+// The strategy lab: well-known rules that each paper-trade every weekday, with their record against the market.
+function labCards(p) {
+  const lab = p.lab;
+  if (!lab) return "";
+  const rows = lab.strategies.map((s) => `<tr><td><b>${esc(s.name)}</b><br><small class="muted">${esc(s.rule)}. Reads: ${esc(s.reads)}; held up to ${esc(s.hold_days)} days.</small></td>
+      <td>${esc(s.open)}</td><td>${esc(s.closed)}</td><td>${s.closed ? `${esc(s.won)} of ${esc(s.closed)}` : "–"}</td>
+      <td>${pct(s.average_result)}<br><small class="muted">market ${s.average_vs_market == null ? "–" : pct(s.average_result - s.average_vs_market)}</small></td>
+      <td><small class="muted">${esc(s.says)}</small></td></tr>`).join("");
+  const one = (t) => `<div class="tx" style="grid-template-columns:92px 1fr auto"><span><b>${esc(t.symbol)}</b><small>${esc(t.strategy)}</small></span>
+      <span>${t.closed ? `Bought ${esc(t.opened)} at ${px(t.entry)}, sold ${esc(t.closed)} at ${px(t.exit)}: ${esc(t.why_closed)}` : `Bought ${esc(t.opened)} at ${px(t.entry)}; stop ${px(t.stop)}, target ${px(t.target)}`}
+        <small>${esc(t.why)}</small></span>
+      <span class="amt">${t.closed ? pct(t.change) : `<small class="muted">open</small>`}</span></div>`;
+  const list = (ts, empty) => ts.length ? ts.map(one).join("") : `<p class="muted">${empty}</p>`;
+  return card("Strategy lab: rules that trade every weekday",
+      `<div style="overflow-x:auto"><table class="grid"><tr><th>Rule</th><th>Open</th><th>Closed</th><th>Made money</th><th>Average result</th><th>Record</th></tr>${rows}</table></div>
+       <p><button class="btn" id="lab-run">Run the lab now</button></p>`, lab.note) +
+    card(`Lab: bought and holding (${lab.open.length})`, list(lab.open, "Nothing open yet. The lab opens its first trades on the next weekday morning, or press Run the lab now.")) +
+    card(`Lab: sold (${lab.closed.length})`, list(lab.closed, "Nothing has closed yet. A trade closes at its stop, its target, or its time limit."));
+}
+
 function learned(p) {
   const NAMES = { tone: "What people say", trend: "Price trend", insiders: "Insiders", analysts: "Analysts" };
   const w = p.weights || {};
@@ -308,7 +328,7 @@ function practiceTab() {
   const log = (p.log || []).map((d) => `<h3 class="group">${esc(d.day)}</h3>` + d.events.map((e) =>
     `<div class="tx"><span><b>${esc(e.what)}</b></span><span>${esc(e.symbol)}<small>${esc(e.why)}</small></span><span class="amt">${px(e.price)}</span></div>`).join("")).join("");
   const list = (rows, empty) => rows && rows.length ? rows.map(tradeCard).join("") : `<p class="muted">${empty}</p>`;
-  return card("Buddy's paper trading", summary) + strategiesCards(p) +
+  return card("Buddy's paper trading", summary) + strategiesCards(p) + labCards(p) +
     card(`Bought and holding (${(p.open || []).length})`, list(p.open, "No paper positions are open. They open when Buddy makes a buy or sell signal.")) +
     card(`Sold and judged (${(p.closed || []).length})`, list(p.closed, "Nothing has closed yet. A trade closes at its stop, its target, a sell signal, or after 28 days.")) +
     ((p.skipped || []).length ? card("Signals not traded", list(p.skipped, "")) : "") +
@@ -434,6 +454,13 @@ function render() {
   document.querySelectorAll("[data-pick]").forEach((b) => b.onclick = () => loadPicks({ action: b.dataset.pick, symbol: b.dataset.sym }));
   document.querySelectorAll("[data-keep]").forEach((b) => b.onclick = async () => { await watch("add", b.dataset.keep); picksData = null; render(); });
   if ($("picks-refresh")) $("picks-refresh").onclick = () => loadPicks({ action: "refresh" });
+  if ($("lab-run")) $("lab-run").onclick = async () => {
+    $("lab-run").disabled = true; $("lab-run").textContent = "Running…";
+    try { const out = await api("/api/invest/lab", {}); practiceData.practice.lab = out.lab; render();
+      const n = Object.values(out.ran.opened || {}).reduce((a, b) => a + b, 0);
+      notice(out.ran.note || `${n} opened, ${out.ran.closed} closed`); }
+    catch (e) { notice(e.message); render(); }
+  };
   document.querySelectorAll("[data-check]").forEach((b) => b.onclick = () => { tab = "strategy"; render(); $("sym").value = b.dataset.check; analyze(); });
   document.querySelectorAll("[data-refresh]").forEach((b) => b.onclick = () => refresh(b.dataset.refresh, b));
   if ($("analyze")) { $("analyze").onclick = analyze; $("sym").onkeydown = (e) => { if (e.key === "Enter") analyze(); }; }

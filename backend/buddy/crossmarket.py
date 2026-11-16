@@ -299,6 +299,15 @@ def strategies(memory: Memory, stats: dict, model: dict | None) -> dict:
                     "finished baskets, and nothing here ever uses real money."}
 
 
+def _lab(memory: Memory) -> dict | None:
+    try:
+        from . import stratlab  # noqa: PLC0415
+        return stratlab.view(memory)
+    except Exception as e:
+        log.info("practice: the strategy lab is unavailable (%s)", type(e).__name__)
+        return None
+
+
 def practice(memory: Memory, data=None, today: date | None = None) -> dict:
     """The practice book for the page: summary, open positions at the latest price, closed trades, skipped
     signals, a day-by-day log and what has been learned."""
@@ -365,7 +374,7 @@ def practice(memory: Memory, data=None, today: date | None = None) -> dict:
             "by_category": stats["by_category"], "open": open_, "closed": closed[:60], "skipped": skipped[:20],
             "log": [{"day": d, "events": e} for d, e in sorted(log_.items(), reverse=True)][:30],
             "weights": stats["weights"], "model": model, "note": stats["note"],
-            "strategies": strategies(memory, stats, model),
+            "strategies": strategies(memory, stats, model), "lab": _lab(memory),
             "limits": "Paper trades are US stocks and funds only; crypto shows in the market activity below, not in "
                       "the trades. Prices are daily closes, so a real fill could differ. No real money moves."}
 

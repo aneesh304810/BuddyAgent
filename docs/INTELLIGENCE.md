@@ -308,3 +308,14 @@ the recommended watchlist and your own US symbols on the Intelligence evidence i
 That lean is added to the price trend, insiders and analysts exactly as the Reddit tone is. A paper buy
 needs the evidence and the trend to agree; the trend alone opens nothing. "The Intelligence evidence" is
 re-weighed from closed trades like the other reasons. Nothing real is ever bought or sold.
+
+## The strategy lab
+
+Paper trading that does not wait for Reddit or for evidence (`stratlab.py`). Each weekday morning six
+well-known rules read the daily prices of about a hundred large US stocks and funds, and each opens its own
+paper trades: trend following, momentum, buy the dip, breakout, sector rotation and insider buying. Every
+trade is $1,000 of pretend money with a stop, a target and a time limit, and is compared with the S&P 500
+fund over the same days. The figures each trade was opened on are kept, so a model can later learn which
+conditions went with the wins. A rule is called unproven until 30 of its trades have closed. The Trading tab
+shows each rule's record and every trade bought and sold; "Run the lab now" runs it without waiting for the
+morning. No AI decides a trade and nothing real is ever bought.

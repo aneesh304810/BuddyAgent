@@ -655,6 +655,14 @@ async def run(memory: Memory, deliver: Deliver, connected=None) -> None:
                     memory.set(recommend.DAY_KEY, local_now().date().isoformat())
                     for text in await asyncio.to_thread(recommend.run, memory):
                         await deliver("money", text, topic="investing:signals")
+                from . import stratlab  # noqa: PLC0415  the strategy lab: rule-based paper trades, weekday mornings
+                if stratlab.due(memory):
+                    memory.set(stratlab.DAY_KEY, local_now().date().isoformat())
+                    try:
+                        lab = await asyncio.to_thread(stratlab.run, memory)
+                        log.info("strategy lab: %d closed, opened %s", lab["closed"], lab["opened"])
+                    except Exception:
+                        log.exception("the strategy lab failed")
                 from . import dealforecast  # noqa: PLC0415  deals watched for (found overnight or this morning)
                 if not in_quiet_hours() and local_now().hour >= dealcollector.START_HOUR:
                     for text, links in dealforecast.take_pending(memory):

@@ -1766,6 +1766,13 @@ async def api_invest_watch(body: dict) -> dict:
     return {"ok": True, "text": text, "watchlist": await asyncio.to_thread(invest.watchlist, memory, mk)}
 
 
+@app.post("/api/invest/lab", dependencies=[Depends(require_admin)])
+async def api_invest_lab() -> dict:
+    """Run the strategy lab now (it also runs by itself each weekday morning): close and open its paper trades."""
+    from . import stratlab  # noqa: PLC0415
+    return {"ran": await asyncio.to_thread(stratlab.run, memory), "lab": await asyncio.to_thread(stratlab.view, memory)}
+
+
 @app.get("/api/invest/picks", dependencies=[Depends(require_admin)])
 async def api_invest_picks() -> dict:
     """Buddy's recommended watchlist from the Intelligence evidence, and its archive, grouped by sector."""
