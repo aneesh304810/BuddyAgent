@@ -294,3 +294,17 @@ intelligence, refreshed each night after the evidence scan (`watchpicks.py`).
 Add puts a recommended company on your own watchlist. No AI model is used and no outside call is made to
 build the list; it reads the public evidence already collected. A recommendation is a reason to look, not
 advice to buy, and nothing is ever bought.
+
+## Paper trades from the evidence
+
+The Signals practice book used to open a paper trade only when a symbol had a spike of attention on Reddit,
+so with no Reddit data nothing traded. Each weekday morning Buddy now also judges up to 15 companies from
+the recommended watchlist and your own US symbols on the Intelligence evidence instead of the crowd:
+
+- **Up:** the technology's records grew 25% or more on the 90 days before, or one of its patterns fired in
+  30 days, and the news is not mostly bad.
+- **Down:** two or more headlines read as bad in 14 days, and more bad than good.
+
+That lean is added to the price trend, insiders and analysts exactly as the Reddit tone is. A paper buy
+needs the evidence and the trend to agree; the trend alone opens nothing. "The Intelligence evidence" is
+re-weighed from closed trades like the other reasons. Nothing real is ever bought or sold.

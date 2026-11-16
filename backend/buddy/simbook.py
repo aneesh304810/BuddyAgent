@@ -46,7 +46,7 @@ START, RISK, MAX_POSITION, MAX_OPEN_RISK = 100_000.0, 0.01, 0.20, 0.06
 STOP, HOLD_DAYS = 0.07, 28  # the stop when the stock's daily range isn't known; avoids are judged at 7% either way
 STOP_MIN, STOP_MAX = 0.04, 0.12
 MIN_TO_LEARN, MIN_TO_TRUST = 15, 30
-PARTS = ("tone", "trend", "insiders", "analysts")
+PARTS = ("tone", "trend", "insiders", "analysts", "evidence")
 WEIGHTS_KEY = "simbook:weights"
 
 

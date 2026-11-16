@@ -142,7 +142,7 @@ def test_practice_names_its_strategies_and_what_it_is_learning(memory):
     assert [u["source"] for u in out["open"][0]["used"]][:2] == ["Reddit", "Price"]
     s = out["strategies"]
     assert [x["key"] for x in s["following"]] == ["signals", "themes"]
-    assert s["following"][0]["record"] == "No closed trades yet" and len(s["following"][0]["inputs"]) == 4
+    assert s["following"][0]["record"] == "No closed trades yet" and len(s["following"][0]["inputs"]) == 5
     assert "count equally" in s["learning"][0]
     assert {x["lean"] for x in s["testing"]} == {"none"} and len(s["testing"]) == 7
     memory.set(simbook.WEIGHTS_KEY, json.dumps({"on": "2026-01-01", "parts": {"tone": {"weight": 1.3, "trades": 12, "won": 9}}}))

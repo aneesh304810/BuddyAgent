@@ -16,6 +16,7 @@ flowchart LR
     end
     you --> t_connections
     t_connections --> gateway_py
+    keytest_py --> gateway_py
     o_0["Claude"]
     gateway_py -. uses .-> o_0
     o_1["Free AI models"]
@@ -72,8 +73,8 @@ fails. Run on the server: sudo bash /opt/buddy/deploy/keys.sh  (never prints a k
                   Cerebras, OpenRouter, DeepSeek through OpenRouter)
 ```
 
-- Settings: `BUDDY_FREE_MODELS`, `BUDDY_NJT_PASSWORD`, `BUDDY_NJT_USERNAME`, `BUDDY_SERPER_KEY`
-- Uses: free_models.py, openrouter_catalog.py, transit.py
+- Settings: `BUDDY_17TRACK_KEY`, `BUDDY_AEROAPI_KEY`, `BUDDY_ALPACA_SECRET`, `BUDDY_ANTHROPIC_ADMIN_KEY`, `BUDDY_DB_KEY`, `BUDDY_DO_TOKEN`, `BUDDY_DUFFEL_TOKEN`, `BUDDY_EMAIL_2_ADDRESS`, `BUDDY_EMAIL_2_APP_PASSWORD`, `BUDDY_EMAIL_ADDRESS`, `BUDDY_EMAIL_APP_PASSWORD`, `BUDDY_FREE_MODELS` and 11 more
+- Uses: free_models.py, gateway.py, openrouter_catalog.py, transit.py
 
 ## How it connects
 

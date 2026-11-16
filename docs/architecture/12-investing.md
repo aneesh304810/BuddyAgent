@@ -140,6 +140,9 @@ Buy and sell signals by category, each with its reasons and Buddy's own record, 
                call expensive, or that has no profits, becomes a caution; a strong, cheap business being sold
                off is not called a sell
     facts      Finnhub, when its key is set: earnings coming, insiders buying or selling, analysts' ratings
+    evidence   a company on Buddy's recommended watchlist or your own, with no Reddit spike: what the Intelligence
+               evidence says (filings and patterns growing, news read as good or bad) stands in for the crowd, so
+               signals and paper trades do not depend on Reddit alone
   -> buy (attention up, tone and trend agree), sell or avoid (they agree the other way), caution (a crowd piling
      into something already stretched: usually late), or nothing. Code only: no AI decides a signal.
 
@@ -151,7 +154,7 @@ Signals only: Buddy never places, changes or cancels a trade, and this is not fi
 ```
 
 - Tables: `recs`
-- Uses: factors.py, finnhub.py, investors.py, lenses.py, livewatch.py, markets.py, memory.py, modeltrain.py, pricebook.py, shopper.py, signals.py, simbook.py, tools.py, whentobuy.py
+- Uses: factors.py, finnhub.py, investors.py, lenses.py, livewatch.py, markets.py, memory.py, modeltrain.py, pricebook.py, shopper.py, signals.py, simbook.py, tools.py, watchpicks.py, whentobuy.py
 
 ### signals.py
 

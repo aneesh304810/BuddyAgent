@@ -10,6 +10,9 @@
                call expensive, or that has no profits, becomes a caution; a strong, cheap business being sold
                off is not called a sell
     facts      Finnhub, when its key is set: earnings coming, insiders buying or selling, analysts' ratings
+    evidence   a company on Buddy's recommended watchlist or your own, with no Reddit spike: what the Intelligence
+               evidence says (filings and patterns growing, news read as good or bad) stands in for the crowd, so
+               signals and paper trades do not depend on Reddit alone
   -> buy (attention up, tone and trend agree), sell or avoid (they agree the other way), caution (a crowd piling
      into something already stretched: usually late), or nothing. Code only: no AI decides a signal.
 
@@ -108,6 +111,43 @@ def candidates(memory: Memory, today: date) -> list[dict]:
     return out[:12]
 
 
+EVIDENCE_A_DAY = 15  # companies judged on the Intelligence evidence each morning
+
+
+def evidence_sign(f: dict) -> int:
+    """Which way the Intelligence evidence on a company points: up when its technology's records are growing or a
+    pattern fired and the news is not mostly bad; down when the news is mostly bad; else no lean."""
+    good, bad = f.get("f_good_news_14") or 0, f.get("f_bad_news_14") or 0
+    if bad >= 2 and bad > good:
+        return -1
+    if (f.get("f_patterns_30") or 0) > 0 or (f.get("f_evidence_growth") or 0) >= 0.25:
+        return 1
+    return 0
+
+
+def evidence_candidates(memory: Memory, taken: set) -> list[dict]:
+    """Companies to judge without a Reddit spike: Buddy's recommended watchlist, then your own US symbols."""
+    if not enabled(memory, "stocks"):
+        return []
+    symbols = []
+    try:
+        from . import watchpicks  # noqa: PLC0415
+        picks = watchpicks.view(memory)
+        symbols += [p["symbol"] for s in picks["recommended"] for i in s["industries"] for p in i["picks"]]
+    except Exception:
+        log.info("recommend: no recommended watchlist", exc_info=True)
+    try:
+        symbols += [r["symbol"] for r in memory.db.execute("SELECT symbol FROM mkt_watch WHERE market = 'us' ORDER BY symbol")]
+    except Exception:
+        pass
+    out = []
+    for s in dict.fromkeys(str(x).upper() for x in symbols):
+        if s not in taken:
+            out.append({"key": s, "category": "stocks", "mentions": 0, "times_usual": None, "tone": 0.0,
+                        "source": "evidence"})
+    return out[:EVIDENCE_A_DAY]
+
+
 def judge(t: dict, bars: list[dict], facts: dict | None = None, weights: dict | None = None) -> dict | None:
     """One symbol: the action and its reasons, from attention, trend and facts. None without enough prices.
     `weights`: how much each reason counts (simbook.weights: learned from the paper trades; 1.0 until then)."""
@@ -122,12 +162,22 @@ def judge(t: dict, bars: list[dict], facts: dict | None = None, weights: dict | 
     facts = facts or {}
     score, why, parts = 0.0, [], {}
     w = lambda p: float(((weights or {}).get(p) or {}).get("weight", 1.0))  # noqa: E731
-    times = f"{t['times_usual']:g} times its usual" if t["times_usual"] else "more than Buddy has seen before"
-    why.append(f"{t['mentions']} Reddit posts last night ({times}), tone "
-               f"{'positive' if t['tone'] > 0.25 else 'negative' if t['tone'] < -0.25 else 'mixed'}")
-    parts["tone"] = 1 if t["tone"] > 0.25 else -1 if t["tone"] < -0.25 else 0
+    if t.get("source") == "evidence":  # no Reddit spike: the Intelligence evidence stands in for the crowd
+        f = facts.get("factors") or {}
+        parts["evidence"] = evidence_sign(f)
+        why.append(f"the Intelligence evidence points {'up' if parts['evidence'] > 0 else 'down' if parts['evidence'] < 0 else 'neither way'}: "
+                   f"{int(f.get('f_evidence_90') or 0)} records in 90 days ({(f.get('f_evidence_growth') or 0):+.0%} on the 90 "
+                   f"before), {int(f.get('f_patterns_30') or 0)} patterns fired, news {int(f.get('f_good_news_14') or 0)} good "
+                   f"and {int(f.get('f_bad_news_14') or 0)} bad in 14 days")
+        score += parts["evidence"] * w("evidence")
+    else:
+        times = f"{t['times_usual']:g} times its usual" if t["times_usual"] else "more than Buddy has seen before"
+        why.append(f"{t['mentions']} Reddit posts last night ({times}), tone "
+                   f"{'positive' if t['tone'] > 0.25 else 'negative' if t['tone'] < -0.25 else 'mixed'}")
+        parts["tone"] = 1 if t["tone"] > 0.25 else -1 if t["tone"] < -0.25 else 0
+        score += parts["tone"] * w("tone")
     parts["trend"] = 1 if price > avg50 else -1
-    score += parts["tone"] * w("tone") + parts["trend"] * w("trend")
+    score += parts["trend"] * w("trend")
     why.append(f"price ${price:,.2f} is {'above' if price > avg50 else 'below'} its 50-day average "
                f"(${avg50:,.2f}), {week:+.1%} this week, RSI {strength:.0f}")
     ins = facts.get("insiders")
@@ -181,6 +231,7 @@ def build(memory: Memory, today: date | None = None, data=None, facts_for=None, 
     today = today or local_now().date()
     _ready(memory)
     cands = candidates(memory, today - timedelta(days=1)) or candidates(memory, today)
+    cands = cands + evidence_candidates(memory, {c["key"] for c in cands})
     if not cands:
         return []
     data = data or Data(memory)
@@ -199,6 +250,9 @@ def build(memory: Memory, today: date | None = None, data=None, facts_for=None, 
         except Exception:
             log.info("recommend: facts for %s failed", c["key"], exc_info=True)
             facts = {}
+        if c.get("source") == "evidence":  # judged on what the Intelligence Platform holds on the company
+            from . import factors  # noqa: PLC0415
+            facts = {**facts, "factors": factors.investing(memory, c["key"], today)}
         closes = [b["c"] for b in bars.get(c["key"]) or []]
         if closes and c["category"] in ("stocks", "options"):  # funds have no filings to check
             try:
@@ -212,7 +266,7 @@ def build(memory: Memory, today: date | None = None, data=None, facts_for=None, 
         j = judge(c, bars.get(c["key"]) or [], facts, learned)
         if not j:
             continue
-        if j["action"] != "watch":  # what the Intelligence Platform holds on this company, kept with the trade
+        if j["action"] != "watch" and c.get("source") != "evidence":  # what Intelligence holds, kept with the trade
             from . import factors  # noqa: PLC0415
             j["facts"]["factors"] = factors.investing(memory, c["key"])
         try:  # a trained model's odds, when one has passed its test on trades it never saw (modeltrain.py)

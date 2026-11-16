@@ -176,6 +176,7 @@ def _reasons(memory: Memory, trades: list[dict]) -> dict:
 
 
 PART_WORDS = {"tone": "what people were saying", "trend": "the price trend", "insiders": "insider buying or selling",
+              "evidence": "the Intelligence evidence",
               "analysts": "analysts' ratings"}
 
 
@@ -199,9 +200,9 @@ def used(t: dict) -> list[dict]:
     parts = json.loads(t.get("parts") or "{}")
     f = json.loads(t.get("features") or "{}")
     out = []
-    if f.get("mentions") is not None or parts.get("tone"):
+    if f.get("mentions") or parts.get("tone"):
         says = []
-        if f.get("mentions") is not None:
+        if f.get("mentions"):
             times = f.get("times_usual")
             says.append(f"{f['mentions']:g} posts the night before" + (f", {times:g} times its usual" if times else ""))
         if f.get("tone") is not None:
@@ -236,7 +237,8 @@ def used(t: dict) -> list[dict]:
             says.append(f"{int(f['f_patterns_30'])} evidence patterns fired in 30 days")
         if f.get("f_links_90"):
             says.append(f"named in {int(f['f_links_90'])} relationships (funding, supply, partnership)")
-        out.append({"source": "Intelligence", "says": "; ".join(says), "way": _way(f.get("f_evidence_growth") or 0)})
+        out.append({"source": "Intelligence", "says": "; ".join(says),
+                    "way": _way(parts["evidence"] if "evidence" in parts else f.get("f_evidence_growth") or 0)})
     return out
 
 
@@ -244,12 +246,14 @@ def strategies(memory: Memory, stats: dict, model: dict | None) -> dict:
     """The strategies the practice books follow, how each has done, and what is being learned or tested."""
     w = stats.get("weights") or {}
     names = {"tone": "What people say on Reddit", "trend": "The price trend", "insiders": "Insider buying or selling",
-             "analysts": "Analysts' ratings"}
+             "analysts": "Analysts' ratings", "evidence": "The Intelligence evidence"}
     inputs = [{"name": names[k], "weight": (w.get(k) or {}).get("weight", 1.0), "trades": (w.get(k) or {}).get("trades", 0),
                "won": (w.get(k) or {}).get("won", 0)} for k in names]
     o = stats.get("overall")
     out = [{"key": "signals", "name": "Signals",
-            "rule": "Each weekday Buddy scores stocks and funds on four reasons. A strong score opens a paper buy, a "
+            "rule": "Each weekday Buddy scores two kinds of symbol: ones with a Reddit attention spike, and companies "
+                    "on the recommended watchlist or yours, judged on the Intelligence evidence. Each is scored with "
+                    "the price trend, insiders and analysts. A strong score opens a paper buy, a "
                     "weak one marks it to avoid. A trade closes at its stop, its target, an opposite signal or after "
                     "28 days.",
             "uses": ["Reddit", "Price", "Company facts", "News", "Intelligence"],
@@ -261,7 +265,7 @@ def strategies(memory: Memory, stats: dict, model: dict | None) -> dict:
         learning.append(f"{i['name']} now counts {i['weight']:.2f} times (it was right in {i['won']} of {i['trades']} "
                         "trades it pointed the way of).")
     if not moved:
-        learning.append("The four reasons still count equally: a reason is re-weighed once 10 closed trades have "
+        learning.append("The reasons still count equally: a reason is re-weighed once 10 closed trades have "
                         "followed it.")
     if model:
         if model.get("model_in_use"):

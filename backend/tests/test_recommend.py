@@ -196,3 +196,29 @@ def test_a_morning_runs_the_checklists_for_companies_not_funds(memory):
     assert asked == [("NVDA", 8.0)]
     assert any(t.startswith("⚠️ NVDA") and "expensive" in t for t in told)
     assert any(t.startswith("📈 SPY") for t in told)
+
+
+def test_a_company_is_judged_on_the_intelligence_evidence_when_reddit_is_silent():
+    t = {"key": "OKLO", "category": "stocks", "mentions": 0, "times_usual": None, "tone": 0.0, "source": "evidence"}
+    up = {"factors": {"f_evidence_90": 12, "f_evidence_growth": 0.5, "f_patterns_30": 1, "f_good_news_14": 2}}
+    j = recommend.judge(t, wavy(up=True), up)
+    assert j["action"] == "buy" and j["facts"]["parts"] == {"evidence": 1, "trend": 1}
+    assert "Intelligence evidence points up" in j["reasons"][0] and "Reddit" not in " ".join(j["reasons"])
+    bad = {"factors": {"f_evidence_90": 12, "f_bad_news_14": 3, "f_good_news_14": 1}}
+    assert recommend.judge(t, wavy(up=False), bad)["action"] == "sell"
+    assert recommend.judge(t, wavy(up=True), {"factors": {"f_evidence_90": 3}})["action"] == "watch"  # trend alone is not enough
+    assert recommend.evidence_sign({}) == 0
+
+
+def test_a_morning_with_no_reddit_still_trades_the_recommended_watchlist(memory, monkeypatch):
+    from buddy import factors, simbook, watchpicks
+    monkeypatch.setattr(watchpicks, "view", lambda m: {"recommended": [{"industries": [{"picks": [{"symbol": "OKLO"}]}]}]})
+    monkeypatch.setattr(factors, "investing", lambda m, s, today=None: {"f_evidence_90": 9.0, "f_evidence_growth": 0.6,
+                                                                       "f_patterns_30": 1.0})
+    data = FakeData({"OKLO": wavy(up=True), "SPY": wavy(up=True)})
+    said = recommend.run(memory, DAY, data, facts_for=None, lens_for=NO_LENS)
+    assert len(said) == 1 and "OKLO" in said[0]
+    trade = pricebook.run(memory, "SELECT symbol, side, status, parts, features FROM sim_trades")[0]
+    assert (trade["symbol"], trade["side"], trade["status"]) == ("OKLO", "long", "open")
+    assert json.loads(trade["parts"]) == {"evidence": 1, "trend": 1} and json.loads(trade["features"])["f_evidence_growth"] == 0.6
+    assert "evidence" in simbook.weights(memory)
