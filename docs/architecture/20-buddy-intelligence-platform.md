@@ -268,6 +268,9 @@ catalogue, with where it came from, what it needs, how it tested, and whether it
   Validate   the rule is replayed over past daily prices by Buddy's own replay (stratlab.replay).
   Evaluate   the scorecard below: yearly return, Sharpe ratio, worst fall, trades a year, costs, and the result
              against the market, in rising and falling markets and in the latest stretch.
+             A rule also has to clear the luck test: the more rules are tried, the better the best of them
+             looks by chance alone, so its Sharpe ratio is judged against what the luckiest of that many rules
+             would show (the deflated Sharpe ratio of Bailey and Lopez de Prado).
   Learn      rules that the owner approves paper-trade every weekday; a rule is "proven live" only on its own
              live trades.
 

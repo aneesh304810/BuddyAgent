@@ -128,3 +128,18 @@ def test_discovery_queues_only_arxiv_papers_that_daily_data_can_test(memory):
     assert stratrepo.discover(memory, fetch)["added"] == 0        # nothing is queued twice
     view = stratrepo.view(memory)
     assert view["counts"]["queued"] == 2 and "3 papers in the list, 0 new" in view["last_discovery"]
+
+
+def test_a_good_result_among_many_tries_must_be_more_than_luck():
+    steady = {"monthly_sharpe": 0.6, "months": 60, "skew": 0.0, "kurtosis": 3.0}
+    assert stratrepo.not_luck(steady, [0.6]) is None                      # one rule tried: nothing to allow for
+    few = stratrepo.not_luck(steady, [0.6, 0.1, 0.0, -0.1])
+    many = stratrepo.not_luck(steady, [0.6] + [0.4 * ((i % 7) - 3) / 3 for i in range(60)])
+    assert few > 0.95 and many < few                                      # more tries, less sure
+    weak = stratrepo.not_luck({**steady, "monthly_sharpe": 0.1}, [0.1, 0.3, -0.2, 0.0, 0.25])
+    assert weak < 0.5
+    history = {"trades": 40, "average_vs_market": 0.01, "worst_fall": 0.1, "sharpe": 1.2}
+    splits = {"latest": {"average_vs_market": 0.01}}
+    assert stratrepo.gate(history, splits, 0.99, 5)[0] == "passed"
+    verdict, reasons = stratrepo.gate(history, splits, 0.6, 5)
+    assert verdict == "failed" and "only 60% sure it is not luck, allowing for the 5 rules tried (95% needed)" in reasons

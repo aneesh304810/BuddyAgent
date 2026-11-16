@@ -491,3 +491,19 @@ from a paper, a GitHub file or an uploaded document. It adds no second engine; i
   returns are never trusted; costs come off every result. Known gap: the replay uses today's list of companies, not
   each year's, so the past looks better than it was. LEAN and vectorbt are not used.
 - `GET/POST /api/intel/strategies`; shown as the Strategies tab on the Intelligence page.
+
+## Honest testing and more daily-price figures
+
+Adapted, as method, from published practice (including the Machine Learning for Trading repository, MIT); no outside
+code is run.
+
+- **A gap between learning and testing** (`train_model.py`). A trade still open when the test period began shares days
+  with it, so it is left out of learning. The result reports how many rows were left out.
+- **Walk-forward** (`train_model.py`). With 200 or more rows the model is also tested over four later periods in turn,
+  each time learning only from what came before. The calls it liked must hold up in three of them.
+- **The luck test** (`stratrepo.not_luck`). The more rules are tried, the better the best looks by chance. Each rule's
+  monthly Sharpe ratio is judged against what the luckiest of that many rules would show (the deflated Sharpe ratio).
+  A rule passes on past prices only at 95% or more.
+- **Twelve more figures** (`stratlab._more`), available to rules and to the model: `ret_1`, `ret_12_1`, `above_low`,
+  `months_up`, `vol_20`, `vol_change`, `range_20`, `band_width`, `up_days`, `skew_63`, `fall_63`, `traded`.
+  Trades recorded before this change do not carry them; run the replay again so the history does.

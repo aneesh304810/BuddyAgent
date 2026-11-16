@@ -22,6 +22,12 @@ How it is kept honest:
     and 10 or more from falling ones, and the calls it liked must not do worse than calls overall in either.
     A model tested only in a rising market has not been tested.
   - A small penalty on large weights (L2) keeps it from memorising noise.
+  - A gap between learning and testing. A row that was still open when the first test row began (it carries
+    "opened") shares days with the test period, so it is dropped from learning: otherwise the model would be
+    tested partly on what it had already seen.
+  - Walk-forward. With 200 or more rows the test is repeated over four later periods in turn, each time learning
+    only from what came before it. The calls it liked must have done at least as well as calls overall in three
+    of the periods that had enough of them: one lucky stretch is not a pass.
 """
 
 import json
@@ -33,6 +39,36 @@ TEST_SHARE, LIKES, MIN_TEST, MIN_LIKED = 0.3, 0.55, 40, 15
 BRIER_GAIN, RATE_GAIN = 0.005, 0.05
 CALIBRATION, RIVAL_GAIN, MIN_REGIME = 0.10, 0.02, 10
 BUCKETS = ((0.0, 0.4), (0.4, 0.5), (0.5, 0.6), (0.6, 1.01))
+WALK_MIN_ROWS, WALK_PERIODS, WALK_LIKED, WALK_PASS = 200, 4, 5, 3
+
+
+def before(train: list[dict], test: list[dict]) -> list[dict]:
+    """The training rows that had finished before the test period began (see the note above: the gap)."""
+    starts = [r["opened"] for r in test if r.get("opened")]
+    if not starts:
+        return train
+    start = min(starts)
+    return [r for r in train if r["when"] < start]
+
+
+def walk_forward(rows: list[dict]) -> dict:
+    """Four later periods, each tested by a model that learned only from the rows before it."""
+    n, out = len(rows), []
+    edges = [int(n * (0.4 + 0.15 * i)) for i in range(WALK_PERIODS + 1)]
+    for a, b in zip(edges, edges[1:]):
+        test = rows[a:b]
+        train = before(rows[:a], test)
+        if len(train) < 20 or not test or len({r["y"] for r in train}) < 2:
+            continue
+        model = fit(train, steps=300)
+        ps = [predict(model, r["x"]) for r in test]
+        liked = [r["y"] for p, r in zip(ps, test) if p >= LIKES]
+        overall = sum(r["y"] for r in test) / len(test)
+        out.append({"from": test[0]["when"], "to": test[-1]["when"], "calls": len(test), "right": round(overall, 3),
+                    "liked": len(liked), "right_when_liked": round(sum(liked) / len(liked), 3) if liked else None,
+                    "held": len(liked) >= WALK_LIKED and sum(liked) / len(liked) >= overall})
+    judged = [p for p in out if p["liked"] >= WALK_LIKED]
+    return {"periods": out, "judged": len(judged), "held": sum(1 for p in judged if p["held"])}
 
 
 def calibration(ps: list[float], ys: list[int]) -> dict:
@@ -97,6 +133,9 @@ def evaluate(rows: list[dict]) -> dict:
     rows = sorted(rows, key=lambda r: r["when"])
     cut = int(len(rows) * (1 - TEST_SHARE))
     train, test = rows[:cut], rows[cut:]
+    dropped = len(train)
+    train = before(train, test)
+    dropped -= len(train)
     if len(train) < 20 or not test or len({r["y"] for r in train}) < 2:
         return {"status": "not enough", "why": "too few rows, or every outcome was the same", "rows": len(rows)}
     model = fit(train)
@@ -129,6 +168,12 @@ def evaluate(rows: list[dict]) -> dict:
             by[name]["calls"] >= MIN_REGIME for name in by)
         checks["the calls it liked held up in both"] = all(
             b["right_when_liked"] is None or b["right_when_liked"] >= b["right"] for b in by.values())
+    extra["left_out_for_the_gap"] = dropped
+    if len(rows) >= WALK_MIN_ROWS:
+        walk = walk_forward(rows)
+        extra["walk_forward"] = walk
+        checks[f"held up in {WALK_PASS} of {WALK_PERIODS} later periods, each tested only on what came after"] = (
+            walk["judged"] >= WALK_PASS and walk["held"] >= WALK_PASS)
     return {"status": "promoted" if all(checks.values()) else "rejected", "model": model, "rows": len(rows), **extra,
             "learned_from": len(train), "tested_on": len(test), "first": rows[0]["when"], "last": rows[-1]["when"],
             "right_overall": round(overall, 3), "liked": len(liked),

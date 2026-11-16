@@ -44,6 +44,7 @@ unproven until 30 of its trades have closed.
 """
 
 import json
+import math
 import logging
 from datetime import date
 
@@ -113,7 +114,7 @@ def figures(bars: list[dict]) -> dict | None:
     jumps = sorted((b / a - 1 for a, b in zip(closes[-22:], closes[-21:]) if a), reverse=True)[:5]
     volumes = [b.get("v") or 0 for b in bars]
     usual = sum(volumes[-21:-1]) / 20
-    return {"price": price, "rsi": round((rsi(closes) or [50.0])[-1], 1),
+    return {**_more(closes, volumes), "price": price, "rsi": round((rsi(closes) or [50.0])[-1], 1),
             "above_20": round(price / sma(closes, 20) - 1, 4),
             "above_50": round(price / a50 - 1, 4), "above_200": round(price / a200 - 1, 4),
             "avg50_above_200": a50 > a200, "ret_5": round(price / closes[-6] - 1, 4),
@@ -128,6 +129,38 @@ def figures(bars: list[dict]) -> dict | None:
             "high_20": price >= max(closes[-20:]), "high_252": price >= max(closes[-252:]),
             "volume_times": round(volumes[-1] / usual, 2) if usual else None,
             "atr_pct": round(swing / price, 4) if swing else None}
+
+
+def _more(closes: list[float], volumes: list[float]) -> dict:
+    """Further figures from the same daily prices (the kinds used in published factor research): the classic
+    twelve-months-less-one momentum, how steady the rise was, how calm or jumpy the price is now against its own
+    usual, where it sits in its recent range, how deep its recent fall was, and how easily it trades."""
+    price = closes[-1]
+    daily = [b / a - 1 for a, b in zip(closes[-64:], closes[-63:]) if a]
+    last20 = daily[-20:]
+    spread = lambda xs: (sum((x - sum(xs) / len(xs)) ** 2 for x in xs) / len(xs)) ** 0.5 if xs else 0.0  # noqa: E731
+    s20, s63 = spread(last20), spread(daily)
+    mean63 = sum(daily) / len(daily) if daily else 0.0
+    low, high = min(closes[-20:]), max(closes[-20:])
+    mean20 = sum(closes[-20:]) / 20
+    peak, fall = closes[-63], 0.0
+    for c in closes[-63:]:
+        peak = max(peak, c)
+        fall = min(fall, c / peak - 1)
+    months = [closes[-1 - 21 * i] / closes[-1 - 21 * (i + 1)] - 1 for i in range(11) if closes[-1 - 21 * (i + 1)]]
+    traded = sum(c * v for c, v in zip(closes[-20:], volumes[-20:])) / 20
+    return {"ret_1": round(price / closes[-2] - 1, 4) if closes[-2] else None,
+            "ret_12_1": round(closes[-22] / closes[-252] - 1, 4) if closes[-252] else None,
+            "above_low": round(price / min(closes[-252:]) - 1, 4) if min(closes[-252:]) else None,
+            "months_up": round(sum(1 for m in months if m > 0) / len(months), 2) if months else None,
+            "vol_20": round(s20 * 252 ** 0.5, 4),
+            "vol_change": round(s20 / s63, 2) if s63 > 1e-9 else None,
+            "range_20": round((price - low) / (high - low), 3) if high > low else None,
+            "band_width": round(4 * spread(closes[-20:]) / mean20, 4) if mean20 else None,
+            "up_days": round(sum(1 for d in last20 if d > 0) / len(last20), 2) if last20 else None,
+            "skew_63": (round(sum((d - mean63) ** 3 for d in daily) / len(daily) / s63 ** 3, 3) if s63 > 1e-9 else None),
+            "fall_63": round(fall, 4),
+            "traded": round(math.log10(traded), 2) if traded > 0 else None}
 
 
 def market_index(bars: dict) -> dict:
@@ -243,9 +276,10 @@ def features_of(strategy: str, features: dict, regime: str) -> dict:
 def model_rows(memory: Memory, limit: int = 6000) -> list[dict]:
     """Closed lab trades (live and replayed) as rows for the learning core: did the trade make money after costs?"""
     _ready(memory)
-    got = _run(memory, "SELECT closed, strategy, ret, features, regime FROM lab_trades WHERE status = 'closed' AND ret IS "
+    got = _run(memory, "SELECT closed, opened, strategy, ret, features, regime FROM lab_trades WHERE status = 'closed' AND ret IS "
                        "NOT NULL ORDER BY closed DESC LIMIT ?", (limit,))
-    return [{"when": str(t["closed"]), "x": features_of(t["strategy"], json.loads(t["features"] or "{}"), t["regime"] or ""),
+    return [{"when": str(t["closed"]), "opened": str(t["opened"]),
+             "x": features_of(t["strategy"], json.loads(t["features"] or "{}"), t["regime"] or ""),
              "y": int(t["ret"] - COST > 0), **({"regime": t["regime"]} if t["regime"] else {})} for t in reversed(got)]
 
 

@@ -250,3 +250,19 @@ def test_one_page_the_owner_points_to_becomes_a_proposed_rule_with_its_link(memo
         asyncio.run(stratrules.propose_from_page(memory, "http://insecure.example/x", ask, fetch))
     with pytest.raises(stratrules.ToolError, match="could not read enough"):
         asyncio.run(stratrules.propose_from_page(memory, "https://app.example/x", ask, lambda u: (u, "<html><body>Loading…</body></html>")))
+
+
+def test_the_further_daily_price_figures():
+    up = stratlab.figures(series(rising()))
+    assert up["months_up"] == 1.0 and up["up_days"] == 1.0 and up["range_20"] == 1.0 and up["fall_63"] == 0.0
+    assert up["ret_12_1"] > 0 and up["above_low"] > up["ret_12_1"] and up["ret_1"] > 0 and up["traded"] is not None
+    flat = stratlab.figures(series([100.0] * 300))
+    assert flat["vol_20"] == 0.0 and flat["vol_change"] is None and flat["range_20"] is None and flat["skew_63"] is None
+    fell = stratlab.figures(series(rising()[:-5] + [rising()[-6] * f for f in (0.97, 0.94, 0.9, 0.88, 0.85)]))
+    assert fell["fall_63"] < -0.1 and fell["range_20"] == 0.0 and fell["vol_change"] > 1 and fell["skew_63"] < 0
+    from buddy import stratrules
+    assert all(k in stratrules.FIELDS for k in ("ret_12_1", "months_up", "vol_change", "range_20", "fall_63", "traded"))
+    rule = stratrules.validate({"name": "Steady risers", "universe": "stocks", "hold_days": 20, "sell": [],
+                                "buy": [{"field": "months_up", "op": ">=", "value": 0.8}],
+                                "rank": {"field": "ret_12_1", "order": "highest", "top": 3}})
+    assert rule["buy"][0]["field"] == "months_up"

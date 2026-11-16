@@ -10,6 +10,9 @@ catalogue, with where it came from, what it needs, how it tested, and whether it
   Validate   the rule is replayed over past daily prices by Buddy's own replay (stratlab.replay).
   Evaluate   the scorecard below: yearly return, Sharpe ratio, worst fall, trades a year, costs, and the result
              against the market, in rising and falling markets and in the latest stretch.
+             A rule also has to clear the luck test: the more rules are tried, the better the best of them
+             looks by chance alone, so its Sharpe ratio is judged against what the luckiest of that many rules
+             would show (the deflated Sharpe ratio of Bailey and Lopez de Prado).
   Learn      rules that the owner approves paper-trade every weekday; a rule is "proven live" only on its own
              live trades.
 
@@ -24,6 +27,7 @@ import logging
 import math
 import re
 from datetime import date
+from statistics import NormalDist
 
 from .memory import Memory
 from .tools import local_now
@@ -59,6 +63,7 @@ BY_FIELD = (  # for a rule nobody has filed: the first field it reads that names
     ("ret_252", "momentum"), ("ret_63", "momentum"), ("above_200", "sma_10"), ("avg50_above_200", "sma_10"),
     ("macd_hist", "sma_10"))
 MIN_TRADES, WORST_FALL = 30, 0.35  # a rule passes only with this many past trades and no deeper fall than this
+NOT_LUCK = 0.95  # how sure the luck test must be that a rule's Sharpe ratio is real, given how many were tried
 PAPER_LIST = "https://github.com/WallStreetPete/awesome-open-source-trading/blob/main/docs/papers.md"
 PAPER_SECTIONS = ("earnings events", "analyst revisions", "momentum", "value & quality", "fundamental composites",
                   "factor timing")  # daily data is enough; intraday, options, crypto and AI-agent sections are left out
@@ -80,6 +85,8 @@ POLICY = [
     "Downloaded code is never run. A strategy is rewritten as a rule in Buddy's fixed form and replayed by Buddy's own code.",
     "A published return is never trusted or shown: only Buddy's own replay and live paper trades count.",
     "Every result has the cost of buying and selling taken off.",
+    "The more rules are tried, the luckier the best one looks. A rule passes only if its result is unlikely to be "
+    "luck after allowing for how many rules were tested.",
     "Known gap: the replay uses today's list of companies, not the list as it was each year, so the past looks "
     "better than it was. Past S&P 500 membership is not available from a free, licensed source yet.",
 ]
@@ -132,6 +139,12 @@ def scorecard(rows: list[dict], stake: float, cost: float) -> dict:
     mean = sum(monthly) / len(monthly)
     spread = math.sqrt(sum((m - mean) ** 2 for m in monthly) / (len(monthly) - 1)) if len(monthly) > 1 else 0.0
     end = max(book + profit, 0.0)
+    shape = {}
+    if spread > 0 and len(monthly) >= 12:  # what the luck test needs: the monthly ratio and the shape of the months
+        n = len(monthly)
+        shape = {"monthly_sharpe": mean / spread, "months": n,
+                 "skew": sum((m - mean) ** 3 for m in monthly) / n / spread ** 3 * ((n - 1) / n) ** 1.5,
+                 "kurtosis": sum((m - mean) ** 4 for m in monthly) / n / spread ** 4 * ((n - 1) / n) ** 2}
     against = [r["ret"] - cost - r["spy_ret"] for r in rows if r.get("spy_ret") is not None]
     return {"trades": len(rows), "won": sum(1 for r in rows if r["ret"] - cost > 0), "years": round(years, 1),
             "book": round(book), "yearly_return": round((end / book) ** (1 / years) - 1, 4) if end > 0 else -1.0,
@@ -140,10 +153,26 @@ def scorecard(rows: list[dict], stake: float, cost: float) -> dict:
             "days_held": round(sum((day(r["closed"]) - day(r["opened"])).days for r in rows) / len(rows), 1),
             "cost_paid": round(stake * cost * len(rows), 2),
             "average_vs_market": round(sum(against) / len(against), 4) if against else None,
-            "from": first.isoformat(), "to": last.isoformat()}
+            "from": first.isoformat(), "to": last.isoformat(), **shape}
 
 
-def gate(history: dict, splits: dict) -> tuple[str, list[str]]:
+def not_luck(history: dict, tried: list[float]) -> float | None:
+    """How likely it is that a rule's Sharpe ratio is real and not the best of many tries (0 to 1). tried: the
+    monthly Sharpe ratio of every rule that was tested. None when there is too little to say."""
+    if not history.get("months") or len(tried) < 2:
+        return None
+    mean = sum(tried) / len(tried)
+    var = sum((t - mean) ** 2 for t in tried) / (len(tried) - 1)
+    norm, n, euler = NormalDist(), len(tried), 0.5772156649
+    by_luck = math.sqrt(var) * ((1 - euler) * norm.inv_cdf(1 - 1 / n) + euler * norm.inv_cdf(1 - 1 / (n * math.e)))
+    sr = history["monthly_sharpe"]
+    wobble = 1 - history["skew"] * sr + (history["kurtosis"] - 1) / 4 * sr * sr
+    if wobble <= 0:
+        return None
+    return round(norm.cdf((sr - by_luck) * math.sqrt(history["months"] - 1) / math.sqrt(wobble)), 3)
+
+
+def gate(history: dict, splits: dict, luck: float | None = None, tried: int = 0) -> tuple[str, list[str]]:
     """Did the rule pass on past prices? ("passed" | "failed" | "not enough history", the reasons)."""
     if not history or history.get("trades", 0) < MIN_TRADES:
         return "not enough history", [f"{(history or {}).get('trades', 0)} of {MIN_TRADES} past trades; run the replay"]
@@ -155,6 +184,9 @@ def gate(history: dict, splits: dict) -> tuple[str, list[str]]:
          f"worst fall {history.get('worst_fall', 0):.0%}, deeper than {WORST_FALL:.0%}"),
         ((history.get("sharpe") or 0) > 0, f"Sharpe ratio {history.get('sharpe')}", "its return did not pay for its swings"),
     ]
+    if luck is not None:
+        checks.append((luck >= NOT_LUCK, f"{luck:.0%} sure it is not luck, allowing for the {tried} rules tried",
+                       f"only {luck:.0%} sure it is not luck, allowing for the {tried} rules tried ({NOT_LUCK:.0%} needed)"))
     return ("passed" if all(ok for ok, _, _ in checks) else "failed"), [good if ok else bad for ok, good, bad in checks]
 
 
@@ -176,12 +208,20 @@ def view(memory: Memory) -> dict:
                  "hold_days": r["rule"]["hold_days"], "status": r["status"], "custom": r["rule"], "source": r["source"] or "Your document",
                  "source_url": r["source_url"], "licence": r["licence"], "live_only": r["live_only"]} for k, r in added.items()]
     out = []
+    cards = {e["key"]: (scorecard([r for r in closed if r["strategy"] == e["key"] and r["backfilled"]], stratlab.STAKE, stratlab.COST),
+                        scorecard([r for r in closed if r["strategy"] == e["key"] and not r["backfilled"]], stratlab.STAKE, stratlab.COST))
+             for e in entries}
+    tried = [h["monthly_sharpe"] for h, _ in cards.values() if h.get("months")]
     for e in entries:
-        mine = [r for r in closed if r["strategy"] == e["key"]]
-        past, live = [r for r in mine if r["backfilled"]], [r for r in mine if not r["backfilled"]]
-        history, now = scorecard(past, stratlab.STAKE, stratlab.COST), scorecard(live, stratlab.STAKE, stratlab.COST)
-        splits = stratlab._splits(past)
-        verdict, reasons = gate(history, splits)
+        history, now = cards[e["key"]]
+        history, now = dict(history), dict(now)
+        splits = stratlab._splits([r for r in closed if r["strategy"] == e["key"] and r["backfilled"]])
+        luck = not_luck(history, tried)
+        verdict, reasons = gate(history, splits, luck, len(tried))
+        for card in (history, now):
+            for k in ("monthly_sharpe", "months", "skew", "kurtosis"):
+                card.pop(k, None)
+        history["not_luck"] = luck
         if e["live_only"] and verdict == "not enough history":
             reasons = ["it reads company figures that have no history, so it can only be judged on live trades"]
         proven = now.get("trades", 0) >= MIN_TRADES and (now.get("average_vs_market") or 0) > 0

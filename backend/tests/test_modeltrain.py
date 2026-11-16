@@ -149,7 +149,26 @@ def test_odds_must_mean_what_they_say_and_hold_in_both_kinds_of_market():
     both = train_model.evaluate(rows)
     assert both["status"] == "promoted" and both["by_market"]["down"]["calls"] >= 10
     plain = train_model.evaluate([{k: v for k, v in r.items() if k not in ("regime", "rival")} for r in rows])
-    assert "by_market" not in plain and len(plain["checks"]) == 5  # rows without them are not asked for them
+    assert "by_market" not in plain and len(plain["checks"]) == 6  # rows without them are not asked for them
+    walk = plain["walk_forward"]                                     # 300 rows: also tested over four later periods
+    assert len(walk["periods"]) == 4 and walk["held"] >= 3
+    assert plain["checks"]["held up in 3 of 4 later periods, each tested only on what came after"] is True
+    assert all(a["to"] <= b["from"] for a, b in zip(walk["periods"], walk["periods"][1:]))
+
+
+def test_a_row_still_open_when_the_test_period_began_is_left_out_of_learning():
+    rnd = random.Random(3)
+    rows = []
+    for i in range(100):
+        strong = rnd.random() < 0.5
+        day = START + timedelta(days=i)
+        rows.append({"when": day.isoformat(), "opened": (day - timedelta(days=10)).isoformat(),
+                     "x": {"signal": 1.0 if strong else 0.0}, "y": int(rnd.random() < (0.8 if strong else 0.2))})
+    got = train_model.evaluate(rows)
+    assert got["left_out_for_the_gap"] == 10 and got["learned_from"] == 60 and got["tested_on"] == 30
+    assert "walk_forward" not in got                                  # under 200 rows: too few to split four ways
+    plain = train_model.evaluate([{k: v for k, v in r.items() if k != "opened"} for r in rows])
+    assert plain["left_out_for_the_gap"] == 0 and plain["learned_from"] == 70
 
 
 def test_a_model_in_use_reports_its_live_record(memory, tmp_path):
