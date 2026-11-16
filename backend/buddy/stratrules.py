@@ -47,6 +47,8 @@ FIELDS = {  # what a condition may read -> what it means (shown to the model and
     "high_252": "1 when today's close is the highest of a year, else 0",
     "volume_times": "today's volume against the 20-day usual (1.5 is one and a half times)",
     "atr_pct": "the average daily range as a fraction of the price (how jumpy it is)",
+    "volume_trend": "average trading volume over three months against its one-year average (above 1 is rising volume)",
+    "macd_hist": "MACD less its signal line, as a fraction of the price (above 0 is gaining momentum)",
     "lottery": "the average of its five biggest one-day rises in the last month, as a fraction (high means lottery-like jumps)",
     "beta": "how much the stock moves with the S&P 500 over a year (1 moves with it, under 1 is calmer)",
     "vol_63": "the stock's yearly swing measured over three months, as a fraction (0.2 is 20%)",
@@ -285,8 +287,8 @@ def seed(memory: Memory) -> int:
         _run(memory, "INSERT INTO lab_rules (key, name, summary, rule, needs, source, status, created, source_url, licence, "
                      "captures) VALUES (?, ?, ?, ?, ?, ?, 'proposed', ?, ?, ?, ?)",
              (s["id"], rule["name"], rule["summary"], json.dumps(rule), json.dumps(rule["needs"]), s["source"][:120],
-              datetime.now(timezone.utc).isoformat(timespec="seconds"), s["source_url"], "SSRN paper you downloaded",
-              "part of it"))
+              datetime.now(timezone.utc).isoformat(timespec="seconds"), s["source_url"],
+              s.get("licence") or "SSRN paper you downloaded", "part of it"))
         added += 1
     memory.set(SEEDED_KEY, json.dumps(sorted(done)))
     return added

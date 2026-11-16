@@ -10,7 +10,8 @@ What these are and are not:
     monthly, often outside the US, and several report that the strategy did NOT work in their market. What was
     left out is listed on every rule, and the paper's own finding is in its summary.
   - A paper's result is not Buddy's result. The replay over past prices and the paper trades are the test.
-Three of the eleven gave no rule of their own and are listed in NOT_RULES with the reason.
+Two of the eleven gave no rule of their own and are listed in NOT_RULES with the reason. Papers that test
+the same idea share one rule, so eleven papers give seven rules.
 """
 
 SSRN = "https://ssrn.com/abstract="
@@ -74,6 +75,51 @@ SEEDS = [
               "rank": {"field": "roe", "order": "high", "top": 10}, "sell": [], "hold_days": 120,
               "needs": ["how fast the company is growing its assets (investment), which the paper says to avoid when high",
                         "expected growth as the paper measures it", "re-ranking each quarter on new reports"]}},
+    {"id": "u_volume_momentum", "source": "Alsubaie and Najand: Trading Volume, Price Momentum and the 52-Week High (Saudi market)",
+     "source_url": SSRN + "1087391",
+     "rule": {"name": "Momentum with rising volume", "universe": "stocks",
+              "summary": "Buys past winners whose trading volume has been rising. The paper finds momentum profits in the "
+                         "Saudi market come from high-volume winners.",
+              "buy": [{"field": "ret_126", "op": ">", "value": 0}, {"field": "volume_trend", "op": ">", "value": 1}],
+              "rank": {"field": "ret_126", "order": "high", "top": 10}, "sell": [], "hold_days": 120,
+              "needs": ["volume compared across all stocks: Buddy compares each stock's volume with its own past year",
+                        "selling short the losers", "the Saudi market: Buddy tests large US stocks"]}},
+    # --- widely used rules with no single source, added so they can be tested on the same terms as the rest ---
+    {"id": "u_golden_cross", "source": "A widely used rule (no single paper)", "source_url": "", "licence": "common knowledge",
+     "rule": {"name": "50-day above 200-day", "universe": "all",
+              "summary": "Holds while the 50-day average is above the 200-day average (the 'golden cross' condition) "
+                         "and sells when it drops below.",
+              "buy": [{"field": "avg50_above_200", "op": ">=", "value": 1}, {"field": "above_50", "op": ">", "value": 0}],
+              "rank": {"field": "ret_63", "order": "high", "top": 10},
+              "sell": [{"field": "avg50_above_200", "op": "<", "value": 1}], "hold_days": 120,
+              "needs": ["the day of the cross itself: Buddy buys whenever the condition holds, not only on the day it starts"]}},
+    {"id": "u_macd_trend", "source": "A widely used rule (no single paper)", "source_url": "", "licence": "common knowledge",
+     "rule": {"name": "MACD trend", "universe": "all",
+              "summary": "Buys when MACD is above its signal line in a long-term rise, and sells when it drops below.",
+              "buy": [{"field": "macd_hist", "op": ">", "value": 0}, {"field": "above_200", "op": ">", "value": 0}],
+              "rank": {"field": "macd_hist", "order": "high", "top": 10},
+              "sell": [{"field": "macd_hist", "op": "<", "value": 0}], "hold_days": 60,
+              "needs": ["the day MACD crosses its signal line: Buddy buys whenever it is above"]}},
+    {"id": "u_dual_momentum", "source": "A widely used rule (no single paper)", "source_url": "", "licence": "common knowledge",
+     "rule": {"name": "Dual momentum", "universe": ["SPY", "QQQ", "IWM", "DIA", "GLD", "DBC"],
+              "summary": "Holds the one fund with the best past-year return, but only while that return is positive "
+                         "(relative and absolute momentum together).",
+              "buy": [{"field": "ret_252", "op": ">", "value": 0}], "rank": {"field": "ret_252", "order": "high", "top": 1},
+              "sell": [{"field": "ret_252", "op": "<", "value": 0}], "hold_days": 28,
+              "needs": ["foreign stock and bond funds, which are not in the lab's list",
+                        "comparing the return with what cash paid, instead of with zero"]}},
+    {"id": "u_low_volatility", "source": "A widely used rule (no single paper)", "source_url": "", "licence": "common knowledge",
+     "rule": {"name": "Low volatility", "universe": "stocks",
+              "summary": "Buys the ten calmest stocks that are in a long-term rise.",
+              "buy": [{"field": "above_200", "op": ">", "value": 0}], "rank": {"field": "vol_63", "order": "low", "top": 10},
+              "sell": [], "hold_days": 60, "needs": ["re-ranking the whole list each month"]}},
+    {"id": "u_quality_value", "source": "A widely used rule (no single paper)", "source_url": "", "licence": "common knowledge",
+     "rule": {"name": "Quality at a fair price", "universe": "stocks",
+              "summary": "Buys profitable companies with modest debt that are not expensive against their profits.",
+              "buy": [{"field": "roe", "op": ">=", "value": 0.15}, {"field": "debt_to_equity", "op": "<=", "value": 1},
+                      {"field": "pe", "op": ">", "value": 0}, {"field": "pe", "op": "<=", "value": 20}],
+              "rank": {"field": "pe", "order": "low", "top": 10}, "sell": [], "hold_days": 120,
+              "needs": ["a fuller measure of value and quality: cash flow and several years of profits"]}},
 ]
 NOT_RULES = [
     {"source": "Marmi, Pacati, Reno and Risso: A quantitative approach to Faber's tactical asset allocation",
@@ -82,9 +128,4 @@ NOT_RULES = [
             "That is what the replay and the split by period are for."},
     {"source": "Malin and Bornholt: Predictability of Future Index Returns Based on the 52-Week High Strategy",
      "source_url": SSRN + "1714077", "why": "Tests the same 52-week-high rule on indices; folded into that rule."},
-    {"source": "Alsubaie and Najand: Trading Volume, Price Momentum and the 52-Week High in the Saudi Stock Market",
-     "source_url": SSRN + "1087391",
-     "why": "Its own finding is momentum among stocks with high trading volume over 3 to 12 months. Buddy measures "
-            "only today's volume against 20 days, so that rule cannot be written faithfully. Its 52-week-high test is "
-            "folded into that rule."},
 ]

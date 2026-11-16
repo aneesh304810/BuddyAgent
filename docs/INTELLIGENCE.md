@@ -409,10 +409,17 @@ install or when something is empty.
 
 ### Rules from the papers you supplied
 
-Eleven SSRN papers were read for the rule each tests, and six rules were written in the lab's form
-(`strategy_seeds.py`): Faber's 10-month average, nearness to the 52-week high, low beta without
-lottery-like jumps, earnings surprise drift, the past-year return in a weak market, and profitable and
-growing companies. They load once as proposed and trade only after you approve each one. Three papers gave
-no rule of their own (a critique of Faber, and two that test the 52-week-high rule in other markets), and
-the page lists them with the reason. The papers are not stored, only a rule in Buddy's own words and a
+Eleven SSRN papers were read for the rule each tests, and seven rules were written in the lab's form
+(`strategy_seeds.py`): Faber's 10-month average, nearness to the 52-week high, momentum with rising volume,
+low beta without lottery-like jumps, earnings surprise drift, the past-year return in a weak market, and
+profitable and growing companies. Papers that test the same idea share one rule: three test the 52-week
+high and three test the drift after earnings. They load once as proposed and trade only after you approve
+each one. Two papers gave no rule of their own (a critique of Faber, and one that only re-tests the
+52-week-high rule on indices), and the page lists them with the reason. The papers are not stored, only a rule in Buddy's own words and a
 link. Every rule holds part of its paper, and what was left out is listed on it.
+
+Five widely used rules with no single source are proposed alongside the paper rules, so they can be tested
+on the same prices and costs: the 50-day average above the 200-day, MACD trend, dual momentum, low
+volatility, and quality at a fair price. With the six built-in rules that covers the usual list (momentum,
+moving-average crossover, RSI mean reversion, MACD, breakout, quality and value, dual momentum, low
+volatility).

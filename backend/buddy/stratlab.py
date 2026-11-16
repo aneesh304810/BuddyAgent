@@ -101,10 +101,13 @@ def universe(memory: Memory | None = None) -> list[str]:
 
 def figures(bars: list[dict]) -> dict | None:
     """The numbers every rule reads, from one symbol's daily prices. None without a year of them."""
-    from .markets import atr, rsi, sma  # noqa: PLC0415
+    from .markets import atr, ema_series, rsi, sma  # noqa: PLC0415
     closes = [b["c"] for b in bars]
     if len(closes) < 252:
         return None
+    recent = closes[-120:]  # MACD: the 12-day average less the 26-day, against its own 9-day average
+    line = [a - b for a, b in zip(ema_series(recent, 12), ema_series(recent, 26))]
+    macd = line[-1] - ema_series(line, 9)[-1]
     price, a50, a200 = closes[-1], sma(closes, 50), sma(closes, 200)
     swing = atr(bars)
     jumps = sorted((b / a - 1 for a, b in zip(closes[-22:], closes[-21:]) if a), reverse=True)[:5]
@@ -118,6 +121,9 @@ def figures(bars: list[dict]) -> dict | None:
             "ret_20": round(price / closes[-21] - 1, 4),
             "ret_63": round(price / closes[-64] - 1, 4), "ret_126": round(closes[-6] / closes[-127] - 1, 4),
             "lottery": round(sum(jumps) / len(jumps), 4) if jumps else None,
+            "macd_hist": round(macd / price, 5) if price else None,
+            "volume_trend": (round((sum(volumes[-63:]) / 63) / (sum(volumes[-252:]) / 252), 2)
+                             if sum(volumes[-252:]) else None),
             "high_20": price >= max(closes[-20:]), "high_252": price >= max(closes[-252:]),
             "volume_times": round(volumes[-1] / usual, 2) if usual else None,
             "atr_pct": round(swing / price, 4) if swing else None}

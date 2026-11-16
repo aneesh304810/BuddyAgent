@@ -208,8 +208,10 @@ def test_ideas_rank_picks_by_whether_the_rule_has_a_record_behind_it(memory):
 def test_rules_read_from_the_owners_papers_load_once_as_proposed_and_stay_removed(memory):
     from buddy import strategy_seeds, stratrules
     got = {r["key"]: r for r in stratrules.rules(memory)}
-    assert set(got) == {s["id"] for s in strategy_seeds.SEEDS} and len(got) == 6
+    assert set(got) == {s["id"] for s in strategy_seeds.SEEDS} and len(got) == 12
     assert all(r["status"] == "proposed" and r["captures"] == "part of it" and r["needs"] for r in got.values())
+    assert got["u_macd_trend"]["licence"] == "common knowledge" and got["u_quality_value"]["live_only"] == ["debt_to_equity", "pe", "roe"]
+    assert stratlab.figures(series(rising()))["macd_hist"] is not None
     assert got["u_faber_10_month_average"]["source_url"] == "https://ssrn.com/abstract=962461"
     assert got["u_earnings_drift"]["live_only"] == ["earnings_surprise"] and got["u_low_beta_low_lottery"]["live_only"] == []
     assert "lottery" in stratrules.FIELDS and "disagree" in got["u_52_week_high"]["summary"]
@@ -217,5 +219,5 @@ def test_rules_read_from_the_owners_papers_load_once_as_proposed_and_stay_remove
     assert not any(k.startswith("u_") for k in stratlab.run(memory, DAY, Data(bars), insiders={})["opened"])  # none trades unapproved
     stratrules.decide(memory, "u_52_week_high", "remove")
     assert "u_52_week_high" not in {r["key"] for r in stratrules.rules(memory)} and stratrules.seed(memory) == 0
-    assert len(stratlab.view(memory)["not_rules"]) == 3
+    assert len(stratlab.view(memory)["not_rules"]) == 2
     assert stratlab.figures(series(rising()))["lottery"] > 0
