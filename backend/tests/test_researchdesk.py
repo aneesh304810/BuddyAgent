@@ -111,3 +111,16 @@ def test_notebooks_are_queued_and_a_folder_name_with_spaces_is_understood(memory
     assert got["added"] == 1 and "contents/Research2Production/Python?ref=master" in asked[1]
     assert research._github_parts(research.queue(memory)[0]["url"])[3] == "Research2Production/Python/01 Mean Reversion.ipynb"
     assert len(research.view(memory)["starting_points"]) == 4
+
+
+def test_a_notebook_that_is_also_there_as_a_script_is_queued_once(memory):
+    def fetch(url, data=None, headers=None):
+        if url.endswith("/license"):
+            return json.dumps({"license": {"spdx_id": "MIT"}}).encode()
+        return json.dumps([{"type": "file", "name": n, "path": "lib/" + n, "size": 900,
+                            "html_url": "https://github.com/acme/open/blob/main/lib/" + n}
+                           for n in ("01_momentum.ipynb", "01_momentum.py", "02_only_notebook.ipynb")]).encode()
+
+    got = research.github_add(memory, "https://github.com/acme/open/tree/main/lib", fetch)
+    assert got["added"] == 2
+    assert sorted(q["title"] for q in research.queue(memory)) == ["acme/open: lib/01_momentum.py", "acme/open: lib/02_only_notebook.ipynb"]

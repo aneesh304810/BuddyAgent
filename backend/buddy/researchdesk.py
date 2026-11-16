@@ -127,8 +127,11 @@ def github_add(memory: Memory, url: str, fetch=None) -> dict:
                            purpose="research")
     items = got if isinstance(got, list) else [got]
     added = 0
+    scripts = {str(it.get("name") or "").lower()[:-3] for it in items if str(it.get("name") or "").lower().endswith(".py")}
     for it in items[:200]:
         name = str(it.get("name") or "")
+        if name.lower().endswith(".ipynb") and name.lower()[:-6] in scripts:
+            continue  # the same notebook is also there as a script: one copy is enough, and the script is smaller
         limit = MAX_NOTEBOOK if name.lower().endswith(".ipynb") else MAX_FILE
         if it.get("type") != "file" or not name.lower().endswith(CODE) or int(it.get("size") or 0) > limit:
             continue
