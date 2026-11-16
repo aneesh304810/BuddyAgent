@@ -122,6 +122,7 @@ def figures(bars: list[dict]) -> dict | None:
             "ret_63": round(price / closes[-64] - 1, 4), "ret_126": round(closes[-6] / closes[-127] - 1, 4),
             "lottery": round(sum(jumps) / len(jumps), 4) if jumps else None,
             "macd_hist": round(macd / price, 5) if price else None,
+            "zscore_30": _zscore(closes[-30:]),
             "volume_trend": (round((sum(volumes[-63:]) / 63) / (sum(volumes[-252:]) / 252), 2)
                              if sum(volumes[-252:]) else None),
             "high_20": price >= max(closes[-20:]), "high_252": price >= max(closes[-252:]),
@@ -161,6 +162,13 @@ def market_index(bars: dict) -> dict:
 def _with_market(f: dict, index: dict, symbol: str, day: str) -> dict:
     beta, swing = (index.get(symbol) or {}).get(day) or (None, None)
     return {**f, "beta": beta, "vol_63": swing}
+
+
+def _zscore(closes: list[float]) -> float | None:
+    """How far today's price is from its 30-day average, in units of its own usual spread (-1 is one below)."""
+    mean = sum(closes) / len(closes)
+    spread = (sum((c - mean) ** 2 for c in closes) / len(closes)) ** 0.5
+    return round((closes[-1] - mean) / spread, 3) if spread > 1e-9 else None
 
 
 def picks(strategy: str, figs: dict, extra: dict | None = None) -> list[tuple[str, str]]:

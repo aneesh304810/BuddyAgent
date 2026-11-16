@@ -423,3 +423,12 @@ on the same prices and costs: the 50-day average above the 200-day, MACD trend, 
 volatility, and quality at a fair price. With the six built-in rules that covers the usual list (momentum,
 moving-average crossover, RSI mean reversion, MACD, breakout, quality and value, dual momentum, low
 volatility).
+
+**Open-source research.** Two public repositories were checked for a licence and read: QuantConnect's
+research notebooks (Apache-2.0) and the Machine Learning for Trading book's code (MIT). The research queue
+offers folders of each as starting points, and Buddy now reads notebooks (their text and code, never their
+stored outputs). Two rules were written from the QuantConnect notebooks: one spread below the 30-day
+average, and lowest price against profits. The Machine Learning for Trading repository is a method for
+building and testing models, not a set of buy rules, so it yields ideas for the figures a model learns
+from; the same holds for the pairs-trading, Kalman-filter and neural-network notebooks, which the lab's
+rule form cannot express.

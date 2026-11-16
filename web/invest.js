@@ -285,7 +285,8 @@ function researchCards() {
     ((r.new || []).map(item).join("") || `<p class="muted">Nothing waiting. Buddy searches arXiv's quantitative finance papers every Sunday.</p>`) +
     ((r.read || []).length ? `<details><summary>Already read (${r.read.length})</summary>${r.read.map(item).join("")}</details>` : "") +
     `<p><button class="btn" id="research-search">Search arXiv now</button></p>
-     <div class="add"><input id="research-url" placeholder="https://github.com/owner/name/tree/main/folder" aria-label="GitHub link"><button class="btn" id="research-github">Add from GitHub</button></div>`,
+     <div class="add"><input id="research-url" placeholder="https://github.com/owner/name/tree/main/folder" aria-label="GitHub link"><button class="btn" id="research-github">Add from GitHub</button></div>
+     ${(r.starting_points || []).length ? `<p class="muted" style="margin:8px 0 4px">Starting points (public, with a stated licence):</p>` + r.starting_points.map((x) => `<button class="chip" data-start="${esc(x.url)}" style="margin:2px">${esc(x.title)}</button>`).join("") : ""}`,
     r.note + (r.last_search ? " Last search: " + r.last_search + "." : ""));
   const f = b.factors || {};
   const frows = (f.rows || []).map((x) => `<div class="row" style="cursor:default"><span class="name fixed" style="flex:1"><b>${esc(x.name)}</b> <small class="muted">${esc(x.what)}</small></span>
@@ -581,6 +582,7 @@ function render() {
   if ($("research-search")) $("research-search").onclick = () => loadResearch({ action: "search" });
   if ($("research-factors")) $("research-factors").onclick = () => loadResearch({ action: "factors" });
   if ($("research-company")) $("research-company").onclick = () => { $("research-company").disabled = true; $("research-company").textContent = "Fetching…"; loadResearch({ action: "company_figures" }); };
+  document.querySelectorAll("[data-start]").forEach((b) => b.onclick = () => loadResearch({ action: "github", url: b.dataset.start }));
   if ($("research-github")) $("research-github").onclick = () => { const url = $("research-url").value.trim(); if (url) loadResearch({ action: "github", url }); };
   document.querySelectorAll("[data-research]").forEach((b) => b.onclick = () => { b.disabled = true; b.textContent = b.dataset.research === "read" ? "Reading…" : "…";
     loadResearch({ action: b.dataset.research, id: Number(b.dataset.id) }); });

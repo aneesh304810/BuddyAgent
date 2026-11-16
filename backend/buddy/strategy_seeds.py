@@ -84,6 +84,23 @@ SEEDS = [
               "rank": {"field": "ret_126", "order": "high", "top": 10}, "sell": [], "hold_days": 120,
               "needs": ["volume compared across all stocks: Buddy compares each stock's volume with its own past year",
                         "selling short the losers", "the Saudi market: Buddy tests large US stocks"]}},
+    # --- read from QuantConnect's open research notebooks (Apache-2.0), 16 November 2026 ---
+    {"id": "u_one_spread_below_average", "source": "QuantConnect Research: Mean Reversion notebook", "source_url": "https://github.com/QuantConnect/Research", "licence": "Apache-2.0",
+     "rule": {"name": "One spread below its 30-day average", "universe": "all",
+              "summary": "Buys what has fallen more than one standard deviation below its 30-day average, on the idea "
+                         "that it tends to come back. The notebook assumes mean reversion holds and does not test it.",
+              "buy": [{"field": "zscore_30", "op": "<=", "value": -1}],
+              "rank": {"field": "zscore_30", "order": "low", "top": 10},
+              "sell": [{"field": "zscore_30", "op": ">=", "value": 0}], "hold_days": 28,
+              "needs": ["the notebook's own list (bond funds): Buddy tests its list of stocks and funds",
+                        "weighting each position by how far it has fallen"]}},
+    {"id": "u_lowest_pe", "source": "QuantConnect Research: Stock Picking With Fundamental Data notebook", "source_url": "https://github.com/QuantConnect/Research", "licence": "Apache-2.0",
+     "rule": {"name": "Lowest price against profits", "universe": "stocks",
+              "summary": "Buys the ten profitable companies with the lowest price against their profits. The notebook "
+                         "compares the highest and lowest within one sector as an example, not as a tested strategy.",
+              "buy": [{"field": "pe", "op": ">", "value": 0}], "rank": {"field": "pe", "order": "low", "top": 10},
+              "sell": [], "hold_days": 120,
+              "needs": ["comparing companies within the same sector: Buddy ranks across all of them"]}},
     # --- widely used rules with no single source, added so they can be tested on the same terms as the rest ---
     {"id": "u_golden_cross", "source": "A widely used rule (no single paper)", "source_url": "", "licence": "common knowledge",
      "rule": {"name": "50-day above 200-day", "universe": "all",

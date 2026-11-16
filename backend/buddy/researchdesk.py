@@ -33,8 +33,18 @@ ARXIV = ("q-fin.PM", "q-fin.TR", "q-fin.ST")  # portfolio management, trading, s
 LOOKS_TESTABLE = re.compile(r"\b(trading (?:strateg|rule)|momentum|trend[- ]following|mean[- ]reversion|reversal|"
                             r"anomal|factor (?:invest|timing|model)|backtest|out[- ]of[- ]sample|portfolio (?:construction|"
                             r"selection)|market timing|cross[- ]section|return predictab|moving average|52[- ]week)", re.I)
-CODE = (".py", ".md", ".txt", ".cs", ".rst")
-MAX_QUEUE, MAX_FILE = 200, 400_000
+CODE = (".py", ".md", ".txt", ".cs", ".rst", ".ipynb")
+MAX_QUEUE, MAX_FILE, MAX_NOTEBOOK = 200, 400_000, 6_000_000  # a notebook is bigger: it carries its stored outputs
+STARTING_POINTS = [  # public repositories with a stated licence, checked on 16 November 2026
+    {"title": "QuantConnect research: from research to production (Apache-2.0)",
+     "url": "https://github.com/QuantConnect/Research/tree/master/Research2Production/Python"},
+    {"title": "QuantConnect research: analysis notebooks (Apache-2.0)",
+     "url": "https://github.com/QuantConnect/Research/tree/master/Analysis"},
+    {"title": "Machine Learning for Trading: where strategy ideas come from (MIT)",
+     "url": "https://github.com/stefan-jansen/machine-learning-for-trading/tree/main/06_strategy_definition"},
+    {"title": "Machine Learning for Trading: financial features (MIT)",
+     "url": "https://github.com/stefan-jansen/machine-learning-for-trading/tree/main/08_financial_features"},
+]
 SCHEMA = ["CREATE SEQUENCE IF NOT EXISTS research_id",
           """CREATE TABLE IF NOT EXISTS research_queue (
     id BIGINT PRIMARY KEY DEFAULT nextval('research_id'), source VARCHAR, title VARCHAR, url VARCHAR UNIQUE,
@@ -87,7 +97,8 @@ def arxiv_new(memory: Memory, fetch=None, days: int = 10, today=None) -> int:
 
 # --- GitHub -----------------------------------------------------------------------------------------------------
 def _github_parts(url: str) -> tuple[str, str, str, str]:
-    m = re.fullmatch(r"https://github\.com/([\w.-]+)/([\w.-]+)(?:/(?:blob|tree)/([\w./-]+?))?/?", str(url or "").strip())
+    m = re.fullmatch(r"https://github\.com/([\w.-]+)/([\w.-]+)(?:/(?:blob|tree)/([\w./ %-]+?))?/?",
+                     urllib.parse.unquote(str(url or "").strip()))
     if not m:
         raise ToolError("Give a link to a public GitHub repository, folder or file (https://github.com/owner/name/...).")
     owner, repo, rest = m.group(1), m.group(2).removesuffix(".git"), m.group(3) or ""
@@ -118,7 +129,8 @@ def github_add(memory: Memory, url: str, fetch=None) -> dict:
     added = 0
     for it in items[:200]:
         name = str(it.get("name") or "")
-        if it.get("type") != "file" or not name.lower().endswith(CODE) or int(it.get("size") or 0) > MAX_FILE:
+        limit = MAX_NOTEBOOK if name.lower().endswith(".ipynb") else MAX_FILE
+        if it.get("type") != "file" or not name.lower().endswith(CODE) or int(it.get("size") or 0) > limit:
             continue
         if added >= 40:
             break
@@ -135,7 +147,8 @@ def _github_file(memory: Memory, url: str, fetch=None) -> tuple[str, bytes]:
                                               f"{urllib.parse.quote(path)}{q}"],
                            headers={"Accept": "application/vnd.github.raw+json"}, raw=True, fetch=fetch, purpose="research")
     data = raw if isinstance(raw, bytes) else str(raw).encode()
-    return path.rsplit("/", 1)[-1] or "file.txt", data[:MAX_FILE]
+    name = path.rsplit("/", 1)[-1] or "file.txt"
+    return name, data if name.lower().endswith(".ipynb") else data[:MAX_FILE]  # a cut-off notebook cannot be read
 
 
 # --- the queue --------------------------------------------------------------------------------------------------
@@ -151,7 +164,7 @@ def view(memory: Memory) -> dict:
     _ready(memory)
     counts = {r["status"]: r["n"] for r in _run(memory, "SELECT status, COUNT(*) AS n FROM research_queue GROUP BY 1")}
     return {"new": queue(memory, "new", 30), "read": queue(memory, "read", 15), "counts": counts,
-            "last_search": memory.get(WEEK_KEY) or "",
+            "last_search": memory.get(WEEK_KEY) or "", "starting_points": STARTING_POINTS,
             "note": "Fetched by program: arXiv's quantitative finance papers (weekly) and public GitHub files you point "
                     "to, when the repository states a licence. Papers from SSRN, journals, catalogues and books are "
                     "yours to download and upload."}

@@ -49,6 +49,16 @@ def read(path: Path) -> str:
                 if info.filename.lower().endswith((".csv", ".txt")) and info.file_size <= 20_000_000:
                     return z.read(info).decode("utf-8", "replace")
         return ""
+    if ext == "ipynb":  # a notebook: its text and code cells, never its stored outputs
+        import json as _json
+        cells = _json.loads(path.read_bytes().decode("utf-8", "replace")).get("cells") or []
+        parts = []
+        for c in cells[:400]:
+            src = c.get("source")
+            text = "".join(src) if isinstance(src, list) else str(src or "")
+            if c.get("cell_type") in ("markdown", "code") and text.strip():
+                parts.append(("" if c.get("cell_type") == "markdown" else "CODE:\n") + text.strip())
+        return "\n\n".join(parts)
     if ext in ("html", "htm"):
         import re
         raw = path.read_bytes().decode("utf-8", "replace")

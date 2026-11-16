@@ -358,7 +358,8 @@ What these are and are not:
     monthly, often outside the US, and several report that the strategy did NOT work in their market. What was
     left out is listed on every rule, and the paper's own finding is in its summary.
   - A paper's result is not Buddy's result. The replay over past prices and the paper trades are the test.
-Three of the eleven gave no rule of their own and are listed in NOT_RULES with the reason.
+Two of the eleven gave no rule of their own and are listed in NOT_RULES with the reason. Papers that test
+the same idea share one rule, so eleven papers give seven rules.
 ```
 
 ### researchdesk.py

@@ -48,6 +48,7 @@ FIELDS = {  # what a condition may read -> what it means (shown to the model and
     "volume_times": "today's volume against the 20-day usual (1.5 is one and a half times)",
     "atr_pct": "the average daily range as a fraction of the price (how jumpy it is)",
     "volume_trend": "average trading volume over three months against its one-year average (above 1 is rising volume)",
+    "zscore_30": "today's price against its 30-day average, in units of its usual spread (-1 is one spread below)",
     "macd_hist": "MACD less its signal line, as a fraction of the price (above 0 is gaining momentum)",
     "lottery": "the average of its five biggest one-day rises in the last month, as a fraction (high means lottery-like jumps)",
     "beta": "how much the stock moves with the S&P 500 over a year (1 moves with it, under 1 is calmer)",

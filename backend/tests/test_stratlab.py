@@ -208,7 +208,8 @@ def test_ideas_rank_picks_by_whether_the_rule_has_a_record_behind_it(memory):
 def test_rules_read_from_the_owners_papers_load_once_as_proposed_and_stay_removed(memory):
     from buddy import strategy_seeds, stratrules
     got = {r["key"]: r for r in stratrules.rules(memory)}
-    assert set(got) == {s["id"] for s in strategy_seeds.SEEDS} and len(got) == 12
+    assert set(got) == {s["id"] for s in strategy_seeds.SEEDS} and len(got) == 14
+    assert got["u_one_spread_below_average"]["licence"] == "Apache-2.0" and stratlab._zscore([10.0] * 29 + [9.0]) < -1
     assert all(r["status"] == "proposed" and r["captures"] == "part of it" and r["needs"] for r in got.values())
     assert got["u_macd_trend"]["licence"] == "common knowledge" and got["u_quality_value"]["live_only"] == ["debt_to_equity", "pe", "roe"]
     assert stratlab.figures(series(rising()))["macd_hist"] is not None

@@ -93,3 +93,21 @@ def test_reading_a_pick_makes_a_proposed_rule_that_carries_its_source(memory):
     assert research.queue(memory) == [] and research.queue(memory, "read")[0]["rule_key"] == rule["key"]
     assert stratrules.one(memory, rule["key"])["source_url"] == item["url"]
     assert research.view(memory)["counts"] == {"read": 1}
+
+
+def test_notebooks_are_queued_and_a_folder_name_with_spaces_is_understood(memory):
+    asked = []
+
+    def fetch(url, data=None, headers=None):
+        asked.append(url)
+        if url.endswith("/license"):
+            return json.dumps({"license": {"spdx_id": "Apache-2.0"}})
+        return json.dumps([{"name": "01 Mean Reversion.ipynb", "path": "Research2Production/Python/01 Mean Reversion.ipynb",
+                            "type": "file", "size": 2_000_000,
+                            "html_url": "https://github.com/QuantConnect/Research/blob/master/Research2Production/Python/01%20Mean%20Reversion.ipynb"},
+                           {"name": "huge.ipynb", "path": "x/huge.ipynb", "type": "file", "size": 50_000_000, "html_url": "u"}])
+
+    got = research.github_add(memory, "https://github.com/QuantConnect/Research/tree/master/Research2Production/Python", fetch)
+    assert got["added"] == 1 and "contents/Research2Production/Python?ref=master" in asked[1]
+    assert research._github_parts(research.queue(memory)[0]["url"])[3] == "Research2Production/Python/01 Mean Reversion.ipynb"
+    assert len(research.view(memory)["starting_points"]) == 4

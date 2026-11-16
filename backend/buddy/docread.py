@@ -21,7 +21,8 @@ from .tools import ToolError
 log = logging.getLogger("buddy.docread")
 SCRIPT = Path(__file__).parent / "sandbox_jobs" / "read_document.py"
 WORKSPACE = "document-reader"
-KINDS = ("pdf", "docx", "xlsx", "xlsm", "zip", "html", "htm", "txt", "md", "csv", "text", "py", "cs", "json")
+KINDS = ("pdf", "docx", "xlsx", "xlsm", "zip", "html", "htm", "txt", "md", "csv", "text", "py", "cs", "json", "ipynb",
+         "rst")
 MAX_BYTES = 12_000_000
 _one_at_a_time = asyncio.Lock()
 
