@@ -89,4 +89,8 @@ code Buddy may fetch, each waiting for you to pick it), the yardsticks, and the 
 Overview shows "Ideas from the strategy lab" in the shared card shape: the call (Stronger, Worth a look,
 Unproven), one line of why, each rule that picked it with its record, then the source and date.
 
+Trading opens with every paper trade in one place: the summary counts the Signals book's trades and the
+strategy lab's together, "Bought and holding" and "Sold and judged" list both (each lab trade named by its
+rule), and the day-by-day log merges them. The data panel, the strategies and the lab's table come after.
+
 Not yet: source and freshness lines everywhere.

@@ -329,6 +329,14 @@ function setupCard() {
     "Each line shows what is actually held. Everything here also refreshes on its own schedule; this button is for the first time, or when something is empty.");
 }
 
+// One paper trade made by a lab rule: the symbol, the rule, what happened, and why it was picked.
+function labRow(t) {
+  return `<div class="tx" style="grid-template-columns:92px 1fr auto"><span><b>${esc(t.symbol)}</b><small>${esc(t.strategy)}</small></span>
+      <span>${t.closed ? `Bought ${esc(t.opened)} at ${px(t.entry)}, sold ${esc(t.closed)} at ${px(t.exit)}: ${esc(t.why_closed)}` : `Bought ${esc(t.opened)} at ${px(t.entry)}; stop ${px(t.stop)}, target ${px(t.target)}`}
+        <small>${esc(t.why)}</small></span>
+      <span class="amt">${t.closed ? pct(t.change) : `<small class="muted">open</small>`}</span></div>`;
+}
+
 // The strategy lab: well-known rules that each paper-trade every weekday, with their record against the market.
 function labCards(p) {
   const lab = p.lab;
@@ -359,19 +367,13 @@ function labCards(p) {
       <p><button class="btn" id="lab-paste">Read the pasted text</button> <span class="muted" id="lab-status"></span></p>
       <div class="add"><input id="lab-url" placeholder="Or a page's address: https://…" aria-label="Page address"><button class="btn" id="lab-link">Read this page</button></div>
       <p class="muted">Buddy fetches that one page, once, and keeps only the rule and the link. Pages that need a sign-in or load by script cannot be read this way: paste their text instead.</p>`;
-  const one = (t) => `<div class="tx" style="grid-template-columns:92px 1fr auto"><span><b>${esc(t.symbol)}</b><small>${esc(t.strategy)}</small></span>
-      <span>${t.closed ? `Bought ${esc(t.opened)} at ${px(t.entry)}, sold ${esc(t.closed)} at ${px(t.exit)}: ${esc(t.why_closed)}` : `Bought ${esc(t.opened)} at ${px(t.entry)}; stop ${px(t.stop)}, target ${px(t.target)}`}
-        <small>${esc(t.why)}</small></span>
-      <span class="amt">${t.closed ? pct(t.change) : `<small class="muted">open</small>`}</span></div>`;
-  const list = (ts, empty) => ts.length ? ts.map(one).join("") : `<p class="muted">${empty}</p>`;
   return card("Strategy lab: rules that trade every weekday",
       `<div style="overflow-x:auto"><table class="grid"><tr><th>Rule</th><th>Live paper trades</th><th>On past prices</th></tr>${rows}</table></div>
        <p class="note">${esc(replayLine)} ${esc(lab.history_note || "")}</p>
        <p><button class="btn" id="lab-run">Run the lab now</button> <button class="btn" id="lab-replay">Replay over past prices</button> <button class="btn" id="lab-refresh">Refresh</button></p>`, lab.note) +
     card("Add a strategy from a document", upload + added + ((lab.not_rules || []).length ? `<details><summary>Papers you gave that hold no rule of their own (${lab.not_rules.length})</summary>${lab.not_rules.map((n) =>
       `<p class="muted"><b><a href="${safe(n.source_url)}" target="_blank" rel="noopener">${esc(n.source)}</a></b><br>${esc(n.why)}</p>`).join("")}</details>` : "")) + researchCards() +
-    card(`Lab: bought and holding (${lab.open.length})`, list(lab.open, "Nothing open yet. The lab opens its first trades on the next weekday morning, or press Run the lab now.")) +
-    card(`Lab: sold (${lab.closed.length})`, list(lab.closed, "Nothing has closed yet. A trade closes at its stop, its target, or its time limit."));
+    "";
 }
 
 function learned(p) {
@@ -422,14 +424,31 @@ function practiceTab() {
     ${kpi(o ? `${esc(o.won)} of ${esc(o.trades)}` : "–", "calls right")}${kpi(pct(mo.worst_drawdown_pct), "worst fall from a peak")}
     ${kpi(usd(mo.cash), "cash not in positions")}${kpi(usd(mo.open_risk), "at risk in open trades")}</div>
     <p class="note">${esc(p.note || "")} ${mo.skipped_for_risk ? esc(mo.skipped_for_risk) + " signals were skipped by the risk rules. " : ""}${esc(mo.rules || "")}.</p>`;
-  const log = (p.log || []).map((d) => `<h3 class="group">${esc(d.day)}</h3>` + d.events.map((e) =>
+  // Every paper trade in one place: the Signals book's trades and the strategy lab's, each named by its rule.
+  const lab = p.lab || { open: [], closed: [], strategies: [] };
+  const sum = (k) => (lab.strategies || []).reduce((a, x) => a + (x[k] || 0), 0);
+  const labLine = lab.strategies.length ? `<div class="kpis">${kpi(esc((p.open || []).length + sum("open")), "paper trades open now")}
+      ${kpi(esc((p.closed || []).length + sum("closed")), "closed so far")}${kpi(sum("closed") ? `${esc(sum("won"))} of ${esc(sum("closed"))}` : "–", "lab trades that made money")}
+      ${kpi(money(sum("closed") ? sum("profit") : null), "lab result after costs")}</div>
+      <p class="note">${esc(sum("open"))} of the open trades were opened by the strategy lab's rules at $1,000 each; they are counted here, apart from the $${Number(mo.started_with || 0).toLocaleString()} Signals book above.</p>` : "";
+  const days = {};
+  (p.log || []).forEach((d) => { days[d.day] = (days[d.day] || []).concat(d.events); });
+  lab.open.concat(lab.closed).forEach((t) => {
+    (days[t.opened] = days[t.opened] || []).push({ what: "Bought", symbol: t.symbol, price: t.entry, why: t.strategy + ": " + t.why });
+    if (t.closed) (days[t.closed] = days[t.closed] || []).push({ what: "Sold", symbol: t.symbol, price: t.exit, why: `${t.strategy}: ${t.why_closed} (${(t.change * 100).toFixed(1)}%)` });
+  });
+  const log = Object.keys(days).sort().reverse().slice(0, 30).map((day) => `<h3 class="group">${esc(day)}</h3>` + days[day].map((e) =>
     `<div class="tx"><span><b>${esc(e.what)}</b></span><span>${esc(e.symbol)}<small>${esc(e.why)}</small></span><span class="amt">${px(e.price)}</span></div>`).join("")).join("");
+  const both = (rows, labRows, empty) => (rows && rows.length) || labRows.length
+    ? (rows || []).map(tradeCard).join("") + (labRows.length ? `<h3 class="group" style="margin:10px 0 4px">From the strategy lab's rules</h3>` + labRows.map(labRow).join("") : "")
+    : `<p class="muted">${empty}</p>`;
   const list = (rows, empty) => rows && rows.length ? rows.map(tradeCard).join("") : `<p class="muted">${empty}</p>`;
-  return card("Buddy's paper trading", summary) + setupCard() + strategiesCards(p) + labCards(p) +
-    card(`Bought and holding (${(p.open || []).length})`, list(p.open, "No paper positions are open. They open when Buddy makes a buy or sell signal.")) +
-    card(`Sold and judged (${(p.closed || []).length})`, list(p.closed, "Nothing has closed yet. A trade closes at its stop, its target, a sell signal, or after 28 days.")) +
+  return card("Buddy's paper trading", summary + labLine) +
+    card(`Bought and holding (${(p.open || []).length + lab.open.length})`, both(p.open, lab.open, "No paper positions are open. The lab opens trades each weekday morning, or press Run the lab now below.")) +
+    card(`Sold and judged (${(p.closed || []).length + lab.closed.length})`, both(p.closed, lab.closed, "Nothing has closed yet. A trade closes at its stop, its target, a sell signal, or its time limit.")) +
     ((p.skipped || []).length ? card("Signals not traded", list(p.skipped, "")) : "") +
     card("Day by day", log || `<p class="muted">No activity yet.</p>`) +
+    setupCard() + strategiesCards(p) + labCards(p) +
     (p.strategies ? "" : learned(p)) + marketsCard(m) + linksCard(m) +
     `<p class="note">${esc(p.limits || "")} Theme baskets are listed under Themes.</p><p><button class="btn" id="practice-refresh">Refresh</button></p>`;
 }
