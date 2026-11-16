@@ -272,19 +272,19 @@ def seed(memory: Memory) -> int:
         done = set()
     added = 0
     for s in strategy_seeds.SEEDS:
-        if s["key"] in done:
+        if s["id"] in done:
             continue
-        done.add(s["key"])
+        done.add(s["id"])
         try:
             rule = validate(s["rule"])
         except ToolError:
-            log.warning("stratrules: the seed %s is not a valid rule", s["key"])
+            log.warning("stratrules: the seed %s is not a valid rule", s["id"])
             continue
-        if _run(memory, "SELECT 1 FROM lab_rules WHERE key = ?", (s["key"],)):
+        if _run(memory, "SELECT 1 FROM lab_rules WHERE key = ?", (s["id"],)):
             continue
         _run(memory, "INSERT INTO lab_rules (key, name, summary, rule, needs, source, status, created, source_url, licence, "
                      "captures) VALUES (?, ?, ?, ?, ?, ?, 'proposed', ?, ?, ?, ?)",
-             (s["key"], rule["name"], rule["summary"], json.dumps(rule), json.dumps(rule["needs"]), s["source"][:120],
+             (s["id"], rule["name"], rule["summary"], json.dumps(rule), json.dumps(rule["needs"]), s["source"][:120],
               datetime.now(timezone.utc).isoformat(timespec="seconds"), s["source_url"], "SSRN paper you downloaded",
               "part of it"))
         added += 1

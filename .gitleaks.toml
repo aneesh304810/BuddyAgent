@@ -5,3 +5,6 @@ useDefault = true
 [allowlist]
 description = "Fake keys used by the tests"
 paths = ['''backend/tests/.*''']
+# A strategy's name ("u_faber_10_month_average") that one earlier commit stored under a field called "key":
+# a rule id, not a secret. The field has since been renamed; this keeps the full-history scan from flagging it.
+regexes = ['''u_faber_10_month_average''']

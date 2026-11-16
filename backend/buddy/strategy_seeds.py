@@ -15,7 +15,7 @@ Three of the eleven gave no rule of their own and are listed in NOT_RULES with t
 
 SSRN = "https://ssrn.com/abstract="
 SEEDS = [
-    {"key": "u_faber_10_month_average", "source": "Faber: A Quantitative Approach to Tactical Asset Allocation",
+    {"id": "u_faber_10_month_average", "source": "Faber: A Quantitative Approach to Tactical Asset Allocation",
      "source_url": SSRN + "962461",
      "rule": {"name": "Faber 10-month average", "universe": ["SPY", "QQQ", "IWM", "DIA", "GLD", "DBC"],
               "summary": "Holds a fund while its price is above its long average and sells when it falls below. The "
@@ -25,7 +25,7 @@ SEEDS = [
               "needs": ["foreign stock, bond and real estate funds, which are not in the lab's list",
                         "checking once at each month's end: Buddy checks every day, on the 200-day average",
                         "interest earned on cash while out of the market"]}},
-    {"key": "u_52_week_high", "source": "Raju (India); Malin and Bornholt (emerging-market indices); Alsubaie and Najand (Saudi market)",
+    {"id": "u_52_week_high", "source": "Raju (India); Malin and Bornholt (emerging-market indices); Alsubaie and Najand (Saudi market)",
      "source_url": SSRN + "4587697",
      "rule": {"name": "Near the 52-week high", "universe": "stocks",
               "summary": "Buys the stocks closest to their one-year high (George and Hwang's rule). The three papers "
@@ -36,7 +36,7 @@ SEEDS = [
               "needs": ["selling short the stocks furthest from their high",
                         "monthly re-forming with overlapping six-month holdings",
                         "the markets the papers tested: Buddy tests large US stocks"]}},
-    {"key": "u_low_beta_low_lottery", "source": "Bali, Brown, Murray and Tang: Betting against Beta or Demand for Lottery",
+    {"id": "u_low_beta_low_lottery", "source": "Bali, Brown, Murray and Tang: Betting against Beta or Demand for Lottery",
      "source_url": SSRN + "2481344",
      "rule": {"name": "Low beta, not a lottery ticket", "universe": "stocks",
               "summary": "Buys calm stocks (low beta) that have not had big one-day jumps lately. The paper finds the "
@@ -44,7 +44,7 @@ SEEDS = [
               "buy": [{"field": "beta", "op": "<=", "value": 0.8}],
               "rank": {"field": "lottery", "order": "low", "top": 10}, "sell": [], "hold_days": 28,
               "needs": ["selling short high-beta stocks", "borrowing so both sides carry the same market risk"]}},
-    {"key": "u_earnings_drift", "source": "Kovacs; Lee and Rui; Chordia and Shivakumar (post-earnings-announcement drift)",
+    {"id": "u_earnings_drift", "source": "Kovacs; Lee and Rui; Chordia and Shivakumar (post-earnings-announcement drift)",
      "source_url": SSRN + "972332",
      "rule": {"name": "Earnings surprise drift", "universe": "stocks",
               "summary": "Buys companies whose latest profit beat what analysts expected, on the finding that prices "
@@ -56,7 +56,7 @@ SEEDS = [
                         "same-industry companies confirming the surprise (Kovacs)",
                         "inflation, which the drift varies with (Chordia and Shivakumar)",
                         "selling short companies that missed"]}},
-    {"key": "u_market_state_momentum", "source": "Huang, Jiang, Tu and Zhou: Forecasting Stock Returns in Good and Bad Times",
+    {"id": "u_market_state_momentum", "source": "Huang, Jiang, Tu and Zhou: Forecasting Stock Returns in Good and Bad Times",
      "source_url": SSRN + "2188989",
      "rule": {"name": "Past-year return in a weak market", "universe": "indexes",
               "summary": "Buys an index fund that is below its 200-day average but still up over the past year. The "
@@ -65,7 +65,7 @@ SEEDS = [
               "rank": None, "sell": [], "hold_days": 28,
               "needs": ["the good-times half: in a rising market the paper finds a low past-year return is the better sign",
                         "the paper forecasts the size of next month's return; this is only a buy condition"]}},
-    {"key": "u_profitable_and_growing", "source": "Hou, Mo, Xue and Zhang: Security Analysis: An Investment Perspective",
+    {"id": "u_profitable_and_growing", "source": "Hou, Mo, Xue and Zhang: Security Analysis: An Investment Perspective",
      "source_url": SSRN + "3415546",
      "rule": {"name": "Profitable and growing", "universe": "stocks",
               "summary": "Buys the most profitable companies whose profits are growing. The paper explains expected "
