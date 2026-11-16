@@ -12,12 +12,19 @@ news source only when a story that matters is still unclear.
                     lab), the recommended watchlist, or your own watchlist.
   5  A free model   a story that is both unclear and matters is first put to the free AI model used for labelling
                     headlines. If it can settle the story from the headlines alone, nothing else is asked.
-  6  Fact check     only a story the free model could not settle goes to a news service (NewsData.io, Perigon,
-                    NewsCatcher: whichever have a key, tried in that order) to see who else reports it. With no
-                    key set, the story is written down as "would have asked". Calls stop at the month's limit (30
-                    unless you change it), and each is logged with why it was made and what came back.
+  6  Free news     a story the free model could not settle is looked up in the free news sources Buddy already
+                    has (Finnhub, Marketaux, Alpha Vantage: whichever have a key) to see who else reports it. If
+                    an established outlet does, that settles it and nothing else is asked.
+  7  Last resort    only a story the free sources could not confirm goes to NewsData.io, Perigon or NewsCatcher
+                    (whichever have a key, in that order). With no key set, the story is written down as "would
+                    have asked". These calls stop at the month's limit (30 unless you change it), and each is
+                    logged with why it was made and what came back.
 
-Nothing about you goes anywhere: the free model sees public headlines, and a fact check sends a company's name.
+The last-resort search is narrow: the company's name plus a few words that pin down the event (chosen by the free
+model, or taken from the headline), so one call returns reports of that story and not everything about the company.
+
+Nothing about you goes anywhere: the free model sees public headlines, the free news sources get a ticker symbol,
+and a last-resort search sends the company's name and those few headline words.
 The good-or-bad labels come from themes.py and are sometimes wrong, which is one reason a story with a single weak
 source is treated as unclear.
 """
@@ -36,12 +43,16 @@ log = logging.getLogger("buddy.newsdesk")
 CAP_KEY, DAY_KEY = "newsdesk:paid_cap", "newsdesk:day"
 PROVIDERS = (("newsdata", "NewsData.io", "BUDDY_NEWSDATA_KEY"), ("perigon", "Perigon", "BUDDY_PERIGON_KEY"),
              ("newscatcher", "NewsCatcher", "BUDDY_NEWSCATCHER_KEY"))
-SETTLED = "settled by the free model"
+FREE = (("finnhub", "Finnhub", "BUDDY_FINNHUB_KEY"), ("marketaux", "Marketaux", "BUDDY_MARKETAUX_KEY"),
+        ("alphavantage", "Alpha Vantage", "BUDDY_ALPHAVANTAGE_KEY"))
+SETTLED, FREE_CONFIRMED = "settled by the free model", "confirmed by free news"
 JUDGE = """These are news headlines about {company} that seem to describe one event. Outlets: {outlets}.
 {headlines}
 From the headlines alone, is it clear what happened and whether it is good or bad for the company's business?
 Answer "clear": false if the event could be a rumour, the headlines conflict, or you cannot tell.
-Reply with JSON only: {{"clear": true or false, "tone": "good", "bad" or "neutral", "reason": "one short sentence"}}"""
+Also give the 2 to 4 single words that best pin down this event for a news search (not the company's name).
+Reply with JSON only: {{"clear": true or false, "tone": "good", "bad" or "neutral", "reason": "one short sentence",
+"search": ["word", "word"]}}"""
 DEFAULT_CAP, SAME_STORY, WINDOW_DAYS, LOOK_BACK = 30, 0.5, 3, 14
 ESTABLISHED = {  # rated 3: established news outlets, wire services and regulators
     "reuters.com", "apnews.com", "bloomberg.com", "wsj.com", "ft.com", "nytimes.com", "washingtonpost.com", "cnbc.com",
@@ -80,6 +91,11 @@ def rating(outlet: str) -> int:
     for level, names in ((3, ESTABLISHED), (2, FIRST_HAND)):
         if any(host == n or host.endswith("." + n) for n in names):
             return level
+    if "." not in host:  # some sources give an outlet's name ("Reuters", "Seeking Alpha") instead of its site
+        name = re.sub(r"[^a-z0-9]", "", host)
+        for level, names in ((3, ESTABLISHED), (2, FIRST_HAND)):
+            if name and any(name == n.split(".")[-2] for n in names if not n.endswith((".gov", ".org"))):
+                return level
     return 1
 
 
@@ -186,10 +202,10 @@ def set_cap(memory: Memory, calls: int) -> int:
     return cap(memory)
 
 
-def configured(env=None) -> list[tuple]:
+def configured(env=None, services: tuple = PROVIDERS) -> list[tuple]:
     """The news services that have a key, in the order they are tried."""
     from . import gateway  # noqa: PLC0415
-    return [p for p in PROVIDERS if gateway._secret(env, p[2])]
+    return [p for p in services if gateway._secret(env, p[2])]
 
 
 def provider(env=None) -> bool:
@@ -218,11 +234,42 @@ def _judge(memory: Memory, company: str, story: dict) -> dict | None:
     return got if isinstance(got, dict) and isinstance(got.get("clear"), bool) else None
 
 
-def _search(memory: Memory, name: str, company: str, today: date, env=None, fetch=None) -> list[dict]:
-    """Recent articles naming the company at one service: [{"title", "outlet", "url", "day"}]."""
+def terms(story: dict, company: str = "") -> list[str]:
+    """The few words that pin a story down: the free model's choice when it gave one, else the headline's longest."""
+    given = story.get("search")
+    given = given.split() if isinstance(given, str) else given if isinstance(given, list) else []
+    skip = set(re.findall(r"[a-z0-9]+", company.lower()))
+    words = [w for w in dict.fromkeys(re.sub(r"[^a-z0-9]", "", str(w).lower()) for w in given) if len(w) > 2 and w not in skip]
+    if len(words) < 2:
+        words = sorted(_words(story["title"], company), key=lambda w: (-len(w), w))
+    return words[:4]
+
+
+def _search(memory: Memory, name: str, company: str, today: date, env=None, fetch=None, symbol: str = "",
+            words: list | None = None) -> list[dict]:
+    """Recent articles at one service: [{"title", "outlet", "url", "day"}]. The free sources are asked by ticker;
+    the last-resort ones by the company's name narrowed to the story's own words."""
     from . import gateway  # noqa: PLC0415
-    q = f'"{company}"'
-    if name == "newsdata":
+    q = f'"{company}"' + (f' AND ({" OR ".join(words[:3])})' if words else "")
+    q = q if len(q) <= 100 else f'"{company}"'
+    if name == "finnhub":
+        from . import finnhub  # noqa: PLC0415
+        rows = [(a["title"], a["source"], a["url"], a["day"])
+                for a in finnhub.company_news(memory, symbol, 7, env, fetch, today)]
+    elif name == "marketaux":
+        got = gateway.call(memory, name, "/v1/news/all?" + urllib.parse.urlencode(
+            {"symbols": symbol, "filter_entities": "true", "language": "en",
+             "api_token": gateway._secret(env, "BUDDY_MARKETAUX_KEY")}), env=env, fetch=fetch, purpose="news fact check") or {}
+        rows = [(a.get("title"), a.get("source"), a.get("url"), a.get("published_at"))
+                for a in got.get("data") or [] if isinstance(a, dict)]
+    elif name == "alphavantage":
+        got = gateway.call(memory, name, "/query?" + urllib.parse.urlencode(
+            {"function": "NEWS_SENTIMENT", "tickers": symbol, "limit": 50,
+             "apikey": gateway._secret(env, "BUDDY_ALPHAVANTAGE_KEY")}), env=env, fetch=fetch, purpose="news fact check") or {}
+        rows = [(a.get("title"), a.get("source_domain") or a.get("source"), a.get("url"),
+                 f"{str(a.get('time_published') or '')[:4]}-{str(a.get('time_published') or '')[4:6]}-"
+                 f"{str(a.get('time_published') or '')[6:8]}") for a in got.get("feed") or [] if isinstance(a, dict)]
+    elif name == "newsdata":
         key = gateway._secret(env, "BUDDY_NEWSDATA_KEY")
         got = gateway.call(memory, name, "/api/1/latest?" + urllib.parse.urlencode({"q": q, "language": "en", "apikey": key}),
                            env=env, fetch=fetch, purpose="news fact check") or {}
@@ -244,15 +291,33 @@ def _search(memory: Memory, name: str, company: str, today: date, env=None, fetc
              "url": str(u or ""), "day": str(d or "")[:10]} for t, o, u, d in rows if t]
 
 
-def paid_check(memory: Memory, symbol: str, story: dict, env=None, fetch=None, today: date | None = None) -> str:
+def free_check(memory: Memory, symbol: str, story: dict, env=None, fetch=None, today: date | None = None) -> str:
+    """The same question put to the free news sources Buddy already has. Every one with a key is tried until one
+    confirms the story; the answer starts with "confirmed" only when a rated outlet carries it."""
+    last, failed = "", []
+    for service in configured(env, FREE):
+        try:
+            last = paid_check(memory, symbol, story, env, fetch, today, (service,))
+        except Exception as e:
+            failed.append(str(e)[:80])
+            continue
+        if last.startswith("confirmed"):
+            return last
+    if not last:
+        raise ToolError("; ".join(failed) or "No free news source has a key.")
+    return last
+
+
+def paid_check(memory: Memory, symbol: str, story: dict, env=None, fetch=None, today: date | None = None,
+               services: tuple = PROVIDERS) -> str:
     """Fact-check one story: who else reports it? Tries each news service that has a key until one answers.
     Reports from rated outlets are kept with the company's headlines, so the story's rating rises by itself."""
     today = today or local_now().date()
     company = _company(memory, symbol)
     words, failed = _words(story["title"], company), []
-    for name, title, _ in configured(env):
+    for name, title, _ in configured(env, services):
         try:
-            found = _search(memory, name, company, today, env, fetch)
+            found = _search(memory, name, company, today, env, fetch, symbol.upper(), terms(story, company))
         except Exception as e:
             failed.append(f"{title}: {str(e)[:60] or type(e).__name__}")
             continue
@@ -275,15 +340,15 @@ def paid_check(memory: Memory, symbol: str, story: dict, env=None, fetch=None, t
     raise ToolError("; ".join(failed) or "No news service has a key yet.")
 
 
-def review(memory: Memory, today: date | None = None, env=None, ask=None, judge=None) -> dict:
-    """The daily pass, for each company Buddy is acting on. A story that is unclear goes first to the free model;
-    only one it cannot settle goes to a news service for a fact check (when one has a key and the month's limit
-    allows), or is written down as one it would have asked about."""
+def review(memory: Memory, today: date | None = None, env=None, ask=None, judge=None, free=None) -> dict:
+    """The daily pass, for each company Buddy is acting on. A story that is unclear goes first to the free model,
+    then to the free news sources Buddy already has; only one neither settles goes to NewsData.io, Perigon or
+    NewsCatcher (when one has a key and the month's limit allows), or is written down as would have asked."""
     today = today or local_now().date()
     _ready(memory)
     month = today.isoformat()[:7]
     used = _run(memory, "SELECT COUNT(*) AS n FROM news_checks WHERE asked AND CAST(day AS VARCHAR) LIKE ?", (month + "%",))[0]["n"]
-    out = {"companies": 0, "stories": 0, "unclear": 0, "settled": 0, "asked": 0, "would_ask": 0}
+    out = {"companies": 0, "stories": 0, "unclear": 0, "settled": 0, "free": 0, "asked": 0, "would_ask": 0}
     for symbol, matters in acting_on(memory).items():
         got = stories(memory, symbol, today=today)
         out["companies"] += 1
@@ -299,6 +364,8 @@ def review(memory: Memory, today: date | None = None, env=None, ask=None, judge=
                 log.info("news desk: the free model failed: %s", type(e).__name__)
                 verdict = None
             asked, result = False, ""
+            if verdict and verdict.get("search"):
+                s["search"] = verdict["search"]
             if verdict and verdict.get("clear"):
                 result = f"{SETTLED}: {verdict.get('tone') or 'neutral'}; {str(verdict.get('reason') or '')[:160]}"
                 out["settled"] += 1
@@ -306,7 +373,17 @@ def review(memory: Memory, today: date | None = None, env=None, ask=None, judge=
                 said = (f"the free model could not tell ({str(verdict.get('reason') or '')[:100]})" if verdict
                         else "the free model gave no answer")
                 why = f"{why}; {said}"
-                if not provider(env):
+                found = ""
+                if free or configured(env, FREE):
+                    try:
+                        found = free(memory, symbol, s) if free else free_check(memory, symbol, s, env, today=today)
+                    except Exception as e:
+                        found = f"failed: {str(e)[:80] or type(e).__name__}"
+                    why = f"{why}; free news: {found[:120]}"
+                if found.startswith("confirmed"):
+                    result = f"{FREE_CONFIRMED}: {found[len('confirmed: '):]}"
+                    out["free"] += 1
+                elif not provider(env):
                     result = "not asked: no news service has a key"
                 elif used >= cap(memory):
                     result = f"not asked: the month's limit of {cap(memory)} paid checks is reached"
@@ -316,9 +393,10 @@ def review(memory: Memory, today: date | None = None, env=None, ask=None, judge=
                         asked, used = True, used + 1
                     except Exception as e:
                         result = f"not asked: {type(e).__name__}: {str(e)[:120]}"
-                out["asked" if asked else "would_ask"] += 1
+                if not result.startswith(FREE_CONFIRMED):
+                    out["asked" if asked else "would_ask"] += 1
             _run(memory, "INSERT OR IGNORE INTO news_checks (day, symbol, story, why, asked, result) VALUES (?, ?, ?, ?, ?, ?)",
-                 (today.isoformat(), symbol, s["title"][:240], why[:400], asked, str(result)[:300]))
+                 (today.isoformat(), symbol, s["title"][:240], why[:500], asked, str(result)[:300]))
     return out
 
 
@@ -346,10 +424,13 @@ def view(memory: Memory, today: date | None = None) -> dict:
     return {"companies": sorted(companies, key=lambda c: -c["unclear"]),
             "paid": {"set_up": provider(), "cap": cap(memory), "asked_this_month": sum(1 for c in checks if c["asked"]),
                      "settled_this_month": sum(1 for c in checks if str(c["result"]).startswith(SETTLED)),
+                     "free_confirmed_this_month": sum(1 for c in checks if str(c["result"]).startswith(FREE_CONFIRMED)),
                      "would_have_asked_this_month": sum(1 for c in checks if not c["asked"] and not str(
-                         c["result"]).startswith(SETTLED)), "checks": checks[:15],
+                         c["result"]).startswith((SETTLED, FREE_CONFIRMED))), "checks": checks[:15],
+                     "free_sources": [{"title": t, "key": k, "set_up": (n, t, k) in configured(None, FREE)} for n, t, k in FREE],
                      "sources": [{"title": t, "key": k, "set_up": (n, t, k) in configured()} for n, t, k in PROVIDERS]},
             "note": "A story is several outlets reporting the same event. Its rating is its best source's: an established "
                     "outlet, a press release or specialist site, or an outlet Buddy has not rated. A story that is unclear, about "
-                    "a company Buddy is acting on, goes first to the free AI model; only one it cannot settle is "
-                    "fact-checked with a news service."}
+                    "a company Buddy is acting on, goes first to the free AI model, then to the free news "
+                    "sources Buddy already has; only one neither settles is checked with NewsData.io, Perigon or "
+                    "NewsCatcher."}

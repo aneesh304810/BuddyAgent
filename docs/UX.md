@@ -99,5 +99,5 @@ Not yet: source and freshness lines everywhere.
 
 Each company Buddy is acting on shows its stories (one line per event, with the number of reports, a three-dot source
 rating, and why a story is unclear). "News fact checks" shows how many unclear stories the free model settled, how
-many were fact-checked with a news service this month, how many would have been, which services have a key, and the
+many the free news sources confirmed, how many went to a last-resort news service this month, how many would have been, which services have a key, and the
 monthly limit, which can be changed there.

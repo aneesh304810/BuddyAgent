@@ -452,10 +452,14 @@ their text instead.
 - **A free model first.** An unclear story about a company Buddy is acting on (an open paper trade, an open lab trade,
   or a watchlist company) goes to the free model used for labelling headlines. It sees public headlines only. If it
   says the story is clear, nothing else is asked.
-- **Fact check, only then.** A story the free model could not settle (or got no answer on) goes to a news service to
-  see who else reports it: NewsData.io (`BUDDY_NEWSDATA_KEY`), Perigon (`BUDDY_PERIGON_KEY`), NewsCatcher
-  (`BUDDY_NEWSCATCHER_KEY`), whichever have a key, tried in that order; the next is tried when one fails. Only the
-  company's name is sent. A matching report from a rated outlet is kept with the company's headlines, so the story's
+- **Free news next.** A story the free model could not settle (or got no answer on) is looked up in the free news
+  sources Buddy already has (Finnhub, Marketaux, Alpha Vantage: whichever have a key; ticker symbols only). If a
+  rated outlet carries the same story, that settles it.
+- **Last resort.** Only a story free news could not confirm goes to a further news service to see who else reports
+  it: NewsData.io (`BUDDY_NEWSDATA_KEY`), Perigon (`BUDDY_PERIGON_KEY`), NewsCatcher
+  (`BUDDY_NEWSCATCHER_KEY`), whichever have a key, tried in that order; the next is tried when one fails. The search
+  is narrow: the company's name AND two or three words that pin down the event, chosen by the free model (or taken
+  from the headline), so one call returns that story's reports. Nothing else is sent. A matching report from a rated outlet is kept with the company's headlines, so the story's
   rating rises. With no key, the story is written to `news_checks` as "would have asked". A monthly limit (default 30)
   covers all three together.
 - Runs once a day in the proactive loop; `GET/POST /api/invest/newsdesk`; shown in Investing → Trading as

@@ -78,6 +78,7 @@ flowchart LR
     researchdesk_py --> docread_py
     researchdesk_py --> stratrules_py
     benchmarks_py --> docread_py
+    newsdesk_py --> finnhub_py
     fundamentals_py --> finnhub_py
     labsetup_py --> benchmarks_py
     labsetup_py --> fundamentals_py
@@ -450,19 +451,26 @@ news source only when a story that matters is still unclear.
                     lab), the recommended watchlist, or your own watchlist.
   5  A free model   a story that is both unclear and matters is first put to the free AI model used for labelling
                     headlines. If it can settle the story from the headlines alone, nothing else is asked.
-  6  Fact check     only a story the free model could not settle goes to a news service (NewsData.io, Perigon,
-                    NewsCatcher: whichever have a key, tried in that order) to see who else reports it. With no
-                    key set, the story is written down as "would have asked". Calls stop at the month's limit (30
-                    unless you change it), and each is logged with why it was made and what came back.
+  6  Free news     a story the free model could not settle is looked up in the free news sources Buddy already
+                    has (Finnhub, Marketaux, Alpha Vantage: whichever have a key) to see who else reports it. If
+                    an established outlet does, that settles it and nothing else is asked.
+  7  Last resort    only a story the free sources could not confirm goes to NewsData.io, Perigon or NewsCatcher
+                    (whichever have a key, in that order). With no key set, the story is written down as "would
+                    have asked". These calls stop at the month's limit (30 unless you change it), and each is
+                    logged with why it was made and what came back.
 
-Nothing about you goes anywhere: the free model sees public headlines, and a fact check sends a company's name.
+The last-resort search is narrow: the company's name plus a few words that pin down the event (chosen by the free
+model, or taken from the headline), so one call returns reports of that story and not everything about the company.
+
+Nothing about you goes anywhere: the free model sees public headlines, the free news sources get a ticker symbol,
+and a last-resort search sends the company's name and those few headline words.
 The good-or-bad labels come from themes.py and are sometimes wrong, which is one reason a story with a single weak
 source is treated as unclear.
 ```
 
 - Tables: `news_checks`
-- Settings: `BUDDY_NEWSCATCHER_KEY`, `BUDDY_NEWSDATA_KEY`, `BUDDY_PERIGON_KEY`
-- Uses: gateway.py, maestro.py, memory.py, pricebook.py, tools.py, watchpicks.py
+- Settings: `BUDDY_ALPHAVANTAGE_KEY`, `BUDDY_FINNHUB_KEY`, `BUDDY_MARKETAUX_KEY`, `BUDDY_NEWSCATCHER_KEY`, `BUDDY_NEWSDATA_KEY`, `BUDDY_PERIGON_KEY`
+- Uses: finnhub.py, gateway.py, maestro.py, memory.py, pricebook.py, tools.py, watchpicks.py
 
 ### docread.py
 

@@ -67,7 +67,7 @@ def test_only_unclear_stories_on_companies_buddy_acts_on_are_candidates_and_the_
     lab_trade(memory)
     assert newsdesk.acting_on(memory) == {"OKLO": "an open strategy-lab trade"}
     got = newsdesk.review(memory, DAY, env={}, judge=UNSURE)
-    assert got == {"companies": 1, "stories": 2, "unclear": 2, "settled": 0, "asked": 0, "would_ask": 2}
+    assert got == {"companies": 1, "stories": 2, "unclear": 2, "settled": 0, "free": 0, "asked": 0, "would_ask": 2}
     assert newsdesk.review(memory, DAY, env={}, judge=UNSURE)["unclear"] == 0     # each story is considered once
     paid = newsdesk.view(memory, DAY)["paid"]
     assert paid["set_up"] is False and paid["would_have_asked_this_month"] == 2 and paid["asked_this_month"] == 0
@@ -105,15 +105,16 @@ def test_the_free_model_goes_first_and_a_news_service_is_asked_only_when_it_cann
     def judge(m, company, story):
         assert company == "Oklo" and story["titles"]
         return ({"clear": True, "tone": "neutral", "reason": "a routine appointment"} if "finance chief" in story["title"]
-                else {"clear": False, "tone": "bad", "reason": "one unknown outlet"})
+                else {"clear": False, "tone": "bad", "reason": "one unknown outlet", "search": ["Reactor", "delay", "Oklo"]})
 
     env = {"BUDDY_NEWSDATA_KEY": "nd", "BUDDY_PERIGON_KEY": "pg"}
     real = newsdesk.paid_check
     got = newsdesk.review(memory, DAY, env=env, judge=judge, ask=lambda m, s, story: real(m, s, story, env, fetch, DAY))
-    assert got == {"companies": 1, "stories": 2, "unclear": 2, "settled": 1, "asked": 1, "would_ask": 0}
+    assert got == {"companies": 1, "stories": 2, "unclear": 2, "settled": 1, "free": 0, "asked": 1, "would_ask": 0}
     perigon = [c for c in calls if "goperigon" in c[0]]
     assert len(perigon) == 1 and perigon[0][1].get("x-api-key") == "pg" and "%22Oklo%22" in perigon[0][0]
-    assert "delays" not in perigon[0][0]           # only the company's name is sent
+    assert "q=%22Oklo%22+AND+%28reactor+OR+delay%29" in perigon[0][0]   # narrowed to the event by the model's words
+    assert newsdesk.terms({"title": "Oklo delays first reactor after regulator questions"}, "Oklo")[:2] == ["questions", "regulator"]
     view = newsdesk.view(memory, DAY)
     by = {c["story"]: c["result"] for c in view["paid"]["checks"]}
     assert by["Oklo names a new finance chief"].startswith("settled by the free model: neutral; a routine appointment")
@@ -122,6 +123,33 @@ def test_the_free_model_goes_first_and_a_news_service_is_asked_only_when_it_cann
     assert view["paid"]["settled_this_month"] == 1 and view["paid"]["asked_this_month"] == 1
     delay = next(s for s in newsdesk.stories(memory, "OKLO", today=DAY) if "delays" in s["title"])
     assert delay["rating"] == 3 and delay["reports"] == 2     # the established report is kept, so the rating rises
+
+
+def test_free_news_sources_are_tried_before_the_last_resort_services(memory):
+    headline(memory, "OKLO", "Oklo delays first reactor after regulator questions", "2026-11-14", "hotstocks.example", "bad")
+    headline(memory, "OKLO", "Oklo plant site floods in storm", "2026-11-15", "localnews.example", "bad")
+    lab_trade(memory)
+    calls = []
+
+    def fetch(url, data=None, headers=None):
+        calls.append(url)
+        if "finnhub.io" in url:
+            return json.dumps([{"headline": "Oklo first reactor delayed as regulator asks questions", "source": "Reuters",
+                                "url": "https://finnhub.io/api/news?id=1", "datetime": 1794650000, "id": 7}]).encode()
+        return json.dumps({"articles": []}).encode()
+
+    env = {"BUDDY_FINNHUB_KEY": "fh", "BUDDY_PERIGON_KEY": "pg"}
+    got = newsdesk.review(memory, DAY, env=env, judge=UNSURE,
+                          free=lambda m, s, story: newsdesk.free_check(m, s, story, env, fetch, DAY),
+                          ask=lambda m, s, story: newsdesk.paid_check(m, s, story, env, fetch, DAY))
+    assert got == {"companies": 1, "stories": 2, "unclear": 2, "settled": 0, "free": 1, "asked": 1, "would_ask": 0}
+    assert sum("goperigon" in c for c in calls) == 1      # only the story free news could not confirm went further
+    by = {c["story"]: c for c in newsdesk.view(memory, DAY)["paid"]["checks"]}
+    delay = by["Oklo delays first reactor after regulator questions"]
+    assert delay["result"].startswith("confirmed by free news: also reported by reuters") and not delay["asked"]
+    flood = by["Oklo plant site floods in storm"]
+    assert flood["asked"] and "free news: not confirmed" in flood["why"] and "Perigon" in flood["result"]
+    assert newsdesk.rating("Reuters") == 3 and newsdesk.rating("Seeking Alpha") == 2 and newsdesk.rating("Some Blog") == 1
 
 
 def test_a_trades_news_figures_count_stories_not_headlines(memory):

@@ -1805,7 +1805,8 @@ async def api_invest_newsdesk_do(body: dict) -> dict:
     elif body.get("action") == "review":
         got = await asyncio.to_thread(newsdesk.review, memory)
         text = (f"{got['stories']} stories on {got['companies']} companies; {got['unclear']} newly unclear: "
-                f"{got['settled']} settled by the free model, {got['asked']} fact-checked, "
+                f"{got['settled']} settled by the free model, {got['free']} confirmed by free news, "
+                f"{got['asked']} checked with a paid-slot service, "
                 f"{got['would_ask']} noted as would have asked.")
     return {"text": text, "newsdesk": await asyncio.to_thread(newsdesk.view, memory)}
 

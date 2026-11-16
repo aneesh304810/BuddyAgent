@@ -329,12 +329,13 @@ function deskCard() {
   return card("News behind the trades", (deskData.failed ? `<p class="err">${esc(deskData.failed)}</p>` : "") +
       (companies || `<p class="muted">No company news yet for the companies Buddy is acting on. Headlines are searched nightly by company name.</p>`) +
       `<p><button class="btn" id="desk-review">Look for unclear stories now</button></p>`, deskData.note || "") +
-    card("News fact checks", `<div class="kpis">${kpi(esc(p.settled_this_month || 0), "settled by the free model")}${kpi(esc(p.asked_this_month || 0), "fact-checked this month")}
+    card("News fact checks", `<div class="kpis">${kpi(esc(p.settled_this_month || 0), "settled by the free model")}${kpi(esc(p.free_confirmed_this_month || 0), "confirmed by free news")}${kpi(esc(p.asked_this_month || 0), "sent to the last-resort services")}
         ${kpi(esc(p.would_have_asked_this_month || 0), "would have asked")}${kpi(esc(p.cap ?? "–"), "limit a month")}</div>
-        <p class="note">${(p.sources || []).map((x) => `${esc(x.title)}: ${x.set_up ? "key set" : "no key"}`).join(" · ")}</p>` + checks +
+        <p class="note">Free news: ${(p.free_sources || []).map((x) => `${esc(x.title)}: ${x.set_up ? "key set" : "no key"}`).join(" · ")}</p>
+        <p class="note">Last resort: ${(p.sources || []).map((x) => `${esc(x.title)}: ${x.set_up ? "key set" : "no key"}`).join(" · ")}</p>` + checks +
       `<div class="add"><input id="desk-cap" type="number" min="0" max="1000" value="${esc(p.cap ?? 30)}" aria-label="Fact checks a month"><button class="btn" id="desk-cap-set">Set the monthly limit</button></div>`,
-      "An unclear story about a company Buddy is acting on goes first to the free AI model. Only one it cannot settle is fact-checked with a news service, up to the limit. " +
-      (p.set_up ? "" : `No news service has a key yet, so those stories are written down as would have asked. To add one: sudo bash /opt/buddy/deploy/set.sh ${((p.sources || [])[0] || {}).key || "BUDDY_NEWSDATA_KEY"}`));
+      "An unclear story about a company Buddy is acting on goes first to the free AI model. If the model cannot settle it, Buddy looks it up in the free news sources it already has. Only a story neither settles goes to the last-resort services, up to the limit. " +
+      (p.set_up ? "" : `No last-resort service has a key, so those stories are written down as would have asked. To add one: sudo bash /opt/buddy/deploy/set.sh ${((p.sources || [])[0] || {}).key || "BUDDY_NEWSDATA_KEY"}`));
 }
 
 // The data behind the trading engine: what each source holds now, how its last load went, and one button to load all.
