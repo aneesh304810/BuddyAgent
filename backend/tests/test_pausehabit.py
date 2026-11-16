@@ -48,7 +48,11 @@ def test_two_fragments_a_typical_pause_apart_become_one_request_and_teach_the_ha
         assert ws.receive_json() == {"type": "waiting"}
         ws.send_json({"type": "audio", "pcm": audio, "lang": "en-US", "mode": "talk"})
         ws.send_json({"type": "user", "text": ws.receive_json()["text"]})
-        got = [ws.receive_json() for _ in range(3)]
+        got = []
+        while len(got) < 3:  # a message Buddy sends on its own (a nudge) can arrive at any moment: not part of the reply
+            m = ws.receive_json()
+            if m["type"] != "nudge":
+                got.append(m)
     assert [m["type"] for m in got] == ["thinking", "say", "done"]
     assert "Why can't we use the free model for the news?" in str(asked[-1])  # one request, not two
     assert pausehabit.load(mem)["merged"] == 2  # the new pause was learned too
