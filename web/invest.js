@@ -322,6 +322,8 @@ function setupCard() {
       <small class="muted" style="display:block">${esc(r.holds)}${r.last ? ` · last load${r.at ? " " + esc(r.at) : ""}: ${esc(r.last)}` : ""}</small></span>
       <span class="${(MARK[r.state] || MARK.empty)[1]}" style="white-space:nowrap">${(MARK[r.state] || MARK.empty)[0]}</span></div>`).join("");
   return card("Data for the trading engine", (setupData.failed ? `<p class="err">${esc(setupData.failed)}</p>` : "") + rows +
+    (setupData.running ? `<p class="note">Loading runs one source at a time, top to bottom, and takes several minutes in all. Lines still marked empty have not been reached yet. Press Refresh to follow it.</p>` : "") +
+    (setupData.cut_off ? `<p class="note">The last load was cut off before it finished (a restart does that). Press Load everything now to run it again.</p>` : "") +
     (setupData.sandbox_note ? `<p class="note">${esc(setupData.sandbox_note)}</p>` : "") +
     `<p><button class="btn solid" id="setup-run"${setupData.running ? " disabled" : ""}>${setupData.running ? "Loading: " + esc(setupData.running) + "…" : "Load everything now"}</button> <button class="btn" id="setup-refresh">Refresh</button></p>`,
     "Each line shows what is actually held. Everything here also refreshes on its own schedule; this button is for the first time, or when something is empty.");

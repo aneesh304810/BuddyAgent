@@ -53,3 +53,19 @@ def test_the_panel_reads_what_is_held_not_what_a_step_claimed(memory):
     assert replay["loaded"] and replay["state"] == "loaded" and "1 past trades, 2024-01-02 to 2024-01-20" in replay["holds"]
     assert got["sandbox"] is False and "sandbox.sh" in got["sandbox_note"]
     assert "judged trades" in next(r for r in got["rows"] if r["key"] == "model")["holds"]
+
+
+def test_a_load_cut_off_by_a_restart_does_not_leave_the_button_stuck(memory):
+    import json
+    from datetime import timedelta
+    from buddy.tools import local_now
+    memory.set(labsetup.STATE_KEY, json.dumps({"running": "Replay over past prices",
+                                               "progress_at": (local_now() - timedelta(minutes=3)).isoformat(timespec="seconds")}))
+    assert labsetup.status(memory)["running"] == "Replay over past prices"
+    assert labsetup.load_in_background(memory) == "It is already loading."
+    memory.set(labsetup.STATE_KEY, json.dumps({"running": "Replay over past prices",
+                                               "progress_at": (local_now() - timedelta(minutes=40)).isoformat(timespec="seconds")}))
+    got = labsetup.status(memory)
+    assert got["running"] == "" and got["cut_off"] is True   # too long without progress: it was cut off
+    memory.set(labsetup.STATE_KEY, json.dumps({"running": "Replay over past prices"}))  # an older record with no time
+    assert labsetup.status(memory)["running"] == ""

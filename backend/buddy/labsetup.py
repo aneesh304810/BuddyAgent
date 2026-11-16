@@ -27,6 +27,7 @@ from .tools import local_now
 
 log = logging.getLogger("buddy.labsetup")
 STATE_KEY = "labsetup:state"
+STALE_MINUTES = 25  # a load that has shown no progress for this long was cut off (a restart), not still running
 
 
 def _state(memory: Memory) -> dict:
@@ -34,6 +35,18 @@ def _state(memory: Memory) -> dict:
         return json.loads(memory.get(STATE_KEY) or "{}")
     except ValueError:
         return {}
+
+
+def _running(state: dict) -> str:
+    """The step in progress, or "" when none is, or when the last sign of progress is too old to be believed."""
+    from datetime import datetime, timedelta  # noqa: PLC0415
+    if not state.get("running"):
+        return ""
+    try:
+        seen = datetime.fromisoformat(state.get("progress_at") or "")
+    except ValueError:
+        return ""
+    return state["running"] if local_now() - seen < timedelta(minutes=STALE_MINUTES) else ""
 
 
 def _picks(memory: Memory) -> str:
@@ -97,7 +110,7 @@ def load_all(memory: Memory, steps=None) -> dict:
     """Run every step in order, keeping each result. One failing does not stop the rest."""
     state = _state(memory)
     for key, title, fn in steps or STEPS:
-        state["running"] = title
+        state["running"], state["progress_at"] = title, local_now().isoformat(timespec="seconds")
         memory.set(STATE_KEY, json.dumps(state))
         try:
             said, ok = fn(memory), True
@@ -113,9 +126,10 @@ def load_all(memory: Memory, steps=None) -> dict:
 
 
 def load_in_background(memory: Memory) -> str:
-    if _state(memory).get("running"):
+    if _running(_state(memory)):
         return "It is already loading."
-    memory.set(STATE_KEY, json.dumps({**_state(memory), "running": "starting"}))
+    memory.set(STATE_KEY, json.dumps({**_state(memory), "running": "starting",
+                                      "progress_at": local_now().isoformat(timespec="seconds")}))
 
     def work():
         try:
@@ -171,7 +185,8 @@ def status(memory: Memory) -> dict:
                      "last": last.get("said", ""), "at": last.get("at", ""),
                      "state": "failed" if last and not last.get("ok") and not last.get("skipped") else
                               "loaded" if have else "skipped" if last.get("skipped") else "empty"})
-    return {"rows": rows, "running": state.get("running") or "", "finished": state.get("finished") or "",
+    return {"rows": rows, "running": _running(state), "finished": state.get("finished") or "",
+            "cut_off": bool(state.get("running")) and not _running(state),
             "sandbox": sandbox.available(),
             "sandbox_note": "" if sandbox.available() else
             "The sandbox is not set up, so files are read inside Buddy and no model can be trained: "
