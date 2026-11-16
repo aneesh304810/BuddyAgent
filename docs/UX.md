@@ -94,3 +94,9 @@ strategy lab's together, "Bought and holding" and "Sold and judged" list both (e
 rule), and the day-by-day log merges them. The data panel, the strategies and the lab's table come after.
 
 Not yet: source and freshness lines everywhere.
+
+## Trading: News behind the trades
+
+Each company Buddy is acting on shows its stories (one line per event, with the number of reports, a three-dot source
+rating, and why a story is unclear). "Paid news checks" shows whether a paid source is set up, how many checks were
+asked this month, how many would have been asked, and the monthly limit, which can be changed there.

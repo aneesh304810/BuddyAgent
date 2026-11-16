@@ -1785,6 +1785,30 @@ async def api_invest_lab_view() -> dict:
     return {"lab": lab, "ideas": await asyncio.to_thread(stratlab.ideas, memory, None, lab["strategies"])}
 
 
+@app.get("/api/invest/newsdesk", dependencies=[Depends(require_admin)])
+async def api_invest_newsdesk() -> dict:
+    """The stories behind the companies Buddy is acting on, their source ratings, and the paid slot's record."""
+    from . import newsdesk  # noqa: PLC0415
+    return {"newsdesk": await asyncio.to_thread(newsdesk.view, memory)}
+
+
+@app.post("/api/invest/newsdesk", dependencies=[Depends(require_admin)])
+async def api_invest_newsdesk_do(body: dict) -> dict:
+    """limit (calls): the month's limit on paid checks · review: look for unclear stories now."""
+    from . import newsdesk  # noqa: PLC0415
+    text = ""
+    if body.get("action") == "limit":
+        try:
+            text = f"At most {newsdesk.set_cap(memory, int(body.get('calls')))} paid checks a month."
+        except (TypeError, ValueError) as e:
+            raise HTTPException(status_code=400, detail="Give the limit as a number.") from e
+    elif body.get("action") == "review":
+        got = await asyncio.to_thread(newsdesk.review, memory)
+        text = (f"{got['stories']} stories on {got['companies']} companies; {got['unclear']} newly unclear, "
+                f"{got['asked']} asked, {got['would_ask']} noted as would have asked.")
+    return {"text": text, "newsdesk": await asyncio.to_thread(newsdesk.view, memory)}
+
+
 @app.get("/api/invest/lab/setup", dependencies=[Depends(require_admin)])
 async def api_invest_lab_setup() -> dict:
     """What the trading engine's data holds, source by source, and how each last load went."""

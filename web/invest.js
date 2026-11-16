@@ -16,7 +16,7 @@ const esc = (s) => String(s ?? "").replace(/[&<>"']/g, (c) => ({ "&": "&amp;", "
 const safe = (u) => /^https:\/\/[^\s"'<>]+$/.test(String(u || "")) ? u : "";
 // Four tabs: the old Strategy, Signals and Accounts are one Overview; market news is in Discover, under News.
 const TABS = [["strategy", "Overview"], ["practice", "Trading"], ["themes", "Themes"], ["watch", "Watchlist"]];
-let setupData = null, setupBusy = false;
+let setupData = null, setupBusy = false, deskData = null, deskBusy = false;
 let picksData = null, picksBusy = false, researchData = null, researchBusy = false, ideasData = null, ideasBusy = false;
 let themesData = null, themesBusy = false, practiceData = null, practiceBusy = false, signalsData = null, signalsBusy = false;
 let data = null, tab = TABS.some(([k]) => k === storageGet("investTab")) ? storageGet("investTab") : "strategy", busy = false;
@@ -306,6 +306,36 @@ function researchCards() {
   return queue + yard + lists;
 }
 
+// The news desk: stories (not headlines) behind the companies Buddy is acting on, how far each can be trusted,
+// and the record of paid checks: asked, or noted as "would have asked" while no paid source is set up.
+async function loadDesk(body) {
+  if (deskBusy) return;
+  deskBusy = true;
+  try { const out = await api("/api/invest/newsdesk", body); deskData = out.newsdesk; if (out.text) notice(out.text); }
+  catch (e) { deskData = { companies: [], paid: {}, failed: e.message }; }
+  deskBusy = false;
+  if (tab === "practice") render();
+}
+function deskCard() {
+  if (!deskData) { loadDesk(); return card("News behind the trades", `<p class="muted">Loading…</p>`); }
+  const STARS = { 3: "●●● established outlet", 2: "●●○ press release or specialist", 1: "●○○ not rated" };
+  const story = (s) => `<li>${tone(s.tone === "mixed" ? "" : s.tone)}${s.tone === "mixed" ? ` <span class="muted">◐ mixed</span>` : ""} · ${s.url ? `<a href="${safe(s.url)}" target="_blank" rel="noopener">${esc(s.title)}</a>` : esc(s.title)}
+      <small class="muted">${esc(s.day)} · ${esc(s.reports)} report${s.reports === 1 ? "" : "s"} · ${esc(STARS[s.rating] || "")}${s.unclear ? " · unclear: " + esc(s.why_unclear.join("; ")) : ""}</small></li>`;
+  const companies = (deskData.companies || []).map((c) => `<div class="tx" style="display:block"><b>${esc(c.symbol)}</b> <small class="muted">${esc(c.matters)}${c.unclear ? ` · ${esc(c.unclear)} unclear` : ""}</small>
+      <ul class="why">${c.stories.map(story).join("")}</ul></div>`).join("");
+  const p = deskData.paid || {};
+  const checks = (p.checks || []).map((c) => `<div class="row" style="cursor:default;align-items:flex-start"><span class="name" style="white-space:normal"><b>${esc(c.symbol)}</b> ${esc(c.story)}
+      <small class="muted" style="display:block">${esc(c.day)} · ${esc(c.why)} · ${esc(c.result)}</small></span></div>`).join("");
+  return card("News behind the trades", (deskData.failed ? `<p class="err">${esc(deskData.failed)}</p>` : "") +
+      (companies || `<p class="muted">No company news yet for the companies Buddy is acting on. Headlines are searched nightly by company name.</p>`) +
+      `<p><button class="btn" id="desk-review">Look for unclear stories now</button></p>`, deskData.note || "") +
+    card("Paid news checks", `<div class="kpis">${kpi(p.set_up ? "on" : "not set up", "paid news source")}${kpi(esc(p.asked_this_month || 0), "asked this month")}
+        ${kpi(esc(p.would_have_asked_this_month || 0), "would have asked")}${kpi(esc(p.cap ?? "–"), "limit a month")}</div>` + checks +
+      `<div class="add"><input id="desk-cap" type="number" min="0" max="1000" value="${esc(p.cap ?? 30)}" aria-label="Paid checks a month"><button class="btn" id="desk-cap-set">Set the monthly limit</button></div>`,
+      p.set_up ? "A paid check is made only for a story that is unclear and about a company Buddy is acting on, up to the limit."
+        : `No paid source is chosen. Until one is, each story it would have asked about is written down here, so you can see how many paid calls a month this would make. To add one later: choose a provider, then sudo bash /opt/buddy/deploy/set.sh ${p.key || "BUDDY_PAID_NEWS_KEY"}.`);
+}
+
 // The data behind the trading engine: what each source holds now, how its last load went, and one button to load all.
 async function loadSetup(run) {
   if (setupBusy) return;
@@ -448,7 +478,7 @@ function practiceTab() {
     card(`Sold and judged (${(p.closed || []).length + lab.closed.length})`, both(p.closed, lab.closed, "Nothing has closed yet. A trade closes at its stop, its target, a sell signal, or its time limit.")) +
     ((p.skipped || []).length ? card("Signals not traded", list(p.skipped, "")) : "") +
     card("Day by day", log || `<p class="muted">No activity yet.</p>`) +
-    setupCard() + strategiesCards(p) + labCards(p) +
+    deskCard() + setupCard() + strategiesCards(p) + labCards(p) +
     (p.strategies ? "" : learned(p)) + marketsCard(m) + linksCard(m) +
     `<p class="note">${esc(p.limits || "")} Theme baskets are listed under Themes.</p><p><button class="btn" id="practice-refresh">Refresh</button></p>`;
 }
@@ -599,6 +629,8 @@ function render() {
     try { const out = await api(path, body); practiceData.practice.lab = out.lab; render(); if (out.text) notice(out.text); return out; }
     catch (e) { render(); notice(e.message); }
   };
+  if ($("desk-review")) $("desk-review").onclick = () => loadDesk({ action: "review" });
+  if ($("desk-cap-set")) $("desk-cap-set").onclick = () => loadDesk({ action: "limit", calls: Number($("desk-cap").value) });
   if ($("setup-run")) $("setup-run").onclick = () => loadSetup(true);
   if ($("setup-refresh")) $("setup-refresh").onclick = () => { practiceData = null; researchData = null; ideasData = null; setupData = null; render(); };
   if ($("research-reload")) $("research-reload").onclick = () => { researchData = null; render(); };

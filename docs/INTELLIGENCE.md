@@ -438,3 +438,20 @@ that page once, at your request (https and public addresses only, every redirect
 and scripts, and reads the rest into a proposed rule that carries the link. Nothing is crawled or followed,
 and the page is not stored. Pages behind a sign-in, or that load by script, cannot be read this way; paste
 their text instead.
+
+## News desk: stories, source ratings, and the paid slot
+
+`newsdesk.py` sits between the free headlines and the trade figures.
+
+- **Stories, not headlines.** Headlines about one company that share most of their words within three days are one
+  story. Five outlets carrying one event count once in `f_good_news_14` / `f_bad_news_14`.
+- **Source rating.** 3 = an established outlet, 2 = a press release or specialist outlet, 1 = not rated. A story takes
+  the best rating among its reports. Every story still counts in the trade figures; a low rating marks it unclear.
+- **Unclear.** A story is unclear when only unrated outlets carry it, when its reports disagree on good or bad, or
+  when it has no label yet.
+- **The paid slot.** A paid check is considered only for an unclear story about a company Buddy is acting on (an open
+  paper trade, an open lab trade, or a daily pick). No paid provider is wired in. Until the owner chooses one and sets
+  `BUDDY_PAID_NEWS_KEY`, each such story is written to `news_checks` as "would have asked", so the month's count shows
+  what a paid plan would really be used for. A monthly limit (default 30) holds once a provider exists.
+- Runs once a day in the proactive loop; `GET/POST /api/invest/newsdesk`; shown in Investing → Trading as
+  "News behind the trades" and "Paid news checks".

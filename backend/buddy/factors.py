@@ -81,8 +81,10 @@ def _evidence(memory: Memory, symbol: str, today: date) -> dict:
     day = lambda n: (today - timedelta(days=n)).isoformat()  # noqa: E731
     recent, before = [r for r in mine if r["day"] >= day(90)], [r for r in mine if day(180) <= r["day"] < day(90)]
     news = [r for r in mine if r["kind"] in themes.NEWS_KINDS and r["day"] >= day(14)]
-    own = _run(memory, "SELECT t.tone FROM theme_news n JOIN theme_tone t ON t.key = n.key WHERE n.symbol = ? AND "
-                       "n.day >= ?", (symbol, day(14)))
+    # The company's own news counts as stories, not headlines: one event carried by five outlets is one
+    # (newsdesk.py).
+    from . import newsdesk  # noqa: PLC0415
+    own = newsdesk.counts(memory, symbol, 14, today)
     kinds: dict[str, int] = {}
     for r in recent:
         kinds[r["kind"]] = kinds.get(r["kind"], 0) + 1
@@ -99,8 +101,8 @@ def _evidence(memory: Memory, symbol: str, today: date) -> dict:
         log.info("factors: no news sentiment", exc_info=True)
     return {**mood, "f_evidence_90": len(recent), "f_evidence_growth": (len(recent) / len(before) - 1) if before else 0.0,
             "f_evidence_kinds": len(kinds), "f_stage": stage, "f_themes": len(techs),
-            "f_good_news_14": sum(1 for r in news if r["tone"] == "good") + sum(1 for r in own if r["tone"] == "good"),
-            "f_bad_news_14": sum(1 for r in news if r["tone"] == "bad") + sum(1 for r in own if r["tone"] == "bad"),
+            "f_good_news_14": sum(1 for r in news if r["tone"] == "good") + own["good"],
+            "f_bad_news_14": sum(1 for r in news if r["tone"] == "bad") + own["bad"],
             "f_patterns_30": fired, "f_links_90": _links_90(memory, symbol, rows, techs, today)}
 
 

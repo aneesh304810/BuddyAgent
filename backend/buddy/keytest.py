@@ -213,6 +213,8 @@ EXTRA = [
     ("Travel & transit", "Duffel", ["BUDDY_DUFFEL_TOKEN"], "flight fare search"),
     ("Travel & transit", "Travelpayouts", ["BUDDY_TRAVELPAYOUTS_TOKEN"], "fare history"),
     ("Shopping", "17TRACK", ["BUDDY_17TRACK_KEY"], "live package tracking"),
+    ("Finance & markets", "A paid news source (optional)", ["BUDDY_PAID_NEWS_KEY"],
+     "asked only about unclear stories on companies Buddy is acting on; none is wired in until you choose one"),
     ("Intelligence", "Intelligence API key", ["BUDDY_INTEL_API_KEY"], "lets another program read the Intelligence API"),
     ("Server", "DigitalOcean (read-only)", ["BUDDY_DO_TOKEN"], "server size and cost, for the self-check"),
     ("Server", "Tailscale", ["BUDDY_TAILSCALE_API_KEY"], "removing a device from your network"),

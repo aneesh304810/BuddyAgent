@@ -27,6 +27,7 @@ flowchart LR
         researchdesk_py["researchdesk.py<br/>finds strategy research Buddy is allowed to fetch, queues it, and…"]
         benchmarks_py["benchmarks.py<br/>Benchmarks and symbol lists for the strategy lab: academic factor…"]
         newssent_py["newssent.py<br/>how the news on a company reads, as a number, from two services that…"]
+        newsdesk_py["newsdesk.py<br/>turns the headlines Buddy collects into stories, says how far each…"]
         docread_py["docread.py<br/>Reading a file Buddy was given or downloaded: the text is taken out…"]
         fundamentals_py["fundamentals.py<br/>the latest earnings surprise and a few basic financial ratios"]
         labsetup_py["labsetup.py<br/>Loading the trading engine's data in one go, and saying plainly what…"]
@@ -109,6 +110,7 @@ flowchart LR
     researchdesk_py --> db
     benchmarks_py --> db
     newssent_py --> db
+    newsdesk_py --> db
     fundamentals_py --> db
     markets_py --> db
     livewatch_py --> db
@@ -341,7 +343,7 @@ Every trade also keeps the lab's own stop, target and time limit. No real order 
 ```
 
 - Tables: `lab_rules`
-- Uses: library.py, maestro.py, market_school.py, memory.py, pricebook.py, strategy_seeds.py, tools.py
+- Uses: library.py, maestro.py, market_school.py, memory.py, pricebook.py, strategy_seeds.py, tools.py, webread.py
 
 ### strategy_seeds.py
 
@@ -431,6 +433,36 @@ with each paper trade (f_sentiment_7) and shows them, and no trade is decided on
 - Settings: `BUDDY_ALPHAVANTAGE_KEY`, `BUDDY_MARKETAUX_KEY`
 - Uses: gateway.py, memory.py, pricebook.py, tools.py, watchpicks.py
 
+### newsdesk.py
+
+```text
+News desk: turns the headlines Buddy collects into stories, says how far each can be trusted, and asks a paid
+news source only when a story that matters is still unclear.
+
+  1  Stories        the same event reported by several outlets is one story, not several. Headlines about a company
+                    within three days of each other that share most of their meaningful words are grouped.
+  2  Source rating  every outlet is rated by a list kept in this file: established news outlets and regulators (3),
+                    press-release wires and specialist sites (2: first-hand but written by the company, or narrow),
+                    anything else (1). A story takes its best source's rating.
+  3  Unclear?       a story is unclear when only unrated outlets carry it, when its outlets disagree on whether it
+                    is good or bad, or when it has no good-or-bad label at all.
+  4  Matters?       only for a company Buddy is acting on: an open paper trade (the Signals book or the strategy
+                    lab), the recommended watchlist, or your own watchlist.
+  5  The paid slot  a story that is both unclear and matters is a candidate for a paid check. No provider is built
+                    in: until you choose one and set its key, every candidate is written down as "would have
+                    asked", so you can see how many paid calls a month this would make before paying for anything.
+                    With a provider set, calls stop at the month's limit (30 unless you change it), and each is
+                    logged with why it was made and whether it confirmed, contradicted or added nothing.
+
+No AI model is used here and nothing about you goes anywhere: a paid check would send a company's name and the
+headline. The good-or-bad labels come from themes.py and are sometimes wrong, which is one reason a story with a
+single weak source is treated as unclear.
+```
+
+- Tables: `news_checks`
+- Settings: `BUDDY_PAID_NEWS_KEY`
+- Uses: gateway.py, memory.py, pricebook.py, tools.py, watchpicks.py
+
 ### docread.py
 
 ```text
@@ -481,7 +513,7 @@ when something looks empty, "Load everything" runs them one after another in the
   2  today's lab trades            each rule's picks from daily prices
   3  the replay over past prices   every rule's record on about five years of history
   4  factor returns                the yardsticks from the Kenneth French data library
-  5  the research queue            new papers from arXiv
+  5  the research queue            new papers from arXiv, and the notebooks of the open-source starting points
   6  news sentiment                when one of its two keys is set
   7  company figures               earnings surprise and ratios (the slow one: a few minutes)
   8  a first model                 trained in the sandbox when there are enough judged trades
