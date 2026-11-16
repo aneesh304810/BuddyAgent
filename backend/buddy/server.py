@@ -1791,7 +1791,11 @@ async def api_invest_lab_upload(body: dict) -> dict:
             raw = base64.b64decode(str(body["data"]), validate=True)
             if len(raw) > 8_000_000:
                 raise ToolError("That file is over 8 MB. Upload the part that describes the strategy.")
-            text = await asyncio.to_thread(stratrules.text_of, name, raw)
+            from . import docread  # noqa: PLC0415  the file is opened in the sandbox, not in Buddy
+            got = await docread.read(name, raw)
+            if got["error"] and not got["text"]:
+                raise ToolError(f"Buddy could not read that file ({got['error']}).")
+            text = got["text"]
         else:
             text = str(body.get("text") or "")
         rule = await stratrules.propose(memory, name, text)
@@ -1819,6 +1823,60 @@ async def api_invest_lab_replay() -> dict:
     """Replay every rule over past prices (in the background)."""
     from . import stratlab  # noqa: PLC0415
     return {"text": stratlab.replay_in_background(memory), "lab": await asyncio.to_thread(stratlab.view, memory)}
+
+
+@app.get("/api/invest/research", dependencies=[Depends(require_admin)])
+async def api_invest_research() -> dict:
+    """The research queue, the factor yardsticks and the stock lists (the Trading tab)."""
+    from . import benchmarks, researchdesk  # noqa: PLC0415
+    return {"research": await asyncio.to_thread(researchdesk.view, memory),
+            "benchmarks": await asyncio.to_thread(benchmarks.view, memory)}
+
+
+@app.post("/api/invest/research", dependencies=[Depends(require_admin)])
+async def api_invest_research_do(body: dict) -> dict:
+    """search (arXiv now) · github (url) · read (id) · dismiss (id) · factors · holdings (on) · fetch_list (name) ·
+    upload_list (name, filename, data) · use_list (name)."""
+    import base64  # noqa: PLC0415
+    from . import benchmarks, researchdesk, stratlab  # noqa: PLC0415
+    action, text = str(body.get("action") or ""), ""
+    try:
+        if action == "search":
+            n = await asyncio.to_thread(researchdesk.arxiv_new, memory)
+            text = f"{n} new paper{'s' if n != 1 else ''} queued from arXiv."
+        elif action == "github":
+            got = await asyncio.to_thread(researchdesk.github_add, memory, str(body.get("url") or ""))
+            text = f"{got['added']} file{'s' if got['added'] != 1 else ''} queued ({got['licence']} licence)."
+        elif action == "read":
+            rule = await researchdesk.read(memory, int(body.get("id") or 0))
+            text = f"Read into a proposed rule: {rule['name']}. Approve it below to start testing."
+        elif action == "dismiss":
+            await asyncio.to_thread(researchdesk.dismiss, memory, int(body.get("id") or 0))
+        elif action == "factors":
+            text = f"{await benchmarks.refresh_factors(memory):,} month-values of factor returns are held."
+        elif action == "holdings":
+            memory.set(benchmarks.HOLDINGS_ON_KEY, "1" if body.get("on") else "0")
+            text = "Fund holdings will be fetched weekly." if body.get("on") else "Fund holdings will not be fetched."
+        elif action == "fetch_list":
+            if memory.get(benchmarks.HOLDINGS_ON_KEY) != "1":
+                raise ToolError("Switch fund holdings on first.")
+            got = await benchmarks.fetch_holdings(memory, str(body.get("name") or ""))
+            text = f"{got['symbols']} symbols kept in the {got['name']} list, dated {got['day']}."
+        elif action == "upload_list":
+            raw = base64.b64decode(str(body.get("data") or ""), validate=True)
+            got = await benchmarks.upload_list(memory, str(body.get("name") or ""), str(body.get("filename") or "list.csv"), raw)
+            text = f"{got['symbols']} symbols kept in the {got['name']} list, dated {got['day']}."
+        elif action == "use_list":
+            text = await asyncio.to_thread(benchmarks.use_in_lab, memory, str(body.get("name") or ""))
+        else:
+            raise ToolError("Unknown action.")
+    except ToolError as e:
+        raise HTTPException(status_code=400, detail=str(e)) from e
+    except ValueError as e:
+        raise HTTPException(status_code=400, detail="That could not be read.") from e
+    return {"text": text, "research": await asyncio.to_thread(researchdesk.view, memory),
+            "benchmarks": await asyncio.to_thread(benchmarks.view, memory),
+            "lab": await asyncio.to_thread(stratlab.view, memory)}
 
 
 @app.get("/api/invest/picks", dependencies=[Depends(require_admin)])

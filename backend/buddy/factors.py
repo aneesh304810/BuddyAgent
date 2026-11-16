@@ -89,7 +89,15 @@ def _evidence(memory: Memory, symbol: str, today: date) -> dict:
     stage = max((bip.STAGES.index(bip.maturity(kinds, 1, bip.TECHS[t]["established"])["stage"]) for t in techs), default=0)
     fired = _run(memory, "SELECT COUNT(*) AS n FROM theme_events WHERE day >= ? AND symbols LIKE ?",
                  (day(30), f'%"{symbol}"%'))[0]["n"]
-    return {"f_evidence_90": len(recent), "f_evidence_growth": (len(recent) / len(before) - 1) if before else 0.0,
+    mood = {}
+    try:
+        from . import newssent  # noqa: PLC0415
+        got = newssent.recent(memory, symbol, 7, today)
+        if got:
+            mood = {"f_sentiment_7": got["score"], "f_sentiment_articles": got["articles"]}
+    except Exception:
+        log.info("factors: no news sentiment", exc_info=True)
+    return {**mood, "f_evidence_90": len(recent), "f_evidence_growth": (len(recent) / len(before) - 1) if before else 0.0,
             "f_evidence_kinds": len(kinds), "f_stage": stage, "f_themes": len(techs),
             "f_good_news_14": sum(1 for r in news if r["tone"] == "good") + sum(1 for r in own if r["tone"] == "good"),
             "f_bad_news_14": sum(1 for r in news if r["tone"] == "bad") + sum(1 for r in own if r["tone"] == "bad"),

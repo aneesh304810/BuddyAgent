@@ -228,6 +228,10 @@ def used(t: dict) -> list[dict]:
         good, bad = int(f.get("f_good_news_14") or 0), int(f.get("f_bad_news_14") or 0)
         out.append({"source": "News", "says": f"{good} good and {bad} bad headlines in 14 days, read by an AI",
                     "way": _way(good - bad)})
+    if f.get("f_sentiment_articles"):
+        out.append({"source": "News sentiment", "says": f"{f['f_sentiment_7']:+.2f} on a scale from -1 to +1, from "
+                                                         f"{int(f['f_sentiment_articles'])} articles in 7 days",
+                    "way": _way(f["f_sentiment_7"] if abs(f["f_sentiment_7"]) >= 0.15 else 0)})
     if f.get("f_evidence_90"):
         says = [f"{int(f['f_evidence_90'])} records in 90 days across {int(f.get('f_evidence_kinds') or 0)} kinds "
                 "(filings, awards, research...)"]

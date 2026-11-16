@@ -23,6 +23,10 @@ flowchart LR
         simbook_py["simbook.py<br/>every signal Buddy makes is paper-traded automatically, by fixed…"]
         stratlab_py["stratlab.py<br/>well-known trading rules, each paper-traded every weekday, to see…"]
         stratrules_py["stratrules.py<br/>a document that describes a trading strategy becomes a rule the…"]
+        researchdesk_py["researchdesk.py<br/>finds strategy research Buddy is allowed to fetch, queues it, and…"]
+        benchmarks_py["benchmarks.py<br/>Benchmarks and symbol lists for the strategy lab: academic factor…"]
+        newssent_py["newssent.py<br/>how the news on a company reads, as a number, from two services that…"]
+        docread_py["docread.py<br/>Reading a file Buddy was given or downloaded: the text is taken out…"]
         crossmarket_py["crossmarket.py<br/>The Practice tab of the Investments page: Buddy's paper trades (what…"]
         markets_py["markets.py<br/>Buddy scans for chart setups, finds entry and exit levels, reads what…"]
         livewatch_py["livewatch.py<br/>during US market hours Buddy checks the price of each symbol being…"]
@@ -60,9 +64,13 @@ flowchart LR
     signals_py --> finnhub_py
     signals_py --> markets_py
     simbook_py --> markets_py
+    stratlab_py --> benchmarks_py
     stratlab_py --> finnhub_py
     stratlab_py --> markets_py
     stratlab_py --> stratrules_py
+    researchdesk_py --> docread_py
+    researchdesk_py --> stratrules_py
+    benchmarks_py --> docread_py
     crossmarket_py --> markets_py
     crossmarket_py --> simbook_py
     crossmarket_py --> stratlab_py
@@ -80,39 +88,49 @@ flowchart LR
     paper_py --> finnhub_py
     paper_py --> markets_py
     invest_py --> markets_py
-    db[("Your database<br/>api_calls, fund_filings, fund_holdings, fundamentals, inv_journal, lab_rules, lab_trades, live_events and more")]
+    db[("Your database<br/>api_calls, factor_returns, fund_filings, fund_holdings, fundamentals, inv_journal, lab_rules, lab_trades and more")]
     recommend_py --> db
     signals_py --> db
     simbook_py --> db
     stratlab_py --> db
     stratrules_py --> db
+    researchdesk_py --> db
+    benchmarks_py --> db
+    newssent_py --> db
     markets_py --> db
     livewatch_py --> db
     lenses_py --> db
     funds_py --> db
     journal_py --> db
     paper_py --> db
+    s_alphavantage["Alpha Vantage (news sentiment)<br/>(public data only)"]
+    newssent_py --> s_alphavantage
+    s_arxiv["arXiv (papers)<br/>(public data only)"]
+    researchdesk_py --> s_arxiv
     s_finnhub["Finnhub (news, earnings, insiders)<br/>(public data only)"]
     finnhub_py --> s_finnhub
+    s_french_data["Kenneth French data library (factor returns)<br/>(public data only)"]
+    benchmarks_py --> s_french_data
+    s_fund_holdings["Fund holdings files (stock lists)<br/>(public data only)"]
+    benchmarks_py --> s_fund_holdings
+    s_github["GitHub (trending projects)<br/>(public data only)"]
+    researchdesk_py --> s_github
+    s_marketaux["Marketaux (news sentiment)<br/>(public data only)"]
+    newssent_py --> s_marketaux
     s_reddit["Reddit<br/>(public data only)"]
     signals_py --> s_reddit
     markets_py --> s_reddit
-    s_sec["SEC EDGAR (company filings)<br/>(public data only)"]
-    lenses_py --> s_sec
-    funds_py --> s_sec
-    s_serper["Serper (Google search, news, places)<br/>(public data only)"]
-    markets_py --> s_serper
     o_0["Buddy Connect"]
     recommend_py -. uses .-> o_0
     o_1["Buddy Intelligence Platform"]
     recommend_py -. uses .-> o_1
     o_2["Claude"]
     recommend_py -. uses .-> o_2
-    o_3["Free AI models"]
+    o_3["Fixing and explaining itself"]
     recommend_py -. uses .-> o_3
-    o_4["Learning"]
+    o_4["Free AI models"]
     recommend_py -. uses .-> o_4
-    o_5["Making and doing things"]
+    o_5["Learning"]
     recommend_py -. uses .-> o_5
 ```
 
@@ -273,7 +291,7 @@ called unproven until 30 of its trades have closed.
 ```
 
 - Tables: `lab_trades`
-- Uses: finnhub.py, market_school.py, markets.py, memory.py, pricebook.py, stratrules.py, tools.py, watchpicks.py
+- Uses: benchmarks.py, finnhub.py, market_school.py, markets.py, memory.py, pricebook.py, stratrules.py, tools.py, watchpicks.py
 
 ### stratrules.py
 
@@ -303,6 +321,90 @@ Every trade also keeps the lab's own stop, target and time limit. No real order 
 
 - Tables: `lab_rules`
 - Uses: library.py, maestro.py, market_school.py, memory.py, pricebook.py, tools.py
+
+### researchdesk.py
+
+```text
+Research desk: finds strategy research Buddy is allowed to fetch, queues it, and reads what you pick.
+
+Only two kinds of source are fetched by program, because they are the ones that offer it:
+
+  arXiv        the quantitative finance sections, through arXiv's own API (export.arxiv.org). Once a week Buddy
+               lists new papers whose title or abstract looks like a testable trading strategy.
+  GitHub       a public file or folder you point to (for example an open-source strategy library). Buddy reads
+               the repository's licence first and will not take a file from a repository that states none.
+
+SSRN, journal sites, strategy catalogues, blogs and books are not fetched: their terms allow a person to read
+or download, not a program. Download those yourself and upload them in the Trading tab.
+
+  queue    every find is a candidate with its title, link, date and source. Nothing is read by a model yet.
+  read     when you pick one: the file is fetched, its text is taken out in the sandbox (docread.py), and the
+           strategy is written as a proposed rule (stratrules.py) carrying its source link and licence.
+  approve  as for any added strategy: your yes, then the replay over past prices and daily paper trading.
+```
+
+- Tables: `research_queue`
+- Outside services: arXiv (papers), GitHub (trending projects)
+- Uses: docread.py, gateway.py, memory.py, pricebook.py, stratrules.py, tools.py
+
+### benchmarks.py
+
+```text
+Benchmarks and symbol lists for the strategy lab: academic factor returns, and fund holdings as stock lists.
+
+  Factor returns   the Kenneth French data library publishes, as files meant for download, what the US market
+                   and the classic styles returned each month since 1926: the market above cash, small against
+                   large companies, cheap against expensive ones, and past winners against past losers. Buddy
+                   fetches the two files once a month and keeps the monthly numbers. They are a yardstick, not
+                   something to trade: a rule that looks good should be compared with what plain momentum or
+                   the market itself returned over the same time.
+  Symbol lists     what a fund holds is a list of stocks with a date. Buddy can fetch a fund's published holdings
+                   file (off until you switch it on: its provider's terms were not checked from here), or you
+                   upload one. Each list is kept with its date and never overwritten, so past membership builds
+                   up from the day you start. One list can be chosen as the lab's stock universe.
+
+Files are opened in the sandbox (docread.py). Only file names and fund names go out; nothing about you.
+```
+
+- Tables: `factor_returns`, `symbol_lists`
+- Outside services: Kenneth French data library (factor returns), Fund holdings files (stock lists)
+- Uses: docread.py, gateway.py, memory.py, pricebook.py, tools.py
+
+### newssent.py
+
+```text
+News sentiment: how the news on a company reads, as a number, from two services that publish it.
+
+  Alpha Vantage   news with a sentiment score per company (free key: BUDDY_ALPHAVANTAGE_KEY, about 25 requests
+                  a day on the free plan)
+  Marketaux       company-tagged news with a sentiment score (free key: BUDDY_MARKETAUX_KEY, about 100 a day)
+
+Each weekday Buddy asks for the companies it is already judging (the recommended watchlist and your own US
+symbols, at most 12 from each service) and keeps one number per company, service and day: the average score
+from -1 (bad) to +1 (good) and how many articles it rests on. Only ticker symbols go out. The scores are the
+services' own automatic reading of headlines, so they are sometimes wrong; Buddy keeps them as one more figure
+with each paper trade (f_sentiment_7) and shows them, and no trade is decided on them alone.
+```
+
+- Tables: `news_sentiment`
+- Outside services: Alpha Vantage (news sentiment), Marketaux (news sentiment)
+- Settings: `BUDDY_ALPHAVANTAGE_KEY`, `BUDDY_MARKETAUX_KEY`
+- Uses: gateway.py, memory.py, pricebook.py, tools.py, watchpicks.py
+
+### docread.py
+
+```text
+Reading a file Buddy was given or downloaded: the text is taken out in the sandbox, not in Buddy itself.
+
+A PDF, spreadsheet or zip from the internet is the kind of file that can be built to attack whatever opens it.
+So the file is handed to the sandbox (a throwaway container with no network), a small script there takes the
+text out (sandbox_jobs/read_document.py), and only that text comes back. When the sandbox is not set up, the
+same script runs inside Buddy as a fallback, and the result says so.
+
+  read(name, data) -> {"text": ..., "where": "sandbox" | "buddy", "error": ""}
+```
+
+- Uses: sandbox.py, tools.py
 
 ### crossmarket.py
 
@@ -522,6 +624,6 @@ and retirement balances Plaid reports, plus the money moved into them. Buddy nev
 
 ## How it connects
 
-- Relies on: Buddy Connect; Buddy Intelligence Platform; Claude: the brain; Free AI models (Groq, Gemini, Mistral, Cerebras, GitHub Models, OpenRouter); Learning: the English and investing tutors; Making and doing things; Memory; Money; News, trends and research; Shopping and deals; The price book, pattern learning and trained models
+- Relies on: Buddy Connect; Buddy Intelligence Platform; Claude: the brain; Fixing and explaining itself; Free AI models (Groq, Gemini, Mistral, Cerebras, GitHub Models, OpenRouter); Learning: the English and investing tutors; Making and doing things; Memory; Money; News, trends and research; Shopping and deals; The price book, pattern learning and trained models
 - Relied on by: Buddy Connect; Buddy Intelligence Platform; Claude: the brain; Free AI models (Groq, Gemini, Mistral, Cerebras, GitHub Models, OpenRouter); Learning: the English and investing tutors; News, trends and research; Shopping and deals; Speaking up on its own: briefing, reminders and alerts; The price book, pattern learning and trained models; The server and the app; Travel and getting around
 

@@ -339,3 +339,28 @@ from the 20, 50 and 200-day averages, returns over a week to a year, distance fr
 highs, volume, daily range), an optional ranking, and a time limit. A document cannot add code: anything
 outside that form is dropped, and what the strategy needs that Buddy cannot measure is listed back to you.
 A document with nothing personal in it may be read by a free model; anything personal goes to Claude only.
+
+### Where strategies and data come from
+
+**What Buddy fetches by program** (only sources that offer it):
+
+- **arXiv.** Every Sunday Buddy asks arXiv's own API for new quantitative finance papers and queues those
+  whose title or abstract looks like a testable strategy (`researchdesk.py`). Nothing is read by a model until
+  you pick one in the Trading tab.
+- **GitHub.** Paste a link to a public file or folder. Buddy reads the repository's licence first and
+  refuses a repository that states none.
+- **Kenneth French data library.** The monthly returns of the market, size, value and momentum since 1926,
+  fetched once a month (`benchmarks.py`). They are a yardstick for a rule's results, not a signal.
+- **Fund holdings files**, as dated stock lists. Off until you switch it on, because the provider's terms
+  were not checked. Uploading a holdings file you downloaded always works. Each list is kept with its date,
+  so past membership builds up from the day you start, and one list can be chosen as the lab's universe.
+- **Alpha Vantage and Marketaux** news sentiment (`newssent.py`), each with a free key
+  (`BUDDY_ALPHAVANTAGE_KEY`, `BUDDY_MARKETAUX_KEY`). At most 12 companies a day from each. The score is kept
+  with each paper trade and shown; no trade is decided on it alone.
+
+**What you download yourself and upload:** papers from SSRN and journals, catalogue entries, blog articles
+and your notes on books. Their terms allow a person to read or download, not a program.
+
+**Every file is opened in the sandbox** (`docread.py`): a throwaway container with no network takes the
+text out and only the text comes back. When the sandbox is not set up the same script runs inside Buddy,
+and the result says which was used.

@@ -16,7 +16,7 @@ const esc = (s) => String(s ?? "").replace(/[&<>"']/g, (c) => ({ "&": "&amp;", "
 const safe = (u) => /^https:\/\/[^\s"'<>]+$/.test(String(u || "")) ? u : "";
 // Four tabs: the old Strategy, Signals and Accounts are one Overview; market news is in Discover, under News.
 const TABS = [["strategy", "Overview"], ["practice", "Trading"], ["themes", "Themes"], ["watch", "Watchlist"]];
-let picksData = null, picksBusy = false;
+let picksData = null, picksBusy = false, researchData = null, researchBusy = false;
 let themesData = null, themesBusy = false, practiceData = null, practiceBusy = false, signalsData = null, signalsBusy = false;
 let data = null, tab = TABS.some(([k]) => k === storageGet("investTab")) ? storageGet("investTab") : "strategy", busy = false;
 
@@ -257,6 +257,52 @@ function strategiesCards(p) {
     (testing ? card("New strategies being tested", testing + `<p class="note">${esc(s.note)}</p>`) : "");
 }
 
+// The research desk: papers and code Buddy may fetch (arXiv, licensed GitHub files), the factor yardsticks, and
+// dated stock lists. Nothing is read by a model until you pick it.
+async function loadResearch(body) {
+  if (researchBusy) return;
+  researchBusy = true;
+  try {
+    const out = await api("/api/invest/research", body);
+    researchData = { research: out.research, benchmarks: out.benchmarks };
+    if (out.lab && practiceData && practiceData.practice) practiceData.practice.lab = out.lab;
+    if (out.text) notice(out.text);
+  } catch (e) { researchData = { ...(researchData || {}), failed: e.message }; notice(e.message); }
+  researchBusy = false;
+  if (tab === "practice") render();
+}
+function researchCards() {
+  if (!researchData) { loadResearch(); return card("Research queue", `<p class="muted">Loading…</p>`); }
+  const r = researchData.research, b = researchData.benchmarks;
+  if (!r || !b) return card("Research queue", `<p class="err">${esc(researchData.failed || "Could not load.")}</p><button class="btn" id="research-reload">Try again</button>`);
+  const item = (x) => `<div class="tx" style="display:block"><b>${x.url ? `<a href="${safe(x.url)}" target="_blank" rel="noopener">${esc(x.title)}</a>` : esc(x.title)}</b>
+      <small class="muted">${esc(x.source)} · ${esc(x.day)}${x.licence ? " · " + esc(x.licence) : ""}</small>
+      <p class="muted" style="margin:4px 0">${esc((x.summary || "").slice(0, 260))}${(x.summary || "").length > 260 ? "…" : ""}</p>
+      ${x.status === "new" ? `<button class="btn small" data-research="read" data-id="${esc(x.id)}">Read into a rule</button> <button class="btn small" data-research="dismiss" data-id="${esc(x.id)}">Dismiss</button>`
+        : `<small class="muted">${x.rule_key ? "Read: see the proposed rule above" : "Read: " + esc(x.note || "no testable rule found")}</small>`}</div>`;
+  const queue = card(`Research queue (${(r.new || []).length})`,
+    ((r.new || []).map(item).join("") || `<p class="muted">Nothing waiting. Buddy searches arXiv's quantitative finance papers every Sunday.</p>`) +
+    ((r.read || []).length ? `<details><summary>Already read (${r.read.length})</summary>${r.read.map(item).join("")}</details>` : "") +
+    `<p><button class="btn" id="research-search">Search arXiv now</button></p>
+     <div class="add"><input id="research-url" placeholder="https://github.com/owner/name/tree/main/folder" aria-label="GitHub link"><button class="btn" id="research-github">Add from GitHub</button></div>`,
+    r.note + (r.last_search ? " Last search: " + r.last_search + "." : ""));
+  const f = b.factors || {};
+  const frows = (f.rows || []).map((x) => `<div class="row" style="cursor:default"><span class="name fixed" style="flex:1"><b>${esc(x.name)}</b> <small class="muted">${esc(x.what)}</small></span>
+      <span class="amt">${pct(x.last_12_months)} <small class="muted">last 12 months</small><br>${pct(x.average_year)} <small class="muted">a year, since ${esc(f.from || "")}</small></span></div>`).join("");
+  const yard = card("Yardsticks: what plain styles returned", (frows || `<p class="muted">Not fetched yet.</p>`) +
+    `<p><button class="btn" id="research-factors">Fetch the factor returns</button></p>`, f.note || "");
+  const lrows = (b.lists || []).map((l) => `<div class="row" style="cursor:default"><span class="name" style="white-space:normal"><b>${esc(l.title || l.name)}</b>
+      <small class="muted">${esc(l.symbols)} symbols · ${esc(l.day)} · ${esc(l.versions)} dated version${l.versions === 1 ? "" : "s"}${l.in_use ? " · used by the lab" : ""}</small></span>
+      <button class="btn small" data-uselist="${l.in_use ? "" : esc(l.name)}">${l.in_use ? "Stop using" : "Use in the lab"}</button></div>`).join("");
+  const presets = (b.presets || []).map((x) => `<button class="btn small" data-fetchlist="${esc(x.name)}"${b.holdings_on ? "" : " disabled"}>Fetch ${esc(x.title)}</button>`).join(" ");
+  const lists = card("Stock lists", (lrows || `<p class="muted">No lists yet. The lab uses its built-in list of about a hundred large US stocks and funds.</p>`) +
+    `<p class="muted">Upload a holdings or index file (CSV or Excel with a Ticker column):</p>
+     <div class="add"><input id="list-name" placeholder="List name, e.g. nasdaq100" maxlength="30" aria-label="List name"><input type="file" id="list-file" accept=".csv,.xlsx,.txt" aria-label="Holdings file"><button class="btn" id="list-upload">Upload</button></div>
+     <p><label><input type="checkbox" id="holdings-on"${b.holdings_on ? " checked" : ""}> Let Buddy fetch fund holdings files weekly</label></p><p>${presets}</p>`,
+    "Each list is kept with its date, so past membership builds up from today. Fetching fund files is off until you switch it on, because the provider's terms were not checked for you; uploading a file you downloaded yourself always works.");
+  return queue + yard + lists;
+}
+
 // The strategy lab: well-known rules that each paper-trade every weekday, with their record against the market.
 function labCards(p) {
   const lab = p.lab;
@@ -271,7 +317,7 @@ function labCards(p) {
     : rp.state === "done" ? `History covers ${rp.from} to ${rp.to}: ${Number(rp.trades).toLocaleString()} finished trades, replayed ${rp.at}.`
     : "History has not been replayed yet.";
   const added = (lab.added || []).map((r) => `<div class="idea"><div class="top"><b>${esc(r.name)}</b><span class="pill">${esc(r.status)}</span>
-      <span class="muted">${esc(r.source || "pasted text")}</span></div>
+      <span class="muted">${r.source_url ? `<a href="${safe(r.source_url)}" target="_blank" rel="noopener">${esc(r.source || "source")}</a>` : esc(r.source || "pasted text")}${r.licence ? " · " + esc(r.licence) : ""}</span></div>
       <p style="margin:6px 0">${esc(r.summary)}</p><p class="muted" style="margin:0 0 6px"><b>The rule Buddy will test:</b> ${esc(r.in_words)}</p>
       ${r.needs.length ? `<p class="muted" style="margin:0 0 6px"><b>Left out, because Buddy cannot measure it:</b> ${r.needs.map(esc).join("; ")}</p>` : ""}
       <p>${r.status !== "active" ? `<button class="btn solid" data-rule="approve" data-key="${esc(r.key)}">Approve and start testing</button> ` : `<button class="btn" data-rule="pause" data-key="${esc(r.key)}">Pause</button> `}
@@ -289,7 +335,7 @@ function labCards(p) {
       `<div style="overflow-x:auto"><table class="grid"><tr><th>Rule</th><th>Live paper trades</th><th>On past prices</th></tr>${rows}</table></div>
        <p class="note">${esc(replayLine)} ${esc(lab.history_note || "")}</p>
        <p><button class="btn" id="lab-run">Run the lab now</button> <button class="btn" id="lab-replay">Replay over past prices</button> <button class="btn" id="lab-refresh">Refresh</button></p>`, lab.note) +
-    card("Add a strategy from a document", upload + added) +
+    card("Add a strategy from a document", upload + added) + researchCards() +
     card(`Lab: bought and holding (${lab.open.length})`, list(lab.open, "Nothing open yet. The lab opens its first trades on the next weekday morning, or press Run the lab now.")) +
     card(`Lab: sold (${lab.closed.length})`, list(lab.closed, "Nothing has closed yet. A trade closes at its stop, its target, or its time limit."));
 }
@@ -475,6 +521,22 @@ function render() {
     if ($("lab-status")) $("lab-status").textContent = status || "";
     try { const out = await api(path, body); practiceData.practice.lab = out.lab; render(); if (out.text) notice(out.text); return out; }
     catch (e) { render(); notice(e.message); }
+  };
+  if ($("research-reload")) $("research-reload").onclick = () => { researchData = null; render(); };
+  if ($("research-search")) $("research-search").onclick = () => loadResearch({ action: "search" });
+  if ($("research-factors")) $("research-factors").onclick = () => loadResearch({ action: "factors" });
+  if ($("research-github")) $("research-github").onclick = () => { const url = $("research-url").value.trim(); if (url) loadResearch({ action: "github", url }); };
+  document.querySelectorAll("[data-research]").forEach((b) => b.onclick = () => { b.disabled = true; b.textContent = b.dataset.research === "read" ? "Reading…" : "…";
+    loadResearch({ action: b.dataset.research, id: Number(b.dataset.id) }); });
+  document.querySelectorAll("[data-uselist]").forEach((b) => b.onclick = () => loadResearch({ action: "use_list", name: b.dataset.uselist }));
+  document.querySelectorAll("[data-fetchlist]").forEach((b) => b.onclick = () => loadResearch({ action: "fetch_list", name: b.dataset.fetchlist }));
+  if ($("holdings-on")) $("holdings-on").onchange = () => loadResearch({ action: "holdings", on: $("holdings-on").checked });
+  if ($("list-upload")) $("list-upload").onclick = () => {
+    const file = $("list-file").files[0], name = $("list-name").value.trim();
+    if (!file || !name) { notice("Give the list a name and choose a file."); return; }
+    const reader = new FileReader();
+    reader.onload = () => loadResearch({ action: "upload_list", name, filename: file.name, data: String(reader.result).split(",")[1] || "" });
+    reader.readAsDataURL(file);
   };
   if ($("lab-replay")) $("lab-replay").onclick = () => labCall("/api/invest/lab/replay", {});
   if ($("lab-refresh")) $("lab-refresh").onclick = () => labCall("/api/invest/lab");

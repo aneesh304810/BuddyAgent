@@ -83,6 +83,7 @@ bottom to a rail down the left side, and the buy-now-or-wait cards in Deals sit 
 Trading also shows the strategy lab: six rule-based strategies that paper-trade every weekday, each with
 its record against the market, and the trades it bought and sold. Each rule shows two records, live paper trades and
 the same rule replayed over past prices. "Add a strategy from a document" takes an upload or pasted text,
-shows the rule Buddy read from it, and starts testing it only after you approve.
+shows the rule Buddy read from it, and starts testing it only after you approve. Below it are the research queue (papers and
+code Buddy may fetch, each waiting for you to pick it), the yardsticks, and the dated stock lists.
 
 Not yet: source and freshness lines everywhere.

@@ -287,5 +287,5 @@ Kept: the last report and 7 days of server samples. Nothing leaves the server ex
 ## How it connects
 
 - Relies on: Agents and skills; Buddy Connect; Claude: the brain; Free AI models (Groq, Gemini, Mistral, Cerebras, GitHub Models, OpenRouter); Making and doing things; Memory; Security and privacy
-- Relied on by: Claude: the brain; Free AI models (Groq, Gemini, Mistral, Cerebras, GitHub Models, OpenRouter); Insights and costs; Making and doing things; News, trends and research; Security and privacy; The price book, pattern learning and trained models; The server and the app
+- Relied on by: Claude: the brain; Free AI models (Groq, Gemini, Mistral, Cerebras, GitHub Models, OpenRouter); Insights and costs; Investing: signals, research and practice; Making and doing things; News, trends and research; Security and privacy; The price book, pattern learning and trained models; The server and the app
 

@@ -53,7 +53,9 @@ UNIVERSES = ("all", "stocks", "sectors", "indexes")
 MAX_TEXT, MAX_RULES = 14000, 30
 SCHEMA = ["""CREATE TABLE IF NOT EXISTS lab_rules (
     key VARCHAR PRIMARY KEY, name VARCHAR, summary VARCHAR, rule VARCHAR, needs VARCHAR, source VARCHAR,
-    status VARCHAR DEFAULT 'proposed', created VARCHAR)"""]
+    status VARCHAR DEFAULT 'proposed', created VARCHAR)""",
+          "ALTER TABLE lab_rules ADD COLUMN IF NOT EXISTS source_url VARCHAR DEFAULT ''",
+          "ALTER TABLE lab_rules ADD COLUMN IF NOT EXISTS licence VARCHAR DEFAULT ''"]
 PROMPT = """Below is a document that describes a trading strategy. Write the strategy as ONE rule in this exact
 JSON form, using only the fields listed. Daily closing prices of large US stocks and funds are all that exists.
 
@@ -199,7 +201,7 @@ def text_of(name: str, data: bytes) -> str:
     return data.decode("utf-8", "replace")
 
 
-async def propose(memory: Memory, name: str, text: str, ask=None) -> dict:
+async def propose(memory: Memory, name: str, text: str, ask=None, source_url: str = "", licence: str = "") -> dict:
     """Read a strategy document and save the rule it describes as proposed. Returns the rule as shown to the owner."""
     _ready(memory)
     text = re.sub(r"[ \t]+", " ", str(text or "")).strip()
@@ -220,17 +222,18 @@ async def propose(memory: Memory, name: str, text: str, ask=None) -> dict:
     key, n = base, 2
     while _run(memory, "SELECT 1 FROM lab_rules WHERE key = ?", (key,)):
         key, n = f"{base}_{n}", n + 1
-    _run(memory, "INSERT INTO lab_rules (key, name, summary, rule, needs, source, status, created) VALUES "
-                 "(?, ?, ?, ?, ?, ?, 'proposed', ?)",
+    _run(memory, "INSERT INTO lab_rules (key, name, summary, rule, needs, source, status, created, source_url, licence) "
+                 "VALUES (?, ?, ?, ?, ?, ?, 'proposed', ?, ?, ?)",
          (key, rule["name"], rule["summary"], json.dumps(rule), json.dumps(rule["needs"]), str(name)[:120],
-          datetime.now(timezone.utc).isoformat(timespec="seconds")))
+          datetime.now(timezone.utc).isoformat(timespec="seconds"), str(source_url)[:500], str(licence)[:60]))
     return one(memory, key)
 
 
 def _shape(r: dict) -> dict:
     rule = json.loads(r["rule"])
     return {"key": r["key"], "name": r["name"], "summary": r["summary"], "status": r["status"], "source": r["source"],
-            "created": r["created"], "rule": rule, "in_words": words(rule), "needs": json.loads(r["needs"] or "[]")}
+            "created": r["created"], "source_url": r.get("source_url") or "", "licence": r.get("licence") or "",
+            "rule": rule, "in_words": words(rule), "needs": json.loads(r["needs"] or "[]")}
 
 
 def rules(memory: Memory, status: str = "") -> list[dict]:

@@ -655,6 +655,25 @@ async def run(memory: Memory, deliver: Deliver, connected=None) -> None:
                     memory.set(recommend.DAY_KEY, local_now().date().isoformat())
                     for text in await asyncio.to_thread(recommend.run, memory):
                         await deliver("money", text, topic="investing:signals")
+                from . import benchmarks, newssent, researchdesk  # noqa: PLC0415  what feeds the strategy lab
+                try:
+                    if newssent.due(memory):  # how the news on today's companies reads, before the signals
+                        memory.set(newssent.DAY_KEY, local_now().date().isoformat())
+                        got = await asyncio.to_thread(newssent.refresh, memory)
+                        log.info("news sentiment: asked %d, kept %d, failed %s", got["asked"], got["kept"], got["failed"])
+                    if benchmarks.factors_due(memory):
+                        memory.set(benchmarks.MONTH_KEY, local_now().date().isoformat()[:7])
+                        log.info("factor returns: %d month-values held", await benchmarks.refresh_factors(memory))
+                    if researchdesk.due(memory):
+                        text = await asyncio.to_thread(researchdesk.weekly, memory)
+                        if memory.get(benchmarks.HOLDINGS_ON_KEY) == "1":  # the dated stock lists, once a week
+                            for name in benchmarks.HOLDINGS:
+                                with contextlib.suppress(Exception):
+                                    await benchmarks.fetch_holdings(memory, name)
+                        if text and not in_quiet_hours():
+                            await deliver("money", text, topic="investing:research")
+                except Exception:
+                    log.exception("the research and benchmark refresh failed")
                 from . import stratlab  # noqa: PLC0415  the strategy lab: rule-based paper trades, weekday mornings
                 if stratlab.due(memory):
                     memory.set(stratlab.DAY_KEY, local_now().date().isoformat())

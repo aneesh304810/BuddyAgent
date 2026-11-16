@@ -200,7 +200,7 @@ a model uses them only after it has passed its test on calls it never saw.
 Only public data is read here: evidence, headlines, prices, deals. Nothing about the owner goes anywhere.
 ```
 
-- Uses: bip.py, bip_links.py, bip_sources.py, market_school.py, memory.py, modeltrain.py, pricebook.py, seasons.py, themes.py, tools.py
+- Uses: bip.py, bip_links.py, bip_sources.py, market_school.py, memory.py, modeltrain.py, newssent.py, pricebook.py, seasons.py, themes.py, tools.py
 
 ### bip_links.py
 

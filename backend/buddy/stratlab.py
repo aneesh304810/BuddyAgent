@@ -75,10 +75,18 @@ def _ready(memory: Memory) -> None:
         _run(memory, statement)
 
 
-def universe() -> list[str]:
+def universe(memory: Memory | None = None) -> list[str]:
+    """The built-in list of large US stocks and funds, plus the stock list chosen for the lab (benchmarks.py)."""
     from . import market_school  # noqa: PLC0415
     from .markets import US  # noqa: PLC0415
-    return sorted(set(US) | set(market_school.SECTORS))
+    extra = []
+    if memory is not None:
+        try:
+            from . import benchmarks  # noqa: PLC0415
+            extra = benchmarks.lab_symbols(memory)
+        except Exception:
+            log.info("lab: no chosen stock list", exc_info=True)
+    return sorted(set(US) | set(market_school.SECTORS) | set(extra))
 
 
 def figures(bars: list[dict]) -> dict | None:
@@ -171,7 +179,7 @@ def replay(memory: Memory, data=None, months: int = REPLAY_MONTHS, keys: list[st
         from .markets import Data  # noqa: PLC0415
         data = Data(memory)
     specs = {k: v for k, v in rules_in_use(memory).items() if (not keys or k in keys) and k != "insiders"}
-    bars = data.bars("us", sorted(set(universe()) | {"SPY"}), days=months * 31 + 420)
+    bars = data.bars("us", sorted(set(universe(memory)) | {"SPY"}), days=months * 31 + 420)
     spy = bars.get("SPY") or []
     if len(spy) < WINDOW + 30:
         return {"trades": {}, "note": "there is not enough price history to replay"}
@@ -314,7 +322,7 @@ def run(memory: Memory, today: date | None = None, data=None, insiders: dict | N
         from .markets import Data  # noqa: PLC0415
         data = Data(memory)
     held = _run(memory, "SELECT strategy, symbol FROM lab_trades WHERE status = 'open'")
-    names = sorted(set(universe()) | {h["symbol"] for h in held} | {"SPY"})
+    names = sorted(set(universe(memory)) | {h["symbol"] for h in held} | {"SPY"})
     bars = data.bars("us", names, days=400)
     out = {"closed": settle(memory, today, bars), "opened": {}}
     figs = {s: f for s, f in ((s, figures(b)) for s, b in bars.items() if b) if f}
