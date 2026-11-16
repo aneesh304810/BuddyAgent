@@ -8,6 +8,7 @@ os.environ.setdefault("BUDDY_DEV", "1")  # no token in tests
 os.environ.setdefault("BUDDY_SMART_ADDRESSING", "0")  # its own tests switch it on
 os.environ.setdefault("BUDDY_DB", ":memory:")
 os.environ.setdefault("BUDDY_MORNING_BRIEF", "")
+os.environ.setdefault("BUDDY_PROACTIVE_LOOP", "0")  # security findings, lessons and deal notes would join test conversations
 os.environ.setdefault("BUDDY_TRENDS", "0")  # the daily trends digest would join test conversations; its tests call it directly
 os.environ.setdefault("BUDDY_HEALTH_DIGEST", "0")  # the daily digest would join test conversations; its tests call it directly
 os.environ.setdefault("BUDDY_AGENTS", "tests/no-agents.yaml")

@@ -501,7 +501,10 @@ async def lifespan(app: FastAPI):
 
     social_module.METER = lambda provider, endpoint: travel.log_call(memory, provider, endpoint, True, 0.0, "search")
     await registry.start()
-    task = asyncio.create_task(proactive.run(memory, deliver, connected=lambda: bool(connections)))
+    # The loop that speaks up on its own. Off only in the tests (BUDDY_PROACTIVE_LOOP=0), where its messages would
+    # land in the middle of unrelated test conversations; the tests of the loop start it themselves.
+    task = asyncio.create_task(proactive.run(memory, deliver, connected=lambda: bool(connections))
+                               if os.getenv("BUDDY_PROACTIVE_LOOP", "1") != "0" else asyncio.sleep(10 ** 9))
     job_loop = asyncio.create_task(jobs.run())
     sync_loop = asyncio.create_task(hub.run())
     mail_loop = asyncio.create_task(mail.run())
