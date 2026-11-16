@@ -176,3 +176,30 @@ def test_results_are_after_costs_and_history_is_cut_by_market_period_and_year(me
     assert len(rows) == 40 and rows[0]["when"] < rows[-1]["when"] and rows[-1]["y"] == 0 and rows[0]["y"] == 1
     assert rows[0]["x"] == {"rsi": 55.0, "above_50": 0.03, "high_20": 1.0, "rule_trend": 1.0, "market_rising": 1.0}
     assert rows[-1]["regime"] == "down" and "lab" in modeltrain.DOMAINS and modeltrain.readiness(memory, "lab")["rows"] == 40
+
+
+def test_ideas_rank_picks_by_whether_the_rule_has_a_record_behind_it(memory):
+    stratlab._ready(memory)
+    def open_(strategy, symbol, day, odds=None):
+        pricebook.run(memory, "INSERT INTO lab_trades (strategy, symbol, opened, entry, stop, target, shares, hold_days, why, "
+                              "features, spy_entry, regime) VALUES (?, ?, ?, 100, 93, 114, 10, 28, 'met its rule', ?, 400, 'up')",
+                      (strategy, symbol, day, json.dumps({"rsi": 55.0, **({"model_p": odds} if odds else {})})))
+    proven = {"closed": 60, "average_vs_market": 0.012}
+    table = [{"key": "trend", "name": "Trend following", "history": proven},
+             {"key": "breakout", "name": "Breakout", "history": proven},
+             {"key": "dip", "name": "Buy the dip", "history": {"closed": 60, "average_vs_market": -0.004}},
+             {"key": "momentum", "name": "Momentum", "history": {"closed": 8, "average_vs_market": 0.03}}]
+    today = DAY.isoformat()
+    open_("trend", "AAPL", today); open_("breakout", "AAPL", today)      # two rules with a record
+    open_("trend", "MSFT", today, 0.61)                                  # one, and the model likes it
+    open_("trend", "NVDA", today, 0.40)                                  # one, and the model does not
+    open_("dip", "KO", today); open_("momentum", "KO", today)            # a losing rule and one with too few trades
+    open_("trend", "OLD", (DAY - timedelta(days=20)).isoformat())        # picked too long ago to be an idea now
+    got = stratlab.ideas(memory, DAY, table)
+    assert [(i["symbol"], i["call"]) for i in got["ideas"]] == [("AAPL", "Stronger"), ("MSFT", "Stronger"),
+                                                               ("NVDA", "Worth a look"), ("KO", "Unproven")]
+    assert got["counts"] == {"Stronger": 2, "Worth a look": 1, "Unproven": 1}
+    aapl = got["ideas"][0]
+    assert "2 rules picked it, 2 with a record that beat the market" in aapl["line"] and "+1.2% a trade" in aapl["rules"][0]["record"]
+    assert "none with a proven record" in got["ideas"][3]["line"] and "not advice" in got["note"]
+    assert "the model gives it 61%" in got["ideas"][1]["line"]

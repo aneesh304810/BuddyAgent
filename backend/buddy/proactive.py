@@ -689,6 +689,9 @@ async def run(memory: Memory, deliver: Deliver, connected=None) -> None:
                         log.info("strategy lab: %d closed, opened %s", lab["closed"], lab["opened"])
                         if not memory.get(stratlab.REPLAY_KEY):  # the first time: the rules' record on past prices
                             stratlab.replay_in_background(memory)
+                        told = await asyncio.to_thread(stratlab.message, memory)
+                        if told and not in_quiet_hours():
+                            await deliver("money", told, topic="investing:lab")
                     except Exception:
                         log.exception("the strategy lab failed")
                 from . import dealforecast  # noqa: PLC0415  deals watched for (found overnight or this morning)

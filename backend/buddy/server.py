@@ -1776,7 +1776,8 @@ async def api_invest_lab() -> dict:
 @app.get("/api/invest/lab", dependencies=[Depends(require_admin)])
 async def api_invest_lab_view() -> dict:
     from . import stratlab  # noqa: PLC0415
-    return {"lab": await asyncio.to_thread(stratlab.view, memory)}
+    lab = await asyncio.to_thread(stratlab.view, memory)
+    return {"lab": lab, "ideas": await asyncio.to_thread(stratlab.ideas, memory, None, lab["strategies"])}
 
 
 @app.post("/api/invest/lab/upload", dependencies=[Depends(require_admin)])

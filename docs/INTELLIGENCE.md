@@ -388,3 +388,12 @@ trade shows its odds. The rules keep trading either way.
 Each added rule also says how much of the strategy it holds (all, part or little of it), judged from what
 was left out and how much text there was to read. It is a prompt to check the rule against the document,
 not a guarantee.
+
+### Ideas from the lab
+
+Money, Invest, Overview shows what the lab's rules picked in the last five days, one card per symbol,
+strongest first. A pick counts as **backed** only when the rule that made it beat the market after costs on
+at least 30 past trades. Two backed rules, or one backed rule the trained model also likes (55% or more),
+make it "Stronger"; one backed rule is "Worth a look"; anything else is shown as "Unproven". Each card lists
+the rules that picked it with their record. On a weekday when there are new Stronger ideas Buddy sends one
+message. These are ideas to look at, not advice, and Buddy places no trade.

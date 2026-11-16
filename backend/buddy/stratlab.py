@@ -488,6 +488,66 @@ def _splits(rows: list[dict]) -> dict:
             "by_year": [{"year": y, **_record(v)} for y, v in sorted(years.items())], "verdict": verdict}
 
 
+IDEA_DAYS, IDEAS_SHOWN, IDEAS_KEY = 5, 12, "stratlab:ideas_told"
+
+
+def ideas(memory: Memory, today: date | None = None, table: list[dict] | None = None) -> dict:
+    """What the lab's rules picked in the last few days, one line per symbol, strongest first. A pick counts as
+    backed only when the rule that made it beat the market after costs on at least 30 past trades; everything
+    else is shown as unproven. An idea to look at, never an instruction: Buddy places no trade."""
+    from datetime import timedelta  # noqa: PLC0415
+    today = today or local_now().date()
+    _ready(memory)
+    table = table if table is not None else view(memory)["strategies"]
+    rules = {s["key"]: s for s in table}
+    rows = _run(memory, "SELECT * FROM lab_trades WHERE status = 'open' AND NOT COALESCE(backfilled, FALSE) AND opened >= ? "
+                        "ORDER BY opened DESC, id DESC", ((today - timedelta(days=IDEA_DAYS)).isoformat(),))
+    by: dict[str, dict] = {}
+    for r in rows:
+        spec = rules.get(r["strategy"])
+        if not spec:
+            continue
+        past = spec.get("history") or {}
+        backed = (past.get("closed") or 0) >= PROVEN_AFTER and (past.get("average_vs_market") or 0) > 0
+        odds = json.loads(r["features"] or "{}").get("model_p")
+        idea = by.setdefault(r["symbol"], {"symbol": r["symbol"], "since": str(r["opened"]), "price": r["entry"],
+                                           "stop": r["stop"], "target": r["target"], "rules": [], "backed": 0, "odds": None})
+        idea["since"] = min(idea["since"], str(r["opened"]))
+        if not any(x["rule"] == spec["name"] for x in idea["rules"]):
+            idea["rules"].append({"rule": spec["name"], "why": r["why"], "backed": backed,
+                                  "record": (f"{past['average_vs_market']:+.1%} a trade against the market on "
+                                             f"{past['closed']} past trades" if past.get("closed") else "no past record")})
+            idea["backed"] += backed
+        if odds is not None:
+            idea["odds"] = max(idea["odds"] or 0.0, float(odds))
+    out = []
+    for idea in by.values():
+        liked = idea["odds"] is not None and idea["odds"] >= 0.55
+        idea["call"] = ("Stronger" if idea["backed"] >= 2 or (idea["backed"] == 1 and liked)
+                        else "Worth a look" if idea["backed"] == 1 else "Unproven")
+        idea["line"] = (f"{len(idea['rules'])} rule{'s' if len(idea['rules']) != 1 else ''} picked it"
+                        + (f", {idea['backed']} with a record that beat the market" if idea["backed"] else ", none with a proven record")
+                        + (f"; the model gives it {idea['odds']:.0%}" if idea["odds"] is not None else ""))
+        out.append(idea)
+    order = {"Stronger": 0, "Worth a look": 1, "Unproven": 2}
+    out.sort(key=lambda i: (order[i["call"]], -i["backed"], -(i["odds"] or 0), i["symbol"]))
+    return {"ideas": out[:IDEAS_SHOWN], "counts": {c: sum(1 for i in out if i["call"] == c) for c in order},
+            "note": "Picked by the lab's rules from daily prices. Backed means the rule beat the market after costs on at "
+                    "least 30 past trades, on today's list of companies, which flatters the past. An idea to look at, "
+                    "not advice: Buddy places no trade."}
+
+
+def message(memory: Memory, today: date | None = None) -> str:
+    """One line about ideas that are new today and at least 'Stronger'. Told once a day at most; "" when none."""
+    today = today or local_now().date()
+    got = [i for i in ideas(memory, today)["ideas"] if i["call"] == "Stronger" and i["since"] == today.isoformat()]
+    if not got or memory.get(IDEAS_KEY) == today.isoformat():
+        return ""
+    memory.set(IDEAS_KEY, today.isoformat())
+    return ("🧪 The strategy lab's stronger ideas today: " + "; ".join(f"{i['symbol']} ({i['line']})" for i in got[:3])
+            + ". Ideas from rules tested on paper, not advice. Details in Money, Invest, Overview.")
+
+
 def view(memory: Memory) -> dict:
     """For the Trading tab: each rule with its live record and its record on past prices, the latest live trades,
     and the rules the owner added (proposed, active or paused)."""

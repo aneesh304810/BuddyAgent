@@ -16,7 +16,7 @@ const esc = (s) => String(s ?? "").replace(/[&<>"']/g, (c) => ({ "&": "&amp;", "
 const safe = (u) => /^https:\/\/[^\s"'<>]+$/.test(String(u || "")) ? u : "";
 // Four tabs: the old Strategy, Signals and Accounts are one Overview; market news is in Discover, under News.
 const TABS = [["strategy", "Overview"], ["practice", "Trading"], ["themes", "Themes"], ["watch", "Watchlist"]];
-let picksData = null, picksBusy = false, researchData = null, researchBusy = false;
+let picksData = null, picksBusy = false, researchData = null, researchBusy = false, ideasData = null, ideasBusy = false;
 let themesData = null, themesBusy = false, practiceData = null, practiceBusy = false, signalsData = null, signalsBusy = false;
 let data = null, tab = TABS.some(([k]) => k === storageGet("investTab")) ? storageGet("investTab") : "strategy", busy = false;
 
@@ -506,8 +506,32 @@ async function switchSignal(category) {
 }
 
 // Overview: today's strategy, then the buy and sell signals, then the investment accounts.
+// Ideas from the strategy lab, in the same card shape as the buy-now-or-wait calls: the call, one line of why,
+// then each rule that picked it with its record. Backed by a past record, or plainly marked unproven.
+async function loadIdeas() {
+  if (ideasBusy) return;
+  ideasBusy = true;
+  try { ideasData = (await api("/api/invest/lab")).ideas || { ideas: [] }; }
+  catch (e) { ideasData = { ideas: [], failed: e.message }; }
+  ideasBusy = false;
+  if (tab === "strategy") render();
+}
+function ideasCard() {
+  if (!ideasData) { loadIdeas(); return card("Ideas from the strategy lab", `<p class="muted">Loading…</p>`); }
+  const CALLS = { "Stronger": ["▲ Stronger", "go"], "Worth a look": ["● Worth a look", "wait"], "Unproven": ["○ Unproven", "wait"] };
+  const one = (i) => `<div class="idea"><div class="top"><b>${esc(i.symbol)}</b><span class="call ${(CALLS[i.call] || CALLS.Unproven)[1]}">${(CALLS[i.call] || CALLS.Unproven)[0]}</span>
+      <span class="muted">${px(i.price)} when picked · stop ${px(i.stop)} · target ${px(i.target)}</span></div>
+      <p class="muted" style="margin:6px 0">${esc(i.line)}.</p>
+      <ul class="why">${i.rules.map((r) => `<li><b>${esc(r.rule)}</b>${r.backed ? "" : " (unproven)"}: ${esc(r.why)} <small class="muted">${esc(r.record)}</small></li>`).join("")}</ul>
+      <small class="muted">Strategy lab · picked ${esc(i.since)}</small> <button class="btn small" data-check="${esc(i.symbol)}">Check</button></div>`;
+  const body = ideasData.failed ? `<p class="err">${esc(ideasData.failed)}</p>`
+    : (ideasData.ideas || []).length ? ideasData.ideas.map(one).join("")
+    : `<p class="muted">No ideas yet. The lab's rules pick each weekday morning; replay them over past prices in Trading so each pick can show its record.</p>`;
+  return card("Ideas from the strategy lab", body, ideasData.note || "");
+}
+
 function overviewTab() {
-  return strategy() + `<h2 class="group" style="margin:18px 0 8px">Signals</h2>` + signalsTab()
+  return strategy() + ideasCard() + `<h2 class="group" style="margin:18px 0 8px">Signals</h2>` + signalsTab()
     + `<h2 class="group" style="margin:18px 0 8px">Accounts</h2>` + accountsTab()
     + `<p class="muted">Market news and trends are in Discover, under News.</p>`;
 }

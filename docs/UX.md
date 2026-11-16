@@ -86,4 +86,7 @@ the same rule replayed over past prices. "Add a strategy from a document" takes 
 shows the rule Buddy read from it, and starts testing it only after you approve. Below it are the research queue (papers and
 code Buddy may fetch, each waiting for you to pick it), the yardsticks, and the dated stock lists.
 
+Overview shows "Ideas from the strategy lab" in the shared card shape: the call (Stronger, Worth a look,
+Unproven), one line of why, each rule that picked it with its record, then the source and date.
+
 Not yet: source and freshness lines everywhere.
