@@ -1770,7 +1770,9 @@ async def api_invest_watch(body: dict) -> dict:
 async def api_invest_lab() -> dict:
     """Run the strategy lab now (it also runs by itself each weekday morning): close and open its paper trades."""
     from . import stratlab  # noqa: PLC0415
-    return {"ran": await asyncio.to_thread(stratlab.run, memory), "lab": await asyncio.to_thread(stratlab.view, memory)}
+    ran = await asyncio.to_thread(stratlab.run, memory)
+    lab = await asyncio.to_thread(stratlab.view, memory)
+    return {"ran": ran, "said": stratlab.said(ran, len(lab["open"])), "lab": lab}
 
 
 @app.get("/api/invest/lab", dependencies=[Depends(require_admin)])

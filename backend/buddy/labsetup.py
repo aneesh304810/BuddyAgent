@@ -58,7 +58,7 @@ def _picks(memory: Memory) -> str:
 def _lab(memory: Memory) -> str:
     from . import stratlab  # noqa: PLC0415
     got = stratlab.run(memory)
-    return got.get("note") or f"{sum(got['opened'].values())} opened, {got['closed']} closed"
+    return stratlab.said(got)
 
 
 def _replay(memory: Memory) -> str:

@@ -438,12 +438,15 @@ def run(memory: Memory, today: date | None = None, data=None, insiders: dict | N
     have = {(h["strategy"], h["symbol"]) for h in _run(memory, "SELECT strategy, symbol FROM lab_trades WHERE "
                                                                "status = 'open'")}
     regime = _regime(figs)
+    out["already_held"], out["picked"] = 0, 0
     for key, spec in specs.items():
         opened, hold = 0, spec["hold"]
         for symbol, why in _picks(key, spec, figs, extra):
             if opened >= A_DAY:
                 break
+            out["picked"] += 1
             if (key, symbol) in have:
+                out["already_held"] += 1  # the rule still picks it, and it is already an open trade
                 continue
             f = figs[symbol]
             stop_pct = _stop_pct(f)
@@ -464,6 +467,21 @@ def run(memory: Memory, today: date | None = None, data=None, insiders: dict | N
             opened += 1
         out["opened"][key] = opened
     return out
+
+
+def said(got: dict, open_now: int | None = None) -> str:
+    """One plain line on what a run did, including why nothing opened when nothing did."""
+    if got.get("note"):
+        return got["note"]
+    opened = sum(got.get("opened", {}).values())
+    line = f"{opened} opened, {got.get('closed', 0)} closed"
+    if not opened:
+        if got.get("already_held"):
+            line += (f". Nothing new: the rules' {got['already_held']} picks today are already open trades from an "
+                     "earlier run. Each rule holds a symbol once at a time, so a second run on the same day opens nothing")
+        elif not got.get("picked"):
+            line += ". No stock or fund met any rule's conditions on the latest prices"
+    return line + (f". {open_now} trades are open in all." if open_now is not None else ".")
 
 
 def due(memory: Memory, now=None) -> bool:

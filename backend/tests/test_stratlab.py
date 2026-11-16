@@ -62,7 +62,11 @@ def test_a_weekday_opens_trades_by_rule_then_closes_them_at_stop_target_or_time(
     bars = {"AAPL": series(rising(), last_volume=2000), "SPY": series([100.0] * 300)}  # only listed symbols are read
     got = stratlab.run(memory, DAY, Data(bars), insiders={})
     assert got["opened"]["trend"] == 1 and got["opened"]["breakout"] == 1 and got["opened"]["dip"] == 0
-    assert stratlab.run(memory, DAY, Data(bars), insiders={})["opened"]["trend"] == 0  # one at a time per rule and symbol
+    again = stratlab.run(memory, DAY, Data(bars), insiders={})
+    assert again["opened"]["trend"] == 0 and again["already_held"] >= 2  # one at a time per rule and symbol
+    assert "already open trades from an earlier run" in stratlab.said(again, 3) and "3 trades are open in all" in stratlab.said(again, 3)
+    assert "1 opened" in stratlab.said({"opened": {"trend": 1}, "closed": 0, "picked": 1, "already_held": 0})
+    assert "No stock or fund met any rule" in stratlab.said({"opened": {"trend": 0}, "closed": 0, "picked": 0, "already_held": 0})
     trade = pricebook.run(memory, "SELECT * FROM lab_trades WHERE strategy = 'trend'")[0]
     assert trade["symbol"] == "AAPL" and round(trade["shares"] * trade["entry"]) == 1000 and trade["stop"] < trade["entry"]
     assert "rsi" in json.loads(trade["features"]) and "20-day high" in trade["why"]

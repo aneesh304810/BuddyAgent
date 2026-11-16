@@ -618,7 +618,7 @@ function render() {
     $("lab-run").disabled = true; $("lab-run").textContent = "Running…";
     try { const out = await api("/api/invest/lab", {}); practiceData.practice.lab = out.lab; render();
       const n = Object.values(out.ran.opened || {}).reduce((a, b) => a + b, 0);
-      notice(out.ran.note || `${n} opened, ${out.ran.closed} closed`); }
+      notice(out.said || out.ran.note || `${n} opened, ${out.ran.closed} closed`); }
     catch (e) { notice(e.message); render(); }
   };
   document.querySelectorAll("[data-check]").forEach((b) => b.onclick = () => { tab = "strategy"; render(); $("sym").value = b.dataset.check; analyze(); });
