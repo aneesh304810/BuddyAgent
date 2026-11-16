@@ -17,6 +17,7 @@ flowchart LR
         factors_py["factors.py<br/>facts any of Buddy's prediction engines can look up when it makes a…"]
         bip_links_py["bip_links.py<br/>the companies a record names, and the relationships between…"]
         watchpicks_py["watchpicks.py<br/>public companies the Intelligence evidence points at, refreshed each…"]
+        stratrepo_py["stratrepo.py<br/>Strategy repository (part of Buddy Intelligence): every investment…"]
     end
     you --> t_intelligence
     t_intelligence --> bip_py
@@ -251,6 +252,33 @@ call is made here. A recommendation is a reason to look, not advice to buy; noth
 
 - Tables: `watch_picks`
 - Uses: bip.py, markets.py, memory.py, themes.py, tools.py
+
+### stratrepo.py
+
+```text
+Strategy repository (part of Buddy Intelligence): every investment strategy Buddy has collected, in one
+catalogue, with where it came from, what it needs, how it tested, and whether it passed.
+
+  Discover   arXiv's quantitative-finance papers (researchdesk.py), public GitHub files with a stated licence,
+             documents the owner uploads, and a public directory of strategy papers (CC0) read here.
+  Collect    only where a licence allows it; the source and its link stay with the rule. Published returns are
+             never copied: a strategy is worth what Buddy's own test of it says.
+  Extract    each strategy becomes a rule in the fixed form (stratrules.py): universe, entry, exit, holding
+             period, needed data. No downloaded code is ever run.
+  Validate   the rule is replayed over past daily prices by Buddy's own replay (stratlab.replay).
+  Evaluate   the scorecard below: yearly return, Sharpe ratio, worst fall, trades a year, costs, and the result
+             against the market, in rising and falling markets and in the latest stretch.
+  Learn      rules that the owner approves paper-trade every weekday; a rule is "proven live" only on its own
+             live trades.
+
+What the scorecard is, and is not. Every trade is a fixed pretend stake, so the "book" a rule needs is its
+stake times the most trades it ever held at once. Yearly return, Sharpe and worst fall are worked out on that
+book from the trades' closing dates. That is a fair way to compare rules with each other; it is not what a real
+account would have earned. The replay uses today's list of companies, so companies that failed are missing and
+the past looks better than it was. Sizing is one fixed stake per trade; no rule sizes positions differently.
+```
+
+- Uses: memory.py, pricebook.py, researchdesk.py, stratlab.py, stratrules.py, tools.py
 
 ## How it connects
 

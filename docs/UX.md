@@ -101,3 +101,10 @@ Each company Buddy is acting on shows its stories (one line per event, with the 
 rating, and why a story is unclear). "News fact checks" shows how many unclear stories the free model settled, how
 many the free news sources confirmed, how many went to a last-resort news service this month, how many would have been, which services have a key, and the
 monthly limit, which can be changed there.
+
+## Intelligence: Strategies tab
+
+Counts at the top (collected, passed, failed, paper trading, waiting for approval, proven live). Family chips filter
+the list. Each strategy shows its rule in words and its stage; opening it shows the scorecard on past prices and on
+live paper trades, the reasons it passed or failed, what it needs, and its source with licence. "Finding more" reads
+the public list of strategy papers into the research queue. Approving and replaying stay in Money → Invest → Trading.

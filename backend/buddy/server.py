@@ -1626,6 +1626,28 @@ async def api_security_accept(body: dict) -> dict:
     return {"text": text, **await asyncio.to_thread(securitywatch.report, memory)}
 
 
+@app.get("/api/intel/strategies", dependencies=[Depends(require_admin)])
+async def api_intel_strategies() -> dict:
+    """The strategy repository: every collected investment strategy by family, with its source and its tests."""
+    from . import stratrepo  # noqa: PLC0415
+    return await asyncio.to_thread(stratrepo.view, memory)
+
+
+@app.post("/api/intel/strategies", dependencies=[Depends(require_admin)])
+async def api_intel_strategies_do(body: dict) -> dict:
+    """discover: read the public directory of strategy papers and queue the ones daily data can test."""
+    from . import stratrepo  # noqa: PLC0415
+    if body.get("action") != "discover":
+        raise HTTPException(status_code=400, detail="Unknown action.")
+    try:
+        got = await asyncio.to_thread(stratrepo.discover, memory)
+    except Exception as e:
+        raise HTTPException(status_code=502, detail=f"The paper list could not be read: {str(e)[:160]}") from e
+    return {"text": f"{got['found']} testable papers in the list; {got['added']} new in the research queue "
+                    "(Money, Invest, Trading). Nothing is read into a rule or traded until you pick one.",
+            **await asyncio.to_thread(stratrepo.view, memory)}
+
+
 @app.get("/api/intel/predict", dependencies=[Depends(require_admin)])
 async def api_intel_predict() -> dict:
     """The three prediction engines: what each learns from, its judged calls, and whether a tested model is in use."""

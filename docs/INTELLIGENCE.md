@@ -467,3 +467,27 @@ their text instead.
   covers all three together.
 - Runs once a day in the proactive loop; `GET/POST /api/invest/newsdesk`; shown in Investing → Trading as
   "News behind the trades" and "Paid news checks".
+
+## Strategy repository (a part of Buddy Intelligence)
+
+`stratrepo.py` is the catalogue over everything the strategy lab holds: the six built-in rules and every rule read
+from a paper, a GitHub file or an uploaded document. It adds no second engine; it files, scores and gates.
+
+- **Families.** Each rule is filed under a family (dual momentum, 52-week high, 10-month average and trend, momentum,
+  quality, value, low volatility, betting against beta, quality minus junk, sector rotation, post-earnings drift,
+  mean reversion, insider buying), with the research it goes back to. A rule nobody filed is placed by the first
+  figure it reads.
+- **Scorecard.** From Buddy's own trades (the replay on past prices, and live paper trades, kept apart): return a
+  year, Sharpe ratio, worst fall, trades a year, days held, costs taken off, and the average trade against the
+  market in rising markets, falling markets and the latest stretch. The "book" is the fixed stake times the most
+  trades held at once; the figures compare rules with each other and are not what an account would have earned.
+- **Gate.** Passed on past prices = at least 30 past trades, beat the market after costs, also in the latest 30% of
+  the period, worst fall no deeper than 35%, positive Sharpe ratio. "Proven live" needs 30 live closed trades that
+  beat the market. A rule that reads company figures has no history and can only be judged live.
+- **Discover.** `discover()` reads a public-domain (CC0) directory of strategy papers and queues its arXiv papers
+  from the sections daily prices can test. Intraday, options, crypto and AI-agent sections are left out, and the
+  directory's reported returns are not kept. A paper becomes a rule only when the owner picks it from the queue.
+- **Kept rules.** Daily prices only; nothing copied without a licence; downloaded code is never run; published
+  returns are never trusted; costs come off every result. Known gap: the replay uses today's list of companies, not
+  each year's, so the past looks better than it was. LEAN and vectorbt are not used.
+- `GET/POST /api/intel/strategies`; shown as the Strategies tab on the Intelligence page.

@@ -14,8 +14,8 @@ if (params.get("token") && storageGet("buddyToken") === token) history.replaceSt
 const $ = (id) => document.getElementById(id);
 const esc = (s) => String(s ?? "").replace(/[&<>"']/g, (c) => ({ "&": "&amp;", "<": "&lt;", ">": "&gt;", '"': "&quot;", "'": "&#39;" }[c]));
 const safe = (u) => /^https:\/\/[^\s"'<>]+$/.test(String(u || "")) ? u : "";
-const TABS = [["overview", "Overview"], ["convergence", "Convergence"], ["sectors", "Sectors"], ["sources", "Sources"], ["predict", "Predictions"]];
-let predictData = null, predictBusy = false;
+const TABS = [["overview", "Overview"], ["convergence", "Convergence"], ["sectors", "Sectors"], ["sources", "Sources"], ["predict", "Predictions"], ["strategies", "Strategies"]];
+let predictData = null, predictBusy = false, repoData = null, repoBusy = false, repoFamily = "";
 const KIND = { research: "papers", trial: "clinical studies", filing: "company filings", award: "federal awards", grant: "research grants", funding: "fundraising notices", code: "code projects", news: "news reports", discussion: "stories" };
 let data = null, tab = TABS.some(([k]) => k === storageGet("intelTab")) ? storageGet("intelTab") : "overview";
 
@@ -107,6 +107,48 @@ function sources() {
       <span><b>${esc(s.title)}</b> <span class="chipk">${esc(s.evidence)}</span><br><span class="muted">${esc(s.means)}.</span><br>
       <span class="muted">${s.state === "working" ? `Working · ${esc(s.found_last_run)} records read last run` : s.state === "failing" ? `Failing: ${esc(s.detail)}` : "Not run yet (its sectors may be switched off)"}</span></span></div>`).join(""),
     "All free, official or first-hand, and read through Buddy Connect. Only a technology's search phrase is sent. No paid databases, nothing scraped.");
+}
+
+// --- Strategies: the repository of collected investment strategies, by family, with Buddy's own test of each
+async function loadRepo(body) {
+  if (repoBusy) return;
+  repoBusy = true;
+  try { const out = await api("/api/intel/strategies", body); repoData = out; if (out.text) notice(out.text); }
+  catch (e) { if (repoData) notice(e.message); else repoData = { failed: e.message }; }
+  repoBusy = false;
+  if (tab === "strategies") render();
+}
+const share = (v) => v == null ? "–" : `${v > 0 ? "+" : ""}${(v * 100).toFixed(1)}%`;
+function strategies() {
+  if (!repoData) { loadRepo(); return `<p class="muted">Loading…</p>`; }
+  if (repoData.failed) return `<p class="err">${esc(repoData.failed)}</p>`;
+  const c = repoData.counts, MARK = { passed: ["✓", "sev-good"], failed: ["✕", "sev-high"] };
+  const score = (h, label) => h && h.trades ? `<div class="kpis" style="margin:6px 0">${kpi(share(h.yearly_return), label + ": return a year")}${kpi(esc(h.sharpe ?? "–"), "Sharpe ratio")}
+      ${kpi(share(-h.worst_fall), "worst fall")}${kpi(share(h.average_vs_market), "a trade against the market")}</div>
+      <p class="muted" style="margin:0">${esc(h.trades)} trades from ${esc(h.from)} to ${esc(h.to)}, ${esc(h.won)} made money · ${esc(h.trades_a_year)} trades a year, held ${esc(h.days_held)} days on average · $${esc(Number(h.cost_paid).toLocaleString())} of costs taken off · book of $${esc(Number(h.book).toLocaleString())}</p>` : "";
+  const one = (s) => { const [mark, color] = MARK[s.verdict] || ["·", "muted"];
+    return `<div class="guard"><span class="mark" style="color:var(--${color})">${mark}</span><span style="min-width:0;flex:1">
+      <b>${esc(s.name)}</b> <span class="chipk">${esc(s.stage)}</span><br><span class="muted">${esc(s.rule)}</span>
+      <details><summary>Tests, source and what it needs</summary>
+        ${score(s.history, "Past prices")}${score(s.live, "Live paper trades")}
+        ${s.history && s.history.trades ? `<p class="muted" style="margin:6px 0 0">Against the market per trade: rising markets ${share(s.rising_market)}, falling markets ${share(s.falling_market)}, latest stretch ${share(s.latest)}.</p>` : ""}
+        <ul class="plain">${s.reasons.map((r) => `<li>${esc(r)}</li>`).join("")}</ul>
+        <p class="muted" style="margin:6px 0 0">Needs: ${esc(s.needs)} · held at most ${esc(s.hold_days)} days · source: ${safe(s.source_url) ? `<a href="${safe(s.source_url)}" target="_blank" rel="noopener">${esc(s.source)}</a>` : esc(s.source)}${s.licence ? ` (${esc(s.licence)})` : ""}</p>
+      </details></span></div>`; };
+  const shown = repoData.strategies.filter((s) => !repoFamily || s.family === repoFamily);
+  const families = repoData.families.map((f) => `<button class="chip${repoFamily === f.key ? " on" : ""}" data-family="${esc(f.key)}" title="${esc(f.learns)}${f.research ? " · " + esc(f.research) : ""}">${esc(f.name)} (${esc(f.rules)})</button>`).join(" ");
+  const picked = repoData.families.find((f) => f.key === repoFamily);
+  return card("Strategy repository", `<div class="kpis">${kpi(esc(c.collected), "strategies collected")}${kpi(esc(c.passed), "passed on past prices")}${kpi(esc(c.failed), "failed")}
+      ${kpi(esc(c.trading), "paper trading")}${kpi(esc(c.waiting), "waiting for your approval")}${kpi(esc(c.proven), "proven live")}</div>`, repoData.note) +
+    card("By family", `<p style="display:flex;flex-wrap:wrap;gap:6px;margin:0 0 8px"><button class="chip${repoFamily ? "" : " on"}" data-family="">All (${esc(c.collected)})</button> ${families}</p>
+      ${picked ? `<p class="muted">${esc(picked.learns)}${picked.research ? ` · research: ${esc(picked.research)}` : ""}</p>` : ""}
+      ${shown.map(one).join("") || `<p class="muted">No strategy collected in this family yet.</p>`}`,
+      "Approve, pause or remove a rule, and run the replay on past prices, in Money → Invest → Trading.") +
+    card("Finding more", `<p>${esc(c.queued)} papers and files are waiting in the research queue.${repoData.last_discovery ? ` Last read of the paper list: ${esc(repoData.last_discovery)}.` : ""}</p>
+      <p><button class="btn solid" id="repo-discover">Read the public list of strategy papers</button></p>
+      ${repoData.references.map((r) => `<div class="guard"><span style="min-width:0"><a href="${safe(r.url)}" target="_blank" rel="noopener"><b>${esc(r.title)}</b></a> <span class="chipk">${esc(r.licence)}</span><br><span class="muted">${esc(r.use)}</span></span></div>`).join("")}`,
+      "The list is a public-domain directory. Only its sections that daily prices can test are read; intraday, options and crypto papers are left out. A paper becomes a rule only when you pick it from the research queue.") +
+    card("The rules this repository keeps", `<ul class="plain">${repoData.policy.map((p) => `<li style="margin:4px 0">${esc(p)}</li>`).join("")}</ul>`);
 }
 
 // --- Predictions: the three engines, what each learns from, and whether a tested model is in use
@@ -203,11 +245,13 @@ function closeSheet() { $("sheet").classList.remove("open"); }
 
 function render() {
   tabs();
-  $("main").innerHTML = { overview, sectors, sources, predict,
+  $("main").innerHTML = { overview, sectors, sources, predict, strategies,
     convergence: () => card("Technologies converging across sectors", data.convergences.length ? data.convergences.map((c, i) => convergence(c, i === 0)).join("")
       : `<p class="muted">None yet. It needs a few nights of records.</p>`, "The stage and rank come from the records by fixed rules. The interpretation, where there is one, is written by an AI from those records only and is marked as such.") }[tab]();
   document.querySelectorAll("#main [data-tech]").forEach((b) => b.onclick = () => openTech(b.dataset.tech));
   document.querySelectorAll("[data-sector]").forEach((b) => b.onclick = () => follow(b.dataset.sector, b.dataset.on === "1"));
+  document.querySelectorAll("[data-family]").forEach((b) => b.onclick = () => { repoFamily = b.dataset.family; render(); });
+  if ($("repo-discover")) $("repo-discover").onclick = () => { notice("Reading the list…"); loadRepo({ action: "discover" }); };
   if ($("scan")) $("scan").onclick = scan;
   if ($("history")) $("history").onclick = () => loadHistory($("history"));
 
