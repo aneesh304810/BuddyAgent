@@ -103,6 +103,7 @@ def _evidence(memory: Memory, symbol: str, today: date) -> dict:
             "f_evidence_kinds": len(kinds), "f_stage": stage, "f_themes": len(techs),
             "f_good_news_14": sum(1 for r in news if r["tone"] == "good") + own["good"],
             "f_bad_news_14": sum(1 for r in news if r["tone"] == "bad") + own["bad"],
+            "f_news_confirmed_14": own["confirmed"], "f_news_unconfirmed_14": own["unconfirmed"],
             "f_patterns_30": fired, "f_links_90": _links_90(memory, symbol, rows, techs, today)}
 
 

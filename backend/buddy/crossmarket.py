@@ -226,7 +226,10 @@ def used(t: dict) -> list[dict]:
                     "way": ways.pop() if len(ways) == 1 else "none"})
     if f.get("f_good_news_14") or f.get("f_bad_news_14"):
         good, bad = int(f.get("f_good_news_14") or 0), int(f.get("f_bad_news_14") or 0)
-        out.append({"source": "News", "says": f"{good} good and {bad} bad headlines in 14 days, read by an AI",
+        sure, unsure = int(f.get("f_news_confirmed_14") or 0), int(f.get("f_news_unconfirmed_14") or 0)
+        checked = (f"; {sure} of the company's stories carried by a rated outlet" if sure or unsure else "") + (
+            f", {unsure} left out as unconfirmed" if unsure else "")
+        out.append({"source": "News", "says": f"{good} good and {bad} bad stories in 14 days, read by an AI{checked}",
                     "way": _way(good - bad)})
     if f.get("f_sentiment_articles"):
         out.append({"source": "News sentiment", "says": f"{f['f_sentiment_7']:+.2f} on a scale from -1 to +1, from "

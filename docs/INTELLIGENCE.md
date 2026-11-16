@@ -446,7 +446,10 @@ their text instead.
 - **Stories, not headlines.** Headlines about one company that share most of their words within three days are one
   story. Five outlets carrying one event count once in `f_good_news_14` / `f_bad_news_14`.
 - **Source rating.** 3 = an established outlet, 2 = a press release or specialist outlet, 1 = not rated. A story takes
-  the best rating among its reports. Every story still counts in the trade figures; a low rating marks it unclear.
+  the best rating among its reports. A low rating marks a story unclear; it still counts until a check says otherwise.
+- **What a trade's figures hold.** A story the fact checks ran on and could not confirm is left out of the good and
+  bad counts. Every trade also records `f_news_confirmed_14` (stories a rated outlet carries) and
+  `f_news_unconfirmed_14` (stories left out), so a model can learn how much well-sourced news matters.
 - **Unclear.** A story is unclear when only unrated outlets carry it, when its reports disagree on good or bad, or
   when it has no label yet.
 - **A free model first.** An unclear story about a company Buddy is acting on (an open paper trade, an open lab trade,

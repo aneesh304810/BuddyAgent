@@ -44,7 +44,8 @@ def test_outlets_are_rated_and_the_same_event_is_one_story(memory):
     assert contract["rating"] == 3 and contract["tone"] == "good" and not contract["unclear"]
     assert delay["rating"] == 1 and delay["why_unclear"] == ["only outlets Buddy has not rated carry it"]
     assert talk["why_unclear"] == ["it has no good-or-bad label yet"]
-    assert newsdesk.counts(memory, "OKLO", today=DAY) == {"good": 1, "bad": 1, "stories": 3}  # five headlines count as three
+    assert newsdesk.counts(memory, "OKLO", today=DAY) == {"good": 1, "bad": 1, "stories": 3, "confirmed": 2,
+                                                         "unconfirmed": 0}  # five headlines count as three
     mixed = newsdesk.group([{"title": "Oklo reactor plan approved", "day": "2026-11-10", "outlet": "reuters.com", "tone": "good", "url": ""},
                             {"title": "Oklo reactor plan approved with conditions", "day": "2026-11-10", "outlet": "ft.com", "tone": "bad", "url": ""}])
     assert mixed[0]["tone"] == "mixed" and "disagree" in mixed[0]["why_unclear"][0]
@@ -150,6 +151,8 @@ def test_free_news_sources_are_tried_before_the_last_resort_services(memory):
     flood = by["Oklo plant site floods in storm"]
     assert flood["asked"] and "free news: not confirmed" in flood["why"] and "Perigon" in flood["result"]
     assert newsdesk.rating("Reuters") == 3 and newsdesk.rating("Seeking Alpha") == 2 and newsdesk.rating("Some Blog") == 1
+    # the confirmed story now has a rated report and counts; the one no check could confirm is left out
+    assert newsdesk.counts(memory, "OKLO", today=DAY) == {"good": 0, "bad": 1, "stories": 2, "confirmed": 1, "unconfirmed": 1}
 
 
 def test_a_trades_news_figures_count_stories_not_headlines(memory):
@@ -161,3 +164,11 @@ def test_a_trades_news_figures_count_stories_not_headlines(memory):
         headline(memory, "OKLO", "Oklo wins Air Force contract for Alaska microreactor", "2026-11-12", outlet, "good")
     got = factors.investing(memory, "OKLO", DAY)
     assert got["f_good_news_14"] == 1.0   # four outlets, one event
+    assert got["f_news_confirmed_14"] == 1 and got["f_news_unconfirmed_14"] == 0
+    headline(memory, "OKLO", "Oklo plant site floods in storm", "2026-11-15", "localnews.example", "bad")
+    assert factors.investing(memory, "OKLO", DAY)["f_bad_news_14"] == 1     # not checked yet: it still counts
+    newsdesk._ready(memory)
+    pricebook.run(memory, "INSERT INTO news_checks (day, symbol, story, why, asked, result) VALUES ('2026-11-16', 'OKLO', "
+                          "'Oklo plant site floods in storm', 'x', TRUE, 'not confirmed: no other report among 3 recent articles at Perigon')")
+    got = factors.investing(memory, "OKLO", DAY)
+    assert got["f_bad_news_14"] == 0 and got["f_news_unconfirmed_14"] == 1 and got["f_news_confirmed_14"] == 1

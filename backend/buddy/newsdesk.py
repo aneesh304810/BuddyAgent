@@ -156,12 +156,23 @@ def stories(memory: Memory, symbol: str, days: int = LOOK_BACK, today: date | No
 
 
 def counts(memory: Memory, symbol: str, days: int = LOOK_BACK, today: date | None = None) -> dict:
-    """Good and bad STORIES (not headlines) for a company. Every story counts, whatever its source rating: the
-    list of rated outlets is short, so dropping unrated ones would throw away most small-company news. The rating
-    marks a story as unclear instead."""
+    """Good and bad STORIES (not headlines) for a company, for a trade's figures.
+
+    confirmed    a rated outlet carries the story (its own, or one a fact check found)
+    unconfirmed  the fact checks ran and found no rated outlet carrying it: left OUT of good and bad
+    A story nobody has checked yet still counts as good or bad: an unrated outlet alone is not a reason to drop it,
+    because the list of rated outlets is short."""
     got = stories(memory, symbol, days, today)
-    return {"good": sum(1 for s in got if s["tone"] == "good"), "bad": sum(1 for s in got if s["tone"] == "bad"),
-            "stories": len(got)}
+    try:
+        failed = {r["story"] for r in _run(memory, "SELECT story FROM news_checks WHERE symbol = ? AND result LIKE "
+                                                   "'not confirmed%'", (symbol.upper(),))}
+    except Exception:
+        failed = set()  # no check has ever run
+    confirmed = [s for s in got if s["rating"] > 1]
+    unconfirmed = [s for s in got if s["rating"] == 1 and s["title"][:240] in failed]
+    counted = [s for s in got if s not in unconfirmed]
+    return {"good": sum(1 for s in counted if s["tone"] == "good"), "bad": sum(1 for s in counted if s["tone"] == "bad"),
+            "stories": len(got), "confirmed": len(confirmed), "unconfirmed": len(unconfirmed)}
 
 
 def acting_on(memory: Memory) -> dict[str, str]:
