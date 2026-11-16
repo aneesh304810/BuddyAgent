@@ -363,7 +363,8 @@ function labCards(p) {
       `<div style="overflow-x:auto"><table class="grid"><tr><th>Rule</th><th>Live paper trades</th><th>On past prices</th></tr>${rows}</table></div>
        <p class="note">${esc(replayLine)} ${esc(lab.history_note || "")}</p>
        <p><button class="btn" id="lab-run">Run the lab now</button> <button class="btn" id="lab-replay">Replay over past prices</button> <button class="btn" id="lab-refresh">Refresh</button></p>`, lab.note) +
-    card("Add a strategy from a document", upload + added) + researchCards() +
+    card("Add a strategy from a document", upload + added + ((lab.not_rules || []).length ? `<details><summary>Papers you gave that hold no rule of their own (${lab.not_rules.length})</summary>${lab.not_rules.map((n) =>
+      `<p class="muted"><b><a href="${safe(n.source_url)}" target="_blank" rel="noopener">${esc(n.source)}</a></b><br>${esc(n.why)}</p>`).join("")}</details>` : "")) + researchCards() +
     card(`Lab: bought and holding (${lab.open.length})`, list(lab.open, "Nothing open yet. The lab opens its first trades on the next weekday morning, or press Run the lab now.")) +
     card(`Lab: sold (${lab.closed.length})`, list(lab.closed, "Nothing has closed yet. A trade closes at its stop, its target, or its time limit."));
 }

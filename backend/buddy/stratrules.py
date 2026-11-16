@@ -47,6 +47,7 @@ FIELDS = {  # what a condition may read -> what it means (shown to the model and
     "high_252": "1 when today's close is the highest of a year, else 0",
     "volume_times": "today's volume against the 20-day usual (1.5 is one and a half times)",
     "atr_pct": "the average daily range as a fraction of the price (how jumpy it is)",
+    "lottery": "the average of its five biggest one-day rises in the last month, as a fraction (high means lottery-like jumps)",
     "beta": "how much the stock moves with the S&P 500 over a year (1 moves with it, under 1 is calmer)",
     "vol_63": "the stock's yearly swing measured over three months, as a fraction (0.2 is 20%)",
     "earnings_surprise": "the latest quarter's profit against what analysts expected (0.05 beat by 5%)",
@@ -243,6 +244,11 @@ async def propose(memory: Memory, name: str, text: str, ask=None, source_url: st
     return one(memory, key)
 
 
+def _seed_count() -> int:
+    from . import strategy_seeds  # noqa: PLC0415
+    return len(strategy_seeds.SEEDS)
+
+
 def _shape(r: dict) -> dict:
     rule = json.loads(r["rule"])
     return {"key": r["key"], "name": r["name"], "summary": r["summary"], "status": r["status"], "source": r["source"],
@@ -253,8 +259,46 @@ def _shape(r: dict) -> dict:
             "rule": rule, "in_words": words(rule), "needs": json.loads(r["needs"] or "[]")}
 
 
+SEEDED_KEY = "stratrules:seeded"
+
+
+def seed(memory: Memory) -> int:
+    """Load the rules read from the owner's papers (strategy_seeds.py) as proposed, once each. One that was loaded
+    before is never loaded again, so a rule the owner removed stays removed. Returns how many were added."""
+    from . import strategy_seeds  # noqa: PLC0415
+    try:
+        done = set(json.loads(memory.get(SEEDED_KEY) or "[]"))
+    except ValueError:
+        done = set()
+    added = 0
+    for s in strategy_seeds.SEEDS:
+        if s["key"] in done:
+            continue
+        done.add(s["key"])
+        try:
+            rule = validate(s["rule"])
+        except ToolError:
+            log.warning("stratrules: the seed %s is not a valid rule", s["key"])
+            continue
+        if _run(memory, "SELECT 1 FROM lab_rules WHERE key = ?", (s["key"],)):
+            continue
+        _run(memory, "INSERT INTO lab_rules (key, name, summary, rule, needs, source, status, created, source_url, licence, "
+                     "captures) VALUES (?, ?, ?, ?, ?, ?, 'proposed', ?, ?, ?, ?)",
+             (s["key"], rule["name"], rule["summary"], json.dumps(rule), json.dumps(rule["needs"]), s["source"][:120],
+              datetime.now(timezone.utc).isoformat(timespec="seconds"), s["source_url"], "SSRN paper you downloaded",
+              "part of it"))
+        added += 1
+    memory.set(SEEDED_KEY, json.dumps(sorted(done)))
+    return added
+
+
 def rules(memory: Memory, status: str = "") -> list[dict]:
     _ready(memory)
+    if memory.get(SEEDED_KEY) is None or len(json.loads(memory.get(SEEDED_KEY) or "[]")) < _seed_count():
+        try:
+            seed(memory)
+        except Exception:
+            log.warning("stratrules: loading the paper rules failed", exc_info=True)
     rows = _run(memory, "SELECT * FROM lab_rules" + (" WHERE status = ?" if status else "") + " ORDER BY created DESC",
                 (status,) if status else ())
     return [_shape(r) for r in rows]

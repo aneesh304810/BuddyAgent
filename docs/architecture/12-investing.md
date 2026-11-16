@@ -23,6 +23,7 @@ flowchart LR
         simbook_py["simbook.py<br/>every signal Buddy makes is paper-traded automatically, by fixed…"]
         stratlab_py["stratlab.py<br/>well-known trading rules, each paper-traded every weekday, to see…"]
         stratrules_py["stratrules.py<br/>a document that describes a trading strategy becomes a rule the…"]
+        strategy_seeds_py["strategy_seeds.py<br/>Strategies read from research papers the owner supplied, shipped as…"]
         researchdesk_py["researchdesk.py<br/>finds strategy research Buddy is allowed to fetch, queues it, and…"]
         benchmarks_py["benchmarks.py<br/>Benchmarks and symbol lists for the strategy lab: academic factor…"]
         newssent_py["newssent.py<br/>how the news on a company reads, as a number, from two services that…"]
@@ -70,7 +71,9 @@ flowchart LR
     stratlab_py --> finnhub_py
     stratlab_py --> fundamentals_py
     stratlab_py --> markets_py
+    stratlab_py --> strategy_seeds_py
     stratlab_py --> stratrules_py
+    stratrules_py --> strategy_seeds_py
     researchdesk_py --> docread_py
     researchdesk_py --> stratrules_py
     benchmarks_py --> docread_py
@@ -309,7 +312,7 @@ unproven until 30 of its trades have closed.
 ```
 
 - Tables: `lab_trades`
-- Uses: benchmarks.py, finnhub.py, fundamentals.py, market_school.py, markets.py, memory.py, modeltrain.py, pricebook.py, stratrules.py, tools.py, watchpicks.py
+- Uses: benchmarks.py, finnhub.py, fundamentals.py, market_school.py, markets.py, memory.py, modeltrain.py, pricebook.py, strategy_seeds.py, stratrules.py, tools.py, watchpicks.py
 
 ### stratrules.py
 
@@ -338,7 +341,25 @@ Every trade also keeps the lab's own stop, target and time limit. No real order 
 ```
 
 - Tables: `lab_rules`
-- Uses: library.py, maestro.py, market_school.py, memory.py, pricebook.py, tools.py
+- Uses: library.py, maestro.py, market_school.py, memory.py, pricebook.py, strategy_seeds.py, tools.py
+
+### strategy_seeds.py
+
+```text
+Strategies read from research papers the owner supplied, shipped as proposed rules.
+
+On 16 November 2026 the owner uploaded eleven SSRN papers. Each was read for the trading rule it tests, and the
+rule was written in the lab's fixed form (stratrules.py) using only figures Buddy measures. They load once as
+PROPOSED: nothing trades until the owner approves each one in the Trading tab, and a removed one stays removed.
+
+What these are and are not:
+  - The papers themselves are not stored here, only a rule in Buddy's own words and a link to each paper.
+  - Each rule holds part of its paper, never all of it: the papers test long-and-short portfolios, re-formed
+    monthly, often outside the US, and several report that the strategy did NOT work in their market. What was
+    left out is listed on every rule, and the paper's own finding is in its summary.
+  - A paper's result is not Buddy's result. The replay over past prices and the paper trades are the test.
+Three of the eleven gave no rule of their own and are listed in NOT_RULES with the reason.
+```
 
 ### researchdesk.py
 

@@ -203,3 +203,19 @@ def test_ideas_rank_picks_by_whether_the_rule_has_a_record_behind_it(memory):
     assert "2 rules picked it, 2 with a record that beat the market" in aapl["line"] and "+1.2% a trade" in aapl["rules"][0]["record"]
     assert "none with a proven record" in got["ideas"][3]["line"] and "not advice" in got["note"]
     assert "the model gives it 61%" in got["ideas"][1]["line"]
+
+
+def test_rules_read_from_the_owners_papers_load_once_as_proposed_and_stay_removed(memory):
+    from buddy import strategy_seeds, stratrules
+    got = {r["key"]: r for r in stratrules.rules(memory)}
+    assert set(got) == {s["key"] for s in strategy_seeds.SEEDS} and len(got) == 6
+    assert all(r["status"] == "proposed" and r["captures"] == "part of it" and r["needs"] for r in got.values())
+    assert got["u_faber_10_month_average"]["source_url"] == "https://ssrn.com/abstract=962461"
+    assert got["u_earnings_drift"]["live_only"] == ["earnings_surprise"] and got["u_low_beta_low_lottery"]["live_only"] == []
+    assert "lottery" in stratrules.FIELDS and "disagree" in got["u_52_week_high"]["summary"]
+    bars = {"AAPL": series(rising(), last_volume=2000), "SPY": series([100.0] * 300)}
+    assert not any(k.startswith("u_") for k in stratlab.run(memory, DAY, Data(bars), insiders={})["opened"])  # none trades unapproved
+    stratrules.decide(memory, "u_52_week_high", "remove")
+    assert "u_52_week_high" not in {r["key"] for r in stratrules.rules(memory)} and stratrules.seed(memory) == 0
+    assert len(stratlab.view(memory)["not_rules"]) == 3
+    assert stratlab.figures(series(rising()))["lottery"] > 0

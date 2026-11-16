@@ -107,6 +107,7 @@ def figures(bars: list[dict]) -> dict | None:
         return None
     price, a50, a200 = closes[-1], sma(closes, 50), sma(closes, 200)
     swing = atr(bars)
+    jumps = sorted((b / a - 1 for a, b in zip(closes[-22:], closes[-21:]) if a), reverse=True)[:5]
     volumes = [b.get("v") or 0 for b in bars]
     usual = sum(volumes[-21:-1]) / 20
     return {"price": price, "rsi": round((rsi(closes) or [50.0])[-1], 1),
@@ -116,6 +117,7 @@ def figures(bars: list[dict]) -> dict | None:
             "ret_252": round(price / closes[-252] - 1, 4), "below_high": round(price / max(closes[-252:]) - 1, 4),
             "ret_20": round(price / closes[-21] - 1, 4),
             "ret_63": round(price / closes[-64] - 1, 4), "ret_126": round(closes[-6] / closes[-127] - 1, 4),
+            "lottery": round(sum(jumps) / len(jumps), 4) if jumps else None,
             "high_20": price >= max(closes[-20:]), "high_252": price >= max(closes[-252:]),
             "volume_times": round(volumes[-1] / usual, 2) if usual else None,
             "atr_pct": round(swing / price, 4) if swing else None}
@@ -455,6 +457,11 @@ def due(memory: Memory, now=None) -> bool:
     return now.weekday() < 5 and now.hour >= 8 and memory.get(DAY_KEY) != now.date().isoformat()
 
 
+def _not_rules() -> list[dict]:
+    from . import strategy_seeds  # noqa: PLC0415
+    return strategy_seeds.NOT_RULES
+
+
 def _record(rows: list[dict]) -> dict:
     """A record after costs: how many made money, the average result, and the average against the market."""
     net = [r["ret"] - COST for r in rows]
@@ -584,7 +591,7 @@ def view(memory: Memory) -> dict:
     return {"strategies": table, "open": [trade(r) for r in live if r["status"] == "open"][:40],
             "closed": sorted((trade(r) for r in live if r["status"] == "closed"), key=lambda t: t["closed"],
                              reverse=True)[:40],
-            "added": added, "fields": fields, "replay": replayed,
+            "added": added, "fields": fields, "replay": replayed, "not_rules": _not_rules(),
             "history_note": "History is each rule replayed over past daily prices, seeing only what was known each day. "
                             "It uses today's list of companies, so those that failed or shrank are missing, which makes "
                             "the past look better than it was.",

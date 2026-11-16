@@ -406,3 +406,13 @@ is actually held, with counts and dates, and how its last load went, in the sour
 failed. "Load everything now" runs them one after another in the background (`labsetup.py`); one failing
 does not stop the rest. Everything also refreshes on its own schedule, so the button is for a first
 install or when something is empty.
+
+### Rules from the papers you supplied
+
+Eleven SSRN papers were read for the rule each tests, and six rules were written in the lab's form
+(`strategy_seeds.py`): Faber's 10-month average, nearness to the 52-week high, low beta without
+lottery-like jumps, earnings surprise drift, the past-year return in a weak market, and profitable and
+growing companies. They load once as proposed and trade only after you approve each one. Three papers gave
+no rule of their own (a critique of Faber, and two that test the 52-week-high rule in other markets), and
+the page lists them with the reason. The papers are not stored, only a rule in Buddy's own words and a
+link. Every rule holds part of its paper, and what was left out is listed on it.
