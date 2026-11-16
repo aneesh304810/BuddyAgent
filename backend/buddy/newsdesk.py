@@ -10,20 +10,22 @@ news source only when a story that matters is still unclear.
                     is good or bad, or when it has no good-or-bad label at all.
   4  Matters?       only for a company Buddy is acting on: an open paper trade (the Signals book or the strategy
                     lab), the recommended watchlist, or your own watchlist.
-  5  The paid slot  a story that is both unclear and matters is a candidate for a paid check. No provider is built
-                    in: until you choose one and set its key, every candidate is written down as "would have
-                    asked", so you can see how many paid calls a month this would make before paying for anything.
-                    With a provider set, calls stop at the month's limit (30 unless you change it), and each is
-                    logged with why it was made and whether it confirmed, contradicted or added nothing.
+  5  A free model   a story that is both unclear and matters is first put to the free AI model used for labelling
+                    headlines. If it can settle the story from the headlines alone, nothing else is asked.
+  6  Fact check     only a story the free model could not settle goes to a news service (NewsData.io, Perigon,
+                    NewsCatcher: whichever have a key, tried in that order) to see who else reports it. With no
+                    key set, the story is written down as "would have asked". Calls stop at the month's limit (30
+                    unless you change it), and each is logged with why it was made and what came back.
 
-No AI model is used here and nothing about you goes anywhere: a paid check would send a company's name and the
-headline. The good-or-bad labels come from themes.py and are sometimes wrong, which is one reason a story with a
-single weak source is treated as unclear.
+Nothing about you goes anywhere: the free model sees public headlines, and a fact check sends a company's name.
+The good-or-bad labels come from themes.py and are sometimes wrong, which is one reason a story with a single weak
+source is treated as unclear.
 """
 
-import json
+import hashlib
 import logging
 import re
+import urllib.parse
 from datetime import date, timedelta
 
 from .memory import Memory
@@ -31,7 +33,15 @@ from .tools import ToolError, local_now
 
 log = logging.getLogger("buddy.newsdesk")
 
-CAP_KEY, DAY_KEY, PROVIDER_KEY = "newsdesk:paid_cap", "newsdesk:day", "BUDDY_PAID_NEWS_KEY"
+CAP_KEY, DAY_KEY = "newsdesk:paid_cap", "newsdesk:day"
+PROVIDERS = (("newsdata", "NewsData.io", "BUDDY_NEWSDATA_KEY"), ("perigon", "Perigon", "BUDDY_PERIGON_KEY"),
+             ("newscatcher", "NewsCatcher", "BUDDY_NEWSCATCHER_KEY"))
+SETTLED = "settled by the free model"
+JUDGE = """These are news headlines about {company} that seem to describe one event. Outlets: {outlets}.
+{headlines}
+From the headlines alone, is it clear what happened and whether it is good or bad for the company's business?
+Answer "clear": false if the event could be a rumour, the headlines conflict, or you cannot tell.
+Reply with JSON only: {{"clear": true or false, "tone": "good", "bad" or "neutral", "reason": "one short sentence"}}"""
 DEFAULT_CAP, SAME_STORY, WINDOW_DAYS, LOOK_BACK = 30, 0.5, 3, 14
 ESTABLISHED = {  # rated 3: established news outlets, wire services and regulators
     "reuters.com", "apnews.com", "bloomberg.com", "wsj.com", "ft.com", "nytimes.com", "washingtonpost.com", "cnbc.com",
@@ -111,6 +121,7 @@ def group(rows: list[dict], company: str = "") -> list[dict]:
         if not tones:
             why.append("it has no good-or-bad label yet")
         out.append({"title": s["title"], "day": s["day"], "reports": len(s["headlines"]), "outlets": outlets[:6],
+                    "titles": list(dict.fromkeys(h["title"] for h in s["headlines"]))[:6],
                     "rating": best, "rated": RATING_WORDS[best], "tone": tone, "unclear": bool(why), "why_unclear": why,
                     "url": next((h["url"] for h in s["headlines"] if h.get("url")), "")})
     return sorted(out, key=lambda s: s["day"], reverse=True)
@@ -175,25 +186,104 @@ def set_cap(memory: Memory, calls: int) -> int:
     return cap(memory)
 
 
-def provider(env=None) -> bool:
+def configured(env=None) -> list[tuple]:
+    """The news services that have a key, in the order they are tried."""
     from . import gateway  # noqa: PLC0415
-    return bool(gateway._secret(env, PROVIDER_KEY))
+    return [p for p in PROVIDERS if gateway._secret(env, p[2])]
 
 
-def paid_check(memory: Memory, symbol: str, story: dict, env=None, fetch=None) -> str:
-    """Ask the paid source about one story. No provider is wired in yet: each has its own format, and it is added
-    here once the owner has chosen one."""
-    raise ToolError("No paid news source has been chosen yet.")
+def provider(env=None) -> bool:
+    return bool(configured(env))
 
 
-def review(memory: Memory, today: date | None = None, env=None, ask=None) -> dict:
-    """The daily pass: for each company Buddy is acting on, find stories that are unclear, and either ask the paid
-    source (when one is set and the month's limit allows) or write the story down as one it would have asked about."""
+def _company(memory: Memory, symbol: str) -> str:
+    try:
+        got = _run(memory, "SELECT company FROM theme_news WHERE symbol = ? AND company <> '' LIMIT 1", (symbol.upper(),))
+    except Exception:
+        got = []
+    name = re.sub(r"\b(inc|corp|corporation|co|ltd|plc|holdings|group|company)\b\.?", "", got[0]["company"] if got else symbol,
+                  flags=re.I)
+    return " ".join(name.replace(",", " ").split()) or symbol
+
+
+def _judge(memory: Memory, company: str, story: dict) -> dict | None:
+    """The free model's reading of one story: {"clear", "tone", "reason"}, or None when it gave no usable answer.
+    Public headlines only, sent as the 'label' job (free models unless the owner changed it)."""
+    import asyncio  # noqa: PLC0415
+
+    from . import maestro  # noqa: PLC0415
+    prompt = JUDGE.format(company=company, outlets=", ".join(story.get("outlets") or []) or "unknown",
+                          headlines="\n".join("- " + " ".join(t.split())[:200] for t in story.get("titles") or [story["title"]]))
+    got = asyncio.run(maestro.ask(memory, "label", prompt))
+    return got if isinstance(got, dict) and isinstance(got.get("clear"), bool) else None
+
+
+def _search(memory: Memory, name: str, company: str, today: date, env=None, fetch=None) -> list[dict]:
+    """Recent articles naming the company at one service: [{"title", "outlet", "url", "day"}]."""
+    from . import gateway  # noqa: PLC0415
+    q = f'"{company}"'
+    if name == "newsdata":
+        key = gateway._secret(env, "BUDDY_NEWSDATA_KEY")
+        got = gateway.call(memory, name, "/api/1/latest?" + urllib.parse.urlencode({"q": q, "language": "en", "apikey": key}),
+                           env=env, fetch=fetch, purpose="news fact check") or {}
+        rows = [(a.get("title"), a.get("source_url") or a.get("source_id"), a.get("link"), a.get("pubDate"))
+                for a in got.get("results") or [] if isinstance(a, dict)]
+    elif name == "perigon":
+        got = gateway.call(memory, name, "/v1/all?" + urllib.parse.urlencode(
+            {"q": q, "from": (today - timedelta(days=7)).isoformat(), "sortBy": "date", "size": 25}),
+            env=env, fetch=fetch, purpose="news fact check") or {}
+        rows = [(a.get("title"), (a.get("source") or {}).get("domain") if isinstance(a.get("source"), dict) else a.get("source"),
+                 a.get("url"), a.get("pubDate")) for a in got.get("articles") or [] if isinstance(a, dict)]
+    else:
+        got = gateway.call(memory, name, "/api/search?" + urllib.parse.urlencode(
+            {"q": q, "lang": "en", "from_": "7 days ago", "page_size": 25}), env=env, fetch=fetch,
+            purpose="news fact check") or {}
+        rows = [(a.get("title"), a.get("domain_url") or a.get("clean_url") or a.get("name_source"), a.get("link"),
+                 a.get("published_date")) for a in got.get("articles") or [] if isinstance(a, dict)]
+    return [{"title": str(t), "outlet": re.sub(r"^(?:https?://)?(?:www\.)?", "", str(o or "").lower()).split("/")[0],
+             "url": str(u or ""), "day": str(d or "")[:10]} for t, o, u, d in rows if t]
+
+
+def paid_check(memory: Memory, symbol: str, story: dict, env=None, fetch=None, today: date | None = None) -> str:
+    """Fact-check one story: who else reports it? Tries each news service that has a key until one answers.
+    Reports from rated outlets are kept with the company's headlines, so the story's rating rises by itself."""
+    today = today or local_now().date()
+    company = _company(memory, symbol)
+    words, failed = _words(story["title"], company), []
+    for name, title, _ in configured(env):
+        try:
+            found = _search(memory, name, company, today, env, fetch)
+        except Exception as e:
+            failed.append(f"{title}: {str(e)[:60] or type(e).__name__}")
+            continue
+        same = [a for a in found if words and len(words & _words(a["title"], company)) / max(1, min(
+            len(words), len(_words(a["title"], company)) or 1)) >= SAME_STORY and a["outlet"] not in (story.get("outlets") or [])]
+        rated = sorted((a for a in same if rating(a["outlet"]) > 1), key=lambda a: -rating(a["outlet"]))
+        for a in rated[:5]:
+            key = "check:" + hashlib.sha256((symbol + a["url"] + a["title"]).encode()).hexdigest()[:24]
+            day = a["day"] if re.fullmatch(r"\d{4}-\d\d-\d\d", a["day"]) else today.isoformat()
+            _run(memory, "INSERT OR IGNORE INTO theme_news (key, symbol, company, title, url, day, outlet, seen) VALUES "
+                         "(?, ?, ?, ?, ?, ?, ?, ?)", (key, symbol.upper(), company, a["title"][:300], a["url"][:500], day,
+                                                    a["outlet"], today.isoformat()))
+        if rated:
+            return (f"confirmed: also reported by {', '.join(dict.fromkeys(a['outlet'] for a in rated[:3]))} "
+                    f"({RATING_WORDS[rating(rated[0]['outlet'])]}), found through {title}")
+        if same:
+            return (f"not confirmed: {len(same)} more report{'s' if len(same) != 1 else ''}, all at outlets Buddy has "
+                    f"not rated, found through {title}")
+        return f"not confirmed: no other report among {len(found)} recent articles at {title}"
+    raise ToolError("; ".join(failed) or "No news service has a key yet.")
+
+
+def review(memory: Memory, today: date | None = None, env=None, ask=None, judge=None) -> dict:
+    """The daily pass, for each company Buddy is acting on. A story that is unclear goes first to the free model;
+    only one it cannot settle goes to a news service for a fact check (when one has a key and the month's limit
+    allows), or is written down as one it would have asked about."""
     today = today or local_now().date()
     _ready(memory)
     month = today.isoformat()[:7]
     used = _run(memory, "SELECT COUNT(*) AS n FROM news_checks WHERE asked AND CAST(day AS VARCHAR) LIKE ?", (month + "%",))[0]["n"]
-    out = {"companies": 0, "stories": 0, "unclear": 0, "asked": 0, "would_ask": 0}
+    out = {"companies": 0, "stories": 0, "unclear": 0, "settled": 0, "asked": 0, "would_ask": 0}
     for symbol, matters in acting_on(memory).items():
         got = stories(memory, symbol, today=today)
         out["companies"] += 1
@@ -203,18 +293,32 @@ def review(memory: Memory, today: date | None = None, env=None, ask=None) -> dic
                 continue
             out["unclear"] += 1
             why = f"{matters}; " + "; ".join(s["why_unclear"])
-            asked, result = False, "not asked: no paid news source is set up"
-            if provider(env) and used >= cap(memory):
-                result = f"not asked: the month's limit of {cap(memory)} paid checks is reached"
-            elif provider(env):
-                try:
-                    result, asked = (ask or paid_check)(memory, symbol, s), True
-                    used += 1
-                except Exception as e:
-                    result = f"not asked: {type(e).__name__}: {str(e)[:120]}"
-            out["asked" if asked else "would_ask"] += 1
+            try:
+                verdict = (judge or _judge)(memory, _company(memory, symbol), s)
+            except Exception as e:
+                log.info("news desk: the free model failed: %s", type(e).__name__)
+                verdict = None
+            asked, result = False, ""
+            if verdict and verdict.get("clear"):
+                result = f"{SETTLED}: {verdict.get('tone') or 'neutral'}; {str(verdict.get('reason') or '')[:160]}"
+                out["settled"] += 1
+            else:
+                said = (f"the free model could not tell ({str(verdict.get('reason') or '')[:100]})" if verdict
+                        else "the free model gave no answer")
+                why = f"{why}; {said}"
+                if not provider(env):
+                    result = "not asked: no news service has a key"
+                elif used >= cap(memory):
+                    result = f"not asked: the month's limit of {cap(memory)} paid checks is reached"
+                else:
+                    try:
+                        result = ask(memory, symbol, s) if ask else paid_check(memory, symbol, s, env, today=today)
+                        asked, used = True, used + 1
+                    except Exception as e:
+                        result = f"not asked: {type(e).__name__}: {str(e)[:120]}"
+                out["asked" if asked else "would_ask"] += 1
             _run(memory, "INSERT OR IGNORE INTO news_checks (day, symbol, story, why, asked, result) VALUES (?, ?, ?, ?, ?, ?)",
-                 (today.isoformat(), symbol, s["title"][:240], why[:300], asked, str(result)[:300]))
+                 (today.isoformat(), symbol, s["title"][:240], why[:400], asked, str(result)[:300]))
     return out
 
 
@@ -228,8 +332,11 @@ def view(memory: Memory, today: date | None = None) -> dict:
     today = today or local_now().date()
     _ready(memory)
     companies = []
+    seen = {(r["symbol"], r["story"]): r["result"] for r in _run(memory, "SELECT symbol, story, result FROM news_checks")}
     for symbol, matters in list(acting_on(memory).items())[:40]:
         got = stories(memory, symbol, today=today)
+        for s in got:
+            s["check"] = seen.get((symbol, s["title"][:240]), "")
         if got:
             companies.append({"symbol": symbol, "matters": matters, "stories": got[:5],
                               "unclear": sum(1 for s in got if s["unclear"])})
@@ -238,8 +345,11 @@ def view(memory: Memory, today: date | None = None) -> dict:
                           "CAST(day AS VARCHAR) LIKE ? ORDER BY id DESC LIMIT 40", (month + "%",))
     return {"companies": sorted(companies, key=lambda c: -c["unclear"]),
             "paid": {"set_up": provider(), "cap": cap(memory), "asked_this_month": sum(1 for c in checks if c["asked"]),
-                     "would_have_asked_this_month": sum(1 for c in checks if not c["asked"]), "checks": checks[:15],
-                     "key": PROVIDER_KEY},
+                     "settled_this_month": sum(1 for c in checks if str(c["result"]).startswith(SETTLED)),
+                     "would_have_asked_this_month": sum(1 for c in checks if not c["asked"] and not str(
+                         c["result"]).startswith(SETTLED)), "checks": checks[:15],
+                     "sources": [{"title": t, "key": k, "set_up": (n, t, k) in configured()} for n, t, k in PROVIDERS]},
             "note": "A story is several outlets reporting the same event. Its rating is its best source's: an established "
-                    "outlet, a press release or specialist site, or an outlet Buddy has not rated. A paid check is only "
-                    "considered for a story that is unclear and about a company Buddy is acting on."}
+                    "outlet, a press release or specialist site, or an outlet Buddy has not rated. A story that is unclear, about "
+                    "a company Buddy is acting on, goes first to the free AI model; only one it cannot settle is "
+                    "fact-checked with a news service."}

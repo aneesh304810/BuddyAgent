@@ -449,9 +449,14 @@ their text instead.
   the best rating among its reports. Every story still counts in the trade figures; a low rating marks it unclear.
 - **Unclear.** A story is unclear when only unrated outlets carry it, when its reports disagree on good or bad, or
   when it has no label yet.
-- **The paid slot.** A paid check is considered only for an unclear story about a company Buddy is acting on (an open
-  paper trade, an open lab trade, or a daily pick). No paid provider is wired in. Until the owner chooses one and sets
-  `BUDDY_PAID_NEWS_KEY`, each such story is written to `news_checks` as "would have asked", so the month's count shows
-  what a paid plan would really be used for. A monthly limit (default 30) holds once a provider exists.
+- **A free model first.** An unclear story about a company Buddy is acting on (an open paper trade, an open lab trade,
+  or a watchlist company) goes to the free model used for labelling headlines. It sees public headlines only. If it
+  says the story is clear, nothing else is asked.
+- **Fact check, only then.** A story the free model could not settle (or got no answer on) goes to a news service to
+  see who else reports it: NewsData.io (`BUDDY_NEWSDATA_KEY`), Perigon (`BUDDY_PERIGON_KEY`), NewsCatcher
+  (`BUDDY_NEWSCATCHER_KEY`), whichever have a key, tried in that order; the next is tried when one fails. Only the
+  company's name is sent. A matching report from a rated outlet is kept with the company's headlines, so the story's
+  rating rises. With no key, the story is written to `news_checks` as "would have asked". A monthly limit (default 30)
+  covers all three together.
 - Runs once a day in the proactive loop; `GET/POST /api/invest/newsdesk`; shown in Investing → Trading as
   "News behind the trades" and "Paid news checks".

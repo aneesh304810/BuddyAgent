@@ -1804,8 +1804,9 @@ async def api_invest_newsdesk_do(body: dict) -> dict:
             raise HTTPException(status_code=400, detail="Give the limit as a number.") from e
     elif body.get("action") == "review":
         got = await asyncio.to_thread(newsdesk.review, memory)
-        text = (f"{got['stories']} stories on {got['companies']} companies; {got['unclear']} newly unclear, "
-                f"{got['asked']} asked, {got['would_ask']} noted as would have asked.")
+        text = (f"{got['stories']} stories on {got['companies']} companies; {got['unclear']} newly unclear: "
+                f"{got['settled']} settled by the free model, {got['asked']} fact-checked, "
+                f"{got['would_ask']} noted as would have asked.")
     return {"text": text, "newsdesk": await asyncio.to_thread(newsdesk.view, memory)}
 
 

@@ -320,7 +320,7 @@ function deskCard() {
   if (!deskData) { loadDesk(); return card("News behind the trades", `<p class="muted">Loading…</p>`); }
   const STARS = { 3: "●●● established outlet", 2: "●●○ press release or specialist", 1: "●○○ not rated" };
   const story = (s) => `<li>${tone(s.tone === "mixed" ? "" : s.tone)}${s.tone === "mixed" ? ` <span class="muted">◐ mixed</span>` : ""} · ${s.url ? `<a href="${safe(s.url)}" target="_blank" rel="noopener">${esc(s.title)}</a>` : esc(s.title)}
-      <small class="muted">${esc(s.day)} · ${esc(s.reports)} report${s.reports === 1 ? "" : "s"} · ${esc(STARS[s.rating] || "")}${s.unclear ? " · unclear: " + esc(s.why_unclear.join("; ")) : ""}</small></li>`;
+      <small class="muted">${esc(s.day)} · ${esc(s.reports)} report${s.reports === 1 ? "" : "s"} · ${esc(STARS[s.rating] || "")}${s.unclear ? " · unclear: " + esc(s.why_unclear.join("; ")) : ""}${s.check ? " · " + esc(s.check) : ""}</small></li>`;
   const companies = (deskData.companies || []).map((c) => `<div class="tx" style="display:block"><b>${esc(c.symbol)}</b> <small class="muted">${esc(c.matters)}${c.unclear ? ` · ${esc(c.unclear)} unclear` : ""}</small>
       <ul class="why">${c.stories.map(story).join("")}</ul></div>`).join("");
   const p = deskData.paid || {};
@@ -329,11 +329,12 @@ function deskCard() {
   return card("News behind the trades", (deskData.failed ? `<p class="err">${esc(deskData.failed)}</p>` : "") +
       (companies || `<p class="muted">No company news yet for the companies Buddy is acting on. Headlines are searched nightly by company name.</p>`) +
       `<p><button class="btn" id="desk-review">Look for unclear stories now</button></p>`, deskData.note || "") +
-    card("Paid news checks", `<div class="kpis">${kpi(p.set_up ? "on" : "not set up", "paid news source")}${kpi(esc(p.asked_this_month || 0), "asked this month")}
-        ${kpi(esc(p.would_have_asked_this_month || 0), "would have asked")}${kpi(esc(p.cap ?? "–"), "limit a month")}</div>` + checks +
-      `<div class="add"><input id="desk-cap" type="number" min="0" max="1000" value="${esc(p.cap ?? 30)}" aria-label="Paid checks a month"><button class="btn" id="desk-cap-set">Set the monthly limit</button></div>`,
-      p.set_up ? "A paid check is made only for a story that is unclear and about a company Buddy is acting on, up to the limit."
-        : `No paid source is chosen. Until one is, each story it would have asked about is written down here, so you can see how many paid calls a month this would make. To add one later: choose a provider, then sudo bash /opt/buddy/deploy/set.sh ${p.key || "BUDDY_PAID_NEWS_KEY"}.`);
+    card("News fact checks", `<div class="kpis">${kpi(esc(p.settled_this_month || 0), "settled by the free model")}${kpi(esc(p.asked_this_month || 0), "fact-checked this month")}
+        ${kpi(esc(p.would_have_asked_this_month || 0), "would have asked")}${kpi(esc(p.cap ?? "–"), "limit a month")}</div>
+        <p class="note">${(p.sources || []).map((x) => `${esc(x.title)}: ${x.set_up ? "key set" : "no key"}`).join(" · ")}</p>` + checks +
+      `<div class="add"><input id="desk-cap" type="number" min="0" max="1000" value="${esc(p.cap ?? 30)}" aria-label="Fact checks a month"><button class="btn" id="desk-cap-set">Set the monthly limit</button></div>`,
+      "An unclear story about a company Buddy is acting on goes first to the free AI model. Only one it cannot settle is fact-checked with a news service, up to the limit. " +
+      (p.set_up ? "" : `No news service has a key yet, so those stories are written down as would have asked. To add one: sudo bash /opt/buddy/deploy/set.sh ${((p.sources || [])[0] || {}).key || "BUDDY_NEWSDATA_KEY"}`));
 }
 
 // The data behind the trading engine: what each source holds now, how its last load went, and one button to load all.

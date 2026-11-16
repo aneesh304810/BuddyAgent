@@ -448,20 +448,21 @@ news source only when a story that matters is still unclear.
                     is good or bad, or when it has no good-or-bad label at all.
   4  Matters?       only for a company Buddy is acting on: an open paper trade (the Signals book or the strategy
                     lab), the recommended watchlist, or your own watchlist.
-  5  The paid slot  a story that is both unclear and matters is a candidate for a paid check. No provider is built
-                    in: until you choose one and set its key, every candidate is written down as "would have
-                    asked", so you can see how many paid calls a month this would make before paying for anything.
-                    With a provider set, calls stop at the month's limit (30 unless you change it), and each is
-                    logged with why it was made and whether it confirmed, contradicted or added nothing.
+  5  A free model   a story that is both unclear and matters is first put to the free AI model used for labelling
+                    headlines. If it can settle the story from the headlines alone, nothing else is asked.
+  6  Fact check     only a story the free model could not settle goes to a news service (NewsData.io, Perigon,
+                    NewsCatcher: whichever have a key, tried in that order) to see who else reports it. With no
+                    key set, the story is written down as "would have asked". Calls stop at the month's limit (30
+                    unless you change it), and each is logged with why it was made and what came back.
 
-No AI model is used here and nothing about you goes anywhere: a paid check would send a company's name and the
-headline. The good-or-bad labels come from themes.py and are sometimes wrong, which is one reason a story with a
-single weak source is treated as unclear.
+Nothing about you goes anywhere: the free model sees public headlines, and a fact check sends a company's name.
+The good-or-bad labels come from themes.py and are sometimes wrong, which is one reason a story with a single weak
+source is treated as unclear.
 ```
 
 - Tables: `news_checks`
-- Settings: `BUDDY_PAID_NEWS_KEY`
-- Uses: gateway.py, memory.py, pricebook.py, tools.py, watchpicks.py
+- Settings: `BUDDY_NEWSCATCHER_KEY`, `BUDDY_NEWSDATA_KEY`, `BUDDY_PERIGON_KEY`
+- Uses: gateway.py, maestro.py, memory.py, pricebook.py, tools.py, watchpicks.py
 
 ### docread.py
 

@@ -665,8 +665,9 @@ async def run(memory: Memory, deliver: Deliver, connected=None) -> None:
                     if newsdesk.due(memory):
                         memory.set(newsdesk.DAY_KEY, local_now().date().isoformat())
                         got = await asyncio.to_thread(newsdesk.review, memory)
-                        log.info("news desk: %d companies, %d stories, %d unclear, %d asked, %d would ask",
-                                 got["companies"], got["stories"], got["unclear"], got["asked"], got["would_ask"])
+                        log.info("news desk: %d companies, %d stories, %d unclear, %d settled, %d asked, %d would ask",
+                                 got["companies"], got["stories"], got["unclear"], got["settled"], got["asked"],
+                                 got["would_ask"])
                     from . import fundamentals  # noqa: PLC0415  earnings surprises and ratios, once a week
                     if fundamentals.due(memory):
                         now = local_now()
