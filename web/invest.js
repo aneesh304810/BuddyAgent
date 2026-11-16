@@ -16,6 +16,7 @@ const esc = (s) => String(s ?? "").replace(/[&<>"']/g, (c) => ({ "&": "&amp;", "
 const safe = (u) => /^https:\/\/[^\s"'<>]+$/.test(String(u || "")) ? u : "";
 // Four tabs: the old Strategy, Signals and Accounts are one Overview; market news is in Discover, under News.
 const TABS = [["strategy", "Overview"], ["practice", "Trading"], ["themes", "Themes"], ["watch", "Watchlist"]];
+let setupData = null, setupBusy = false;
 let picksData = null, picksBusy = false, researchData = null, researchBusy = false, ideasData = null, ideasBusy = false;
 let themesData = null, themesBusy = false, practiceData = null, practiceBusy = false, signalsData = null, signalsBusy = false;
 let data = null, tab = TABS.some(([k]) => k === storageGet("investTab")) ? storageGet("investTab") : "strategy", busy = false;
@@ -304,6 +305,27 @@ function researchCards() {
   return queue + yard + lists;
 }
 
+// The data behind the trading engine: what each source holds now, how its last load went, and one button to load all.
+async function loadSetup(run) {
+  if (setupBusy) return;
+  setupBusy = true;
+  try { const out = await api("/api/invest/lab/setup", run ? {} : undefined); setupData = out.setup; if (out.text) notice(out.text); }
+  catch (e) { setupData = { rows: [], failed: e.message }; }
+  setupBusy = false;
+  if (tab === "practice") render();
+}
+function setupCard() {
+  if (!setupData) { loadSetup(); return card("Data for the trading engine", `<p class="muted">Loading…</p>`); }
+  const MARK = { loaded: ["✓ loaded", "gain"], failed: ["✕ failed", "loss"], skipped: ["– skipped", "muted"], empty: ["○ empty", "muted"] };
+  const rows = (setupData.rows || []).map((r) => `<div class="row" style="cursor:default;align-items:flex-start"><span class="name" style="white-space:normal"><b>${esc(r.title)}</b>
+      <small class="muted" style="display:block">${esc(r.holds)}${r.last ? ` · last load${r.at ? " " + esc(r.at) : ""}: ${esc(r.last)}` : ""}</small></span>
+      <span class="${(MARK[r.state] || MARK.empty)[1]}" style="white-space:nowrap">${(MARK[r.state] || MARK.empty)[0]}</span></div>`).join("");
+  return card("Data for the trading engine", (setupData.failed ? `<p class="err">${esc(setupData.failed)}</p>` : "") + rows +
+    (setupData.sandbox_note ? `<p class="note">${esc(setupData.sandbox_note)}</p>` : "") +
+    `<p><button class="btn solid" id="setup-run"${setupData.running ? " disabled" : ""}>${setupData.running ? "Loading: " + esc(setupData.running) + "…" : "Load everything now"}</button> <button class="btn" id="setup-refresh">Refresh</button></p>`,
+    "Each line shows what is actually held. Everything here also refreshes on its own schedule; this button is for the first time, or when something is empty.");
+}
+
 // The strategy lab: well-known rules that each paper-trade every weekday, with their record against the market.
 function labCards(p) {
   const lab = p.lab;
@@ -397,7 +419,7 @@ function practiceTab() {
   const log = (p.log || []).map((d) => `<h3 class="group">${esc(d.day)}</h3>` + d.events.map((e) =>
     `<div class="tx"><span><b>${esc(e.what)}</b></span><span>${esc(e.symbol)}<small>${esc(e.why)}</small></span><span class="amt">${px(e.price)}</span></div>`).join("")).join("");
   const list = (rows, empty) => rows && rows.length ? rows.map(tradeCard).join("") : `<p class="muted">${empty}</p>`;
-  return card("Buddy's paper trading", summary) + strategiesCards(p) + labCards(p) +
+  return card("Buddy's paper trading", summary) + setupCard() + strategiesCards(p) + labCards(p) +
     card(`Bought and holding (${(p.open || []).length})`, list(p.open, "No paper positions are open. They open when Buddy makes a buy or sell signal.")) +
     card(`Sold and judged (${(p.closed || []).length})`, list(p.closed, "Nothing has closed yet. A trade closes at its stop, its target, a sell signal, or after 28 days.")) +
     ((p.skipped || []).length ? card("Signals not traded", list(p.skipped, "")) : "") +
@@ -552,6 +574,8 @@ function render() {
     try { const out = await api(path, body); practiceData.practice.lab = out.lab; render(); if (out.text) notice(out.text); return out; }
     catch (e) { render(); notice(e.message); }
   };
+  if ($("setup-run")) $("setup-run").onclick = () => loadSetup(true);
+  if ($("setup-refresh")) $("setup-refresh").onclick = () => { practiceData = null; researchData = null; ideasData = null; setupData = null; render(); };
   if ($("research-reload")) $("research-reload").onclick = () => { researchData = null; render(); };
   if ($("research-search")) $("research-search").onclick = () => loadResearch({ action: "search" });
   if ($("research-factors")) $("research-factors").onclick = () => loadResearch({ action: "factors" });

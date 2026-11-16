@@ -28,6 +28,7 @@ flowchart LR
         newssent_py["newssent.py<br/>how the news on a company reads, as a number, from two services that…"]
         docread_py["docread.py<br/>Reading a file Buddy was given or downloaded: the text is taken out…"]
         fundamentals_py["fundamentals.py<br/>the latest earnings surprise and a few basic financial ratios"]
+        labsetup_py["labsetup.py<br/>Loading the trading engine's data in one go, and saying plainly what…"]
         crossmarket_py["crossmarket.py<br/>The Practice tab of the Investments page: Buddy's paper trades (what…"]
         markets_py["markets.py<br/>Buddy scans for chart setups, finds entry and exit levels, reads what…"]
         livewatch_py["livewatch.py<br/>during US market hours Buddy checks the price of each symbol being…"]
@@ -74,6 +75,11 @@ flowchart LR
     researchdesk_py --> stratrules_py
     benchmarks_py --> docread_py
     fundamentals_py --> finnhub_py
+    labsetup_py --> benchmarks_py
+    labsetup_py --> fundamentals_py
+    labsetup_py --> newssent_py
+    labsetup_py --> researchdesk_py
+    labsetup_py --> stratlab_py
     crossmarket_py --> markets_py
     crossmarket_py --> simbook_py
     crossmarket_py --> stratlab_py
@@ -440,6 +446,31 @@ uses one can be paper-traded from now on but cannot be replayed over past prices
 
 - Tables: `fundamentals`
 - Uses: finnhub.py, memory.py, pricebook.py, tools.py
+
+### labsetup.py
+
+```text
+Loading the trading engine's data in one go, and saying plainly what is loaded and what is not.
+
+The strategy lab rests on several sources that each refresh on their own schedule. After a first install, or
+when something looks empty, "Load everything" runs them one after another in the background:
+
+  1  the recommended watchlist     from the Intelligence evidence
+  2  today's lab trades            each rule's picks from daily prices
+  3  the replay over past prices   every rule's record on about five years of history
+  4  factor returns                the yardsticks from the Kenneth French data library
+  5  the research queue            new papers from arXiv
+  6  news sentiment                when one of its two keys is set
+  7  company figures               earnings surprise and ratios (the slow one: a few minutes)
+  8  a first model                 trained in the sandbox when there are enough judged trades
+
+Each step's result is kept: when it ran, whether it worked, and what it said, in the source's own words when
+it failed. The status panel reads what is actually held (counts and dates), not what a step claimed, so an
+empty source shows as empty even after a step that reported success.
+```
+
+- Settings: `BUDDY_ALPHAVANTAGE_KEY`, `BUDDY_MARKETAUX_KEY`
+- Uses: benchmarks.py, fundamentals.py, memory.py, modeltrain.py, newssent.py, pricebook.py, researchdesk.py, sandbox.py, stratlab.py, tools.py, watchpicks.py
 
 ### crossmarket.py
 

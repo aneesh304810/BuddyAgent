@@ -397,3 +397,12 @@ at least 30 past trades. Two backed rules, or one backed rule the trained model 
 make it "Stronger"; one backed rule is "Worth a look"; anything else is shown as "Unproven". Each card lists
 the rules that picked it with their record. On a weekday when there are new Stronger ideas Buddy sends one
 message. These are ideas to look at, not advice, and Buddy places no trade.
+
+### Loading it all, and seeing what is loaded
+
+The Trading tab opens with "Data for the trading engine": one line per source (recommended watchlist, lab
+trades, the replay, factor returns, research queue, news sentiment, company figures, the model) saying what
+is actually held, with counts and dates, and how its last load went, in the source's own words when it
+failed. "Load everything now" runs them one after another in the background (`labsetup.py`); one failing
+does not stop the rest. Everything also refreshes on its own schedule, so the button is for a first
+install or when something is empty.

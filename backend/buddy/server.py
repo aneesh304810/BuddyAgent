@@ -1780,6 +1780,20 @@ async def api_invest_lab_view() -> dict:
     return {"lab": lab, "ideas": await asyncio.to_thread(stratlab.ideas, memory, None, lab["strategies"])}
 
 
+@app.get("/api/invest/lab/setup", dependencies=[Depends(require_admin)])
+async def api_invest_lab_setup() -> dict:
+    """What the trading engine's data holds, source by source, and how each last load went."""
+    from . import labsetup  # noqa: PLC0415
+    return {"setup": await asyncio.to_thread(labsetup.status, memory)}
+
+
+@app.post("/api/invest/lab/setup", dependencies=[Depends(require_admin)])
+async def api_invest_lab_setup_run() -> dict:
+    """Load every source now, one after another, in the background."""
+    from . import labsetup  # noqa: PLC0415
+    return {"text": labsetup.load_in_background(memory), "setup": await asyncio.to_thread(labsetup.status, memory)}
+
+
 @app.post("/api/invest/lab/upload", dependencies=[Depends(require_admin)])
 async def api_invest_lab_upload(body: dict) -> dict:
     """A strategy document (name + data as base64, or name + text): read into a proposed rule. Nothing trades
