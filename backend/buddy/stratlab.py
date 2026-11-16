@@ -24,6 +24,13 @@ rule below open paper trades by itself. No AI decides a trade, and no real order
                 opened on (RSI, distance from the averages, recent returns, volume, daily range), so a model can
                 later learn which conditions went with the wins.
 
+  History      so that a rule does not need months of live trades to be judged, every rule is also replayed over
+               the past years of daily prices, day by day, seeing only what was known on each day. Those trades
+               are kept apart and marked as history. Two cautions the page states: the list of companies is
+               today's (those that failed or shrank are missing, which flatters the past), and no costs are
+               taken off.
+  Your rules   a strategy document you upload becomes a rule here once you approve it (stratrules.py).
+
 Daily prices decide stops and targets, so a real fill could differ; costs and taxes are not taken off. A rule is
 called unproven until 30 of its trades have closed.
 """
@@ -39,7 +46,8 @@ log = logging.getLogger("buddy.stratlab")
 
 STAKE, A_DAY, PROVEN_AFTER = 1000.0, 3, 30
 STOP_MIN, STOP_MAX, STOP = 0.04, 0.12, 0.07
-DAY_KEY = "stratlab:day"
+DAY_KEY, REPLAY_KEY = "stratlab:day", "stratlab:replay"
+REPLAY_MONTHS, WINDOW = 60, 260  # how far back history is replayed; the days of prices a rule may look at
 STRATEGIES = {  # key -> (name, the rule in words, what it reads, days held at most)
     "trend": ("Trend following", "Above the 50-day average, itself above the 200-day, at a 20-day high", "Price", 28),
     "momentum": ("Momentum", "The three strongest over six months, each above its 200-day average", "Price", 28),
@@ -53,7 +61,8 @@ SCHEMA = ["CREATE SEQUENCE IF NOT EXISTS lab_id",
           """CREATE TABLE IF NOT EXISTS lab_trades (
     id BIGINT PRIMARY KEY DEFAULT nextval('lab_id'), strategy VARCHAR, symbol VARCHAR, opened DATE, entry DOUBLE,
     stop DOUBLE, target DOUBLE, shares DOUBLE, hold_days INTEGER, why VARCHAR, features VARCHAR, spy_entry DOUBLE,
-    status VARCHAR DEFAULT 'open', closed DATE, exit DOUBLE, ret DOUBLE, spy_ret DOUBLE, why_closed VARCHAR)"""]
+    status VARCHAR DEFAULT 'open', closed DATE, exit DOUBLE, ret DOUBLE, spy_ret DOUBLE, why_closed VARCHAR)""",
+          "ALTER TABLE lab_trades ADD COLUMN IF NOT EXISTS backfilled BOOLEAN DEFAULT FALSE"]
 
 
 def _run(memory: Memory, sql: str, params: tuple = ()) -> list[dict]:
@@ -83,8 +92,11 @@ def figures(bars: list[dict]) -> dict | None:
     volumes = [b.get("v") or 0 for b in bars]
     usual = sum(volumes[-21:-1]) / 20
     return {"price": price, "rsi": round((rsi(closes) or [50.0])[-1], 1),
+            "above_20": round(price / sma(closes, 20) - 1, 4),
             "above_50": round(price / a50 - 1, 4), "above_200": round(price / a200 - 1, 4),
-            "avg50_above_200": a50 > a200, "ret_20": round(price / closes[-21] - 1, 4),
+            "avg50_above_200": a50 > a200, "ret_5": round(price / closes[-6] - 1, 4),
+            "ret_252": round(price / closes[-252] - 1, 4), "below_high": round(price / max(closes[-252:]) - 1, 4),
+            "ret_20": round(price / closes[-21] - 1, 4),
             "ret_63": round(price / closes[-64] - 1, 4), "ret_126": round(closes[-6] / closes[-127] - 1, 4),
             "high_20": price >= max(closes[-20:]), "high_252": price >= max(closes[-252:]),
             "volume_times": round(volumes[-1] / usual, 2) if usual else None,
@@ -122,6 +134,126 @@ def picks(strategy: str, figs: dict, extra: dict | None = None) -> list[tuple[st
         return [(s, "insiders have been net buyers for three months, and the price is above its 50-day average")
                 for s, _ in got]
     return []
+
+
+def rules_in_use(memory: Memory) -> dict:
+    """Every rule that trades: the six built in, then the ones the owner added and approved.
+    {key: {"name", "rule", "reads", "hold", "custom": the added rule or None}}"""
+    out = {k: {"name": n, "rule": r, "reads": reads, "hold": hold, "custom": None}
+           for k, (n, r, reads, hold) in STRATEGIES.items()}
+    try:
+        from . import stratrules  # noqa: PLC0415
+        for r in stratrules.rules(memory, "active"):
+            out[r["key"]] = {"name": r["name"], "rule": r["in_words"], "reads": "Your document: " + (r["source"] or "pasted text"),
+                             "hold": r["rule"]["hold_days"], "custom": r["rule"]}
+    except Exception:
+        log.info("lab: added rules unavailable", exc_info=True)
+    return out
+
+
+def _picks(key: str, spec: dict, figs: dict, extra: dict | None) -> list[tuple[str, str]]:
+    if spec["custom"]:
+        from . import stratrules  # noqa: PLC0415
+        return stratrules.picks(spec["custom"], figs)
+    return picks(key, figs, extra)
+
+
+def _stop_pct(f: dict) -> float:
+    return max(STOP_MIN, min(2 * f["atr_pct"], STOP_MAX)) if f["atr_pct"] else STOP
+
+
+def replay(memory: Memory, data=None, months: int = REPLAY_MONTHS, keys: list[str] | None = None) -> dict:
+    """Run the rules over past daily prices, one day at a time, each day seeing only the prices up to that day.
+    Finished trades are kept, marked as history; a rule's earlier history is replaced. Returns counts per rule."""
+    from . import stratrules  # noqa: PLC0415
+    _ready(memory)
+    if data is None:
+        from .markets import Data  # noqa: PLC0415
+        data = Data(memory)
+    specs = {k: v for k, v in rules_in_use(memory).items() if (not keys or k in keys) and k != "insiders"}
+    bars = data.bars("us", sorted(set(universe()) | {"SPY"}), days=months * 31 + 420)
+    spy = bars.get("SPY") or []
+    if len(spy) < WINDOW + 30:
+        return {"trades": {}, "note": "there is not enough price history to replay"}
+    at = {s: {b["d"]: i for i, b in enumerate(bs)} for s, bs in bars.items()}
+    spy_close = {b["d"]: b["c"] for b in spy}
+    held: dict[str, dict[str, dict]] = {k: {} for k in specs}
+    done: list[tuple] = []
+    for day in [b["d"] for b in spy][WINDOW:]:
+        today = date.fromisoformat(day)
+        figs, bar = {}, {}
+        for s, bs in bars.items():
+            i = at[s].get(day)
+            if i is None or i + 1 < WINDOW:
+                continue
+            bar[s] = bs[i]
+            f = figures(bs[i + 1 - WINDOW: i + 1])
+            if f:
+                figs[s] = f
+        for key, spec in specs.items():
+            for s, t in list(held[key].items()):
+                b = bar.get(s)
+                if not b:
+                    continue
+                end = None
+                if b["l"] <= t["stop"]:
+                    end = (t["stop"], "stopped out")
+                elif b["h"] >= t["target"]:
+                    end = (t["target"], "reached the target")
+                elif spec["custom"] and spec["custom"]["sell"] and s in figs and stratrules.passes(figs[s], spec["custom"]["sell"]):
+                    end = (b["c"], "the rule's sell condition")
+                elif (today - t["opened"]).days >= spec["hold"]:
+                    end = (b["c"], f"{spec['hold']} days were up")
+                if end:
+                    done.append((key, s, t["opened"].isoformat(), t["entry"], t["stop"], t["target"], round(STAKE / t["entry"], 4),
+                                 spec["hold"], t["why"], json.dumps(t["features"]), t["spy"], day, round(end[0], 4),
+                                 round(end[0] / t["entry"] - 1, 5),
+                                 round(spy_close[day] / t["spy"] - 1, 5) if t["spy"] else None, end[1]))
+                    del held[key][s]
+            opened = 0
+            for s, why in _picks(key, spec, figs, {}):
+                if opened >= A_DAY:
+                    break
+                if s in held[key]:
+                    continue
+                f = figs[s]
+                pct = _stop_pct(f)
+                held[key][s] = {"opened": today, "entry": f["price"], "stop": round(f["price"] * (1 - pct), 4),
+                                "target": round(f["price"] * (1 + 2 * pct), 4), "why": why,
+                                "features": {k: v for k, v in f.items() if k != "price"}, "spy": spy_close.get(day)}
+                opened += 1
+    for key in specs:
+        _run(memory, "DELETE FROM lab_trades WHERE backfilled AND strategy = ?", (key,))
+    for row in done:
+        _run(memory, "INSERT INTO lab_trades (strategy, symbol, opened, entry, stop, target, shares, hold_days, why, features, "
+                     "spy_entry, closed, exit, ret, spy_ret, why_closed, status, backfilled) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, "
+                     "?, ?, ?, ?, ?, ?, ?, 'closed', TRUE)", row)
+    counts = {k: sum(1 for r in done if r[0] == k) for k in specs}
+    memory.set(REPLAY_KEY, json.dumps({"state": "done", "at": local_now().isoformat(timespec="minutes"), "months": months,
+                                       "from": spy[WINDOW]["d"], "to": spy[-1]["d"], "trades": sum(counts.values())}))
+    return {"trades": counts, "from": spy[WINDOW]["d"], "to": spy[-1]["d"]}
+
+
+def replay_in_background(memory: Memory, keys: list[str] | None = None) -> str:
+    """Start the replay without making the caller wait (it can take a minute or two). One at a time."""
+    import threading  # noqa: PLC0415
+    try:
+        state = json.loads(memory.get(REPLAY_KEY) or "{}")
+    except ValueError:
+        state = {}
+    if state.get("state") == "running":
+        return "A replay is already running."
+    memory.set(REPLAY_KEY, json.dumps({**state, "state": "running", "started": local_now().isoformat(timespec="minutes")}))
+
+    def work():
+        try:
+            replay(memory, keys=keys)
+        except Exception as e:
+            log.exception("the history replay failed")
+            memory.set(REPLAY_KEY, json.dumps({"state": "failed", "at": local_now().isoformat(timespec="minutes"),
+                                               "why": f"{type(e).__name__}: {str(e)[:120]}"}))
+    threading.Thread(target=work, name="lab-replay", daemon=True).start()
+    return "Replaying the rules over past prices. This takes a minute or two; refresh to see the result."
 
 
 def _insiders(memory: Memory, today: date) -> dict:
@@ -188,19 +320,32 @@ def run(memory: Memory, today: date | None = None, data=None, insiders: dict | N
     figs = {s: f for s, f in ((s, figures(b)) for s, b in bars.items() if b) if f}
     if not figs:
         return {**out, "note": "no daily prices could be read"}
+    specs = rules_in_use(memory)
+    from . import stratrules  # noqa: PLC0415
+    for t in _run(memory, "SELECT id, strategy, symbol, entry, spy_entry FROM lab_trades WHERE status = 'open'"):
+        sell = ((specs.get(t["strategy"]) or {}).get("custom") or {}).get("sell")
+        f = figs.get(t["symbol"])
+        if sell and f and stratrules.passes(f, sell):  # an added rule's own reason to sell, at today's close
+            spy_now = (bars.get("SPY") or [{}])[-1].get("c")
+            _run(memory, "UPDATE lab_trades SET status = 'closed', closed = ?, exit = ?, ret = ?, spy_ret = ?, "
+                         "why_closed = ? WHERE id = ?",
+                 (today.isoformat(), f["price"], round(f["price"] / t["entry"] - 1, 5),
+                  round(spy_now / t["spy_entry"] - 1, 5) if spy_now and t["spy_entry"] else None,
+                  "the rule's sell condition", t["id"]))
+            out["closed"] += 1
     extra = _insiders(memory, today) if insiders is None else insiders
     spy = (bars.get("SPY") or [{}])[-1].get("c")
     have = {(h["strategy"], h["symbol"]) for h in _run(memory, "SELECT strategy, symbol FROM lab_trades WHERE "
                                                                "status = 'open'")}
-    for key, (_, _, _, hold) in STRATEGIES.items():
-        opened = 0
-        for symbol, why in picks(key, figs, extra):
+    for key, spec in specs.items():
+        opened, hold = 0, spec["hold"]
+        for symbol, why in _picks(key, spec, figs, extra):
             if opened >= A_DAY:
                 break
             if (key, symbol) in have:
                 continue
             f = figs[symbol]
-            stop_pct = max(STOP_MIN, min(2 * f["atr_pct"], STOP_MAX)) if f["atr_pct"] else STOP
+            stop_pct = _stop_pct(f)
             _run(memory, "INSERT INTO lab_trades (strategy, symbol, opened, entry, stop, target, shares, hold_days, why, "
                          "features, spy_entry) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)",
                  (key, symbol, today.isoformat(), f["price"], round(f["price"] * (1 - stop_pct), 4),
@@ -216,32 +361,54 @@ def due(memory: Memory, now=None) -> bool:
     return now.weekday() < 5 and now.hour >= 8 and memory.get(DAY_KEY) != now.date().isoformat()
 
 
+def _record(rows: list[dict]) -> dict:
+    against = [r["ret"] - r["spy_ret"] for r in rows if r["spy_ret"] is not None]
+    won = sum(1 for r in rows if r["ret"] > 0)
+    return {"closed": len(rows), "won": won,
+            "average_result": round(sum(r["ret"] for r in rows) / len(rows), 4) if rows else None,
+            "average_vs_market": round(sum(against) / len(against), 4) if against else None,
+            "profit": round(sum(STAKE * r["ret"] for r in rows), 2)}
+
+
 def view(memory: Memory) -> dict:
-    """For the Trading tab: each rule with its record, and the latest trades bought and sold."""
+    """For the Trading tab: each rule with its live record and its record on past prices, the latest live trades,
+    and the rules the owner added (proposed, active or paused)."""
     _ready(memory)
-    rows = _run(memory, "SELECT * FROM lab_trades ORDER BY opened DESC, id DESC LIMIT 600")
+    closed = _run(memory, "SELECT strategy, backfilled, ret, spy_ret FROM lab_trades WHERE status = 'closed'")
+    live = _run(memory, "SELECT * FROM lab_trades WHERE NOT COALESCE(backfilled, FALSE) ORDER BY opened DESC, id DESC LIMIT 400")
     table = []
-    for key, (name, rule, reads, hold) in STRATEGIES.items():
-        mine = [r for r in rows if r["strategy"] == key]
-        done = [r for r in mine if r["status"] == "closed"]
-        against = [r["ret"] - r["spy_ret"] for r in done if r["spy_ret"] is not None]
-        won = sum(1 for r in done if r["ret"] > 0)
-        table.append({"key": key, "name": name, "rule": rule, "reads": reads, "hold_days": hold,
-                      "open": len(mine) - len(done), "closed": len(done), "won": won,
-                      "average_result": round(sum(r["ret"] for r in done) / len(done), 4) if done else None,
-                      "average_vs_market": round(sum(against) / len(against), 4) if against else None,
-                      "profit": round(sum(r["shares"] * (r["exit"] - r["entry"]) for r in done), 2),
-                      "says": ("Unproven: " + (f"{len(done)} of {PROVEN_AFTER} closed trades" if done
-                                               else "no closed trades yet")) if len(done) < PROVEN_AFTER
-                      else f"{won} of {len(done)} closed trades made money"})
+    for key, spec in rules_in_use(memory).items():
+        mine = [r for r in closed if r["strategy"] == key]
+        now, past = _record([r for r in mine if not r["backfilled"]]), _record([r for r in mine if r["backfilled"]])
+        table.append({"key": key, "name": spec["name"], "rule": spec["rule"], "reads": spec["reads"],
+                      "hold_days": spec["hold"], "yours": bool(spec["custom"]),
+                      "open": sum(1 for r in live if r["strategy"] == key and r["status"] == "open"), **now,
+                      "history": past,
+                      "says": ("Unproven: " + (f"{now['closed']} of {PROVEN_AFTER} closed trades" if now["closed"]
+                                               else "no closed trades yet")) if now["closed"] < PROVEN_AFTER
+                      else f"{now['won']} of {now['closed']} closed trades made money"})
+    names = {k: v["name"] for k, v in rules_in_use(memory).items()}
 
     def trade(r: dict) -> dict:
-        return {"strategy": STRATEGIES.get(r["strategy"], (r["strategy"],))[0], "symbol": r["symbol"],
+        return {"strategy": names.get(r["strategy"], r["strategy"]), "symbol": r["symbol"],
                 "opened": str(r["opened"]), "entry": r["entry"], "stop": r["stop"], "target": r["target"],
                 "why": r["why"], "closed": str(r["closed"]) if r["closed"] else "", "exit": r["exit"],
                 "change": r["ret"], "market_change": r["spy_ret"], "why_closed": r["why_closed"] or ""}
-    return {"strategies": table, "open": [trade(r) for r in rows if r["status"] == "open"][:40],
-            "closed": sorted((trade(r) for r in rows if r["status"] == "closed"), key=lambda t: t["closed"],
+    try:
+        from . import stratrules  # noqa: PLC0415
+        added, fields = stratrules.rules(memory), stratrules.FIELDS
+    except Exception:
+        added, fields = [], {}
+    try:
+        replayed = json.loads(memory.get(REPLAY_KEY) or "{}")
+    except ValueError:
+        replayed = {}
+    return {"strategies": table, "open": [trade(r) for r in live if r["status"] == "open"][:40],
+            "closed": sorted((trade(r) for r in live if r["status"] == "closed"), key=lambda t: t["closed"],
                              reverse=True)[:40],
+            "added": added, "fields": fields, "replay": replayed,
+            "history_note": "History is each rule replayed over past daily prices, seeing only what was known each day. "
+                            "It uses today's list of companies, so those that failed or shrank are missing, and no "
+                            "costs are taken off: both make the past look better than it was.",
             "note": f"Each trade is ${STAKE:,.0f} of pretend money, opened by rule every weekday morning with no AI "
                     "deciding. Daily closes decide stops and targets; no costs are taken off. Nothing real is bought."}

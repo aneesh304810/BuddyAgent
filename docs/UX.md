@@ -81,6 +81,8 @@ On a screen 600 points wide or more (the Fold opened, a tablet) the five places 
 bottom to a rail down the left side, and the buy-now-or-wait cards in Deals sit two across.
 
 Trading also shows the strategy lab: six rule-based strategies that paper-trade every weekday, each with
-its record against the market, and the trades it bought and sold.
+its record against the market, and the trades it bought and sold. Each rule shows two records, live paper trades and
+the same rule replayed over past prices. "Add a strategy from a document" takes an upload or pasted text,
+shows the rule Buddy read from it, and starts testing it only after you approve.
 
 Not yet: source and freshness lines everywhere.

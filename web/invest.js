@@ -261,18 +261,35 @@ function strategiesCards(p) {
 function labCards(p) {
   const lab = p.lab;
   if (!lab) return "";
-  const rows = lab.strategies.map((s) => `<tr><td><b>${esc(s.name)}</b><br><small class="muted">${esc(s.rule)}. Reads: ${esc(s.reads)}; held up to ${esc(s.hold_days)} days.</small></td>
-      <td>${esc(s.open)}</td><td>${esc(s.closed)}</td><td>${s.closed ? `${esc(s.won)} of ${esc(s.closed)}` : "–"}</td>
-      <td>${pct(s.average_result)}<br><small class="muted">market ${s.average_vs_market == null ? "–" : pct(s.average_result - s.average_vs_market)}</small></td>
-      <td><small class="muted">${esc(s.says)}</small></td></tr>`).join("");
+  const vs = (r) => !r || !r.closed ? `<small class="muted">none</small>` : `${esc(r.won)} of ${esc(r.closed)} made money<br>${pct(r.average_result)} a trade
+      <small class="muted">market ${r.average_vs_market == null ? "–" : pct(r.average_result - r.average_vs_market)}</small>`;
+  const rows = lab.strategies.map((s) => `<tr><td><b>${esc(s.name)}</b>${s.yours ? ` <span class="pill">yours</span>` : ""}<br><small class="muted">${esc(s.rule)} Reads: ${esc(s.reads)}; held up to ${esc(s.hold_days)} days.</small></td>
+      <td>${esc(s.open)} open<br>${vs(s)}<br><small class="muted">${esc(s.says)}</small></td><td>${vs(s.history)}</td></tr>`).join("");
+  const rp = lab.replay || {};
+  const replayLine = rp.state === "running" ? "A replay over past prices is running; refresh in a minute or two."
+    : rp.state === "failed" ? "The last replay failed: " + (rp.why || "")
+    : rp.state === "done" ? `History covers ${rp.from} to ${rp.to}: ${Number(rp.trades).toLocaleString()} finished trades, replayed ${rp.at}.`
+    : "History has not been replayed yet.";
+  const added = (lab.added || []).map((r) => `<div class="idea"><div class="top"><b>${esc(r.name)}</b><span class="pill">${esc(r.status)}</span>
+      <span class="muted">${esc(r.source || "pasted text")}</span></div>
+      <p style="margin:6px 0">${esc(r.summary)}</p><p class="muted" style="margin:0 0 6px"><b>The rule Buddy will test:</b> ${esc(r.in_words)}</p>
+      ${r.needs.length ? `<p class="muted" style="margin:0 0 6px"><b>Left out, because Buddy cannot measure it:</b> ${r.needs.map(esc).join("; ")}</p>` : ""}
+      <p>${r.status !== "active" ? `<button class="btn solid" data-rule="approve" data-key="${esc(r.key)}">Approve and start testing</button> ` : `<button class="btn" data-rule="pause" data-key="${esc(r.key)}">Pause</button> `}
+        <button class="btn" data-rule="remove" data-key="${esc(r.key)}">Remove</button></p></div>`).join("");
+  const upload = `<p class="muted">Upload a document that describes a strategy (PDF, Word, web page or text), or paste the text. Buddy writes it as a rule and shows it here. Nothing trades until you approve it.</p>
+      <p><input type="file" id="lab-file" accept=".pdf,.docx,.html,.htm,.txt,.md" aria-label="Strategy document"> <button class="btn solid" id="lab-upload">Upload and read</button></p>
+      <textarea id="lab-text" rows="4" style="width:100%;box-sizing:border-box;background:var(--bg);color:inherit;border:1px solid var(--line);border-radius:10px;padding:8px" placeholder="Or paste the strategy's text here" aria-label="Strategy text"></textarea>
+      <p><button class="btn" id="lab-paste">Read the pasted text</button> <span class="muted" id="lab-status"></span></p>`;
   const one = (t) => `<div class="tx" style="grid-template-columns:92px 1fr auto"><span><b>${esc(t.symbol)}</b><small>${esc(t.strategy)}</small></span>
       <span>${t.closed ? `Bought ${esc(t.opened)} at ${px(t.entry)}, sold ${esc(t.closed)} at ${px(t.exit)}: ${esc(t.why_closed)}` : `Bought ${esc(t.opened)} at ${px(t.entry)}; stop ${px(t.stop)}, target ${px(t.target)}`}
         <small>${esc(t.why)}</small></span>
       <span class="amt">${t.closed ? pct(t.change) : `<small class="muted">open</small>`}</span></div>`;
   const list = (ts, empty) => ts.length ? ts.map(one).join("") : `<p class="muted">${empty}</p>`;
   return card("Strategy lab: rules that trade every weekday",
-      `<div style="overflow-x:auto"><table class="grid"><tr><th>Rule</th><th>Open</th><th>Closed</th><th>Made money</th><th>Average result</th><th>Record</th></tr>${rows}</table></div>
-       <p><button class="btn" id="lab-run">Run the lab now</button></p>`, lab.note) +
+      `<div style="overflow-x:auto"><table class="grid"><tr><th>Rule</th><th>Live paper trades</th><th>On past prices</th></tr>${rows}</table></div>
+       <p class="note">${esc(replayLine)} ${esc(lab.history_note || "")}</p>
+       <p><button class="btn" id="lab-run">Run the lab now</button> <button class="btn" id="lab-replay">Replay over past prices</button> <button class="btn" id="lab-refresh">Refresh</button></p>`, lab.note) +
+    card("Add a strategy from a document", upload + added) +
     card(`Lab: bought and holding (${lab.open.length})`, list(lab.open, "Nothing open yet. The lab opens its first trades on the next weekday morning, or press Run the lab now.")) +
     card(`Lab: sold (${lab.closed.length})`, list(lab.closed, "Nothing has closed yet. A trade closes at its stop, its target, or its time limit."));
 }
@@ -454,6 +471,24 @@ function render() {
   document.querySelectorAll("[data-pick]").forEach((b) => b.onclick = () => loadPicks({ action: b.dataset.pick, symbol: b.dataset.sym }));
   document.querySelectorAll("[data-keep]").forEach((b) => b.onclick = async () => { await watch("add", b.dataset.keep); picksData = null; render(); });
   if ($("picks-refresh")) $("picks-refresh").onclick = () => loadPicks({ action: "refresh" });
+  const labCall = async (path, body, status) => {
+    if ($("lab-status")) $("lab-status").textContent = status || "";
+    try { const out = await api(path, body); practiceData.practice.lab = out.lab; render(); if (out.text) notice(out.text); return out; }
+    catch (e) { render(); notice(e.message); }
+  };
+  if ($("lab-replay")) $("lab-replay").onclick = () => labCall("/api/invest/lab/replay", {});
+  if ($("lab-refresh")) $("lab-refresh").onclick = () => labCall("/api/invest/lab");
+  document.querySelectorAll("[data-rule]").forEach((b) => b.onclick = () => labCall("/api/invest/lab/rule", { key: b.dataset.key, action: b.dataset.rule }));
+  if ($("lab-paste")) $("lab-paste").onclick = () => { const text = $("lab-text").value.trim(); if (text) labCall("/api/invest/lab/upload", { name: "pasted text", text }, "Reading…"); };
+  if ($("lab-upload")) $("lab-upload").onclick = () => {
+    const file = $("lab-file").files[0];
+    if (!file) { notice("Choose a file first."); return; }
+    if (file.size > 8000000) { notice("That file is over 8 MB."); return; }
+    const reader = new FileReader();
+    reader.onload = () => labCall("/api/invest/lab/upload", { name: file.name, data: String(reader.result).split(",")[1] || "" }, "Reading " + file.name + "…");
+    reader.onerror = () => notice("That file could not be read.");
+    reader.readAsDataURL(file);
+  };
   if ($("lab-run")) $("lab-run").onclick = async () => {
     $("lab-run").disabled = true; $("lab-run").textContent = "Running…";
     try { const out = await api("/api/invest/lab", {}); practiceData.practice.lab = out.lab; render();

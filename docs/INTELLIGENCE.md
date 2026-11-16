@@ -319,3 +319,23 @@ fund over the same days. The figures each trade was opened on are kept, so a mod
 conditions went with the wins. A rule is called unproven until 30 of its trades have closed. The Trading tab
 shows each rule's record and every trade bought and sold; "Run the lab now" runs it without waiting for the
 morning. No AI decides a trade and nothing real is ever bought.
+
+### History, and strategies you add
+
+**History.** Every rule in the lab is also replayed over the past five years of daily prices, one day at a
+time, each day seeing only the prices up to that day. Those trades are kept apart from the live paper
+trades and shown in their own column, so a rule can be judged without waiting months. Two things flatter
+the past and the page says so: the list of companies is today's (those that failed are missing), and no
+trading costs are taken off. The replay runs by itself the first time the lab runs, and from "Replay over
+past prices" in the Trading tab.
+
+**Your own strategies** (`stratrules.py`). In the Trading tab, upload a document that describes a strategy
+(PDF, Word, web page, text) or paste its text. The server takes the text out, one model call writes the
+strategy as a rule, and the rule is shown as proposed with anything it could not translate. After you
+approve it, it is replayed over past prices and paper-trades every weekday with the built-in rules.
+
+The rule can only be a short list of conditions on figures Buddy measures from daily prices (RSI, distance
+from the 20, 50 and 200-day averages, returns over a week to a year, distance from the one-year high, new
+highs, volume, daily range), an optional ranking, and a time limit. A document cannot add code: anything
+outside that form is dropped, and what the strategy needs that Buddy cannot measure is listed back to you.
+A document with nothing personal in it may be read by a free model; anything personal goes to Claude only.

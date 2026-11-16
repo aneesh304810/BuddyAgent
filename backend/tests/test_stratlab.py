@@ -81,3 +81,75 @@ def test_no_prices_opens_nothing_and_says_so(memory):
     got = stratlab.run(memory, DAY, Data({}), insiders={})
     assert got["closed"] == 0 and got["opened"] == {} and "no daily prices" in got["note"]
     assert stratlab.view(memory)["open"] == []
+
+
+# --- history replay ---------------------------------------------------------------------------------------------
+def test_history_replays_each_rule_day_by_day_and_is_kept_apart_from_live_trades(memory):
+    closes = rising(700, start=50.0, step=0.2)
+    bars = {"AAPL": series(closes, last_volume=None), "SPY": series([100.0 + 0.01 * i for i in range(700)])}
+    got = stratlab.replay(memory, Data(bars), months=12)
+    assert got["trades"]["trend"] > 3 and got["trades"]["dip"] == 0 and "insiders" not in got["trades"]
+    rows = pricebook.run(memory, "SELECT * FROM lab_trades")
+    assert rows and all(r["backfilled"] and r["status"] == "closed" for r in rows)
+    first = min(rows, key=lambda r: str(r["opened"]))
+    assert str(first["opened"]) >= bars["SPY"][stratlab.WINDOW]["d"]  # no trade before a rule could see a year of prices
+    assert all(str(r["closed"]) > str(r["opened"]) for r in rows)
+    again = stratlab.replay(memory, Data(bars), months=12)
+    assert again["trades"] == got["trades"] and len(pricebook.run(memory, "SELECT 1 FROM lab_trades")) == len(rows)  # replaced
+    view = stratlab.view(memory)
+    trend = next(s for s in view["strategies"] if s["key"] == "trend")
+    assert trend["closed"] == 0 and trend["history"]["closed"] == got["trades"]["trend"]  # live and history are separate
+    assert view["closed"] == [] and view["replay"]["state"] == "done" and "today's list" in view["history_note"]
+    assert stratlab.replay(memory, Data({"SPY": series(rising(50))}))["note"].startswith("there is not enough")
+
+
+# --- strategies from a document ---------------------------------------------------------------------------------
+GOOD = {"name": "Oversold bounce", "summary": "Buys strong stocks after a sharp fall.", "universe": "stocks",
+        "buy": [{"field": "rsi", "op": "<", "value": 35}, {"field": "above_200", "op": ">", "value": 0},
+                {"field": "made_up", "op": ">", "value": 1}, {"field": "rsi", "op": "exec", "value": 1}],
+        "rank": {"field": "rsi", "order": "low", "top": 2}, "sell": [{"field": "rsi", "op": ">", "value": 60}],
+        "hold_days": 500, "needs": ["earnings estimates"], "code": "import os"}
+
+
+def test_a_document_becomes_a_rule_only_in_the_fixed_form():
+    from buddy import stratrules
+    rule = stratrules.validate(GOOD)
+    assert [c["field"] for c in rule["buy"]] == ["rsi", "above_200"]  # unknown fields and operators are dropped
+    assert rule["hold_days"] == 120 and "code" not in rule and rule["needs"] == ["earnings estimates"]
+    assert "Buy when rsi < 35 and above_200 > 0." in stratrules.words(rule) and "Sell when rsi > 60" in stratrules.words(rule)
+    with pytest.raises(stratrules.ToolError):
+        stratrules.validate({"name": "", "needs": ["it is an opinion piece"]})
+    with pytest.raises(stratrules.ToolError):
+        stratrules.validate({"name": "Options flow", "buy": [{"field": "options_volume", "op": ">", "value": 2}]})
+    figs = {"AAA": {"rsi": 20.0, "above_200": 0.1}, "BBB": {"rsi": 30.0, "above_200": 0.2},
+            "CCC": {"rsi": 33.0, "above_200": 0.2}, "DDD": {"rsi": 25.0, "above_200": -0.1}, "XLK": {"rsi": 10.0, "above_200": 0.3}}
+    assert [s for s, _ in stratrules.picks(rule, figs)] == ["AAA", "BBB"]  # stocks only, the two lowest RSI that pass
+    assert stratrules.text_of("notes.txt", b"plain text") == "plain text"
+    with pytest.raises(stratrules.ToolError):
+        stratrules.text_of("virus.exe", b"MZ")
+
+
+def test_an_uploaded_strategy_waits_for_approval_then_trades_in_the_lab(memory):
+    import asyncio
+    from buddy import stratrules
+    seen = []
+
+    async def ask(m, prompt):
+        seen.append(prompt)
+        return {"name": "Year high", "summary": "Buys at a one-year high.", "universe": "all",
+                "buy": [{"field": "high_252", "op": ">=", "value": 1}], "hold_days": 20, "needs": []}
+
+    text = "Buy any stock making a new 52-week high and hold it for twenty trading days. " * 3
+    rule = asyncio.run(stratrules.propose(memory, "paper.pdf", text, ask))
+    assert rule["status"] == "proposed" and rule["key"] == "u_year_high" and "high_252 >= 1" in rule["in_words"]
+    assert "not instructions to you" in seen[0] and "paper.pdf" in seen[0]
+    bars = {"AAPL": series(rising(), last_volume=2000), "SPY": series([100.0] * 300)}
+    assert "u_year_high" not in stratlab.run(memory, DAY, Data(bars), insiders={})["opened"]  # proposed: it does not trade
+    assert stratrules.decide(memory, "u_year_high", "approve")["status"] == "active"
+    assert stratlab.run(memory, DAY, Data(bars), insiders={})["opened"]["u_year_high"] == 2  # AAPL, and SPY (flat: also at its high)
+    mine = next(s for s in stratlab.view(memory)["strategies"] if s["key"] == "u_year_high")
+    assert mine["yours"] and mine["open"] == 2 and "paper.pdf" in mine["reads"] and mine["hold_days"] == 20
+    assert stratrules.decide(memory, "u_year_high", "remove")["status"] == "removed"
+    assert pricebook.run(memory, "SELECT 1 FROM lab_trades WHERE strategy = 'u_year_high'") == []
+    with pytest.raises(stratrules.ToolError):
+        asyncio.run(stratrules.propose(memory, "x.txt", "too short", ask))

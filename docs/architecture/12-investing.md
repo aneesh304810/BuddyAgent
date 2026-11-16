@@ -22,6 +22,7 @@ flowchart LR
         signals_py["signals.py<br/>what people are saying on Reddit about deals, travel, products and…"]
         simbook_py["simbook.py<br/>every signal Buddy makes is paper-traded automatically, by fixed…"]
         stratlab_py["stratlab.py<br/>well-known trading rules, each paper-traded every weekday, to see…"]
+        stratrules_py["stratrules.py<br/>a document that describes a trading strategy becomes a rule the…"]
         crossmarket_py["crossmarket.py<br/>The Practice tab of the Investments page: Buddy's paper trades (what…"]
         markets_py["markets.py<br/>Buddy scans for chart setups, finds entry and exit levels, reads what…"]
         livewatch_py["livewatch.py<br/>during US market hours Buddy checks the price of each symbol being…"]
@@ -61,6 +62,7 @@ flowchart LR
     simbook_py --> markets_py
     stratlab_py --> finnhub_py
     stratlab_py --> markets_py
+    stratlab_py --> stratrules_py
     crossmarket_py --> markets_py
     crossmarket_py --> simbook_py
     crossmarket_py --> stratlab_py
@@ -78,11 +80,12 @@ flowchart LR
     paper_py --> finnhub_py
     paper_py --> markets_py
     invest_py --> markets_py
-    db[("Your database<br/>api_calls, fund_filings, fund_holdings, fundamentals, inv_journal, lab_trades, live_events, mkt_positions and more")]
+    db[("Your database<br/>api_calls, fund_filings, fund_holdings, fundamentals, inv_journal, lab_rules, lab_trades, live_events and more")]
     recommend_py --> db
     signals_py --> db
     simbook_py --> db
     stratlab_py --> db
+    stratrules_py --> db
     markets_py --> db
     livewatch_py --> db
     lenses_py --> db
@@ -258,12 +261,48 @@ rule below open paper trades by itself. No AI decides a trade, and no real order
                 opened on (RSI, distance from the averages, recent returns, volume, daily range), so a model can
                 later learn which conditions went with the wins.
 
+  History      so that a rule does not need months of live trades to be judged, every rule is also replayed over
+               the past years of daily prices, day by day, seeing only what was known on each day. Those trades
+               are kept apart and marked as history. Two cautions the page states: the list of companies is
+               today's (those that failed or shrank are missing, which flatters the past), and no costs are
+               taken off.
+  Your rules   a strategy document you upload becomes a rule here once you approve it (stratrules.py).
+
 Daily prices decide stops and targets, so a real fill could differ; costs and taxes are not taken off. A rule is
 called unproven until 30 of its trades have closed.
 ```
 
 - Tables: `lab_trades`
-- Uses: finnhub.py, market_school.py, markets.py, memory.py, pricebook.py, tools.py, watchpicks.py
+- Uses: finnhub.py, market_school.py, markets.py, memory.py, pricebook.py, stratrules.py, tools.py, watchpicks.py
+
+### stratrules.py
+
+```text
+Strategies you add: a document that describes a trading strategy becomes a rule the strategy lab can test.
+
+  upload      a PDF, Word file, web page or text you give Buddy from the Trading tab (or pasted text)
+  read        the text is taken out on the server, and one model call writes the strategy as a rule in the fixed
+              form below. A strategy document is public material; if the text holds anything personal (an email
+              address is enough) it goes to Claude only, like everything personal.
+  proposed    the rule is saved as proposed, with what could not be translated. Nothing trades yet.
+  approved    after your yes it joins the strategy lab (stratlab.py): it is replayed over past prices straight
+              away and paper-trades every weekday from then on, with its own record against the market.
+
+The rule form is a short list of conditions on figures Buddy already measures from daily prices (FIELDS). A
+document cannot add code: anything outside this form is dropped at validation, and what the strategy needs
+that Buddy cannot measure (options, intraday prices, earnings estimates) is listed back to you instead.
+
+  {"name": ..., "summary": ..., "universe": "all" | "stocks" | "sectors" | "indexes" | ["AAPL", ...],
+   "buy": [{"field": ..., "op": ">" | "<" | ">=" | "<=", "value": number}, ...],     all must hold
+   "rank": {"field": ..., "order": "high" | "low", "top": 1-10},                     optional
+   "sell": [conditions],                                                              optional, all must hold
+   "hold_days": 5-120, "needs": ["what could not be translated", ...]}
+
+Every trade also keeps the lab's own stop, target and time limit. No real order is ever placed.
+```
+
+- Tables: `lab_rules`
+- Uses: library.py, maestro.py, market_school.py, memory.py, pricebook.py, tools.py
 
 ### crossmarket.py
 

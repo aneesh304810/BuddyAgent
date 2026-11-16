@@ -1773,6 +1773,54 @@ async def api_invest_lab() -> dict:
     return {"ran": await asyncio.to_thread(stratlab.run, memory), "lab": await asyncio.to_thread(stratlab.view, memory)}
 
 
+@app.get("/api/invest/lab", dependencies=[Depends(require_admin)])
+async def api_invest_lab_view() -> dict:
+    from . import stratlab  # noqa: PLC0415
+    return {"lab": await asyncio.to_thread(stratlab.view, memory)}
+
+
+@app.post("/api/invest/lab/upload", dependencies=[Depends(require_admin)])
+async def api_invest_lab_upload(body: dict) -> dict:
+    """A strategy document (name + data as base64, or name + text): read into a proposed rule. Nothing trades
+    until the owner approves it."""
+    import base64  # noqa: PLC0415
+    from . import stratlab, stratrules  # noqa: PLC0415
+    name = str(body.get("name") or "pasted text")[:120]
+    try:
+        if body.get("data"):
+            raw = base64.b64decode(str(body["data"]), validate=True)
+            if len(raw) > 8_000_000:
+                raise ToolError("That file is over 8 MB. Upload the part that describes the strategy.")
+            text = await asyncio.to_thread(stratrules.text_of, name, raw)
+        else:
+            text = str(body.get("text") or "")
+        rule = await stratrules.propose(memory, name, text)
+    except ToolError as e:
+        raise HTTPException(status_code=400, detail=str(e)) from e
+    except ValueError as e:
+        raise HTTPException(status_code=400, detail="That upload could not be read.") from e
+    return {"rule": rule, "lab": await asyncio.to_thread(stratlab.view, memory)}
+
+
+@app.post("/api/invest/lab/rule", dependencies=[Depends(require_admin)])
+async def api_invest_lab_rule(body: dict) -> dict:
+    """approve · pause · remove an added strategy. Approving replays it over past prices in the background."""
+    from . import stratlab, stratrules  # noqa: PLC0415
+    try:
+        rule = await asyncio.to_thread(stratrules.decide, memory, str(body.get("key") or ""), str(body.get("action") or ""))
+    except ToolError as e:
+        raise HTTPException(status_code=400, detail=str(e)) from e
+    text = stratlab.replay_in_background(memory, [rule["key"]]) if rule["status"] == "active" else ""
+    return {"rule": rule, "text": text, "lab": await asyncio.to_thread(stratlab.view, memory)}
+
+
+@app.post("/api/invest/lab/replay", dependencies=[Depends(require_admin)])
+async def api_invest_lab_replay() -> dict:
+    """Replay every rule over past prices (in the background)."""
+    from . import stratlab  # noqa: PLC0415
+    return {"text": stratlab.replay_in_background(memory), "lab": await asyncio.to_thread(stratlab.view, memory)}
+
+
 @app.get("/api/invest/picks", dependencies=[Depends(require_admin)])
 async def api_invest_picks() -> dict:
     """Buddy's recommended watchlist from the Intelligence evidence, and its archive, grouped by sector."""

@@ -100,7 +100,7 @@ flowchart LR
 | [Money](09-money.md) | Bank and card feeds (read-only), bills, the money advisor and review, card choices and benefits, cancelling subscriptions; never moves money | 13 |
 | [Shopping and deals](10-shopping-and-deals.md) | Your shopping profile, buy now or wait, the daily deals collector, the deals inbox, deal forecasts and watches, price history, Amazon prices and seasonal prices; never buys | 10 |
 | [The price book, pattern learning and trained models](11-the-price-book-pattern-learning-and-trained-models.md) | A separate market-price database, nightly pattern learning in the sandbox, and models trained on judged calls once there is enough data | 3 |
-| [Investing: signals, research and practice](12-investing.md) | Chart setups and trade ideas, Reddit and news signals, buy and sell signals with a track record, live triggers, investor checklists, fund holdings, the committee and journal, a paper portfolio and Buddy's own practice book; never trades | 14 |
+| [Investing: signals, research and practice](12-investing.md) | Chart setups and trade ideas, Reddit and news signals, buy and sell signals with a track record, live triggers, investor checklists, fund holdings, the committee and journal, a paper portfolio and Buddy's own practice book; never trades | 15 |
 | [Travel and getting around](13-travel-and-getting-around.md) | Flights and hotels with book now or wait, checking the hotel direct, saved searches, seats, transit alerts, maps, rides, weather and where you are | 12 |
 | [Going out: restaurants and events](14-going-out.md) | Finding and booking a table after your yes; events and films with links to buy tickets yourself | 2 |
 | [News, trends and research](15-news-trends-and-research.md) | The topics you follow with a daily digest, what's trending, searching beyond the web index, reading pages on Buddy's side, and the background research agent | 5 |
@@ -114,4 +114,4 @@ flowchart LR
 | [Insights and costs](23-insights-and-costs.md) | What Buddy spends and how well it does, model by model and service by service, and what makes it feel slow | 4 |
 | [The server and the app](24-the-server-and-the-app.md) | The one server the phone talks to: the chat connection, the app's pages and their data | 1 |
 
-24 features, 155 server modules. The app (Kotlin) and the deploy scripts are documented by `python -m buddy.codedocs`.
+24 features, 156 server modules. The app (Kotlin) and the deploy scripts are documented by `python -m buddy.codedocs`.
