@@ -661,6 +661,13 @@ async def run(memory: Memory, deliver: Deliver, connected=None) -> None:
                         memory.set(newssent.DAY_KEY, local_now().date().isoformat())
                         got = await asyncio.to_thread(newssent.refresh, memory)
                         log.info("news sentiment: asked %d, kept %d, failed %s", got["asked"], got["kept"], got["failed"])
+                    from . import fundamentals  # noqa: PLC0415  earnings surprises and ratios, once a week
+                    if fundamentals.due(memory):
+                        now = local_now()
+                        memory.set(fundamentals.WEEK_KEY, f"{now.isocalendar()[0]}-{now.isocalendar()[1]:02d}")
+                        from . import stratlab as lab_  # noqa: PLC0415
+                        got = await asyncio.to_thread(fundamentals.refresh, memory, lab_.universe(memory))
+                        log.info("company figures: asked %d, kept %d, failed %d", got["asked"], got["kept"], got["failed"])
                     if benchmarks.factors_due(memory):
                         memory.set(benchmarks.MONTH_KEY, local_now().date().isoformat()[:7])
                         log.info("factor returns: %d month-values held", await benchmarks.refresh_factors(memory))

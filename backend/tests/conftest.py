@@ -29,6 +29,9 @@ import pytest  # noqa: E402
 from buddy import bip_sources  # noqa: E402
 
 bip_sources.PACED = False  # no real source is reached in tests, so nothing needs pacing
+from buddy import fundamentals  # noqa: E402
+
+fundamentals.PACED = False
 
 
 # No test may reach the internet: a real call makes the run slow and its result depend on someone else's

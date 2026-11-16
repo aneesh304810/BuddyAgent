@@ -374,3 +374,17 @@ replayed, are rows for the shared learning core under the domain "strategy lab t
 which figures, rules and market conditions went with trades that made money after costs. It is trained in
 the sandbox, tested on the newest 30% of trades it never saw, and used only if it passes; then each new lab
 trade shows its odds. The rules keep trading either way.
+
+### More figures a rule may read
+
+- **Beta and volatility**, worked out from daily prices: how much a stock moves with the S&P 500 over a
+  year, and its yearly swing over three months. These exist for every past day, so rules on them can be
+  replayed.
+- **Company figures** (`fundamentals.py`), from Finnhub once a week for the lab's companies: the latest
+  earnings surprise, return on equity, gross margin, profit growth, price against profits and book value,
+  and debt against equity. Only ticker symbols go out. Buddy holds only today's values of these, so a rule
+  that uses one is paper-traded from now on and cannot be replayed over past prices; the rule's card says so.
+
+Each added rule also says how much of the strategy it holds (all, part or little of it), judged from what
+was left out and how much text there was to read. It is a prompt to check the rule against the document,
+not a guarantee.

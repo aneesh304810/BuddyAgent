@@ -1852,6 +1852,10 @@ async def api_invest_research_do(body: dict) -> dict:
             text = f"Read into a proposed rule: {rule['name']}. Approve it below to start testing."
         elif action == "dismiss":
             await asyncio.to_thread(researchdesk.dismiss, memory, int(body.get("id") or 0))
+        elif action == "company_figures":
+            from . import fundamentals  # noqa: PLC0415
+            got = await asyncio.to_thread(fundamentals.refresh, memory, stratlab.universe(memory))
+            text = got.get("note") or f"Company figures: asked {got['asked']}, kept {got['kept']}, failed {got['failed']}."
         elif action == "factors":
             text = f"{await benchmarks.refresh_factors(memory):,} month-values of factor returns are held."
         elif action == "holdings":

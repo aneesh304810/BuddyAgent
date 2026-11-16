@@ -121,6 +121,40 @@ def figures(bars: list[dict]) -> dict | None:
             "atr_pct": round(swing / price, 4) if swing else None}
 
 
+def market_index(bars: dict) -> dict:
+    """{symbol: {day: (beta, volatility)}} from daily returns: beta is how much the stock has moved with the S&P 500
+    fund over the last 252 trading days it shares with it, volatility its yearly swing over the last 63. Worked out
+    with running sums, so a whole history costs one pass per symbol."""
+    spy = {b["d"]: b["c"] for b in bars.get("SPY") or []}
+    out = {}
+    for s, bs in bars.items():
+        days, xs, ys = [], [], []
+        for a, b in zip(bs, bs[1:]):
+            if a["d"] in spy and b["d"] in spy and a["c"] and spy[a["d"]]:
+                days.append(b["d"])
+                xs.append(b["c"] / a["c"] - 1)
+                ys.append(spy[b["d"]] / spy[a["d"]] - 1)
+        sx, sy, sxy, syy, sxx = [0.0], [0.0], [0.0], [0.0], [0.0]
+        for x, y in zip(xs, ys):
+            sx.append(sx[-1] + x); sy.append(sy[-1] + y); sxy.append(sxy[-1] + x * y)  # noqa: E702
+            syy.append(syy[-1] + y * y); sxx.append(sxx[-1] + x * x)  # noqa: E702
+        got = {}
+        for i in range(120, len(days) + 1):
+            j, k = max(0, i - 252), max(0, i - 63)
+            n, m = i - j, i - k
+            var = (syy[i] - syy[j]) / n - ((sy[i] - sy[j]) / n) ** 2
+            cov = (sxy[i] - sxy[j]) / n - ((sx[i] - sx[j]) / n) * ((sy[i] - sy[j]) / n)
+            swing = max(0.0, (sxx[i] - sxx[k]) / m - ((sx[i] - sx[k]) / m) ** 2) ** 0.5 * 252 ** 0.5
+            got[days[i - 1]] = (round(cov / var, 3) if var > 1e-12 else None, round(swing, 4))
+        out[s] = got
+    return out
+
+
+def _with_market(f: dict, index: dict, symbol: str, day: str) -> dict:
+    beta, swing = (index.get(symbol) or {}).get(day) or (None, None)
+    return {**f, "beta": beta, "vol_63": swing}
+
+
 def picks(strategy: str, figs: dict, extra: dict | None = None) -> list[tuple[str, str]]:
     """(symbol, why) for one rule, strongest first. `figs`: {symbol: figures}. `extra`: insiders' net buying."""
     from . import market_school  # noqa: PLC0415
@@ -218,6 +252,7 @@ def replay(memory: Memory, data=None, months: int = REPLAY_MONTHS, keys: list[st
         return {"trades": {}, "note": "there is not enough price history to replay"}
     at = {s: {b["d"]: i for i, b in enumerate(bs)} for s, bs in bars.items()}
     spy_close = {b["d"]: b["c"] for b in spy}
+    index = market_index(bars)
     held: dict[str, dict[str, dict]] = {k: {} for k in specs}
     done: list[tuple] = []
     for day in [b["d"] for b in spy][WINDOW:]:
@@ -230,7 +265,7 @@ def replay(memory: Memory, data=None, months: int = REPLAY_MONTHS, keys: list[st
             bar[s] = bs[i]
             f = figures(bs[i + 1 - WINDOW: i + 1])
             if f:
-                figs[s] = f
+                figs[s] = _with_market(f, index, s, day)
         for key, spec in specs.items():
             for s, t in list(held[key].items()):
                 b = bar.get(s)
@@ -362,6 +397,13 @@ def run(memory: Memory, today: date | None = None, data=None, insiders: dict | N
     figs = {s: f for s, f in ((s, figures(b)) for s, b in bars.items() if b) if f}
     if not figs:
         return {**out, "note": "no daily prices could be read"}
+    index = market_index(bars)
+    try:  # this week's company figures (earnings surprise, margins, debt): today's values only
+        from . import fundamentals  # noqa: PLC0415
+        company = fundamentals.latest(memory, today)
+    except Exception:
+        company = {}
+    figs = {s: {**_with_market(f, index, s, bars[s][-1]["d"]), **company.get(s, {})} for s, f in figs.items()}
     specs = rules_in_use(memory)
     from . import stratrules  # noqa: PLC0415
     for t in _run(memory, "SELECT id, strategy, symbol, entry, spy_entry FROM lab_trades WHERE status = 'open'"):

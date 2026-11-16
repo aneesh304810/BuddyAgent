@@ -47,13 +47,24 @@ FIELDS = {  # what a condition may read -> what it means (shown to the model and
     "high_252": "1 when today's close is the highest of a year, else 0",
     "volume_times": "today's volume against the 20-day usual (1.5 is one and a half times)",
     "atr_pct": "the average daily range as a fraction of the price (how jumpy it is)",
+    "beta": "how much the stock moves with the S&P 500 over a year (1 moves with it, under 1 is calmer)",
+    "vol_63": "the stock's yearly swing measured over three months, as a fraction (0.2 is 20%)",
+    "earnings_surprise": "the latest quarter's profit against what analysts expected (0.05 beat by 5%)",
+    "roe": "return on equity over twelve months, as a fraction (0.15 is 15%)",
+    "gross_margin": "gross margin over twelve months, as a fraction",
+    "eps_growth": "profit per share against a year before, as a fraction",
+    "pe": "price against twelve months of profits",
+    "pb": "price against book value",
+    "debt_to_equity": "total debt against shareholders' equity (under 1 is modest)",
 }
+LIVE_ONLY = ("earnings_surprise", "roe", "gross_margin", "eps_growth", "pe", "pb", "debt_to_equity")  # no past record
 OPS = {">": lambda a, b: a > b, "<": lambda a, b: a < b, ">=": lambda a, b: a >= b, "<=": lambda a, b: a <= b}
 UNIVERSES = ("all", "stocks", "sectors", "indexes")
 MAX_TEXT, MAX_RULES = 14000, 30
 SCHEMA = ["""CREATE TABLE IF NOT EXISTS lab_rules (
     key VARCHAR PRIMARY KEY, name VARCHAR, summary VARCHAR, rule VARCHAR, needs VARCHAR, source VARCHAR,
     status VARCHAR DEFAULT 'proposed', created VARCHAR)""",
+          "ALTER TABLE lab_rules ADD COLUMN IF NOT EXISTS captures VARCHAR DEFAULT ''",
           "ALTER TABLE lab_rules ADD COLUMN IF NOT EXISTS source_url VARCHAR DEFAULT ''",
           "ALTER TABLE lab_rules ADD COLUMN IF NOT EXISTS licence VARCHAR DEFAULT ''"]
 PROMPT = """Below is a document that describes a trading strategy. Write the strategy as ONE rule in this exact
@@ -222,10 +233,13 @@ async def propose(memory: Memory, name: str, text: str, ask=None, source_url: st
     key, n = base, 2
     while _run(memory, "SELECT 1 FROM lab_rules WHERE key = ?", (key,)):
         key, n = f"{base}_{n}", n + 1
-    _run(memory, "INSERT INTO lab_rules (key, name, summary, rule, needs, source, status, created, source_url, licence) "
-                 "VALUES (?, ?, ?, ?, ?, ?, 'proposed', ?, ?, ?)",
+    # How much of the strategy the rule holds, judged from what was left out and how much text there was to read.
+    captures = ("little of it" if len(rule["needs"]) >= 2 else "part of it" if rule["needs"] or len(text) < 1500
+                else "all of it, as far as Buddy can tell")
+    _run(memory, "INSERT INTO lab_rules (key, name, summary, rule, needs, source, status, created, source_url, licence, "
+                 "captures) VALUES (?, ?, ?, ?, ?, ?, 'proposed', ?, ?, ?, ?)",
          (key, rule["name"], rule["summary"], json.dumps(rule), json.dumps(rule["needs"]), str(name)[:120],
-          datetime.now(timezone.utc).isoformat(timespec="seconds"), str(source_url)[:500], str(licence)[:60]))
+          datetime.now(timezone.utc).isoformat(timespec="seconds"), str(source_url)[:500], str(licence)[:60], captures))
     return one(memory, key)
 
 
@@ -233,6 +247,9 @@ def _shape(r: dict) -> dict:
     rule = json.loads(r["rule"])
     return {"key": r["key"], "name": r["name"], "summary": r["summary"], "status": r["status"], "source": r["source"],
             "created": r["created"], "source_url": r.get("source_url") or "", "licence": r.get("licence") or "",
+            "captures": r.get("captures") or "",
+            "live_only": sorted({c["field"] for c in rule["buy"] + rule["sell"] if c["field"] in LIVE_ONLY}
+                                | ({rule["rank"]["field"]} if rule["rank"] and rule["rank"]["field"] in LIVE_ONLY else set())),
             "rule": rule, "in_words": words(rule), "needs": json.loads(r["needs"] or "[]")}
 
 

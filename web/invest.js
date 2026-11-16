@@ -290,7 +290,8 @@ function researchCards() {
   const frows = (f.rows || []).map((x) => `<div class="row" style="cursor:default"><span class="name fixed" style="flex:1"><b>${esc(x.name)}</b> <small class="muted">${esc(x.what)}</small></span>
       <span class="amt">${pct(x.last_12_months)} <small class="muted">last 12 months</small><br>${pct(x.average_year)} <small class="muted">a year, since ${esc(f.from || "")}</small></span></div>`).join("");
   const yard = card("Yardsticks: what plain styles returned", (frows || `<p class="muted">Not fetched yet.</p>`) +
-    `<p><button class="btn" id="research-factors">Fetch the factor returns</button></p>`, f.note || "");
+    `<p><button class="btn" id="research-factors">Fetch the factor returns</button> <button class="btn" id="research-company">Fetch company figures now</button></p>`,
+    (f.note || "") + " Company figures (earnings surprise, margins, debt) are fetched weekly for the lab's companies; fetching now takes a few minutes.");
   const lrows = (b.lists || []).map((l) => `<div class="row" style="cursor:default"><span class="name" style="white-space:normal"><b>${esc(l.title || l.name)}</b>
       <small class="muted">${esc(l.symbols)} symbols · ${esc(l.day)} · ${esc(l.versions)} dated version${l.versions === 1 ? "" : "s"}${l.in_use ? " · used by the lab" : ""}</small></span>
       <button class="btn small" data-uselist="${l.in_use ? "" : esc(l.name)}">${l.in_use ? "Stop using" : "Use in the lab"}</button></div>`).join("");
@@ -323,6 +324,8 @@ function labCards(p) {
       <span class="muted">${r.source_url ? `<a href="${safe(r.source_url)}" target="_blank" rel="noopener">${esc(r.source || "source")}</a>` : esc(r.source || "pasted text")}${r.licence ? " · " + esc(r.licence) : ""}</span></div>
       <p style="margin:6px 0">${esc(r.summary)}</p><p class="muted" style="margin:0 0 6px"><b>The rule Buddy will test:</b> ${esc(r.in_words)}</p>
       ${r.needs.length ? `<p class="muted" style="margin:0 0 6px"><b>Left out, because Buddy cannot measure it:</b> ${r.needs.map(esc).join("; ")}</p>` : ""}
+      ${r.captures ? `<p class="muted" style="margin:0 0 6px"><b>How much of the strategy this rule holds:</b> ${esc(r.captures)}. Read the rule against the document before you approve.</p>` : ""}
+      ${(r.live_only || []).length ? `<p class="muted" style="margin:0 0 6px"><b>No history for:</b> ${r.live_only.map(esc).join(", ")}. Buddy has only today's values of these, so this rule can be paper-traded from now but not replayed over past prices.</p>` : ""}
       <p>${r.status !== "active" ? `<button class="btn solid" data-rule="approve" data-key="${esc(r.key)}">Approve and start testing</button> ` : `<button class="btn" data-rule="pause" data-key="${esc(r.key)}">Pause</button> `}
         <button class="btn" data-rule="remove" data-key="${esc(r.key)}">Remove</button></p></div>`).join("");
   const upload = `<p class="muted">Upload a document that describes a strategy (PDF, Word, web page or text), or paste the text. Buddy writes it as a rule and shows it here. Nothing trades until you approve it.</p>
@@ -528,6 +531,7 @@ function render() {
   if ($("research-reload")) $("research-reload").onclick = () => { researchData = null; render(); };
   if ($("research-search")) $("research-search").onclick = () => loadResearch({ action: "search" });
   if ($("research-factors")) $("research-factors").onclick = () => loadResearch({ action: "factors" });
+  if ($("research-company")) $("research-company").onclick = () => { $("research-company").disabled = true; $("research-company").textContent = "Fetching…"; loadResearch({ action: "company_figures" }); };
   if ($("research-github")) $("research-github").onclick = () => { const url = $("research-url").value.trim(); if (url) loadResearch({ action: "github", url }); };
   document.querySelectorAll("[data-research]").forEach((b) => b.onclick = () => { b.disabled = true; b.textContent = b.dataset.research === "read" ? "Reading…" : "…";
     loadResearch({ action: b.dataset.research, id: Number(b.dataset.id) }); });

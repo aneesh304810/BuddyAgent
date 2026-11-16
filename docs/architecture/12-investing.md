@@ -27,6 +27,7 @@ flowchart LR
         benchmarks_py["benchmarks.py<br/>Benchmarks and symbol lists for the strategy lab: academic factor…"]
         newssent_py["newssent.py<br/>how the news on a company reads, as a number, from two services that…"]
         docread_py["docread.py<br/>Reading a file Buddy was given or downloaded: the text is taken out…"]
+        fundamentals_py["fundamentals.py<br/>the latest earnings surprise and a few basic financial ratios"]
         crossmarket_py["crossmarket.py<br/>The Practice tab of the Investments page: Buddy's paper trades (what…"]
         markets_py["markets.py<br/>Buddy scans for chart setups, finds entry and exit levels, reads what…"]
         livewatch_py["livewatch.py<br/>during US market hours Buddy checks the price of each symbol being…"]
@@ -66,11 +67,13 @@ flowchart LR
     simbook_py --> markets_py
     stratlab_py --> benchmarks_py
     stratlab_py --> finnhub_py
+    stratlab_py --> fundamentals_py
     stratlab_py --> markets_py
     stratlab_py --> stratrules_py
     researchdesk_py --> docread_py
     researchdesk_py --> stratrules_py
     benchmarks_py --> docread_py
+    fundamentals_py --> finnhub_py
     crossmarket_py --> markets_py
     crossmarket_py --> simbook_py
     crossmarket_py --> stratlab_py
@@ -97,6 +100,7 @@ flowchart LR
     researchdesk_py --> db
     benchmarks_py --> db
     newssent_py --> db
+    fundamentals_py --> db
     markets_py --> db
     livewatch_py --> db
     lenses_py --> db
@@ -299,7 +303,7 @@ unproven until 30 of its trades have closed.
 ```
 
 - Tables: `lab_trades`
-- Uses: benchmarks.py, finnhub.py, market_school.py, markets.py, memory.py, modeltrain.py, pricebook.py, stratrules.py, tools.py, watchpicks.py
+- Uses: benchmarks.py, finnhub.py, fundamentals.py, market_school.py, markets.py, memory.py, modeltrain.py, pricebook.py, stratrules.py, tools.py, watchpicks.py
 
 ### stratrules.py
 
@@ -413,6 +417,29 @@ same script runs inside Buddy as a fallback, and the result says so.
 ```
 
 - Uses: sandbox.py, tools.py
+
+### fundamentals.py
+
+```text
+Company figures for the strategy lab: the latest earnings surprise and a few basic financial ratios.
+
+Some well-known strategies cannot be written from prices alone: buying after an earnings surprise, or buying
+quality companies (profitable, not deep in debt). Finnhub, whose key Buddy already uses, publishes these per
+company. Once a week Buddy asks for the lab's companies and keeps one value per company, figure and day:
+
+  earnings_surprise   the latest reported quarter's profit against what analysts expected, as a fraction
+  roe                 return on equity over the last twelve months, as a fraction
+  gross_margin        gross margin over the last twelve months, as a fraction
+  eps_growth          profit per share against a year before, as a fraction
+  pe, pb              price against profits, and against book value
+  debt_to_equity      total debt against shareholders' equity
+
+Only ticker symbols go out. These are today's values: there is no past record of them here, so a rule that
+uses one can be paper-traded from now on but cannot be replayed over past prices, and the page says so.
+```
+
+- Tables: `fundamentals`
+- Uses: finnhub.py, memory.py, pricebook.py, tools.py
 
 ### crossmarket.py
 
