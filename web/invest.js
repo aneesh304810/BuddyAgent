@@ -356,7 +356,9 @@ function labCards(p) {
   const upload = `<p class="muted">Upload a document that describes a strategy (PDF, Word, web page or text), or paste the text. Buddy writes it as a rule and shows it here. Nothing trades until you approve it.</p>
       <p><input type="file" id="lab-file" accept=".pdf,.docx,.html,.htm,.txt,.md" aria-label="Strategy document"> <button class="btn solid" id="lab-upload">Upload and read</button></p>
       <textarea id="lab-text" rows="4" style="width:100%;box-sizing:border-box;background:var(--bg);color:inherit;border:1px solid var(--line);border-radius:10px;padding:8px" placeholder="Or paste the strategy's text here" aria-label="Strategy text"></textarea>
-      <p><button class="btn" id="lab-paste">Read the pasted text</button> <span class="muted" id="lab-status"></span></p>`;
+      <p><button class="btn" id="lab-paste">Read the pasted text</button> <span class="muted" id="lab-status"></span></p>
+      <div class="add"><input id="lab-url" placeholder="Or a page's address: https://…" aria-label="Page address"><button class="btn" id="lab-link">Read this page</button></div>
+      <p class="muted">Buddy fetches that one page, once, and keeps only the rule and the link. Pages that need a sign-in or load by script cannot be read this way: paste their text instead.</p>`;
   const one = (t) => `<div class="tx" style="grid-template-columns:92px 1fr auto"><span><b>${esc(t.symbol)}</b><small>${esc(t.strategy)}</small></span>
       <span>${t.closed ? `Bought ${esc(t.opened)} at ${px(t.entry)}, sold ${esc(t.closed)} at ${px(t.exit)}: ${esc(t.why_closed)}` : `Bought ${esc(t.opened)} at ${px(t.entry)}; stop ${px(t.stop)}, target ${px(t.target)}`}
         <small>${esc(t.why)}</small></span>
@@ -602,6 +604,7 @@ function render() {
   if ($("lab-refresh")) $("lab-refresh").onclick = () => labCall("/api/invest/lab");
   document.querySelectorAll("[data-rule]").forEach((b) => b.onclick = () => labCall("/api/invest/lab/rule", { key: b.dataset.key, action: b.dataset.rule }));
   if ($("lab-paste")) $("lab-paste").onclick = () => { const text = $("lab-text").value.trim(); if (text) labCall("/api/invest/lab/upload", { name: "pasted text", text }, "Reading…"); };
+  if ($("lab-link")) $("lab-link").onclick = () => { const url = $("lab-url").value.trim(); if (url) labCall("/api/invest/lab/upload", { url }, "Reading the page…"); };
   if ($("lab-upload")) $("lab-upload").onclick = () => {
     const file = $("lab-file").files[0];
     if (!file) { notice("Choose a file first."); return; }

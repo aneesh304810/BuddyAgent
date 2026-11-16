@@ -1811,6 +1811,9 @@ async def api_invest_lab_upload(body: dict) -> dict:
             if got["error"] and not got["text"]:
                 raise ToolError(f"Buddy could not read that file ({got['error']}).")
             text = got["text"]
+        elif body.get("url"):  # one public page the owner pointed to, fetched once at their request
+            rule = await stratrules.propose_from_page(memory, str(body["url"]))
+            return {"rule": rule, "lab": await asyncio.to_thread(stratlab.view, memory)}
         else:
             text = str(body.get("text") or "")
         rule = await stratrules.propose(memory, name, text)

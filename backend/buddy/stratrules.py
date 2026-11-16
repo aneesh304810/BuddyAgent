@@ -216,6 +216,25 @@ def text_of(name: str, data: bytes) -> str:
     return data.decode("utf-8", "replace")
 
 
+async def propose_from_page(memory: Memory, url: str, ask=None, fetch=None) -> dict:
+    """Read ONE public web page the owner pointed to into a proposed rule. The page is fetched once, at the owner's
+    request (https and public addresses only, each redirect checked, 3 MB at most: webread.py); nothing is
+    crawled or followed. Its menus and scripts are stripped and the rest is read as a description of a strategy.
+    The page stays where it is: only the rule in Buddy's words and the link are kept."""
+    import asyncio  # noqa: PLC0415
+    from . import webread  # noqa: PLC0415
+    url = str(url or "").strip()
+    if not url.startswith("https://"):
+        raise ToolError("Give the page's full address, starting with https://")
+    final, html = await asyncio.to_thread(fetch or webread.fetch, url)
+    title, text = webread.extract(html)
+    if len(text) < 200:
+        raise ToolError("Buddy could not read enough of that page. If it needs a sign-in or loads by script, copy its "
+                        "text and paste it instead.")
+    return await propose(memory, (title or final)[:110], text, ask, source_url=final,
+                         licence="a page you pointed to: check its terms")
+
+
 async def propose(memory: Memory, name: str, text: str, ask=None, source_url: str = "", licence: str = "") -> dict:
     """Read a strategy document and save the rule it describes as proposed. Returns the rule as shown to the owner."""
     _ready(memory)

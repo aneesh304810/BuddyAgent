@@ -432,3 +432,9 @@ average, and lowest price against profits. The Machine Learning for Trading repo
 building and testing models, not a set of buy rules, so it yields ideas for the figures a model learns
 from; the same holds for the pairs-trading, Kalman-filter and neural-network notebooks, which the lab's
 rule form cannot express.
+
+**A page you point to.** In "Add a strategy from a document" you can give one page's address. Buddy fetches
+that page once, at your request (https and public addresses only, every redirect checked), strips menus
+and scripts, and reads the rest into a proposed rule that carries the link. Nothing is crawled or followed,
+and the page is not stored. Pages behind a sign-in, or that load by script, cannot be read this way; paste
+their text instead.

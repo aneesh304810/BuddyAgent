@@ -222,3 +222,27 @@ def test_rules_read_from_the_owners_papers_load_once_as_proposed_and_stay_remove
     assert "u_52_week_high" not in {r["key"] for r in stratrules.rules(memory)} and stratrules.seed(memory) == 0
     assert len(stratlab.view(memory)["not_rules"]) == 2
     assert stratlab.figures(series(rising()))["lottery"] > 0
+
+
+def test_one_page_the_owner_points_to_becomes_a_proposed_rule_with_its_link(memory):
+    import asyncio
+    from buddy import stratrules
+    fetched = []
+
+    def fetch(url):
+        fetched.append(url)
+        body = "<p>Buy stocks whose 14-day RSI falls below 30 while above the 200-day average, and hold for ten days.</p>" * 6
+        return "https://blog.example/rsi-dip", f"<html><head><title>RSI dip strategy</title><script>x()</script></head><body><nav>Menu</nav>{body}</body></html>"
+
+    async def ask(m, prompt):
+        assert "RSI falls below 30" in prompt and "x()" not in prompt  # the page's text, not its scripts
+        return {"name": "RSI dip", "summary": "Buys oversold stocks in a rise.", "universe": "stocks",
+                "buy": [{"field": "rsi", "op": "<", "value": 30}, {"field": "above_200", "op": ">", "value": 0}], "hold_days": 10}
+
+    rule = asyncio.run(stratrules.propose_from_page(memory, "https://blog.example/rsi", ask, fetch))
+    assert fetched == ["https://blog.example/rsi"] and rule["status"] == "proposed"  # one fetch, nothing followed
+    assert rule["source_url"] == "https://blog.example/rsi-dip" and "check its terms" in rule["licence"]
+    with pytest.raises(stratrules.ToolError):
+        asyncio.run(stratrules.propose_from_page(memory, "http://insecure.example/x", ask, fetch))
+    with pytest.raises(stratrules.ToolError, match="could not read enough"):
+        asyncio.run(stratrules.propose_from_page(memory, "https://app.example/x", ask, lambda u: (u, "<html><body>Loading…</body></html>")))
