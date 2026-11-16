@@ -119,7 +119,7 @@ function render() {
         <small>${esc(d.store || d.source)} · ${esc(d.seen_on)}${d.ends ? ` · ends ${esc(d.ends)}` : ""}</small><br>
         ${d.is_lowest ? `<span class="pill low">Lowest Buddy has seen</span>` : d.lowest_seen ? `<span class="pill">Lowest seen ${money(d.lowest_seen)}</span>` : ""}
         ${d.off ? `<span class="pill">${Math.round(d.off * 100)}% off</span>` : ""}
-        <div>${safe(d.url) ? `<a class="btn" href="${esc(safe(d.url))}" target="_blank" rel="noopener noreferrer">Open deal</a>` : ""}
+        <div>${safe(d.url) ? `<a class="btn" href="${esc(safe(d.url))}" target="_blank" rel="noopener noreferrer">Open deal</a>` : `<small class="muted">No link came with this one</small>`}
           <button class="btn" data-i="${i}">Price history</button></div>
       </div>
       <div class="price"><b>${money(d.price)}</b>${d.regular_price ? `<s>${money(d.regular_price)}</s>` : ""}</div>
@@ -152,7 +152,7 @@ async function history_(d) {
         ${h.points.length} day${h.points.length === 1 ? "" : "s"}, lowest ${money(h.lowest)}</p>
       ${chartSvg(h.points)}
       <p class="muted">Ask Buddy "should I buy it now?" for a buy-or-wait call.</p>
-      ${safe(d.url) ? `<a class="btn" href="${esc(safe(d.url))}" target="_blank" rel="noopener noreferrer">Open deal</a>` : ""}`;
+      ${safe(d.url) ? `<a class="btn" href="${esc(safe(d.url))}" target="_blank" rel="noopener noreferrer">Open deal</a>` : `<small class="muted">No link came with this one</small>`}`;
     $("panel").querySelector(".close").onclick = () => $("sheet").classList.remove("open");
   } catch (e) { $("panel").innerHTML += `<p class="err">${esc(e.message)}</p>`; }
 }

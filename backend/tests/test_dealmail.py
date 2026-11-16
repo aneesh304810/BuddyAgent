@@ -146,3 +146,49 @@ def test_a_flood_of_product_deals_does_not_push_flights_and_hotels_off_the_page(
     assert any(d["domain"] == "flight" and "LIM" in d["title"] for d in page["deals"])
     only = pricebook.deals_page(memory, days=7, domain="flight", limit=10)
     assert [d["domain"] for d in only["deals"]] == ["flight"]
+
+
+DIGEST = """<html><body><table>
+<tr><td><a href="https://slickdeals.example/f/1">3-Pk 10.5-Oz Lavazza Super Crema Whole Bean Coffee</a></td></tr>
+<tr><td>$14.50</td></tr>
+<tr><td>$5.52</td></tr><tr><td>$28</td></tr><tr><td>$1,599.08</td></tr><tr><td>$25.99</td></tr>
+</table></body></html>"""
+
+
+def test_an_alert_email_is_not_listed_again_and_again_under_its_subject_at_other_prices():
+    deals = dealmail.deals_in(message("Slickdeals Alerts <alerts@slickdeals.example>",
+                                      "Buddy: 3-Pk 10.5-Oz Lavazza Super Crema Whole Bean Coffee for $14.50 at Amazon",
+                                      html=DIGEST))
+    titles = [d["title"] for d in deals]
+    assert titles[0] == "3-Pk 10.5-Oz Lavazza Super Crema Whole Bean Coffee" and deals[0]["price"] == 14.50
+    assert deals[0]["url"] == "https://slickdeals.example/f/1"  # the link on the line above the price
+    assert len(deals) == 2 and deals[1]["price"] == 14.50  # the subject names one more deal at most, at its own price
+    assert not deals[1]["title"].startswith("Buddy:")
+
+
+def test_a_news_story_with_a_sum_of_money_is_not_a_flight_deal():
+    html = """<html><body><p><a href="https://news.example/debt">U.S. debt now equals the whole economy — and tax cuts
+    since 2001 added over $10 trillion</a></p></body></html>"""
+    assert dealmail.deals_in(message("Blogtrottr <busybee@blogtrottr.example>", "U.S. debt now equals the whole economy",
+                                     html=html)) == []
+    assert dealmail._prices("added over $10 trillion, $3.5 billion, $2M and a $19.99 book") == [19.99]
+    assert not dealmail.FLIGHT.search("the whole economy") and dealmail.FLIGHT.search("Basic Economy fare to Lima")
+
+
+def test_a_deal_without_its_own_link_takes_the_one_on_the_next_line():
+    html = """<html><body><p>Round Trip Phoenix to St Maarten $333 Airfares on Delta</p>
+    <p><a href="https://slickdeals.example/f/9">See the deal</a></p></body></html>"""
+    deal = dealmail.deals_in(message("Slickdeals Alerts <a@slickdeals.example>", "Travel deals", html=html))[0]
+    assert deal["domain"] == "flight" and deal["price"] == 333 and deal["url"] == "https://slickdeals.example/f/9"
+
+
+def test_tidy_removes_only_the_misread_rows(memory):
+    def deal(title, price):
+        return {"title": title, "domain": "product", "item": title, "price": price, "regular": None,
+                "store": "Slickdeals Alerts", "url": "", "ends": "", "subject": title}
+    dealmail.keep(memory, [deal("Lavazza coffee for $14.50", p) for p in (5.52, 28.0, 1599.08)] + [deal("Good kettle", 30.0)])
+    dealmail.keep(memory, [deal("Debt added over $10 trillion", 10.0)])
+    assert dealmail.tidy(memory) == {"repeated": 3, "sums": 1, "prices": 3}
+    left = pricebook.run(memory, "SELECT title FROM deals")
+    assert [r["title"] for r in left] == ["Good kettle"]
+    assert dealmail.tidy(memory) == {"repeated": 0, "sums": 0, "prices": 0}  # safe to run again

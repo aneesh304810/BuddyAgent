@@ -53,7 +53,9 @@ ENDS = re.compile(r"(?:ends|expires|through|thru|until|valid through|book by)\s*
                   r"\d{1,2}/\d{1,2}(?:/\d{2,4})?)", re.I)
 SAVINGS = re.compile(r"(?:sav(?:e|ed|ings of)|extra|additional)\s+(?:up to\s+)?\$\s?(\d[\d,]*(?:\.\d{2})?)|"
                      r"\$\s?(\d[\d,]*(?:\.\d{2})?)\s+(?:off|savings|cash ?back|back|credit)", re.I)  # not prices
-FLIGHT = re.compile(r"\b(fares?|flights?|airfare|round[- ]?trip|one[- ]?way|nonstop|economy|first class)\b", re.I)
+FLIGHT = re.compile(r"\b(fares?|flights?|airfare|round[- ]?trip|one[- ]?way|nonstop|basic economy|"
+                    r"economy (?:class|fares?|seats?)|first class)\b", re.I)  # not "the economy": that is news
+BIG = re.compile(r"(?:\.\d+)?\s*(?:trillion|billion|million|bn\b|[kmb]\b)", re.I)  # "$10 trillion" is not a price
 HOTEL = re.compile(r"\b(hotels?|resorts?|per night|/\s?night|nightly|suites?|stays?|inn)\b", re.I)
 ROUTE = re.compile(r"\b([A-Z]{3})\s*(?:to|-|–|→|>)\s*([A-Z]{3})\b")
 CITIES = re.compile(r"\b(?:from\s+)?([A-Z][a-zA-Z .]{2,24}?)\s+to\s+([A-Z][a-zA-Z .]{2,24}?)(?:\s+(?:from|for|starting|"
@@ -135,6 +137,13 @@ def _cells(message) -> list[dict]:
     return cells
 
 
+def _prices(text: str) -> list[float]:
+    """The prices in a line: dollar amounts that are not savings ("$20 off") and not sums ("$10 trillion")."""
+    text = SAVINGS.sub(" ", text)
+    return [n for n in (_num(m.group(1)) for m in PRICE.finditer(text) if not BIG.match(text, m.end()))
+            if 0 < n < 100000]
+
+
 def _num(text: str) -> float:
     return float(text.replace(",", ""))
 
@@ -160,12 +169,13 @@ def deals_in(message) -> list[dict]:
     sender = parseaddr(str(message.get("From", "")))[0] or parseaddr(str(message.get("From", "")))[1]
     subject = str(message.get("Subject", ""))
     cells = _cells(message)
-    out, seen = [], set()
+    out, seen, named_by_subject = [], set(), False
     for i, cell in enumerate(cells):
-        prices = [p for p in PRICE.findall(SAVINGS.sub(" ", cell["text"])) if 0 < _num(p) < 100000]
+        prices = _prices(cell["text"])
         if not prices:
             continue
         before = cells[i - 1] if i else None
+        after = cells[i + 1] if i + 1 < len(cells) else None
         if not _link(cell) and before and before["links"] and not PRICE.search(before["text"]):
             # the price on its own line under the product's name and link: one deal
             cell = {"text": before["text"] + " " + cell["text"], "links": before["links"]}
@@ -173,10 +183,19 @@ def deals_in(message) -> list[dict]:
         title = _title(cell)
         if len(title) < 6 or PRICE.fullmatch(title.strip()):
             prev = cells[i - 1]["text"] if i else subject
-            title = (prev if not PRICE.search(prev) else subject)[:160]
+            if PRICE.search(prev) or len(prev.strip()) < 6:
+                # A price with no name of its own. The email's subject can name one deal, not every loose price
+                # in the email: an alert digest would otherwise list its subject again and again at other prices.
+                if named_by_subject:
+                    continue
+                named_by_subject = True
+                title = re.sub(r"^Buddy:\s+", "", subject)[:160]
+                prices = _prices(subject) or prices  # the price the subject itself gives, when it gives one
+            else:
+                title = prev[:160]
         reg = REGULAR.search(cell["text"])
-        price = min(_num(p) for p in prices)
-        regular = _num(reg.group(1)) if reg else (max(_num(p) for p in prices) if len(prices) > 1 else None)
+        price = min(prices)
+        regular = _num(reg.group(1)) if reg else (max(prices) if len(prices) > 1 else None)
         if regular is not None and regular <= price:
             regular = None
         where = f"{title} {subject} {context}"
@@ -199,8 +218,10 @@ def deals_in(message) -> list[dict]:
         if key in seen:
             continue
         seen.add(key)
+        # The link: this line's own, else the line before or after it when that line carries no price of its own.
+        url = _link(cell) or next((_link(c) for c in (before, after) if c and not _prices(c["text"]) and _link(c)), "")
         out.append({"title": title, "domain": domain, "item": item, "price": price, "regular": regular,
-                    "store": sender[:60], "url": _link(cell), "ends": ends.group(1) if ends else "",
+                    "store": sender[:60], "url": url, "ends": ends.group(1) if ends else "",
                     "subject": subject[:160]})
         if len(out) >= MAX_DEALS_PER_EMAIL:
             break
@@ -559,6 +580,12 @@ def _run_inbox(memory: Memory, env=None, connect=None) -> str:
         return str(e)
     except (imaplib.IMAP4.error, OSError) as e:
         return f"couldn't read the deals inbox: {e}"
+    try:
+        gone = tidy(memory)
+        if any(gone.values()):
+            log.info("deals inbox: removed %s misread rows", gone)
+    except Exception:
+        log.warning("deals inbox: tidying failed", exc_info=True)
     found = kept = 0
     for m in messages:
         try:
@@ -578,6 +605,23 @@ def _run_inbox(memory: Memory, env=None, connect=None) -> str:
     return (f"read {len(messages)} email{'s' if len(messages) != 1 else ''}: {found} deals, "
             f"{kept} new kept in the price book"
             + (f"; {cleaned} read newsletters older than {clean_days(env)} days moved to Trash" if cleaned else ""))
+
+
+def tidy(memory: Memory) -> dict:
+    """Remove what an earlier reading of the emails got wrong, and nothing else: one email's subject kept many
+    times at different prices on the same day, and sums such as "$10 trillion" read as a price. Safe to run again."""
+    from . import pricebook  # noqa: PLC0415
+    pricebook.conn(memory)
+    out = {}
+    out["repeated"] = len(pricebook.run(memory, """DELETE FROM deals WHERE url LIKE 'email:%' AND (source, title, seen_on) IN
+        (SELECT source, title, seen_on FROM deals WHERE url LIKE 'email:%' GROUP BY source, title, seen_on
+         HAVING COUNT(DISTINCT price) > 1) RETURNING id"""))
+    out["sums"] = len(pricebook.run(memory, "DELETE FROM deals WHERE source LIKE 'email:%' AND regexp_matches(title, "
+                                            "'\\$\\s?[0-9][0-9,.]*\\s*(trillion|billion|million)', 'i') RETURNING id"))
+    out["prices"] = len(pricebook.run(memory, """DELETE FROM observations WHERE source = 'deal email' AND
+        (item, seller, CAST(seen_at AS DATE)) IN (SELECT item, seller, CAST(seen_at AS DATE) FROM observations
+         WHERE source = 'deal email' GROUP BY 1, 2, 3 HAVING COUNT(DISTINCT price) > 2) RETURNING id"""))
+    return out
 
 
 def _kind(d: dict) -> str:
