@@ -69,3 +69,20 @@ def test_a_load_cut_off_by_a_restart_does_not_leave_the_button_stuck(memory):
     assert got["running"] == "" and got["cut_off"] is True   # too long without progress: it was cut off
     memory.set(labsetup.STATE_KEY, json.dumps({"running": "Replay over past prices"}))  # an older record with no time
     assert labsetup.status(memory)["running"] == ""
+
+
+def test_loading_also_queues_the_open_source_starting_points(memory, monkeypatch):
+    from buddy import researchdesk
+    asked = []
+    monkeypatch.setattr(researchdesk, "arxiv_new", lambda m: 2)
+
+    def add(m, url):
+        asked.append(url)
+        if "06_strategy" in url:
+            raise RuntimeError("HTTP 403: rate limit")
+        return {"added": 3, "licence": "MIT", "looked_at": 5}
+
+    monkeypatch.setattr(researchdesk, "github_add", add)
+    said = labsetup._papers(memory)
+    assert len(asked) == 4 and said.startswith("2 new arXiv papers; 9 notebooks and files from 3 open-source folders")
+    assert "1 folders failed (RuntimeError: HTTP 403: rate limit)" in said

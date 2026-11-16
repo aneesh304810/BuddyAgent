@@ -7,7 +7,7 @@ when something looks empty, "Load everything" runs them one after another in the
   2  today's lab trades            each rule's picks from daily prices
   3  the replay over past prices   every rule's record on about five years of history
   4  factor returns                the yardsticks from the Kenneth French data library
-  5  the research queue            new papers from arXiv
+  5  the research queue            new papers from arXiv, and the notebooks of the open-source starting points
   6  news sentiment                when one of its two keys is set
   7  company figures               earnings surprise and ratios (the slow one: a few minutes)
   8  a first model                 trained in the sandbox when there are enough judged trades
@@ -73,8 +73,24 @@ def _factors(memory: Memory) -> str:
 
 
 def _papers(memory: Memory) -> str:
+    """New arXiv papers, and the notebooks of the licensed open-source repositories listed as starting points."""
     from . import researchdesk  # noqa: PLC0415
-    return f"{researchdesk.arxiv_new(memory)} new papers queued"
+    said = []
+    try:
+        said.append(f"{researchdesk.arxiv_new(memory)} new arXiv papers")
+    except Exception as e:
+        said.append(f"arXiv failed ({type(e).__name__}: {str(e)[:80]})")
+    files = failed = 0
+    for start in researchdesk.STARTING_POINTS:
+        try:
+            files += researchdesk.github_add(memory, start["url"])["added"]
+        except Exception as e:
+            failed += 1
+            log.info("setup: %s could not be queued (%s)", start["url"], type(e).__name__)
+            why = f"{type(e).__name__}: {str(e)[:80]}"
+    said.append(f"{files} notebooks and files from {len(researchdesk.STARTING_POINTS) - failed} open-source folders"
+                + (f"; {failed} folders failed ({why})" if failed else ""))
+    return "; ".join(said)
 
 
 def _sentiment(memory: Memory) -> str:
