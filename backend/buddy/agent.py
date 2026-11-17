@@ -884,7 +884,7 @@ class Conversation:
             result, is_error = str(e) or type(e).__name__, True
         if not is_error:  # the Privacy Gateway: a health tool's result goes to the owner's screen, not to the model
             from . import privacygate  # noqa: PLC0415
-            kept, withheld = privacygate.withhold(block.name, result)
+            kept, withheld = privacygate.withhold(block.name, result, self.memory)
             if withheld:
                 with contextlib.suppress(Exception):
                     cards.offer(health_card(result))

@@ -18,6 +18,24 @@ Health information means: measurements (sleep, readiness, HRV, heart rate, tempe
 symptoms, conditions, medicines, allergies, what was eaten, health goals, and anything worked out from them. A
 question that names no person ("what does HDL cholesterol mean?") is public.
 
+## Health as ranges (the one setting)
+
+Off unless the owner switches it on, on the server: `sudo bash /opt/buddy/deploy/set.sh BUDDY_HEALTH_RANGES`, then
+type `on` (or `off`). There is no switch in the app and no endpoint that changes it.
+
+When on, the health-data tool gives Claude, and only Claude, lines like
+
+    [health range] sleep duration: latest below usual; week about usual; trend falling; 5 of 7 days below usual, 0 above
+
+built by rules in `healthranges.py` from a fixed list of measures and words. "Usual" is the owner's own middle value
+over the earlier days, so the line holds no value, unit, date, name or age. The gateway lets a marked line through
+only if it matches that exact form; a marked line that says anything else is cut like any health text. The health
+plan, symptoms, medicines and food are never sent, in this mode or any. Each time ranges are given it is recorded.
+
+What ranges still reveal: that the owner tracks these measures and which way each is going. The request also goes
+out under the owner's own account, so the provider can tell it all comes from one person. Asking the provider for
+zero data retention, or running a model on the owner's own hardware, are the ways to reduce that; neither is built.
+
 ## Where information can reach a model, and what guards it
 
 | Door | Used by | Guard | Proven by |
@@ -48,6 +66,7 @@ question that names no person ("what does HDL cholesterol mean?") is public.
 | `authorize_request(provider, body, source)` | the same for a whole request body |
 | `sanitize_request(body, source)` | cuts health out of a Claude request in place; returns how many pieces |
 | `withhold(tool, result)` | what a tool's result becomes before a model may see it |
+| `healthranges.on()`, `brief(memory)`, `allowed(line)` | the one setting; the range lines; the check a marked line must pass |
 | `record(...)`, `status(memory)` | the record and the Privacy Gateway page (`GET /api/privacy`, admin only) |
 
 ## Not covered (known gaps)

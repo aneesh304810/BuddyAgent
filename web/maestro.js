@@ -87,6 +87,25 @@ function everythingCard(e) {
     "This covers the main conversation and every other feature, not only the jobs chosen below. The full detail, request by request, is on the Usage tab.");
 }
 
+// The Privacy Gateway every model request passes: its fixed rules, what it has stopped, and the one setting.
+let gate = null, gateBusy = false;
+async function loadGate() {
+  if (gateBusy) return;
+  gateBusy = true;
+  try { gate = await api("/api/privacy"); } catch (e) { gate = { failed: e.message }; }
+  gateBusy = false;
+  render();
+}
+function gateCard() {
+  if (!gate) { loadGate(); return ""; }
+  if (gate.failed) return card("Privacy Gateway", `<p class="err">${esc(gate.failed)}</p>`);
+  return card("Privacy Gateway", `<div class="kpis">${kpi("On", "cannot be switched off")}${kpi(esc(gate.blocked), "requests blocked")}
+      ${kpi(esc(gate.sanitized), "with health cut out")}${kpi(esc(gate.withheld), "health results kept back")}${kpi(gate.health_ranges.on ? "On" : "Off", "health ranges to Claude")}</div>
+      <ul>${gate.policy.map((p) => `<li>${esc(p.rule)}</li>`).join("")}</ul>
+      <p class="muted">${esc(gate.health_ranges.what)} ${esc(gate.health_ranges.how)}</p>`,
+    "Every request Maestro sends, to any model, passes this check first. The rules are fixed in the code; health ranges are the only setting. The full record is in Security → Privacy Gateway.");
+}
+
 function models() {
   if (!modelData) { loadModels(); return `<p class="muted">Loading…</p>`; }
   if (modelData.failed) return `<p class="err">${esc(modelData.failed)}</p>`;
@@ -109,7 +128,7 @@ function models() {
     <p><input id="p-model" placeholder="Model id, from the provider's page" aria-label="Model id" style="width:100%"></p>
     <p><label>Price per million tokens: in <input id="p-in" type="number" min="0" step="0.01" value="0" style="width:80px"></label> <label>out <input id="p-out" type="number" min="0" step="0.01" value="0" style="width:80px"></label></p>
     <p><button class="btn" id="p-add">Add provider</button></p>`;
-  return card("The privacy rule", `<p><b>${esc(m.rule || "")}</b></p>`, "Checked in code in one place. Text meant to be public is also checked for personal details before it leaves, and goes to Claude if it has any.") +
+  return gateCard() + card("The privacy rule", `<p><b>${esc(m.rule || "")}</b></p>`, "Checked in code in one place. Text meant to be public is also checked for personal details before it leaves, and goes to Claude if it has any.") +
     everythingCard(m.everything) + card("Providers", prov) + card("Which model does each job", jobs, "Most of the platform uses no AI: tagging, stages, convergences and the practice scoring are code.") +
     card(`Spending this month (${esc(sp.month)})`, `<div class="kpis">${kpi("$" + Number(sp.total).toFixed(2), "spent on paid models")}${kpi("$" + Number(sp.cap).toFixed(2), "monthly limit")}${kpi(used + "%", "of the limit used")}</div>
       ${spent || `<p class="muted">Nothing spent yet.</p>`}

@@ -206,7 +206,7 @@ async function loadGate() {
 function privacy() {
   if (!gate) { loadGate(); return `<p class="muted">Loading…</p>`; }
   if (gate.failed) return `<p class="err">${esc(gate.failed)}</p>`;
-  const WORD = { blocked: "Blocked", sanitized: "Cut out before sending", withheld: "Kept from the model", approved: "Sent to Claude" };
+  const WORD = { blocked: "Blocked", sanitized: "Cut out before sending", withheld: "Kept from the model", approved: "Sent to Claude", generalised: "Given to Claude as ranges only" };
   const events = (gate.events || []).map((e) => `<div class="guard"><span class="mark" style="color:var(--${e.action === "approved" ? "muted" : "sev-good"})">${e.action === "approved" ? "→" : "✓"}</span>
       <span style="min-width:0"><b>${esc(WORD[e.action] || e.action)}</b> <span class="chipk">${esc(e.level_name)}${e.kinds ? " · " + esc(e.kinds.replace(",", ", ")) : ""}</span><br>
       <span class="muted">${esc(e.reason)}</span><br>
@@ -219,6 +219,8 @@ function privacy() {
     card("What each model may receive", `<div class="guard"><span style="min-width:0"><b>Claude</b><br><span class="muted">Public text and your personal details. Never health information: it is cut out of every request.</span></span></div>
       <div class="guard"><span style="min-width:0"><b>Every other model</b> (free and paid)<br><span class="muted">Public text only. Anything personal is refused, and the request is not retried on another model.</span></span></div>
       <div class="guard"><span style="min-width:0"><b>Health tools</b> (${esc((gate.health_tools || []).join(", "))})<br><span class="muted">Their results go to your screen and to no model.</span></span></div>`) +
+    card("Health as ranges", `<div class="kpis">${kpi(gate.health_ranges.on ? "On" : "Off", "ranges to Claude")}${kpi(esc(gate.health_ranges.generalised), "times ranges were given")}</div>
+      <p>${esc(gate.health_ranges.what)}</p>`, esc(gate.health_ranges.how) + " It is the only part of the gateway that can be changed.") +
     card("The record", events || `<p class="muted">Nothing has been blocked, cut or withheld yet.</p>`,
       "The record keeps what kind of information was found and why it was stopped. It never keeps the information itself. " + esc(gate.note || ""));
 }

@@ -9,6 +9,10 @@ on your Buddy server. It's coaching, not medical advice.
 > your health in conversation: asking "how did I sleep?" shows your numbers on a card with no interpretation, and
 > the health plan can no longer be set up or changed by talking to Buddy. The parts of this guide that describe
 > those conversations describe how it worked before. There is no Health page yet. See `docs/PRIVACY-GATEWAY.md`.
+>
+> **Health as ranges.** If you switch it on, on the server (`sudo bash /opt/buddy/deploy/set.sh BUDDY_HEALTH_RANGES`,
+> then type `on`), Buddy can again talk about your sleep, readiness and activity, working from ranges against your
+> own usual ("sleep below usual this week") and never from the numbers. You still see the numbers on a card.
 
 ## 1. Connect your Oura Ring
 

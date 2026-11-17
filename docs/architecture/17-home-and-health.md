@@ -155,5 +155,5 @@ Personal: kept on this server (90 days of logs), seen only by Claude. "Forget my
 ## How it connects
 
 - Relies on: Buddy Connect; Claude: the brain; Memory; Speaking up on its own: briefing, reminders and alerts; Travel and getting around
-- Relied on by: Claude: the brain; Speaking up on its own: briefing, reminders and alerts; The server and the app
+- Relied on by: Claude: the brain; Security and privacy; Speaking up on its own: briefing, reminders and alerts; The server and the app
 

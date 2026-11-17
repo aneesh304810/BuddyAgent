@@ -15,6 +15,7 @@ flowchart LR
         guard_py["guard.py<br/>the access log, the brute-force lockout and the security headers"]
         privacy_py["privacy.py<br/>Mask sensitive numbers before any text leaves the server for Claude"]
         privacygate_py["privacygate.py<br/>the one check every request to an AI model passes before it leaves…"]
+        healthranges_py["healthranges.py<br/>the owner's health measurements turned into 'below, about or above…"]
         db_py["db.py<br/>encrypted with SQLCipher whenever BUDDY_DB_KEY is set"]
         compliance_py["compliance.py<br/>Buddy's controls mapped to the AICPA Trust Services Criteria (2017,…"]
         securitywatch_py["securitywatch.py<br/>every day Buddy checks what is newly published about security against…"]
@@ -24,6 +25,7 @@ flowchart LR
     you --> t_security_watch
     t_security_watch --> securitywatch_py
     guard_py --> db_py
+    privacygate_py --> healthranges_py
     compliance_py --> guard_py
     db[("Your database<br/>access_log, privacy_events, sec_findings")]
     guard_py --> db
@@ -47,7 +49,7 @@ flowchart LR
     guard_py -. uses .-> o_3
     o_4["Free AI models"]
     guard_py -. uses .-> o_4
-    o_5["Insights and costs"]
+    o_5["Home and health"]
     guard_py -. uses .-> o_5
 ```
 
@@ -107,6 +109,9 @@ The rules (the owner's decision, 17 November 2026):
            model after a refusal.
   Public   anything else may go to any model the owner has set up.
   Unsure   if this check fails or cannot decide, the request is refused (fail closed).
+  Ranges   the one thing the owner can change, and only on the server (healthranges.py): when they switch it on,
+           Claude, and only Claude, may be given health as ranges against the owner's own usual ("sleep duration:
+           latest below usual"), never a value. Only lines of that exact form pass; everything above still holds.
 
 Where it is enforced (the only doors to a model):
   Claude       config.claude_client(): every request, streamed or not, passes sanitize_request just before it
@@ -136,7 +141,40 @@ information found, what was decided and why, and a reference number. Never the c
 ```
 
 - Tables: `privacy_events`
-- Uses: free_models.py
+- Uses: free_models.py, healthranges.py
+
+### healthranges.py
+
+```text
+Health as ranges: the owner's health measurements turned into "below, about or above your usual" by plain rules.
+
+Why. The Privacy Gateway sends no health information to any AI model. With that alone Buddy cannot say anything
+about the owner's sleep or recovery. This is the middle the owner chose on 17 November 2026: when they switch it on
+from the server, Claude (and only Claude) may be given ranges and trends, never the values behind them.
+
+What a model receives, and nothing else:
+
+    [health range] sleep duration: latest below usual; week about usual; trend falling; 5 of 7 days below usual, 0 above
+
+    latest   the most recent day against the owner's own usual (the middle value of the earlier days)
+    week     the last seven days' average against the same usual
+    trend    the last three days against the four before them
+    n of 7   how many of the last seven days were below, and above, the usual
+
+No value, unit, date, name, age or place is in it. "Usual" is the owner's own, so the line does not even say
+whether a number is high or low for people in general.
+
+How it stays that way. Every line is built here from a fixed list of measures and a fixed list of words, and the
+Privacy Gateway lets a line through only if it matches that exact form (LINE). Text that merely starts with the
+marker but says anything else is treated as health information and cut like any other.
+
+What it does not hide: that the owner tracks these measures, and which way each is going. And the request still
+goes out under the owner's own account, so the provider can tell all of it comes from one person
+(docs/PRIVACY-GATEWAY.md). Free text about health (symptoms, medicines, food) is never sent, in this mode or any.
+```
+
+- Settings: `BUDDY_HEALTH_RANGES`
+- Uses: coach.py
 
 ### db.py
 
@@ -219,6 +257,6 @@ server is safe: a flaw nobody has published yet is in no database.
 
 ## How it connects
 
-- Relies on: Agents and skills; Buddy Connect; Claude: the brain; Fixing and explaining itself; Free AI models (Groq, Gemini, Mistral, Cerebras, GitHub Models, OpenRouter); Insights and costs; Learning: the English and investing tutors; Making and doing things; Memory; Money; Speaking up on its own: briefing, reminders and alerts; Voice: Talk mode and Listen-in
+- Relies on: Agents and skills; Buddy Connect; Claude: the brain; Fixing and explaining itself; Free AI models (Groq, Gemini, Mistral, Cerebras, GitHub Models, OpenRouter); Home and health; Insights and costs; Learning: the English and investing tutors; Making and doing things; Memory; Money; Speaking up on its own: briefing, reminders and alerts; Voice: Talk mode and Listen-in
 - Relied on by: Agents and skills; Claude: the brain; Fixing and explaining itself; Free AI models (Groq, Gemini, Mistral, Cerebras, GitHub Models, OpenRouter); Learning: the English and investing tutors; Making and doing things; Memory; Money; News, trends and research; Speaking up on its own: briefing, reminders and alerts; The server and the app; Voice: Talk mode and Listen-in
 
