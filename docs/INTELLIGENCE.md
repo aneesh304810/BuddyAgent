@@ -551,3 +551,21 @@ runs on the price book, the daily loop and the shared learning core.
   early. Buddy shows this and does not pause a rule by itself.
 - **Money → Invest → Trading** keeps the trades, the combined figures, the news desk and the data panel, and links
   to the engine. The rule table, uploads and the research queue no longer appear there.
+
+## The daily strategy pass (`stratauto.py`)
+
+Once a day, after 9 am, Investment Intelligence works by itself:
+
+- **Read.** The newest three items in the research queue are read into rules. Each new rule gets a second reading by
+  the model set for another job (`stratrules.critique`): does the rule match the document, what differs, what is
+  missing. It is shown beside the rule as an opinion and changes neither the rule nor its test. Uploads and page
+  links get the same second reading.
+- **Test.** The new rules are replayed on past prices at once, without being switched on (`replay(..., proposed=True)`).
+- **Keep or remove.** A rule that passed stays proposed, waiting for the owner. A rule that reads company figures has
+  no history and is kept untested. A rule that failed, or made too few trades to judge, is removed, and its paper in
+  the queue says why.
+- **Pause.** A rule the owner added that has lost to the market over 20 or more live closed trades is paused. The six
+  built-in rules have no pause, so a failing one is reported and left running.
+- **Tell.** One message, only when something passed, was kept untested, or was paused or is failing.
+
+It never approves a rule and never starts one trading.

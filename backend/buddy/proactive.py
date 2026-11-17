@@ -701,6 +701,18 @@ async def run(memory: Memory, deliver: Deliver, connected=None) -> None:
                             await deliver("money", told, topic="investing:lab")
                     except Exception:
                         log.exception("the strategy lab failed")
+                from . import stratauto  # noqa: PLC0415  queued papers read and tested; failing rules paused
+                if stratauto.due(memory):
+                    memory.set(stratauto.DAY_KEY, local_now().date().isoformat())
+                    try:
+                        got = await stratauto.daily(memory)
+                        log.info("strategy auto: read %d, %d rules, %d passed, %d removed, %d paused", got["read"],
+                                 len(got["rules"]), len(got["passed"]), len(got["removed"]), len(got["paused"]))
+                        told = stratauto.message(got)
+                        if told and not in_quiet_hours():
+                            await deliver("money", told, topic="investing:strategies")
+                    except Exception:
+                        log.exception("the daily strategy pass failed")
                 from . import dealforecast  # noqa: PLC0415  deals watched for (found overnight or this morning)
                 if not in_quiet_hours() and local_now().hour >= dealcollector.START_HOUR:
                     for text, links in dealforecast.take_pending(memory):

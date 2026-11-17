@@ -18,6 +18,7 @@ flowchart LR
         bip_links_py["bip_links.py<br/>the companies a record names, and the relationships between…"]
         watchpicks_py["watchpicks.py<br/>public companies the Intelligence evidence points at, refreshed each…"]
         stratrepo_py["stratrepo.py<br/>Strategy repository (part of Buddy Intelligence): every investment…"]
+        stratauto_py["stratauto.py<br/>each day it reads a few queued papers into rules, tests them, and…"]
     end
     you --> t_intelligence
     t_intelligence --> bip_py
@@ -36,6 +37,8 @@ flowchart LR
     bip_links_py --> bip_sources_py
     watchpicks_py --> bip_py
     watchpicks_py --> themes_py
+    stratrepo_py --> stratauto_py
+    stratauto_py --> stratrepo_py
     db[("Your database<br/>bip_extracted, bip_links, bip_mentions, bip_notes, bip_signals, theme_events, theme_news, theme_tone and more")]
     bip_py --> db
     themes_py --> db
@@ -281,7 +284,30 @@ account would have earned. The replay uses today's list of companies, so compani
 the past looks better than it was. Sizing is one fixed stake per trade; no rule sizes positions differently.
 ```
 
-- Uses: memory.py, pricebook.py, researchdesk.py, stratlab.py, stratrules.py, tools.py
+- Uses: memory.py, pricebook.py, researchdesk.py, stratauto.py, stratlab.py, stratrules.py, tools.py
+
+### stratauto.py
+
+```text
+Investment Intelligence on its own: each day it reads a few queued papers into rules, tests them, and pauses a
+rule that is failing live. The owner still decides what trades.
+
+  Read     the newest READ_A_DAY items in the research queue are read into rules (researchdesk.read). Each new rule
+           also gets a second reading by another model job, which says whether the rule matches the document
+           (stratrules.critique).
+  Test     the new rules are replayed over past prices straight away, without being switched on.
+  Keep     a rule that passed stays in the Library as proposed, waiting for the owner's approval. So does a rule
+           that reads company figures, which have no history to test on. A rule that failed its test, or made too
+           few trades to judge, is removed, and its paper in the queue says why.
+  Pause    an approved rule that has lost to the market over PAUSE_AFTER or more live closed trades is paused.
+           Only rules the owner added can be paused this way; the six built-in ones are reported instead.
+  Tell     one message: what was read, what passed, what was paused.
+
+What it never does: approve a rule, or start one trading. Reading uses the free model unless the owner chose
+another; a strategy document is public text, so the Privacy Gateway lets it go to any model.
+```
+
+- Uses: memory.py, researchdesk.py, stratlab.py, stratrepo.py, stratrules.py, tools.py
 
 ## How it connects
 

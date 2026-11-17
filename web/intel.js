@@ -190,6 +190,7 @@ function librarySection() {
         ${s.history && s.history.trades ? `<p class="muted" style="margin:6px 0 0">Against the market per trade: rising markets ${share(s.rising_market)}, falling markets ${share(s.falling_market)}, latest stretch ${share(s.latest)}.</p>` : ""}
         <ul class="plain">${s.reasons.map((x) => `<li>${esc(x)}</li>`).join("")}</ul>
         ${mine && mine.needs.length ? `<p class="muted" style="margin:6px 0 0">Left out, because Buddy cannot measure it: ${mine.needs.map(esc).join("; ")}</p>` : ""}
+        ${mine && mine.critique ? `<p class="muted" style="margin:6px 0 0"><b>A second reading by another model:</b> ${mine.critique.faithful ? "the rule matches the document" : "the rule differs from the document"}${mine.critique.issues.length ? ". " + mine.critique.issues.map(esc).join(" ") : ""}${mine.critique.missing.length ? " Missing: " + mine.critique.missing.map(esc).join("; ") + "." : ""} An opinion, not a test.</p>` : ""}
         ${mine && mine.captures ? `<p class="muted" style="margin:6px 0 0">How much of the strategy this rule holds: ${esc(mine.captures)}. Read the rule against the document before you approve.</p>` : ""}
         <p class="muted" style="margin:6px 0 0">Needs: ${esc(s.needs)} · held at most ${esc(s.hold_days)} days · source: ${safe(s.source_url) ? `<a href="${safe(s.source_url)}" target="_blank" rel="noopener">${esc(s.source)}</a>` : esc(s.source)}${s.licence ? ` (${esc(s.licence)})` : ""}</p>
       </details></span></div>`; };
@@ -254,8 +255,14 @@ function monitorSection() {
     `<div class="guard"><span class="mark" style="color:var(--${COLOR[s.watch.state] || "muted"})">●</span><span style="min-width:0;flex:1"><b>${esc(s.name)}</b> <span class="chipk">${esc(WORD[s.watch.state] || s.watch.state)}</span><br>
       <span class="muted">${esc(s.watch.says)}</span></span></div>`).join("");
   const c = repoData.counts;
-  return card("Is each rule doing live what it did in its test?", `<div class="kpis">${kpi(esc(c.failing_live), "failing live")}${kpi(esc(c.weaker_live), "weaker than their test")}${kpi(esc(c.proven), "proven live")}</div>${rows}`,
-    "A rule is compared with its test only after 10 live closed trades. Buddy shows this; it does not pause a rule by itself. Pause one in the Library.");
+  const auto = repoData.auto || {}, last = auto.last || {};
+  const did = last.day ? `<p><b>Last daily pass, ${esc(last.day)}:</b> read ${esc(last.read)} from the queue; ${esc((last.rules || []).length)} became rules; ${esc((last.passed || []).length)} passed and wait for you; ${esc((last.removed || []).length)} failed and were removed; ${esc((last.paused || []).length)} paused.</p>
+      ${(last.removed || []).map((r) => `<p class="muted" style="margin:2px 0">Removed: ${esc(r.name)} — ${esc(r.why)}</p>`).join("")}
+      ${(last.paused || []).map((r) => `<p class="muted" style="margin:2px 0">Paused: ${esc(r.name)} — ${esc(r.why)}</p>`).join("")}` : `<p class="muted">The daily pass has not run yet.</p>`;
+  return card("What Buddy does by itself each day", did,
+      `Each morning Buddy reads up to ${esc(auto.reads_a_day)} queued papers into rules, tests them on past prices, removes the ones that fail, and pauses a rule of yours that has lost to the market over ${esc(auto.pause_after)} or more live trades. It never approves a rule or starts one trading.`) +
+    card("Is each rule doing live what it did in its test?", `<div class="kpis">${kpi(esc(c.failing_live), "failing live")}${kpi(esc(c.weaker_live), "weaker than their test")}${kpi(esc(c.proven), "proven live")}</div>${rows}`,
+    "A rule is compared with its test only after 10 live closed trades. The six built-in rules cannot be paused, so a failing one is reported and left running.");
 }
 
 function strategies() {

@@ -279,10 +279,15 @@ def view(memory: Memory) -> dict:
                        "proven": sum(1 for s in out if s["stage"] == "Proven live"), "queued": queued,
                        "failing_live": sum(1 for s in out if s["watch"]["state"] == "failing"),
                        "weaker_live": sum(1 for s in out if s["watch"]["state"] == "weaker")},
-            "last_discovery": memory.get(DISCOVER_KEY) or "",
+            "last_discovery": memory.get(DISCOVER_KEY) or "", "auto": _auto(memory),
             "note": "Yearly return, Sharpe ratio and worst fall are worked out on the pretend money each rule needs "
                     "(its fixed stake times the most trades it held at once), after costs. They compare rules with "
                     "each other; they are not what a real account would have earned. Nothing real is bought."}
+
+
+def _auto(memory: Memory) -> dict:
+    from . import stratauto  # noqa: PLC0415
+    return {"last": stratauto.last(memory), "reads_a_day": stratauto.READ_A_DAY, "pause_after": stratauto.PAUSE_AFTER}
 
 
 # --- discover: a public directory of strategy papers ---------------------------------------------------------

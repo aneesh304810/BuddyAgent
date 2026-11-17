@@ -237,14 +237,15 @@ def picks(strategy: str, figs: dict, extra: dict | None = None) -> list[tuple[st
     return []
 
 
-def rules_in_use(memory: Memory) -> dict:
-    """Every rule that trades: the six built in, then the ones the owner added and approved.
+def rules_in_use(memory: Memory, proposed: bool = False) -> dict:
+    """Every rule that trades: the six built in, then the ones the owner added and approved. proposed: also the ones
+    still waiting for approval, so they can be tested on past prices before anyone switches them on.
     {key: {"name", "rule", "reads", "hold", "custom": the added rule or None}}"""
     out = {k: {"name": n, "rule": r, "reads": reads, "hold": hold, "custom": None}
            for k, (n, r, reads, hold) in STRATEGIES.items()}
     try:
         from . import stratrules  # noqa: PLC0415
-        for r in stratrules.rules(memory, "active"):
+        for r in [r for r in stratrules.rules(memory) if r["status"] == "active" or (proposed and r["status"] == "proposed")]:
             out[r["key"]] = {"name": r["name"], "rule": r["in_words"], "reads": "Your document: " + (r["source"] or "pasted text"),
                              "hold": r["rule"]["hold_days"], "custom": r["rule"]}
     except Exception:
@@ -287,7 +288,8 @@ def _stop_pct(f: dict) -> float:
     return max(STOP_MIN, min(2 * f["atr_pct"], STOP_MAX)) if f["atr_pct"] else STOP
 
 
-def replay(memory: Memory, data=None, months: int = REPLAY_MONTHS, keys: list[str] | None = None) -> dict:
+def replay(memory: Memory, data=None, months: int = REPLAY_MONTHS, keys: list[str] | None = None,
+           proposed: bool = False) -> dict:
     """Run the rules over past daily prices, one day at a time, each day seeing only the prices up to that day.
     Finished trades are kept, marked as history; a rule's earlier history is replaced. Returns counts per rule."""
     from . import stratrules  # noqa: PLC0415
@@ -295,7 +297,7 @@ def replay(memory: Memory, data=None, months: int = REPLAY_MONTHS, keys: list[st
     if data is None:
         from .markets import Data  # noqa: PLC0415
         data = Data(memory)
-    specs = {k: v for k, v in rules_in_use(memory).items() if (not keys or k in keys) and k != "insiders"}
+    specs = {k: v for k, v in rules_in_use(memory, proposed).items() if (not keys or k in keys) and k != "insiders"}
     bars = data.bars("us", sorted(set(universe(memory)) | {"SPY"}), days=months * 31 + 420)
     spy = bars.get("SPY") or []
     if len(spy) < WINDOW + 30:
