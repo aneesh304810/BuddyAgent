@@ -218,6 +218,11 @@ function testSection() {
   return card("Replay on past prices", `<p>${esc(line)}</p>
       <p><button class="btn solid" id="lab-replay">Replay over past prices</button> <button class="btn" id="lab-run">Run the lab now</button> <button class="btn" id="desk-refresh">Refresh</button></p>`,
       esc((labData || {}).history_note || "")) +
+    card("Daily prices kept on this server", (() => { const p = repoData.prices || {};
+      return p.prices ? `<div class="kpis">${kpi(esc(p.symbols), "stocks and funds")}${kpi(Number(p.prices).toLocaleString(), "daily prices")}${kpi(esc(p.first), "from")}${kpi(esc(p.last), "to")}${kpi(esc(p.restated), "times prices were re-stated")}</div>
+        <p class="muted">${(p.sources || []).map((x) => `${esc(x.source)}: ${Number(x.prices).toLocaleString()} prices, last fetched ${esc(String(x.fetched).slice(0, 16))} UTC`).join(" · ")}</p>`
+        : `<p class="muted">None kept yet. They are kept the first time the lab runs or a replay is started after this update.</p>`; })(),
+      esc((repoData.prices || {}).note || "")) +
     card("What a rule must clear", `<ul class="plain">${repoData.policy.map((p) => `<li style="margin:4px 0">${esc(p)}</li>`).join("")}</ul>`,
       "Passed on past prices means: at least 30 past trades, beat the market after costs, also in the latest stretch, no fall deeper than 35%, and unlikely to be luck given how many rules were tried.") +
     card("Yardsticks: what plain styles returned", (frows || `<p class="muted">Not fetched yet.</p>`) + `<p><button class="btn" id="research-factors">Fetch the factor returns</button> <button class="btn" id="research-company">Fetch company figures now</button></p>`, esc(f.note || "")) +

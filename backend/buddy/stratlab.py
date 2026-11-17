@@ -298,7 +298,8 @@ def replay(memory: Memory, data=None, months: int = REPLAY_MONTHS, keys: list[st
         from .markets import Data  # noqa: PLC0415
         data = Data(memory)
     specs = {k: v for k, v in rules_in_use(memory, proposed).items() if (not keys or k in keys) and k != "insiders"}
-    bars = data.bars("us", sorted(set(universe(memory)) | {"SPY"}), days=months * 31 + 420)
+    from . import pricestore  # noqa: PLC0415  the kept daily prices: only what is missing is downloaded
+    bars = pricestore.fetch(memory, data, sorted(set(universe(memory)) | {"SPY"}), days=months * 31 + 420)
     spy = bars.get("SPY") or []
     if len(spy) < WINDOW + 30:
         return {"trades": {}, "note": "there is not enough price history to replay"}
@@ -444,7 +445,8 @@ def run(memory: Memory, today: date | None = None, data=None, insiders: dict | N
         data = Data(memory)
     held = _run(memory, "SELECT strategy, symbol FROM lab_trades WHERE status = 'open'")
     names = sorted(set(universe(memory)) | {h["symbol"] for h in held} | {"SPY"})
-    bars = data.bars("us", names, days=400)
+    from . import pricestore  # noqa: PLC0415
+    bars = pricestore.fetch(memory, data, names, days=400, today=today)
     out = {"closed": settle(memory, today, bars), "opened": {}}
     figs = {s: f for s, f in ((s, figures(b)) for s, b in bars.items() if b) if f}
     if not figs:

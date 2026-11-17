@@ -569,3 +569,20 @@ Once a day, after 9 am, Investment Intelligence works by itself:
 - **Tell.** One message, only when something passed, was kept untested, or was paused or is failing.
 
 It never approves a rule and never starts one trading.
+
+## Daily prices are kept (`pricestore.py`)
+
+Daily stock prices used to be downloaded each time and thrown away; a replay fetched about five years of them on
+every run. They are now kept in the price book (`daily_prices`: symbol, day, source, open, high, low, close, volume,
+when fetched).
+
+- The lab asks `pricestore.fetch`, not the provider. It downloads only what the store lacks (the days since the last
+  one held, or the whole window for a symbol never seen), keeps it, and returns the bars from the store.
+- A provider re-states past prices after a share split. When a newly fetched close for a day already held differs by
+  more than 0.5%, that symbol's whole history is fetched again and replaced, and the change is written to
+  `price_revisions`. The newest day held is never compared, since it may have been fetched before the close.
+- Prices from different sources are kept apart and never mixed in one series. If the store fails, the provider's
+  answer is used directly, as before.
+- Not covered: companies that stopped trading before Buddy first asked, and which companies were in an index on a
+  past date. There is one source at a time and no second source to cross-check against yet.
+- Shown in Intelligence → Strategies → Test ("Daily prices kept on this server").

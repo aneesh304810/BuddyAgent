@@ -279,10 +279,19 @@ def view(memory: Memory) -> dict:
                        "proven": sum(1 for s in out if s["stage"] == "Proven live"), "queued": queued,
                        "failing_live": sum(1 for s in out if s["watch"]["state"] == "failing"),
                        "weaker_live": sum(1 for s in out if s["watch"]["state"] == "weaker")},
-            "last_discovery": memory.get(DISCOVER_KEY) or "", "auto": _auto(memory),
+            "last_discovery": memory.get(DISCOVER_KEY) or "", "auto": _auto(memory), "prices": _prices(memory),
             "note": "Yearly return, Sharpe ratio and worst fall are worked out on the pretend money each rule needs "
                     "(its fixed stake times the most trades it held at once), after costs. They compare rules with "
                     "each other; they are not what a real account would have earned. Nothing real is bought."}
+
+
+def _prices(memory: Memory) -> dict:
+    try:
+        from . import pricestore  # noqa: PLC0415
+        return pricestore.status(memory)
+    except Exception:
+        log.info("stratrepo: the price store could not be read", exc_info=True)
+        return {}
 
 
 def _auto(memory: Memory) -> dict:

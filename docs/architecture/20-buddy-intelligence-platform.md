@@ -284,7 +284,7 @@ account would have earned. The replay uses today's list of companies, so compani
 the past looks better than it was. Sizing is one fixed stake per trade; no rule sizes positions differently.
 ```
 
-- Uses: memory.py, pricebook.py, researchdesk.py, stratauto.py, stratlab.py, stratrules.py, tools.py
+- Uses: memory.py, pricebook.py, pricestore.py, researchdesk.py, stratauto.py, stratlab.py, stratrules.py, tools.py
 
 ### stratauto.py
 

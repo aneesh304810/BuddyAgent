@@ -12,6 +12,7 @@ flowchart LR
     end
     subgraph Modules["Modules"]
         pricebook_py["pricebook.py<br/>Buddy's separate database of market prices and deals (DuckDB), for…"]
+        pricestore_py["pricestore.py<br/>Daily stock prices, kept"]
         productid_py["productid.py<br/>which product a deal headline is about, its brand and its category"]
         patterns_py["patterns.py<br/>Nightly pattern learning in the sandbox: Buddy hands the price book…"]
         modeltrain_py["modeltrain.py<br/>Trained models, when there is enough to learn from: each week Buddy…"]
@@ -20,10 +21,12 @@ flowchart LR
     t_price_book --> pricebook_py
     pricebook_py --> patterns_py
     pricebook_py --> productid_py
+    pricestore_py --> pricebook_py
     patterns_py --> pricebook_py
     modeltrain_py --> pricebook_py
-    db[("Your database<br/>deals, launches, meta, models, observations, pattern_months, predictions")]
+    db[("Your database<br/>daily_prices, deals, launches, meta, models, observations, pattern_months, predictions and more")]
     pricebook_py --> db
+    pricestore_py --> db
     modeltrain_py --> db
     o_0["Buddy Intelligence Platform"]
     pricebook_py -. uses .-> o_0
@@ -78,6 +81,31 @@ Older history from Buddy's personal database (price_seen, deals, buy_predictions
 - Tables: `deals`, `launches`, `meta`, `observations`, `pattern_months`, `predictions`
 - Settings: `BUDDY_PRICEBOOK`
 - Uses: patterns.py, productid.py, tools.py
+
+### pricestore.py
+
+```text
+Daily stock prices, kept. Every daily price Buddy fetches for the strategy lab is stored in the price book, so
+the history does not depend on a provider's free plan, a test can be repeated, and a replay does not download
+five years of prices every time.
+
+  keep     each symbol's daily open, high, low, close and volume, with the source it came from and when it was
+           fetched. Market data only: nothing about the owner.
+  fetch    what the lab calls in place of asking the provider directly. It asks the provider only for what the
+           store lacks (the days since the last one held, or the whole window for a symbol it has never seen), keeps
+           it, and returns the bars from the store.
+  revised  a provider re-states past prices after a share split. When a newly fetched price for a day already held
+           differs by more than half a percent, that symbol's whole history is fetched again and replaced, and the
+           change is written down (price_revisions), so it is known that an earlier test used different numbers.
+           The newest day held is never compared: it may have been fetched before the market closed.
+
+What this is not: a record of companies that no longer trade, or of which companies were in an index on a past
+date. It keeps what Buddy has asked for, from the day it first asked. One source at a time: prices from different
+providers are kept apart and never mixed in one series.
+```
+
+- Tables: `daily_prices`, `price_revisions`
+- Uses: memory.py, pricebook.py
 
 ### productid.py
 

@@ -315,7 +315,7 @@ unproven until 30 of its trades have closed.
 ```
 
 - Tables: `lab_trades`
-- Uses: benchmarks.py, finnhub.py, fundamentals.py, market_school.py, markets.py, memory.py, modeltrain.py, pricebook.py, strategy_seeds.py, stratrules.py, tools.py, watchpicks.py
+- Uses: benchmarks.py, finnhub.py, fundamentals.py, market_school.py, markets.py, memory.py, modeltrain.py, pricebook.py, pricestore.py, strategy_seeds.py, stratrules.py, tools.py, watchpicks.py
 
 ### stratrules.py
 
