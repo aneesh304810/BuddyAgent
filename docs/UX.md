@@ -108,3 +108,10 @@ Counts at the top (collected, passed, failed, paper trading, waiting for approva
 the list. Each strategy shows its rule in words and its stage; opening it shows the scorecard on past prices and on
 live paper trades, the reasons it passed or failed, what it needs, and its source with licence. "Finding more" reads
 the public list of strategy papers into the research queue. Approving and replaying stay in Money → Invest → Trading.
+
+## Trading: one set of figures for all paper trading
+
+The top of the Trading tab adds the Signals book and the strategy lab together: trades open now, pretend money in
+them, the gain or loss on them at the latest close, trades closed, how many made money, and their result. Each book
+then has its own line saying how it trades. An open trade with no price yet counts as no gain and no loss, and the
+page says how many those are. Each lab trade in the list shows its change since it was bought.

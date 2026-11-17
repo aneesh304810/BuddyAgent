@@ -110,6 +110,28 @@ def test_practice_shows_what_was_bought_and_sold_and_why(memory):
     assert won["because"][0].startswith("people are talking") and won["r"] == 2.0 and won["spy_change"] == 0.01
     held = next(t for t in out["open"] if t["symbol"] == "HOLD")
     assert held["price"] == 102 and held["change"] == 0.02 and held["profit"] > 0 and held["days_held"] == 2
+    # all paper trading in one set of figures: the Signals book and the strategy lab added together
+    from buddy import stratlab
+    stratlab._ready(memory)
+    for symbol, entry, status, ret in (("HOLD", 100.0, "open", None), ("NOPRICE", 50.0, "open", None),
+                                       ("WIN", 100.0, "closed", 0.052), ("BAD", 100.0, "closed", -0.018)):
+        pricebook.run(memory, "INSERT INTO lab_trades (strategy, symbol, opened, entry, stop, target, shares, hold_days, why, "
+                              "features, spy_entry, status, closed, exit, ret, spy_ret) VALUES ('trend', ?, ?, ?, 1, 999, ?, 28, "
+                              "'x', '{}', 500, ?, ?, ?, ?, 0)",
+                      (symbol, DAY.isoformat(), entry, 1000 / entry, status, DAY.isoformat() if ret is not None else None,
+                       entry * (1 + ret) if ret is not None else None, ret))
+    both = crossmarket.practice(memory, data, today=start + timedelta(days=2))
+    signals, lab = both["all"]["books"]
+    assert (lab["name"], lab["open"], lab["in_trades"], lab["priced"]) == ("Strategy lab", 2, 2000.0, 1)
+    assert lab["open_gain"] == 20.0                                  # HOLD: $1,000 at 100, now 102; NOPRICE counts as nothing
+    assert lab["closed"] == 2 and lab["won"] == 1 and lab["closed_result"] == 30.0   # +5.2% and -1.8%, less 0.2% each
+    assert signals["name"] == "Signals book" and signals["open"] == len(both["open"]) and signals["closed"] == 1
+    total = both["all"]
+    assert total["open"] == signals["open"] + 2 and total["closed"] == 3 and total["won"] == signals["won"] + 1
+    assert total["in_trades"] == round(signals["in_trades"] + 2000.0, 2)
+    assert total["open_gain"] == round(signals["open_gain"] + 20.0, 2)
+    assert total["open_change"] == round(total["open_gain"] / total["in_trades"], 4)
+    assert both["lab_last"] == {"HOLD": 102}
     avoid = next(t for t in out["open"] if t["symbol"] == "BAD")
     assert avoid["kind"] == "avoid" and avoid["because"] == ["insiders are selling"] and avoid["profit"] is None
     assert out["money"]["value_now"] == round(out["money"]["equity"] + held["profit"], 2)

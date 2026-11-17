@@ -16,7 +16,7 @@ const esc = (s) => String(s ?? "").replace(/[&<>"']/g, (c) => ({ "&": "&amp;", "
 const safe = (u) => /^https:\/\/[^\s"'<>]+$/.test(String(u || "")) ? u : "";
 // Four tabs: the old Strategy, Signals and Accounts are one Overview; market news is in Discover, under News.
 const TABS = [["strategy", "Overview"], ["practice", "Trading"], ["themes", "Themes"], ["watch", "Watchlist"]];
-let setupData = null, setupBusy = false, deskData = null, deskBusy = false;
+let setupData = null, setupBusy = false, deskData = null, deskBusy = false, labNow = {};
 let picksData = null, picksBusy = false, researchData = null, researchBusy = false, ideasData = null, ideasBusy = false;
 let themesData = null, themesBusy = false, practiceData = null, practiceBusy = false, signalsData = null, signalsBusy = false;
 let data = null, tab = TABS.some(([k]) => k === storageGet("investTab")) ? storageGet("investTab") : "strategy", busy = false;
@@ -366,7 +366,7 @@ function labRow(t) {
   return `<div class="tx" style="grid-template-columns:92px 1fr auto"><span><b>${esc(t.symbol)}</b><small>${esc(t.strategy)}</small></span>
       <span>${t.closed ? `Bought ${esc(t.opened)} at ${px(t.entry)}, sold ${esc(t.closed)} at ${px(t.exit)}: ${esc(t.why_closed)}` : `Bought ${esc(t.opened)} at ${px(t.entry)}; stop ${px(t.stop)}, target ${px(t.target)}`}
         <small>${esc(t.why)}</small></span>
-      <span class="amt">${t.closed ? pct(t.change) : `<small class="muted">open</small>`}</span></div>`;
+      <span class="amt">${t.closed ? pct(t.change) : labNow[t.symbol] && t.entry ? `${pct(labNow[t.symbol] / t.entry - 1)}<small class="muted">now ${px(labNow[t.symbol])}</small>` : `<small class="muted">open</small>`}</span></div>`;
 }
 
 // The strategy lab: well-known rules that each paper-trade every weekday, with their record against the market.
@@ -452,17 +452,24 @@ function practiceTab() {
   const p = practiceData.practice || {}, m = practiceData.markets;
   if (p.error) return card("Practice book", `<p class="muted">${esc(p.error)}</p>`) + marketsCard(m) + linksCard(m);
   const mo = p.money || {}, o = p.overall;
-  const summary = `<div class="kpis">${kpi(usd(mo.value_now), "book value now")}${kpi(pct((mo.value_now || 0) / (mo.started_with || 1) - 1, 2), "since $" + Number(mo.started_with || 0).toLocaleString())}
-    ${kpi(o ? `${esc(o.won)} of ${esc(o.trades)}` : "–", "calls right")}${kpi(pct(mo.worst_drawdown_pct), "worst fall from a peak")}
-    ${kpi(usd(mo.cash), "cash not in positions")}${kpi(usd(mo.open_risk), "at risk in open trades")}</div>
-    <p class="note">${esc(p.note || "")} ${mo.skipped_for_risk ? esc(mo.skipped_for_risk) + " signals were skipped by the risk rules. " : ""}${esc(mo.rules || "")}.</p>`;
+  // All paper trading together first, then each book on its own line.
+  const all = p.all || { books: [] };
+  const gain = (v) => v == null ? "–" : `<span style="color:var(--${v > 0 ? "sev-good" : v < 0 ? "sev-high" : "muted"})">${v > 0 ? "+" : v < 0 ? "−" : ""}$${Math.abs(v).toLocaleString(undefined, { maximumFractionDigits: 0 })}</span>`;
+  const bookRow = (b) => `<div class="tx" style="grid-template-columns:1fr auto"><span><b>${esc(b.name)}</b>
+      <small>${esc(b.open)} open with $${Number(b.in_trades).toLocaleString(undefined, { maximumFractionDigits: 0 })} in them${b.open ? ` (${gain(b.open_gain)} so far)` : ""} · ${b.closed ? `${esc(b.closed)} closed, ${esc(b.won)} made money` : "none closed yet"}${b.name === "Signals book" ? ` · $${Number(mo.cash || 0).toLocaleString(undefined, { maximumFractionDigits: 0 })} cash unused` : ""}</small>
+      <small>${esc(b.how)}</small></span><span class="amt">${b.closed ? gain(b.closed_result) : `<small class="muted">no result yet</small>`}</span></div>`;
+  const summary = `<div class="kpis">${kpi(esc(all.open ?? 0), "paper trades open now")}${kpi("$" + Number(all.in_trades || 0).toLocaleString(undefined, { maximumFractionDigits: 0 }), "pretend money in them")}
+    ${kpi(all.open ? gain(all.open_gain) : "–", "gain or loss on open trades" + (all.open_change != null ? ` (${(all.open_change * 100).toFixed(1)}%)` : ""))}
+    ${kpi(esc(all.closed ?? 0), "trades closed")}${kpi(all.closed ? `${esc(all.won)} of ${esc(all.closed)}` : "–", "closed trades that made money")}
+    ${kpi(all.closed ? gain(all.closed_result) : "–", "result of closed trades")}</div>
+    ${all.open && all.priced < all.open ? `<p class="note">${esc(all.open - all.priced)} open trades have no price yet today, so they count as no gain and no loss.</p>` : ""}
+    ${(all.books || []).map(bookRow).join("")}
+    <p class="note">Open trades are valued at the latest daily close. ${all.closed ? "" : "Nothing has closed yet: a trade closes at its stop, its target or its time limit, which takes days to weeks. "}${mo.skipped_for_risk ? esc(mo.skipped_for_risk) + " signals were skipped by the risk rules. " : ""}Nothing real is bought.</p>`;
   // Every paper trade in one place: the Signals book's trades and the strategy lab's, each named by its rule.
   const lab = p.lab || { open: [], closed: [], strategies: [] };
   const sum = (k) => (lab.strategies || []).reduce((a, x) => a + (x[k] || 0), 0);
-  const labLine = lab.strategies.length ? `<div class="kpis">${kpi(esc((p.open || []).length + sum("open")), "paper trades open now")}
-      ${kpi(esc((p.closed || []).length + sum("closed")), "closed so far")}${kpi(sum("closed") ? `${esc(sum("won"))} of ${esc(sum("closed"))}` : "–", "lab trades that made money")}
-      ${kpi(money(sum("closed") ? sum("profit") : null), "lab result after costs")}</div>
-      <p class="note">${esc(sum("open"))} of the open trades were opened by the strategy lab's rules at $1,000 each; they are counted here, apart from the $${Number(mo.started_with || 0).toLocaleString()} Signals book above.</p>` : "";
+  const labLine = "";
+  labNow = p.lab_last || {};
   const days = {};
   (p.log || []).forEach((d) => { days[d.day] = (days[d.day] || []).concat(d.events); });
   lab.open.concat(lab.closed).forEach((t) => {
@@ -476,7 +483,7 @@ function practiceTab() {
     : `<p class="muted">${empty}</p>`;
   const list = (rows, empty) => rows && rows.length ? rows.map(tradeCard).join("") : `<p class="muted">${empty}</p>`;
   return card("Buddy's paper trading", summary + labLine) +
-    card(`Bought and holding (${(p.open || []).length + lab.open.length})`, both(p.open, lab.open, "No paper positions are open. The lab opens trades each weekday morning, or press Run the lab now below.")) +
+    card(`Bought and holding (${all.open ?? (p.open || []).length + lab.open.length})`, (all.open > (p.open || []).length + lab.open.length ? `<p class="note">Showing the latest ${(p.open || []).length + lab.open.length} of ${esc(all.open)}.</p>` : "") + both(p.open, lab.open, "No paper positions are open. The lab opens trades each weekday morning, or press Run the lab now below.")) +
     card(`Sold and judged (${(p.closed || []).length + lab.closed.length})`, both(p.closed, lab.closed, "Nothing has closed yet. A trade closes at its stop, its target, a sell signal, or its time limit.")) +
     ((p.skipped || []).length ? card("Signals not traded", list(p.skipped, "")) : "") +
     card("Day by day", log || `<p class="muted">No activity yet.</p>`) +

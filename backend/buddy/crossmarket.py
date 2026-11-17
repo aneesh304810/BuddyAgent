@@ -315,6 +315,36 @@ def _lab(memory: Memory) -> dict | None:
         return None
 
 
+def _combined(stats: dict, open_: list[dict], lab_open: list[dict], lab_done: list[dict], last: dict) -> dict:
+    """All paper trading in one set of figures, then each book on its own line. The two books are kept differently
+    (the Signals book is a $100,000 pot sized by risk; the lab puts a fixed stake on every pick and has no pot), so
+    what can be added up honestly is: money in open trades, the gain or loss on them at the latest close, and the
+    result of the trades that have closed. An open trade with no price yet counts as no gain and no loss."""
+    from . import stratlab  # noqa: PLC0415
+    lab_priced = [t for t in lab_open if last.get(t["symbol"])]
+    lab_in = sum(t["shares"] * t["entry"] for t in lab_open)
+    lab_gain = sum(t["shares"] * (last[t["symbol"]] - t["entry"]) for t in lab_priced)
+    lab_net = [t["ret"] - stratlab.COST for t in lab_done]
+    sig_long = [r for r in open_ if r["kind"] == "buy"]
+    overall = stats.get("overall") or {}
+    books = [
+        {"name": "Signals book", "open": len(open_), "in_trades": round(sum(r["cost"] for r in sig_long), 2),
+         "open_gain": round(sum(r["profit"] or 0 for r in open_), 2), "closed": int(stats.get("closed") or 0),
+         "won": int(overall.get("won") or 0), "closed_result": round(stats.get("paper_profit") or 0, 2),
+         "priced": sum(1 for r in open_ if r.get("price")),
+         "how": "Trades only on Buddy's own buy and sell signals, sized by risk from a $100,000 pot. No costs taken off."},
+        {"name": "Strategy lab", "open": len(lab_open), "in_trades": round(lab_in, 2), "open_gain": round(lab_gain, 2),
+         "closed": len(lab_done), "won": sum(1 for v in lab_net if v > 0),
+         "closed_result": round(sum(stratlab.STAKE * v for v in lab_net), 2), "priced": len(lab_priced),
+         "how": f"Every rule puts ${stratlab.STAKE:,.0f} on each pick, every weekday. Closed results have "
+                f"{stratlab.COST:.1%} taken off for costs."},
+    ]
+    total = {k: round(sum(b[k] for b in books), 2) for k in ("open", "in_trades", "open_gain", "closed", "won", "closed_result", "priced")}
+    return {**{k: int(v) if k in ("open", "closed", "won", "priced") else v for k, v in total.items()},
+            "open_change": round(total["open_gain"] / total["in_trades"], 4) if total["in_trades"] else None,
+            "books": books}
+
+
 def practice(memory: Memory, data=None, today: date | None = None) -> dict:
     """The practice book for the page: summary, open positions at the latest price, closed trades, skipped
     signals, a day-by-day log and what has been learned."""
@@ -325,11 +355,18 @@ def practice(memory: Memory, data=None, today: date | None = None) -> dict:
     rows = pricebook.run(memory, "SELECT * FROM sim_trades ORDER BY opened DESC, id DESC LIMIT 400")
     reasons = _reasons(memory, rows)
     held = [t for t in rows if t["status"] == "open"]
+    try:  # the strategy lab's own open and closed trades, for the combined figures
+        lab_open = pricebook.run(memory, "SELECT symbol, entry, shares FROM lab_trades WHERE status = 'open' AND NOT "
+                                         "COALESCE(backfilled, FALSE)")
+        lab_done = pricebook.run(memory, "SELECT ret FROM lab_trades WHERE status = 'closed' AND ret IS NOT NULL AND NOT "
+                                         "COALESCE(backfilled, FALSE)")
+    except Exception:
+        lab_open, lab_done = [], []
     last = {}
-    if held:
+    if held or lab_open:
         try:
             from .markets import Data  # noqa: PLC0415
-            bars = (data or Data(memory)).bars("us", sorted({t["symbol"] for t in held}), days=10)
+            bars = (data or Data(memory)).bars("us", sorted({t["symbol"] for t in held + lab_open}), days=10)
             last = {s: b[-1]["c"] for s, b in bars.items() if b}
         except Exception as e:
             log.info("practice prices: %s", type(e).__name__)
@@ -377,7 +414,9 @@ def practice(memory: Memory, data=None, today: date | None = None) -> dict:
         model = (modeltrain.status(memory).get("domains") or {}).get(modeltrain.NAMES["investing"])
     except Exception:
         model = None
-    return {"money": money, "overall": stats["overall"], "buys": stats["buys"], "avoids": stats["avoids"],
+    return {"money": money, "all": _combined(stats, open_, lab_open, lab_done, last),
+            "lab_last": {t["symbol"]: last[t["symbol"]] for t in lab_open if t["symbol"] in last},
+            "overall": stats["overall"], "buys": stats["buys"], "avoids": stats["avoids"],
             "by_category": stats["by_category"], "open": open_, "closed": closed[:60], "skipped": skipped[:20],
             "log": [{"day": d, "events": e} for d, e in sorted(log_.items(), reverse=True)][:30],
             "weights": stats["weights"], "model": model, "note": stats["note"],
