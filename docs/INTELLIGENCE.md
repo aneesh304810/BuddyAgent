@@ -526,3 +526,11 @@ the whole headline, store and price included, so nothing ever had a history and 
   category = the cabin (economy, premium economy, business, first, or "not stated": never guessed). A hotel: product
   = the hotel or place searched, `place` = the place, brand = the chain. A fare is compared only within its cabin.
   Searched fares carry the cabin from the travel profile; emailed fares take the airline and cabin from the headline.
+- **The engines read three levels** (`pricebook.levels`, `factors._levels`). Own: the product's own prices (a flight:
+  the route in its cabin). Peers: the same brand in the same category (a flight: the airline in that cabin; a hotel:
+  the chain). Group: the whole category (a flight: every route to the destination in that cabin; a hotel: the place).
+  Each buy-or-wait call saves `f_own_days`, `f_vs_own_low`, `f_vs_own_usual`, `f_peers_dip`, `f_group_dip` and the
+  product counts, so the trained models can learn from them. Prices of different products are never averaged; what
+  is compared is how far each product's lowest price sat below its own usual price.
+- **A product never seen before** is judged by its peers: "this brand's products of this kind have dipped 20% below
+  their usual price" is a reason in the advice, with its own learned weight, when three or more such products exist.

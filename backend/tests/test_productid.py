@@ -108,3 +108,47 @@ def test_flights_file_by_route_airline_and_cabin_and_hotels_by_place_and_chain(m
     deal = pricebook.deals_page(memory)["deals"][0]
     assert (deal["product"], deal["brand"], deal["category"], deal["place"]) == ("mia-lim", "latam", "business", "lim")
     assert deal["is_lowest"] is True and deal["lowest_seen"] == 2900     # the lowest business fare, not judged against economy
+
+
+def test_the_engines_read_a_products_own_record_its_brand_and_its_category(memory):
+    from buddy import factors, whentobuy
+    now = datetime.now(timezone.utc)
+
+    def seen(title, prices, **more):
+        for i, price in enumerate(prices):
+            pricebook.observe(memory, more.pop("domain", "product") if i == 0 and "domain" in more else more.get("d", "product"),
+                              title, price, seen_at=now - timedelta(days=30 - i * 3), **{k: v for k, v in more.items() if k != "d"})
+
+    seen("Baseus S2 4K Solar Security Camera", [100, 100, 100, 70])           # dips 30% below its usual
+    seen("Baseus N1 2K Indoor Security Camera", [50, 50, 40])                 # dips 20%
+    seen("Baseus X1 Pro Solar Security Camera", [120, 120, 108])              # dips 10%
+    seen("Eufy C37 Solar Security Camera", [60, 60, 60])                      # never dips
+    got = pricebook.levels(memory, "product", "Amazon - Baseus S2 4K Solar Security Camera $95")
+    assert got["identity"]["product"] == "baseus s2" and got["own"] == {"prices": 4, "days": 4, "low": 70.0, "usual": 100.0}
+    assert got["peers"] == {"dip": 0.2, "products": 3} and got["group"] == {"dip": 0.15, "products": 4}
+    figures = factors.shopping(memory, "Baseus S2 4K Solar Security Camera", "electronics", price=95)
+    assert figures["f_vs_own_low"] == round(95 / 70 - 1, 4) and figures["f_vs_own_usual"] == -0.05
+    assert figures["f_peers_dip"] == 0.2 and figures["f_group_products"] == 4.0 and figures["f_own_days"] == 4.0
+    # a camera Buddy has never seen is judged by what its brand's cameras have done
+    new = whentobuy.advise(memory, "Baseus Z9 Dual Lens Security Camera", 150, "electronics", save=False)
+    assert any("has not seen this one before" in r and "20%" in r and "3 products" in r for r in new["reasons"])
+    assert not any("no price history" in r for r in new["reasons"])
+    unknown = whentobuy.advise(memory, "Acme Garden Gnome", 20, "home", save=False)
+    assert any("no price history" in r for r in unknown["reasons"])
+    # flights: the route in its cabin, then the airline in that cabin, then the destination
+    for i, price in enumerate([900, 880, 860, 700]):
+        pricebook.observe(memory, "flight", "MIA-LIM", price, source="serpapi:LATAM Airlines", cabin="economy",
+                          seen_at=now - timedelta(days=20 - i))
+    for i, price in enumerate([3000, 3000, 2700]):
+        pricebook.observe(memory, "flight", "MIA-LIM", price, source="serpapi:LATAM Airlines", cabin="business",
+                          seen_at=now - timedelta(days=20 - i))
+    for i, price in enumerate([500, 500, 450]):
+        pricebook.observe(memory, "flight", "JFK-LIM", price, source="serpapi:Delta", cabin="economy",
+                          seen_at=now - timedelta(days=20 - i))
+    economy = pricebook.levels(memory, "flight", "MIA-LIM", seller="LATAM", cabin="economy")
+    assert economy["own"]["low"] == 700 and economy["own"]["prices"] == 4          # the business fares are not in it
+    assert economy["peers"]["products"] == 1 and economy["group"]["products"] == 2  # LATAM economy; economy to Lima
+    business = pricebook.levels(memory, "flight", "MIA-LIM", seller="LATAM", cabin="business")
+    assert business["own"]["low"] == 2700 and business["peers"]["dip"] == 0.1
+    trip = factors.travel(memory, "flight", "MIA-LIM", price=770, airline="LATAM", cabin="economy")
+    assert trip["f_vs_own_low"] == 0.1 and trip["f_group_products"] == 2.0

@@ -160,8 +160,13 @@ def _deals(memory: Memory, domain: str, item: str, today: date, days: int) -> di
 
 
 # --- travel -------------------------------------------------------------------------------------------------
-def _travel(memory: Memory, domain: str, item: str, travel_day: date | None, today: date, env=None, fetch=None) -> dict:
+def _travel(memory: Memory, domain: str, item: str, travel_day: date | None, today: date, env=None, fetch=None,
+            price=None, airline: str = "", cabin: str = "") -> dict:
     out: dict = {}
+    try:
+        out.update(_levels(memory, domain, item, price, seller=airline, cabin=cabin))
+    except Exception:
+        log.info("factors: no price levels for a trip", exc_info=True)
     category = "airline fares" if domain == "flight" else "hotels"
     months = [today.month] + ([travel_day.month] if travel_day else [])
     season = _season(memory, category, months)
@@ -182,23 +187,45 @@ def _travel(memory: Memory, domain: str, item: str, travel_day: date | None, tod
 
 
 def travel(memory: Memory, domain: str, item: str, travel_day: date | None = None, today: date | None = None,
-           env=None, fetch=None) -> dict:
-    return _safe(_travel, memory, domain, item, travel_day, today or local_now().date(), env, fetch)
+           env=None, fetch=None, price=None, airline: str = "", cabin: str = "") -> dict:
+    return _safe(_travel, memory, domain, item, travel_day, today or local_now().date(), env, fetch, price, airline, cabin)
 
 
 # --- shopping -----------------------------------------------------------------------------------------------
-def _shopping(memory: Memory, what: str, kind: str, today: date) -> dict:
+def _levels(memory: Memory, domain: str, item: str, price=None, **more) -> dict:
+    """The price book's three levels as figures (pricebook.levels): where today's price sits against the item's own
+    record, and how far its brand's and its category's prices usually dip. For a flight the levels are the route in
+    its cabin, the airline in that cabin, and the destination; for a hotel, the place and the chain."""
+    from . import pricebook  # noqa: PLC0415
+    got = pricebook.levels(memory, domain, item, **more)
+    own, out = got["own"], {"f_own_days": got["own"]["days"]}
+    if price and own["low"]:
+        out["f_vs_own_low"] = round(float(price) / own["low"] - 1, 4)
+    if price and own["usual"] and own["prices"] >= 3:
+        out["f_vs_own_usual"] = round(float(price) / own["usual"] - 1, 4)
+    for name in ("peers", "group"):
+        if got[name]:
+            out[f"f_{name}_dip"] = got[name]["dip"]
+            out[f"f_{name}_products"] = got[name]["products"]
+    return out
+
+
+def _shopping(memory: Memory, what: str, kind: str, today: date, price=None) -> dict:
     from . import seasons  # noqa: PLC0415
     deals = _deals(memory, "product", what, today, 90)
     out = {"f_deals_named_90": deals["named"], "f_inbox_deals_90": deals["inbox"], "f_reddit_deals_90": deals["reddit"]}
+    try:
+        out.update(_levels(memory, "product", what, price))
+    except Exception:
+        log.info("factors: no price levels for a product", exc_info=True)
     look = seasons.outlook(memory, what, kind, today)
     if look:
         out.update({"f_season_now": look["now_vs_trend_pct"], "f_season_gain": look["gain_pct"]})
     return out
 
 
-def shopping(memory: Memory, what: str, kind: str = "", today: date | None = None) -> dict:
-    return _safe(_shopping, memory, what, kind, today or local_now().date())
+def shopping(memory: Memory, what: str, kind: str = "", today: date | None = None, price=None) -> dict:
+    return _safe(_shopping, memory, what, kind, today or local_now().date(), price)
 
 
 # --- the three engines at a glance (the Predictions tab) ------------------------------------------------------

@@ -99,7 +99,7 @@ def advise(memory: Memory, domain: str, item: str, price: float, travel_date: st
     if not hist and not known:
         reasons.append("Buddy has no price history for it yet: this call rests on rules of thumb")
     from . import factors  # noqa: PLC0415  what Buddy's other sources know, kept with the call to learn from
-    extra = factors.travel(memory, domain, item, trip, today)
+    extra = factors.travel(memory, domain, item, trip, today, price=price)
     try:  # a trained model, when one has passed its test for this kind of trip (modeltrain.py)
         from . import modeltrain  # noqa: PLC0415
         m = modeltrain.predict(memory, domain, whentobuy.features_of(parts, domain, extra))

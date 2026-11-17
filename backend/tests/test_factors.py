@@ -58,7 +58,7 @@ def test_shopping_and_travel_factors_count_deals_from_the_inbox_reddit_and_feeds
     deal(memory, "Sony WH-1000XM5 lowest ever", 200, "feed")  # too old
     deal(memory, "LG OLED TV", 3, "feed")
     got = factors.shopping(memory, "Sony WH-1000XM5", "electronics", TODAY)
-    assert got == {"f_deals_named_90": 2.0, "f_inbox_deals_90": 1.0, "f_reddit_deals_90": 1.0}
+    assert got == {"f_deals_named_90": 2.0, "f_inbox_deals_90": 1.0, "f_reddit_deals_90": 1.0, "f_own_days": 0.0}
     for i in range(4):
         deal(memory, f"EWR to LIM fare sale {i}", 3 + i, "email: airline", "flight")
     deal(memory, "JFK to LHR fare sale", 45, "feed", "flight")

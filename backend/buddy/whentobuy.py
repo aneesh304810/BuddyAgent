@@ -340,15 +340,29 @@ def advise(memory: Memory, what: str, price: float, kind: str = "", lowest: floa
         chance = (chance + real) / 2
         reasons.append(f"in your price book, {kind or 'electronics'} prices fell 10% or more within {horizon} days "
                        f"{real:.0%} of the time ({odds[horizon]['items']} items)")
+    from . import factors  # noqa: PLC0415  what Buddy's other sources know, kept with the call to learn from
+    extra = factors.shopping(memory, what, kind, today, price)
     if not (hist or lowest or average):
-        reasons.append("Buddy has no price history for it yet (a price watch would start one)")
+        # Never seen before: judge it by how far the same brand's products of this kind (else the whole category)
+        # have fallen below their usual price. A new reason, so it earns its weight from past calls like the rest.
+        name, dip, n = next(((label, extra[f"f_{k}_dip"], extra[f"f_{k}_products"]) for k, label in
+                             (("peers", "this brand's products of this kind"), ("group", "products of this kind"))
+                             if extra.get(f"f_{k}_products", 0) >= 3), ("", 0.0, 0))
+        if name:
+            reasons.append(f"Buddy has not seen this one before, but {name} have dipped {dip:.0%} below their usual "
+                           f"price on average ({int(n)} products in the price book)")
+            if dip >= 0.15:
+                chance += bump("peers", 0.1)
+                expected_drop = max(expected_drop, dip * 0.6)
+            elif dip <= 0.05:
+                chance += bump("peers", -0.05)
+        else:
+            reasons.append("Buddy has no price history for it yet (a price watch would start one)")
     cal = (learned.get("calibration") or {}).get("wait") or {}
     if cal.get("calls", 0) >= 10 and cal["right"] < cal["odds_given"] - 0.15:
         chance -= 0.1
         reasons.append(f"my past 'wait' calls were right {cal['right']:.0%} of the time over {cal['calls']} calls, "
                        "so I'm more careful")
-    from . import factors  # noqa: PLC0415  what Buddy's other sources know, kept with the call to learn from
-    extra = factors.shopping(memory, what, kind, today)
     try:  # a trained model, when one has passed its test on calls it never saw (modeltrain.py)
         from . import modeltrain  # noqa: PLC0415
         m = modeltrain.predict(memory, "product", features_of(parts, kind, extra))

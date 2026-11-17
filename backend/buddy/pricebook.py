@@ -373,6 +373,54 @@ def deals_page(memory, days: int = 7, domain: str = "", query: str = "", limit: 
             "days": days}
 
 
+LEVEL_MIN = 3  # prices a product needs before its dips count towards its brand's or category's
+
+
+def _dips(memory, where: str, params: tuple, since) -> dict | None:
+    """How deep the dips run across a group of products: for each with LEVEL_MIN or more prices, how far its lowest
+    price sat below its usual (median) price; then the average of those. Prices of different products are never
+    averaged together (a $30 camera and a $250 kit have nothing to say about each other's level, only about how far
+    such things fall)."""
+    rows = run(memory, "SELECT product, category, MEDIAN(price) AS mid, MIN(price) AS low FROM observations WHERE "
+                       f"{where} AND seen_at >= ? GROUP BY product, category HAVING COUNT(*) >= {LEVEL_MIN}", (*params, since))
+    dips = [(r["mid"] - r["low"]) / r["mid"] for r in rows if r["mid"]]
+    return {"dip": round(sum(dips) / len(dips), 4), "products": len(dips)} if dips else None
+
+
+def levels(memory, domain: str, item: str, seller: str = "", title: str = "", cabin: str = "", days: int = 365) -> dict:
+    """What the price book knows about an item at three levels, for the buy-or-wait engines:
+
+      own    this product's own prices (for a flight: this route in this cabin)
+      peers  the same brand in the same category (a flight: the same airline in the same cabin, on any route;
+             a hotel: the same chain)
+      group  the whole category (a flight: every route to the same destination in the same cabin; a hotel: the
+             same place)
+
+    A product Buddy has never seen can still be judged by how far its peers usually fall."""
+    identify(memory)
+    got = _identity(domain, item, seller, title, cabin)
+    since = utc(datetime.now(timezone.utc) - timedelta(days=days))
+    flight = domain == "flight"
+    known_cabin = flight and got["category"] != "not stated"
+    own_where = "domain = ? AND product = ?" + (" AND category = ?" if known_cabin else "")
+    own_args = (domain, got["product"], *((got["category"],) if known_cabin else ()))
+    own = run(memory, f"SELECT COUNT(*) AS n, COUNT(DISTINCT CAST(seen_at AS DATE)) AS days, MIN(price) AS low, "
+                      f"MEDIAN(price) AS mid FROM observations WHERE {own_where} AND seen_at >= ?", (*own_args, since))[0]
+    peers = group = None
+    if got["brand"]:
+        if domain == "hotel":
+            peers = _dips(memory, "domain = 'hotel' AND brand = ?", (got["brand"],), since)
+        else:
+            peers = _dips(memory, "domain = ? AND brand = ? AND category = ?", (domain, got["brand"], got["category"]), since)
+    if domain == "product" and got["category"] not in ("", "other"):
+        group = _dips(memory, "domain = 'product' AND category = ?", (got["category"],), since)
+    elif got.get("place"):
+        group = _dips(memory, "domain = ? AND place = ?" + (" AND category = ?" if known_cabin else ""),
+                      (domain, got["place"], *((got["category"],) if known_cabin else ())), since)
+    return {"identity": got, "own": {"prices": int(own["n"]), "days": int(own["days"]), "low": own["low"], "usual": own["mid"]},
+            "peers": peers, "group": group}
+
+
 def chart(memory, item: str, domain: str = "product", days: int = 365) -> dict:
     """One item's price history for the Deals page's chart: the day's lowest price, per day."""
     identify(memory)
