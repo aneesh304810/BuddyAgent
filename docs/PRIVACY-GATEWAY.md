@@ -53,9 +53,10 @@ question that names no person ("what does HDL cholesterol mean?") is public.
 ## Not covered (known gaps)
 
 1. **Speech.** Spoken words are turned into text by a speech model before any rule can read them, so a spoken
-   sentence about health reaches that speech model. The text that comes back is checked.
+   sentence about health reaches that speech model. The text that comes back is checked. Accepted by the owner on
+   17 November 2026; no work planned.
 2. **Pictures and files inside a request.** A photo of a lab report, or a PDF sent to Claude as a file, cannot be
-   read by these rules and is not stopped.
+   read by these rules and is not stopped. Left for later: see `docs/BACKLOG.md`.
 3. **Wording no rule was written for.** A symptom in unusual words, a misspelling, another language, a number with
    no label, or encoded text can pass. The source rule (health tools) does not depend on wording; the content rules do.
 4. **False stops.** A harmless sentence that looks like health is cut or refused.
