@@ -55,9 +55,8 @@ WITHHELD = ("[Withheld by the Privacy Gateway: this is the owner's health inform
             "their screen and is not available to you. Do not guess at it or ask them to type it; say that it is on "
             "their screen.]")
 BLOCKED_HEALTH = ("Privacy Gateway blocked this request. It contains personal health information, and Buddy does not "
-                  "send health information to any AI model. Your information stays inside Buddy. You can see your "
-                  "health data on the Health page, and you can ask a general question that is not about you "
-                  "(for example, what a test or a medicine is).")
+                  "send health information to any AI model. Your information stays inside Buddy. You can still "
+                  "ask a general question that is not about you (for example, what a test or a medicine is).")
 REMOVED = "[Removed by the Privacy Gateway: health information, which is not sent to any AI model.]"
 BLOCKED_PERSONAL = ("Privacy Gateway blocked this request. It contains personal details, which go to Claude only and "
                     "to no other AI model.")

@@ -2,7 +2,13 @@
 
 Buddy reads your Oura Ring (and the phone's Health Connect data), helps you set health goals, turns them into a
 few daily habits and food targets, tracks them automatically, and nudges you at the right moments. Everything stays
-on your Buddy server and only Claude sees it. It's coaching, not medical advice.
+on your Buddy server. It's coaching, not medical advice.
+
+> **Changed on 17 November 2026 (Privacy Gateway).** Health information is no longer sent to any AI model, Claude
+> included. Buddy still syncs the ring and the phone and still tracks habits by rules, but it no longer discusses
+> your health in conversation: asking "how did I sleep?" shows your numbers on a card with no interpretation, and
+> the health plan can no longer be set up or changed by talking to Buddy. The parts of this guide that describe
+> those conversations describe how it worked before. There is no Health page yet. See `docs/PRIVACY-GATEWAY.md`.
 
 ## 1. Connect your Oura Ring
 
