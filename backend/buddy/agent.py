@@ -197,6 +197,26 @@ def _expert_tool() -> dict:
     return EXPERT_TOOL
 
 
+def health_card(result: str) -> dict:
+    """A health tool's result as a card for the owner's screen. Built by plain code from the tool's own figures."""
+    try:
+        data = json.loads(result)
+    except (TypeError, ValueError):
+        return cards.money_card("Your health", [], str(result)[:400])
+    rows: list[tuple[str, str]] = []
+
+    def walk(value, label: str, depth: int = 0) -> None:
+        if len(rows) >= 12 or value is None or depth > 3:
+            return
+        if isinstance(value, dict):
+            for k, v in value.items():
+                walk(v, f"{label} · {k}".strip(" ·") if depth else str(k), depth + 1)
+        elif isinstance(value, (str, int, float, bool)) and not isinstance(value, bool) and str(value) != "":
+            rows.append((label.replace("_", " "), f"{value:,}" if isinstance(value, int) else str(value)[:60]))
+    walk(data, "")
+    return cards.money_card("Your health", rows, "Shown by Buddy itself. Health information is not sent to any AI model.")
+
+
 class Conversation:
     """One live conversation with the user (one per connected phone)."""
 
@@ -269,6 +289,17 @@ class Conversation:
         usage.current_turn.set(self.turn_key)
         self.cards = cards.CardBox()
         cards.current.set(self.cards)
+        from . import privacygate  # noqa: PLC0415
+        if privacygate.health(user_text):
+            # The Privacy Gateway: a message about the owner's own health is answered here, by Buddy itself. It is
+            # not sent to any model and its words are not kept in the conversation that later turns send.
+            privacygate.record("the chat", "any model", {"level": privacygate.RESTRICTED, "kinds": ["health"]},
+                               "blocked", "a message about the owner's own health")
+            shown = await asyncio.to_thread(self._health_card)
+            said = privacygate.BLOCKED_HEALTH + (" Your latest health data is on your screen now." if shown else "")
+            await say(said)
+            self._note_exchange("[A message about my health, kept from every AI model by the Privacy Gateway]", said)
+            return
         if via != "room":  # budgets, in the user's own words, in code: works even when Claude is stopped
             from . import budgets  # noqa: PLC0415
             try:
@@ -684,6 +715,15 @@ class Conversation:
                 break
         return question, answer
 
+    def _health_card(self) -> bool:
+        """Put the owner's latest health data on their screen, worked out by rules and never seen by a model."""
+        try:
+            from . import health_data  # noqa: PLC0415
+            return bool(cards.offer(health_card(health_data.run_my_health(self.memory, {"days": 7}))))
+        except Exception:
+            log.info("the health card could not be shown", exc_info=True)
+            return False
+
     def _note_exchange(self, user_text: str, answer: str) -> None:
         """Keep an exchange handled without Claude in the history, for context."""
         stamp = local_now().strftime("%A %d %B %Y, %I:%M %p")
@@ -842,6 +882,13 @@ class Conversation:
             result, is_error = str(e), False
         except (ToolError, KeyError, TypeError, ValueError) as e:
             result, is_error = str(e) or type(e).__name__, True
+        if not is_error:  # the Privacy Gateway: a health tool's result goes to the owner's screen, not to the model
+            from . import privacygate  # noqa: PLC0415
+            kept, withheld = privacygate.withhold(block.name, result)
+            if withheld:
+                with contextlib.suppress(Exception):
+                    cards.offer(health_card(result))
+                result = kept
         log.info("tool %s -> %s", block.name, "error" if is_error else "ok")
         with contextlib.suppress(Exception):  # for Insights: which tools and agents, how fast, how often failing
             usage.log_tool(self.memory, block.name, time.monotonic() - started, not is_error,

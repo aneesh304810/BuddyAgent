@@ -120,8 +120,17 @@ def _guarded(anthropic):
     if _GUARDED is None:
         class Guarded(anthropic.AsyncAnthropic):
             async def request(self, *args, **kwargs):
+                from . import privacygate  # noqa: PLC0415
                 from .budgets import check_claude  # noqa: PLC0415
                 check_claude()
+                # The Privacy Gateway: health information is cut out of every request here, the one door to
+                # Claude. A request whose body cannot be found or read is refused, never sent unchecked.
+                options = kwargs.get("options") or next((a for a in args if hasattr(a, "json_data")), None)
+                body = getattr(options, "json_data", None)
+                if options is None or (body is not None and not isinstance(body, dict)):
+                    raise privacygate.PrivacyBlocked(privacygate.BLOCKED_UNSURE, "unsure")
+                if body is not None:
+                    privacygate.sanitize_request(body, getattr(options, "url", "") or "Claude")
                 return await super().request(*args, **kwargs)
         _GUARDED = Guarded
     return _GUARDED

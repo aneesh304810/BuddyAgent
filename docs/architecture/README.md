@@ -109,9 +109,9 @@ flowchart LR
 | [Making and doing things](18-making-and-doing-things.md) | Diagrams, charts, images, Word, PowerPoint, PDF and Excel; data crunching in the sandbox; a real browser Buddy drives; filling forms; rich cards in the chat; background jobs | 7 |
 | [Agents and skills](19-agents-and-skills.md) | Specialist agents Buddy can connect or build, and its registry of tools and skills | 3 |
 | [Buddy Intelligence Platform](20-buddy-intelligence-platform.md) | A shared layer, like Buddy Connect, that collects public evidence on emerging technologies (papers, clinical studies, company filings, federal awards, code, discussion), finds which are converging across sectors and what stage each is at, and that Buddy's other features read from | 7 |
-| [Security and privacy](21-security-and-privacy.md) | Who can reach Buddy, lockouts, secrets kept out of logs and prompts, the encrypted database | 5 |
+| [Security and privacy](21-security-and-privacy.md) | Who can reach Buddy, lockouts, secrets kept out of logs and prompts, the encrypted database | 6 |
 | [Fixing and explaining itself](22-fixing-and-explaining-itself.md) | Reads its own code and these docs, draws its own architecture, checks its own server, and fixes itself on a branch you review | 10 |
 | [Insights and costs](23-insights-and-costs.md) | What Buddy spends and how well it does, model by model and service by service, and what makes it feel slow | 4 |
 | [The server and the app](24-the-server-and-the-app.md) | The one server the phone talks to: the chat connection, the app's pages and their data | 1 |
 
-24 features, 166 server modules. The app (Kotlin) and the deploy scripts are documented by `python -m buddy.codedocs`.
+24 features, 167 server modules. The app (Kotlin) and the deploy scripts are documented by `python -m buddy.codedocs`.

@@ -111,7 +111,7 @@ them: the owner enters them from the provider's own page.
 
 - Outside services: AI providers you added, OpenAI (paid AI, Intelligence Platform only)
 - Settings: `BUDDY_AI_`, `BUDDY_CEREBRAS_KEY`, `BUDDY_GEMINI_KEY`, `BUDDY_GROQ_KEY`, `BUDDY_MISTRAL_KEY`, `BUDDY_NVIDIA_KEY`, `BUDDY_OPENAI_ANALYSIS`, `BUDDY_OPENAI_CHEAP`, `BUDDY_OPENAI_KEY`, `BUDDY_OPENROUTER_KEY`
-- Uses: agent.py, benefits.py, config.py, free_models.py, gateway.py, insights.py, maestro_usage.py, markets.py, memory.py, modelscout.py, openrouter_catalog.py, themes.py, tools.py, usage.py
+- Uses: agent.py, benefits.py, config.py, free_models.py, gateway.py, insights.py, maestro_usage.py, markets.py, memory.py, modelscout.py, openrouter_catalog.py, privacygate.py, themes.py, tools.py, usage.py
 
 ### maestro_usage.py
 
@@ -173,7 +173,7 @@ a setting, checked against the provider's model list.
 ```
 
 - Settings: `BUDDY_CEREBRAS_KEY`, `BUDDY_CEREBRAS_MODEL`, `BUDDY_DEEPSEEK_MODEL`, `BUDDY_FREE_MODELS`, `BUDDY_GEMINI_KEY`, `BUDDY_GEMINI_MODEL`, `BUDDY_GITHUB_MODEL`, `BUDDY_GITHUB_MODELS_KEY`, `BUDDY_GROQ_KEY`, `BUDDY_GROQ_MODEL`, `BUDDY_MISTRAL_KEY`, `BUDDY_MISTRAL_MODEL` and 4 more
-- Uses: agent.py, budgets.py, config.py, gateway.py, maestro.py, modelscout.py, openrouter_catalog.py, privacy.py, tools.py, usage.py
+- Uses: agent.py, budgets.py, config.py, gateway.py, maestro.py, modelscout.py, openrouter_catalog.py, privacy.py, privacygate.py, tools.py, usage.py
 
 ### openrouter_catalog.py
 
@@ -263,5 +263,5 @@ this" with the paid suggestion, never passed off as done.
 ## How it connects
 
 - Relies on: Buddy Connect; Buddy Intelligence Platform; Claude: the brain; Fixing and explaining itself; Insights and costs; Investing: signals, research and practice; Memory; Money; Security and privacy
-- Relied on by: Buddy Connect; Buddy Intelligence Platform; Claude: the brain; Fixing and explaining itself; Insights and costs; Investing: signals, research and practice; Learning: the English and investing tutors; Making and doing things; Money; News, trends and research; Speaking up on its own: briefing, reminders and alerts; The server and the app; Voice: Talk mode and Listen-in
+- Relied on by: Buddy Connect; Buddy Intelligence Platform; Claude: the brain; Fixing and explaining itself; Insights and costs; Investing: signals, research and practice; Learning: the English and investing tutors; Making and doing things; Money; News, trends and research; Security and privacy; Speaking up on its own: briefing, reminders and alerts; The server and the app; Voice: Talk mode and Listen-in
 

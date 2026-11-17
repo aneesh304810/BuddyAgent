@@ -169,6 +169,8 @@ FRAGMENT_WAIT_SECONDS = float(os.getenv("BUDDY_FRAGMENT_WAIT", "3"))
 FINISHED = re.compile(r"[.?!।؟。]['\")\]]*\s*$")  # Whisper punctuates a complete sentence
 
 memory = Memory(settings.db_path)
+from . import privacygate as _privacygate  # noqa: E402  the Privacy Gateway keeps its record in this database
+_privacygate.attach(memory)
 from .persona import use_memory as _use_memory  # noqa: E402
 _use_memory(memory)  # briefings and nudges follow the instructions the user gave too
 registry = AgentRegistry(memory, load_specs(settings.agents_file))
@@ -1591,6 +1593,13 @@ async def api_intel_scan() -> dict:
 
 
 # --- security (web/security.html): the daily threat watch, by layer, with what is open and what was fixed
+@app.get("/api/privacy", dependencies=[Depends(require_admin)])
+async def api_privacy() -> dict:
+    """The Privacy Gateway: its rules, what it has blocked, cut or withheld, and its record (no content is kept)."""
+    from . import privacygate  # noqa: PLC0415
+    return await asyncio.to_thread(privacygate.status, memory)
+
+
 @app.get("/api/security", dependencies=[Depends(require_admin)])
 async def api_security() -> dict:
     from . import securitywatch

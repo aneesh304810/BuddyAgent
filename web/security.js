@@ -16,7 +16,7 @@ const esc = (s) => String(s ?? "").replace(/[&<>"']/g, (c) => ({ "&": "&amp;", "
 const safe = (u) => /^https:\/\/[^\s"'<>]+$/.test(String(u || "")) ? u : "";
 const SEV = { critical: ["⛔", "Critical"], high: ["◆", "High"], medium: ["▲", "Medium"], low: ["ℹ", "Low"], good: ["✓", "Good"] };
 const ORDER = ["critical", "high", "medium", "low"];
-const TABS = [["overview", "Overview"], ["open", "Open"], ["fixed", "Fixed"], ["services", "Services"], ["defences", "Defences"]];
+const TABS = [["overview", "Overview"], ["open", "Open"], ["fixed", "Fixed"], ["services", "Services"], ["defences", "Defences"], ["privacy", "Privacy Gateway"]];
 let data = null, tab = TABS.some(([k]) => k === storageGet("securityTab")) ? storageGet("securityTab") : "overview", busy = false;
 
 async function api(path, body) {
@@ -194,9 +194,38 @@ function overview() {
     ${severityBar()}${trendChart()}
     ${card("What was checked", sources || `<p class="muted">Nothing yet.</p>`, esc(data.limits))}`;
 }
+// --- Privacy Gateway: its rules, what it stopped, and its record (which keeps no content)
+let gate = null, gateBusy = false;
+async function loadGate() {
+  if (gateBusy) return;
+  gateBusy = true;
+  try { gate = await api("/api/privacy"); } catch (e) { gate = { failed: e.message }; }
+  gateBusy = false;
+  if (tab === "privacy") render();
+}
+function privacy() {
+  if (!gate) { loadGate(); return `<p class="muted">Loading…</p>`; }
+  if (gate.failed) return `<p class="err">${esc(gate.failed)}</p>`;
+  const WORD = { blocked: "Blocked", sanitized: "Cut out before sending", withheld: "Kept from the model", approved: "Sent to Claude" };
+  const events = (gate.events || []).map((e) => `<div class="guard"><span class="mark" style="color:var(--${e.action === "approved" ? "muted" : "sev-good"})">${e.action === "approved" ? "→" : "✓"}</span>
+      <span style="min-width:0"><b>${esc(WORD[e.action] || e.action)}</b> <span class="chipk">${esc(e.level_name)}${e.kinds ? " · " + esc(e.kinds.replace(",", ", ")) : ""}</span><br>
+      <span class="muted">${esc(e.reason)}</span><br>
+      <span class="muted">${esc(String(e.at).replace("T", " ").slice(0, 16))} UTC · from ${esc(e.source)} · to ${esc(e.provider)} · ref ${esc(e.ref)}</span></span></div>`).join("");
+  return card("Privacy Gateway", `<div class="kpis">${kpi("On", "cannot be switched off")}${kpi(esc(gate.blocked), "requests blocked")}
+      ${kpi(esc(gate.sanitized), "requests with health cut out")}${kpi(esc(gate.withheld), "health results kept from the model")}</div>`,
+      "Every request to an AI model passes this check before it leaves the server.") +
+    card("The rules", `<ul>${gate.policy.map((p) => `<li>${esc(p.rule)} <span class="chipk">always on</span></li>`).join("")}</ul>`,
+      "These are fixed in the code. There is no setting, on this page or anywhere else, that turns them off.") +
+    card("What each model may receive", `<div class="guard"><span style="min-width:0"><b>Claude</b><br><span class="muted">Public text and your personal details. Never health information: it is cut out of every request.</span></span></div>
+      <div class="guard"><span style="min-width:0"><b>Every other model</b> (free and paid)<br><span class="muted">Public text only. Anything personal is refused, and the request is not retried on another model.</span></span></div>
+      <div class="guard"><span style="min-width:0"><b>Health tools</b> (${esc((gate.health_tools || []).join(", "))})<br><span class="muted">Their results go to your screen and to no model.</span></span></div>`) +
+    card("The record", events || `<p class="muted">Nothing has been blocked, cut or withheld yet.</p>`,
+      "The record keeps what kind of information was found and why it was stopped. It never keeps the information itself. " + esc(gate.note || ""));
+}
+
 function render() {
   tabs();
-  $("main").innerHTML = { overview,
+  $("main").innerHTML = { overview, privacy,
     open: () => card(`Open (${data.open.length})`, findings(data.open, "Nothing is open."), "Most serious first. Tap one for why it matters, how it could be used and what to do.")
       + (data.accepted.length ? card("Risks you accepted", findings(data.accepted, "")) : ""),
     fixed: () => card(`Fixed in the last 90 days (${data.fixed.length})`, findings(data.fixed, "Nothing has needed fixing yet."), "A finding is marked fixed when a later scan no longer finds it.")

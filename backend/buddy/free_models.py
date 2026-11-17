@@ -30,6 +30,7 @@ import os
 import re
 import time
 import urllib.error
+import urllib.parse
 import urllib.request
 
 from . import usage
@@ -576,6 +577,8 @@ def _report(memory, name: str, ok: bool, error: str = "") -> None:
 
 
 def _post(url: str, body: dict, headers: dict, timeout: float = 30) -> dict:
+    from . import privacygate  # noqa: PLC0415  the one door to the free models: only public text passes
+    privacygate.authorize_request(urllib.parse.urlparse(url).hostname or "a free model", body, "free models")
     request = urllib.request.Request(require_https(url), data=json.dumps(body).encode(), method="POST",
                                      headers={"Content-Type": "application/json", "User-Agent": "Buddy/1.0", **headers})
     try:

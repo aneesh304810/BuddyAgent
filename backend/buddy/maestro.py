@@ -319,6 +319,12 @@ async def _free(memory: Memory, prompt: str, system: str) -> dict:
 async def ask_with(memory: Memory, choice: str, prompt: str, system: str, fetch=None, env=None) -> dict:
     """One answer from one choice: {text, usd, in, out, seconds}. Raises when the choice fails."""
     import asyncio  # noqa: PLC0415
+    from . import privacygate  # noqa: PLC0415
+    if choice in CLAUDE:  # health never goes, even to Claude; the client cuts it too, this refuses early
+        if privacygate.health(prompt + "\n" + system):
+            privacygate.authorize("claude", prompt + "\n" + system, "Maestro", memory)
+    else:  # every other model: public text only, and a refusal is final (no other model is tried)
+        privacygate.authorize(choice, prompt + "\n" + system, "Maestro", memory)
     started = time.monotonic()
     if choice in OPENAI:
         got = await asyncio.to_thread(_openai, memory, choice, prompt, system, fetch, env)
@@ -353,9 +359,13 @@ async def ask(memory: Memory, job: str, prompt: str, system: str = SYSTEM, fetch
     if choice != "free" and spending(memory)["total"] >= cap(memory):
         log.info("intelligence models: the month's limit is reached; %s uses the free choice", job)
         choice = "free"
+    from . import privacygate  # noqa: PLC0415
     for attempt in dict.fromkeys((choice, "free")):
         try:
             got = await ask_with(memory, attempt, prompt, system, fetch, env)
+        except privacygate.PrivacyBlocked as e:  # a privacy refusal is final: no other model is tried
+            log.info("intelligence models: %s was refused by the Privacy Gateway for %s (%s)", attempt, job, e.kind)
+            return None
         except Exception as e:
             log.info("intelligence models: %s failed for %s (%s)", attempt, job, type(e).__name__)
             continue

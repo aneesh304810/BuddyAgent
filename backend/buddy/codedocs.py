@@ -226,7 +226,7 @@ COMPONENTS = [  # every server module belongs to one feature (tests check none i
      "converging across sectors and what stage each is at, and that Buddy's other features read from",
      ["bip.py", "bip_sources.py", "themes.py", "factors.py", "bip_links.py", "watchpicks.py", "stratrepo.py"]),
     ("Security and privacy", "Who can reach Buddy, lockouts, secrets kept out of logs and prompts, the encrypted "
-     "database", ["guard.py", "privacy.py", "db.py", "compliance.py", "securitywatch.py"]),
+     "database", ["guard.py", "privacy.py", "privacygate.py", "db.py", "compliance.py", "securitywatch.py"]),
     ("Fixing and explaining itself", "Reads its own code and these docs, draws its own architecture, checks its own "
      "server, and fixes itself on a branch you review",
      ["selfcode.py", "codedocs.py", "codedocs_features.py", "codedocs_qa.py", "codedocs_visual.py", "codejob.py",

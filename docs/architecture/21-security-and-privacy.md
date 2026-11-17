@@ -14,6 +14,7 @@ flowchart LR
     subgraph Modules["Modules"]
         guard_py["guard.py<br/>the access log, the brute-force lockout and the security headers"]
         privacy_py["privacy.py<br/>Mask sensitive numbers before any text leaves the server for Claude"]
+        privacygate_py["privacygate.py<br/>the one check every request to an AI model passes before it leaves…"]
         db_py["db.py<br/>encrypted with SQLCipher whenever BUDDY_DB_KEY is set"]
         compliance_py["compliance.py<br/>Buddy's controls mapped to the AICPA Trust Services Criteria (2017,…"]
         securitywatch_py["securitywatch.py<br/>every day Buddy checks what is newly published about security against…"]
@@ -24,8 +25,9 @@ flowchart LR
     t_security_watch --> securitywatch_py
     guard_py --> db_py
     compliance_py --> guard_py
-    db[("Your database<br/>access_log, sec_findings")]
+    db[("Your database<br/>access_log, privacy_events, sec_findings")]
     guard_py --> db
+    privacygate_py --> db
     securitywatch_py --> db
     s_cisa_kev["CISA Known Exploited Vulnerabilities<br/>(public data only)"]
     securitywatch_py --> s_cisa_kev
@@ -43,9 +45,9 @@ flowchart LR
     guard_py -. uses .-> o_2
     o_3["Fixing and explaining itself"]
     guard_py -. uses .-> o_3
-    o_4["Insights and costs"]
+    o_4["Free AI models"]
     guard_py -. uses .-> o_4
-    o_5["Learning"]
+    o_5["Insights and costs"]
     guard_py -. uses .-> o_5
 ```
 
@@ -89,6 +91,52 @@ digits ("card ****4521") so Buddy can still tell cards apart; everything else
 is replaced outright. Masking is plain code, so it is predictable and works
 without any AI model.
 ```
+
+### privacygate.py
+
+```text
+Privacy Gateway: the one check every request to an AI model passes before it leaves this server.
+
+The rules (the owner's decision, 17 November 2026):
+
+  Health   the owner's health information goes to NO model, Claude included: measurements (sleep, readiness,
+           HRV, heart rate, temperature, weight, lab values), symptoms, conditions, medicines, allergies, what
+           was eaten, health goals, and anything worked out from them. Taking the name off does not make it safe.
+  Personal everything else about the owner (who they are, mail, money, documents, and any key or password in
+           the text) goes to Claude ONLY. No other model, free or paid, sees it; and nothing falls back to another
+           model after a refusal.
+  Public   anything else may go to any model the owner has set up.
+  Unsure   if this check fails or cannot decide, the request is refused (fail closed).
+
+Where it is enforced (the only doors to a model):
+  Claude       config.claude_client(): every request, streamed or not, passes sanitize_request just before it
+               is sent. Health information found anywhere in it (the instructions, the memory lines, an old turn
+               of the conversation, a tool's result) is cut out and replaced by a marker; the rest goes on. The
+               request is cut, not refused, so one remembered health fact cannot stop Buddy working for good.
+  Other models free_models._post and maestro.ask_with: authorize, which refuses the whole request unless it is
+               public.
+  Health tools agent.py: what a health tool returns is shown to the owner on a card and withheld from the model
+               (HEALTH_TOOLS), so it never becomes part of a request in the first place.
+  The chat     agent.reply: a message about the owner's own health is answered by Buddy itself and never sent on.
+
+How health is recognised. Two ways, because neither is enough alone:
+  by source    a health tool's result is health information whatever it looks like. This is the strong control.
+  by content   rules over the text: a health measure with a number beside it; the owner (I, my, "the user", their
+               name) beside a symptom, condition, medicine or test; the field names health data is stored under.
+               No AI model takes part in the decision.
+A question that names no person ("what does HDL cholesterol mean?") is public and may be asked.
+
+What this cannot do, said plainly: content rules miss things no rule was written for (a symptom described in
+unusual words, a number with no label), and they sometimes stop something harmless. Speech is turned into text
+by a speech model before any rule can read it, so spoken words reach that model first. Both are listed in
+docs/PRIVACY-GATEWAY.md under "Not covered".
+
+The record. Every decision is kept as: when, which part of Buddy asked, which model, the level, the kinds of
+information found, what was decided and why, and a reference number. Never the content, and never a value.
+```
+
+- Tables: `privacy_events`
+- Uses: free_models.py
 
 ### db.py
 
@@ -171,6 +219,6 @@ server is safe: a flaw nobody has published yet is in no database.
 
 ## How it connects
 
-- Relies on: Agents and skills; Buddy Connect; Claude: the brain; Fixing and explaining itself; Insights and costs; Learning: the English and investing tutors; Making and doing things; Memory; Money; Speaking up on its own: briefing, reminders and alerts; Voice: Talk mode and Listen-in
+- Relies on: Agents and skills; Buddy Connect; Claude: the brain; Fixing and explaining itself; Free AI models (Groq, Gemini, Mistral, Cerebras, GitHub Models, OpenRouter); Insights and costs; Learning: the English and investing tutors; Making and doing things; Memory; Money; Speaking up on its own: briefing, reminders and alerts; Voice: Talk mode and Listen-in
 - Relied on by: Agents and skills; Claude: the brain; Fixing and explaining itself; Free AI models (Groq, Gemini, Mistral, Cerebras, GitHub Models, OpenRouter); Learning: the English and investing tutors; Making and doing things; Memory; Money; News, trends and research; Speaking up on its own: briefing, reminders and alerts; The server and the app; Voice: Talk mode and Listen-in
 
