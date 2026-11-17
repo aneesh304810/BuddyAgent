@@ -534,3 +534,20 @@ the whole headline, store and price included, so nothing ever had a history and 
   is compared is how far each product's lowest price sat below its own usual price.
 - **A product never seen before** is judged by its peers: "this brand's products of this kind have dipped 20% below
   their usual price" is a reason in the advice, with its own learned weight, when three or more such products exist.
+
+## Investment Intelligence: one engine, one home
+
+The strategy work is one named engine under Buddy Intelligence. It adds no database, scheduler or learning system: it
+runs on the price book, the daily loop and the shared learning core.
+
+- **On Predictions** it is the fourth engine ("Investment strategies", model domain `lab`): will a rule's next paper
+  trade make money after costs.
+- **Intelligence → Strategies is its home**, in six sections: Discover (research queue, paper list, GitHub, documents),
+  Library (every rule by family, with approve, pause and remove), Test (the replay, what a rule must clear,
+  yardsticks, stock lists), Rank (`rank`: proven live, then passed, then by the test against the market), Paper
+  trading (totals and a link to every trade), Monitor (`stratrepo.watch`).
+- **Monitor** compares a rule's live record with its test once it has 10 live closed trades: holding up, weaker than
+  its test (ahead of the market but under half its tested margin), failing live (losing to the market), or too
+  early. Buddy shows this and does not pause a rule by itself.
+- **Money → Invest → Trading** keeps the trades, the combined figures, the news desk and the data panel, and links
+  to the engine. The rule table, uploads and the research queue no longer appear there.

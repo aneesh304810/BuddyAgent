@@ -156,9 +156,9 @@ def test_the_past_is_asked_only_of_sources_that_can_answer_for_a_date(memory):
     assert all(str(r["day"]) == "2026-03-01" for r in kept)  # only records dated on or before the day asked about
 
 
-def test_the_overview_lists_three_engines_and_the_endpoints_need_the_owner(memory, monkeypatch):
+def test_the_overview_lists_the_engines_and_the_endpoints_need_the_owner(memory, monkeypatch):
     out = factors.overview(memory)
-    assert [e["id"] for e in out["engines"]] == ["investing", "travel", "shopping"]
+    assert [e["id"] for e in out["engines"]] == ["investing", "travel", "shopping", "strategies"]
     assert [m["domain"] for m in out["engines"][0]["models"]] == ["investing", "theme"]
     assert out["engines"][1]["models"][0]["needed"] == modeltrain.MIN_ROWS and out["history"] == {"state": "not run"}
     assert all(e["learns_from"] for e in out["engines"])
@@ -171,7 +171,7 @@ def test_the_overview_lists_three_engines_and_the_endpoints_need_the_owner(memor
     assert client.get("/api/intel/predict").status_code == 401
     assert client.post("/api/intel/predict", json={"history": True}).status_code == 401
     ok = {"Authorization": "Bearer owner-token"}
-    assert len(client.get("/api/intel/predict", headers=ok).json()["engines"]) == 3
+    assert len(client.get("/api/intel/predict", headers=ok).json()["engines"]) == 4
     assert client.post("/api/intel/predict", json={}, headers=ok).status_code == 400
 
 

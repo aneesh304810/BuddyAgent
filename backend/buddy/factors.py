@@ -38,6 +38,11 @@ WORD = re.compile(r"[a-z0-9]{3,}")
 STOP = {"the", "and", "for", "with", "from", "new", "inch", "pack", "black", "white", "night", "nights", "hotel",
         "flight", "flights", "round", "trip", "one", "way"}
 WHAT = {
+    "strategies": ["The figures each trade was opened on: trend, momentum, how steady the rise was, swings, volume, "
+                   "distance from highs and lows",
+                   "Which rule opened the trade", "Whether the market was rising or falling that day",
+                   "Company figures where a rule uses them: earnings surprise, margins, growth, debt",
+                   "Every closed trade, live and replayed over about five years of past prices"],
     "investing": ["Intelligence evidence for the company's technologies (records, growth, kinds, stage)",
                   "Good and bad headlines in 14 days, for the technology and the company",
                   "Evidence patterns that fired in the last 30 days",
@@ -236,6 +241,8 @@ ENGINES = (  # engine, title, the question it answers, its models in modeltrain 
      ("flight", "hotel")),
     ("shopping", "Shopping", "Buy now or wait: will the price come down 8% or more within your patience?",
      ("product",)),
+    ("strategies", "Investment strategies", "Will this rule's next paper trade make money after costs? Rules from "
+     "published research, tested on past prices and traded with pretend money every weekday.", ("lab",)),
 )
 
 

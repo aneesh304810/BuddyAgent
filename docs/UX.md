@@ -115,3 +115,9 @@ The top of the Trading tab adds the Signals book and the strategy lab together: 
 them, the gain or loss on them at the latest close, trades closed, how many made money, and their result. Each book
 then has its own line saying how it trades. An open trade with no price yet counts as no gain and no loss, and the
 page says how many those are. Each lab trade in the list shows its change since it was bought.
+
+## Intelligence: Strategies is the home of Investment Intelligence
+
+Six section chips under the counts: Discover, Library, Test, Rank, Paper trading, Monitor. Discover and Monitor show
+a count when something is waiting or a rule is failing or weaker live. Every button reports what happened in a
+notice. The Trading tab in Money shows one card pointing here.

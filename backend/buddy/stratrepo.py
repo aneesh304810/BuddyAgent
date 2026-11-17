@@ -62,6 +62,7 @@ BY_FIELD = (  # for a rule nobody has filed: the first field it reads that names
     ("zscore_30", "reversal"), ("below_high", "high_52"), ("high_252", "high_52"), ("ret_126", "momentum"),
     ("ret_252", "momentum"), ("ret_63", "momentum"), ("above_200", "sma_10"), ("avg50_above_200", "sma_10"),
     ("macd_hist", "sma_10"))
+LIVE_MIN = 10   # live closed trades before a rule's live record is compared with its test
 MIN_TRADES, WORST_FALL = 30, 0.35  # a rule passes only with this many past trades and no deeper fall than this
 NOT_LUCK = 0.95  # how sure the luck test must be that a rule's Sharpe ratio is real, given how many were tried
 PAPER_LIST = "https://github.com/WallStreetPete/awesome-open-source-trading/blob/main/docs/papers.md"
@@ -190,6 +191,26 @@ def gate(history: dict, splits: dict, luck: float | None = None, tried: int = 0)
     return ("passed" if all(ok for ok, _, _ in checks) else "failed"), [good if ok else bad for ok, good, bad in checks]
 
 
+def watch(history: dict, live: dict, status: str) -> dict:
+    """Is a rule doing live what it did in its test? {"state", "says"}. A rule is only judged once it has LIVE_MIN
+    live closed trades; before that the answer is "too early", never a guess."""
+    n = int(live.get("trades") or 0)
+    if status != "active":
+        return {"state": "not trading", "says": "Not paper trading: " + ("waiting for your approval" if status == "proposed" else status)}
+    if n < LIVE_MIN:
+        return {"state": "too early", "says": f"{n} of {LIVE_MIN} live closed trades: too early to compare with its test"}
+    now, then = live.get("average_vs_market"), history.get("average_vs_market")
+    if now is None:
+        return {"state": "too early", "says": "Its live trades have no market comparison yet"}
+    if now <= 0:
+        return {"state": "failing", "says": f"Losing to the market live ({now:+.1%} a trade over {n} trades)"
+                + (f"; it beat it by {then:+.1%} on past prices" if then is not None else "")}
+    if then is not None and then > 0 and now < then * 0.5:
+        return {"state": "weaker", "says": f"Ahead of the market live ({now:+.1%} a trade) but under half its test ({then:+.1%})"}
+    return {"state": "holding", "says": f"Holding up live: {now:+.1%} a trade against the market over {n} trades"
+            + (f" (its test: {then:+.1%})" if then is not None else "")}
+
+
 def view(memory: Memory) -> dict:
     """The catalogue for the Intelligence page: every rule by family with its source, scorecards and stage."""
     from . import stratlab, stratrules  # noqa: PLC0415
@@ -230,11 +251,14 @@ def view(memory: Memory) -> dict:
                  else "Passed on past prices; paper trading" if verdict == "passed" else "Paper trading; not yet tested on past prices")
         out.append({**{k: v for k, v in e.items() if k != "custom"}, "family": family_of(e["key"], e["custom"]),
                     "stage": stage, "verdict": verdict, "reasons": reasons, "history": history, "live": now,
+                    "watch": watch(history, now, e["status"]),
                     "rising_market": (splits.get("rising_market") or {}).get("average_vs_market"),
                     "falling_market": (splits.get("falling_market") or {}).get("average_vs_market"),
                     "latest": (splits.get("latest") or {}).get("average_vs_market")})
     order = {"Proven live": 0, "Passed on past prices; paper trading": 1}
     out.sort(key=lambda s: (order.get(s["stage"], 2), -(s["history"].get("average_vs_market") or -9)))
+    for place, s in enumerate(out, 1):   # the ranking: proven first, then passed, then by the test against the market
+        s["rank"] = place
     families = [{"key": fam, "name": name, "learns": learns, "research": research,
                  "rules": sum(1 for s in out if s["family"] == fam),
                  "passed": sum(1 for s in out if s["family"] == fam and s["verdict"] == "passed")}
@@ -252,7 +276,9 @@ def view(memory: Memory) -> dict:
                        "trading": sum(1 for s in out if s["status"] == "active"),
                        "passed": sum(1 for s in out if s["verdict"] == "passed"),
                        "failed": sum(1 for s in out if s["verdict"] == "failed"),
-                       "proven": sum(1 for s in out if s["stage"] == "Proven live"), "queued": queued},
+                       "proven": sum(1 for s in out if s["stage"] == "Proven live"), "queued": queued,
+                       "failing_live": sum(1 for s in out if s["watch"]["state"] == "failing"),
+                       "weaker_live": sum(1 for s in out if s["watch"]["state"] == "weaker")},
             "last_discovery": memory.get(DISCOVER_KEY) or "",
             "note": "Yearly return, Sharpe ratio and worst fall are worked out on the pretend money each rule needs "
                     "(its fixed stake times the most trades it held at once), after costs. They compare rules with "

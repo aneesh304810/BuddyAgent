@@ -143,3 +143,33 @@ def test_a_good_result_among_many_tries_must_be_more_than_luck():
     assert stratrepo.gate(history, splits, 0.99, 5)[0] == "passed"
     verdict, reasons = stratrepo.gate(history, splits, 0.6, 5)
     assert verdict == "failed" and "only 60% sure it is not luck, allowing for the 5 rules tried (95% needed)" in reasons
+
+
+def test_a_rule_is_ranked_and_its_live_record_is_watched_against_its_test(memory):
+    trades(memory, "trend", [0.04, 0.03, -0.01, 0.05] * 10, market=0.005)
+    trades(memory, "trend", [0.03] * 12, market=0.005, backfilled=False, start=date(2026, 8, 1), every=3)      # holding up
+    trades(memory, "dip", [0.04] * 40, market=0.0)
+    trades(memory, "dip", [-0.02] * 12, market=0.0, backfilled=False, start=date(2026, 8, 1), every=3)         # failing live
+    trades(memory, "breakout", [0.05] * 40, market=0.0)
+    trades(memory, "breakout", [0.012] * 12, market=0.0, backfilled=False, start=date(2026, 8, 1), every=3)    # under half
+    trades(memory, "momentum", [0.02] * 40, market=0.0)
+    trades(memory, "momentum", [0.02] * 3, market=0.0, backfilled=False, start=date(2026, 10, 1), every=3)     # too early
+    got = stratrepo.view(memory)
+    by = {s["key"]: s for s in got["strategies"]}
+    assert by["trend"]["watch"]["state"] == "holding" and "Holding up live" in by["trend"]["watch"]["says"]
+    assert by["dip"]["watch"]["state"] == "failing" and "Losing to the market live" in by["dip"]["watch"]["says"]
+    assert by["breakout"]["watch"]["state"] == "weaker" and "under half its test" in by["breakout"]["watch"]["says"]
+    assert by["momentum"]["watch"] == {"state": "too early", "says": "3 of 10 live closed trades: too early to compare with its test"}
+    assert by["u_dual_momentum"]["watch"]["state"] == "not trading" and "waiting for your approval" in by["u_dual_momentum"]["watch"]["says"]
+    assert [s["rank"] for s in got["strategies"]] == list(range(1, len(got["strategies"]) + 1))
+    assert got["counts"]["failing_live"] == 1 and got["counts"]["weaker_live"] == 1
+    assert stratrepo.watch({}, {"trades": 12, "average_vs_market": 0.01}, "active")["state"] == "holding"   # no test to compare
+
+
+def test_the_strategy_lab_is_one_of_the_prediction_engines(memory):
+    from buddy import factors
+    engines = {e["id"]: e for e in factors.overview(memory)["engines"]}
+    assert list(engines) == ["investing", "travel", "shopping", "strategies"]
+    lab = engines["strategies"]
+    assert lab["title"] == "Investment strategies" and [m["domain"] for m in lab["models"]] == ["lab"]
+    assert lab["models"][0]["name"] == "strategy lab trades" and len(lab["learns_from"]) == 5

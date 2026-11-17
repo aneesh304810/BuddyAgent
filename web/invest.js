@@ -272,40 +272,6 @@ async function loadResearch(body) {
   researchBusy = false;
   if (tab === "practice") render();
 }
-function researchCards() {
-  if (!researchData) { loadResearch(); return card("Research queue", `<p class="muted">Loading…</p>`); }
-  const r = researchData.research, b = researchData.benchmarks;
-  if (!r || !b) return card("Research queue", `<p class="err">${esc(researchData.failed || "Could not load.")}</p><button class="btn" id="research-reload">Try again</button>`);
-  const item = (x) => `<div class="tx" style="display:block"><b>${x.url ? `<a href="${safe(x.url)}" target="_blank" rel="noopener">${esc(x.title)}</a>` : esc(x.title)}</b>
-      <small class="muted">${esc(x.source)} · ${esc(x.day)}${x.licence ? " · " + esc(x.licence) : ""}</small>
-      <p class="muted" style="margin:4px 0">${esc((x.summary || "").slice(0, 260))}${(x.summary || "").length > 260 ? "…" : ""}</p>
-      ${x.status === "new" ? `<button class="btn small" data-research="read" data-id="${esc(x.id)}">Read into a rule</button> <button class="btn small" data-research="dismiss" data-id="${esc(x.id)}">Dismiss</button>`
-        : `<small class="muted">${x.rule_key ? "Read: see the proposed rule above" : "Read: " + esc(x.note || "no testable rule found")}</small>`}</div>`;
-  const queue = card(`Research queue (${(r.new || []).length})`,
-    ((r.new || []).map(item).join("") || `<p class="muted">Nothing waiting. Buddy searches arXiv's quantitative finance papers every Sunday.</p>`) +
-    ((r.read || []).length ? `<details><summary>Already read (${r.read.length})</summary>${r.read.map(item).join("")}</details>` : "") +
-    `<p><button class="btn" id="research-search">Search arXiv now</button></p>
-     <div class="add"><input id="research-url" placeholder="https://github.com/owner/name/tree/main/folder" aria-label="GitHub link"><button class="btn" id="research-github">Add from GitHub</button></div>
-     ${(r.starting_points || []).length ? `<p class="muted" style="margin:8px 0 4px">Starting points (public, with a stated licence):</p>` + r.starting_points.map((x) => `<button class="chip" data-start="${esc(x.url)}" style="margin:2px">${esc(x.title)}</button>`).join("") : ""}`,
-    r.note + (r.last_search ? " Last search: " + r.last_search + "." : ""));
-  const f = b.factors || {};
-  const frows = (f.rows || []).map((x) => `<div class="row" style="cursor:default"><span class="name fixed" style="flex:1"><b>${esc(x.name)}</b> <small class="muted">${esc(x.what)}</small></span>
-      <span class="amt">${pct(x.last_12_months)} <small class="muted">last 12 months</small><br>${pct(x.average_year)} <small class="muted">a year, since ${esc(f.from || "")}</small></span></div>`).join("");
-  const yard = card("Yardsticks: what plain styles returned", (frows || `<p class="muted">Not fetched yet.</p>`) +
-    `<p><button class="btn" id="research-factors">Fetch the factor returns</button> <button class="btn" id="research-company">Fetch company figures now</button></p>`,
-    (f.note || "") + " Company figures (earnings surprise, margins, debt) are fetched weekly for the lab's companies; fetching now takes a few minutes.");
-  const lrows = (b.lists || []).map((l) => `<div class="row" style="cursor:default"><span class="name" style="white-space:normal"><b>${esc(l.title || l.name)}</b>
-      <small class="muted">${esc(l.symbols)} symbols · ${esc(l.day)} · ${esc(l.versions)} dated version${l.versions === 1 ? "" : "s"}${l.in_use ? " · used by the lab" : ""}</small></span>
-      <button class="btn small" data-uselist="${l.in_use ? "" : esc(l.name)}">${l.in_use ? "Stop using" : "Use in the lab"}</button></div>`).join("");
-  const presets = (b.presets || []).map((x) => `<button class="btn small" data-fetchlist="${esc(x.name)}"${b.holdings_on ? "" : " disabled"}>Fetch ${esc(x.title)}</button>`).join(" ");
-  const lists = card("Stock lists", (lrows || `<p class="muted">No lists yet. The lab uses its built-in list of about a hundred large US stocks and funds.</p>`) +
-    `<p class="muted">Upload a holdings or index file (CSV or Excel with a Ticker column):</p>
-     <div class="add"><input id="list-name" placeholder="List name, e.g. nasdaq100" maxlength="30" aria-label="List name"><input type="file" id="list-file" accept=".csv,.xlsx,.txt" aria-label="Holdings file"><button class="btn" id="list-upload">Upload</button></div>
-     <p><label><input type="checkbox" id="holdings-on"${b.holdings_on ? " checked" : ""}> Let Buddy fetch fund holdings files weekly</label></p><p>${presets}</p>`,
-    "Each list is kept with its date, so past membership builds up from today. Fetching fund files is off until you switch it on, because the provider's terms were not checked for you; uploading a file you downloaded yourself always works.");
-  return queue + yard + lists;
-}
-
 // The news desk: stories (not headlines) behind the companies Buddy is acting on, how far each can be trusted,
 // and the record of paid checks: asked, or noted as "would have asked" while no paid source is set up.
 async function loadDesk(body) {
@@ -369,43 +335,12 @@ function labRow(t) {
       <span class="amt">${t.closed ? pct(t.change) : labNow[t.symbol] && t.entry ? `${pct(labNow[t.symbol] / t.entry - 1)}<small class="muted">now ${px(labNow[t.symbol])}</small>` : `<small class="muted">open</small>`}</span></div>`;
 }
 
-// The strategy lab: well-known rules that each paper-trade every weekday, with their record against the market.
+// Rules, research and tests live in one place, Intelligence > Strategies; the Trading tab keeps the trades.
 function labCards(p) {
   const lab = p.lab;
   if (!lab) return "";
-  const vs = (r) => !r || !r.closed ? `<small class="muted">none</small>` : `${esc(r.won)} of ${esc(r.closed)} made money<br>${pct(r.average_result)} a trade
-      <small class="muted">market ${r.average_vs_market == null ? "–" : pct(r.average_result - r.average_vs_market)}</small>`;
-  const part = (label, r) => r && r.closed ? `<br><small class="muted">${label}: ${pct(r.average_vs_market)} against the market (${esc(r.closed)})</small>` : "";
-  const splits = (h) => !h || !h.verdict ? "" : `<br><small><b>${esc(h.verdict)}</b></small>${part("rising market", h.rising_market)}${part("falling market", h.falling_market)}${part("earlier 70%", h.earlier)}${part("latest 30%", h.latest)}
-      <details><summary><small class="muted">year by year</small></summary>${(h.by_year || []).map((y) => `<small class="muted">${esc(y.year)}: ${pct(y.average_vs_market)} against the market (${esc(y.closed)})</small>`).join("<br>")}</details>`;
-  const rows = lab.strategies.map((s) => `<tr><td><b>${esc(s.name)}</b>${s.yours ? ` <span class="pill">yours</span>` : ""}<br><small class="muted">${esc(s.rule)} Reads: ${esc(s.reads)}; held up to ${esc(s.hold_days)} days.</small></td>
-      <td>${esc(s.open)} open<br>${vs(s)}<br><small class="muted">${esc(s.says)}</small></td><td>${vs(s.history)}${splits(s.history)}</td></tr>`).join("");
-  const rp = lab.replay || {};
-  const replayLine = rp.state === "running" ? "A replay over past prices is running; refresh in a minute or two."
-    : rp.state === "failed" ? "The last replay failed: " + (rp.why || "")
-    : rp.state === "done" ? `History covers ${rp.from} to ${rp.to}: ${Number(rp.trades).toLocaleString()} finished trades, replayed ${rp.at}.`
-    : "History has not been replayed yet.";
-  const added = (lab.added || []).map((r) => `<div class="idea"><div class="top"><b>${esc(r.name)}</b><span class="pill">${esc(r.status)}</span>
-      <span class="muted">${r.source_url ? `<a href="${safe(r.source_url)}" target="_blank" rel="noopener">${esc(r.source || "source")}</a>` : esc(r.source || "pasted text")}${r.licence ? " · " + esc(r.licence) : ""}</span></div>
-      <p style="margin:6px 0">${esc(r.summary)}</p><p class="muted" style="margin:0 0 6px"><b>The rule Buddy will test:</b> ${esc(r.in_words)}</p>
-      ${r.needs.length ? `<p class="muted" style="margin:0 0 6px"><b>Left out, because Buddy cannot measure it:</b> ${r.needs.map(esc).join("; ")}</p>` : ""}
-      ${r.captures ? `<p class="muted" style="margin:0 0 6px"><b>How much of the strategy this rule holds:</b> ${esc(r.captures)}. Read the rule against the document before you approve.</p>` : ""}
-      ${(r.live_only || []).length ? `<p class="muted" style="margin:0 0 6px"><b>No history for:</b> ${r.live_only.map(esc).join(", ")}. Buddy has only today's values of these, so this rule can be paper-traded from now but not replayed over past prices.</p>` : ""}
-      <p>${r.status !== "active" ? `<button class="btn solid" data-rule="approve" data-key="${esc(r.key)}">Approve and start testing</button> ` : `<button class="btn" data-rule="pause" data-key="${esc(r.key)}">Pause</button> `}
-        <button class="btn" data-rule="remove" data-key="${esc(r.key)}">Remove</button></p></div>`).join("");
-  const upload = `<p class="muted">Upload a document that describes a strategy (PDF, Word, web page or text), or paste the text. Buddy writes it as a rule and shows it here. Nothing trades until you approve it.</p>
-      <p><input type="file" id="lab-file" accept=".pdf,.docx,.html,.htm,.txt,.md" aria-label="Strategy document"> <button class="btn solid" id="lab-upload">Upload and read</button></p>
-      <textarea id="lab-text" rows="4" style="width:100%;box-sizing:border-box;background:var(--bg);color:inherit;border:1px solid var(--line);border-radius:10px;padding:8px" placeholder="Or paste the strategy's text here" aria-label="Strategy text"></textarea>
-      <p><button class="btn" id="lab-paste">Read the pasted text</button> <span class="muted" id="lab-status"></span></p>
-      <div class="add"><input id="lab-url" placeholder="Or a page's address: https://…" aria-label="Page address"><button class="btn" id="lab-link">Read this page</button></div>
-      <p class="muted">Buddy fetches that one page, once, and keeps only the rule and the link. Pages that need a sign-in or load by script cannot be read this way: paste their text instead.</p>`;
-  return card("Strategy lab: rules that trade every weekday",
-      `<div style="overflow-x:auto"><table class="grid"><tr><th>Rule</th><th>Live paper trades</th><th>On past prices</th></tr>${rows}</table></div>
-       <p class="note">${esc(replayLine)} ${esc(lab.history_note || "")}</p>
-       <p><button class="btn" id="lab-run">Run the lab now</button> <button class="btn" id="lab-replay">Replay over past prices</button> <button class="btn" id="lab-refresh">Refresh</button></p>`, lab.note) +
-    card("Add a strategy from a document", upload + added + ((lab.not_rules || []).length ? `<details><summary>Papers you gave that hold no rule of their own (${lab.not_rules.length})</summary>${lab.not_rules.map((n) =>
-      `<p class="muted"><b><a href="${safe(n.source_url)}" target="_blank" rel="noopener">${esc(n.source)}</a></b><br>${esc(n.why)}</p>`).join("")}</details>` : "")) + researchCards() +
-    "";
+  return card("Rules, research and tests", `<p>Finding strategies, approving rules, replaying them on past prices, the ranking and the live monitor are all in <b>Intelligence → Strategies</b>.</p>
+      <p><button class="btn solid" id="open-engine">Open Investment Intelligence</button> <button class="btn" id="lab-run">Run the lab now</button> <button class="btn" id="lab-refresh">Refresh</button></p>`, lab.note);
 }
 
 function learned(p) {
@@ -660,6 +595,7 @@ function render() {
     reader.onload = () => loadResearch({ action: "upload_list", name, filename: file.name, data: String(reader.result).split(",")[1] || "" });
     reader.readAsDataURL(file);
   };
+  if ($("open-engine")) $("open-engine").onclick = () => { storageSet("intelTab", "strategies"); location.href = "intel.html"; };
   if ($("lab-replay")) $("lab-replay").onclick = () => labCall("/api/invest/lab/replay", {});
   if ($("lab-refresh")) $("lab-refresh").onclick = () => labCall("/api/invest/lab");
   document.querySelectorAll("[data-rule]").forEach((b) => b.onclick = () => labCall("/api/invest/lab/rule", { key: b.dataset.key, action: b.dataset.rule }));

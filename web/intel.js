@@ -119,36 +119,156 @@ async function loadRepo(body) {
   if (tab === "strategies") render();
 }
 const share = (v) => v == null ? "–" : `${v > 0 ? "+" : ""}${(v * 100).toFixed(1)}%`;
-function strategies() {
-  if (!repoData) { loadRepo(); return `<p class="muted">Loading…</p>`; }
-  if (repoData.failed) return `<p class="err">${esc(repoData.failed)}</p>`;
-  const c = repoData.counts, MARK = { passed: ["✓", "sev-good"], failed: ["✕", "sev-high"] };
-  const score = (h, label) => h && h.trades ? `<div class="kpis" style="margin:6px 0">${kpi(share(h.yearly_return), label + ": return a year")}${kpi(esc(h.sharpe ?? "–"), "Sharpe ratio")}
-      ${kpi(share(-h.worst_fall), "worst fall")}${kpi(share(h.average_vs_market), "a trade against the market")}</div>
-      <p class="muted" style="margin:0">${esc(h.trades)} trades from ${esc(h.from)} to ${esc(h.to)}, ${esc(h.won)} made money · ${esc(h.trades_a_year)} trades a year, held ${esc(h.days_held)} days on average · $${esc(Number(h.cost_paid).toLocaleString())} of costs taken off · book of $${esc(Number(h.book).toLocaleString())}</p>` : "";
-  const one = (s) => { const [mark, color] = MARK[s.verdict] || ["·", "muted"];
+// Investment Intelligence: one engine, six sections. Discover (find strategies), Library (what is held), Test
+// (replay on past prices), Rank, Paper trading, Monitor (is it doing live what it did in its test).
+const SECTIONS = [["discover", "Discover"], ["library", "Library"], ["test", "Test"], ["rank", "Rank"], ["paper", "Paper trading"], ["monitor", "Monitor"]];
+let labData = null, researchData = null, deskBusy = false,
+  section = SECTIONS.some(([k]) => k === storageGet("intelSection")) ? storageGet("intelSection") : "library";
+async function loadDesk() {
+  if (deskBusy) return;
+  deskBusy = true;
+  try { labData = (await api("/api/invest/lab")).lab; } catch (e) { labData = { failed: e.message, added: [], strategies: [] }; }
+  try { const r = await api("/api/invest/research"); researchData = { research: r.research, benchmarks: r.benchmarks }; }
+  catch (e) { researchData = { failed: e.message }; }
+  deskBusy = false;
+  if (tab === "strategies") render();
+}
+// One call for every button in the engine: sends it, takes back whichever parts changed, and says what happened.
+async function desk(path, body, button, busyText) {
+  if (button) { button.disabled = true; if (busyText) button.textContent = busyText; }
+  try {
+    const out = await api(path, body);
+    if (out.lab) labData = out.lab;
+    if (out.research) researchData = { research: out.research, benchmarks: out.benchmarks };
+    if (out.strategies && out.families) repoData = out;
+    else { try { repoData = await api("/api/intel/strategies"); } catch {} }
+    if (out.text || out.said) notice(out.text || out.said);
+    else if (out.ran) notice(out.ran.note || "The lab ran.");
+  } catch (e) { notice(e.message); }
+  render();
+}
+const MARK = { passed: ["✓", "sev-good"], failed: ["✕", "sev-high"] };
+const score = (h, label) => h && h.trades ? `<div class="kpis" style="margin:6px 0">${kpi(share(h.yearly_return), label + ": return a year")}${kpi(esc(h.sharpe ?? "–"), "Sharpe ratio")}
+    ${kpi(share(-h.worst_fall), "worst fall")}${kpi(share(h.average_vs_market), "a trade against the market")}</div>
+    <p class="muted" style="margin:0">${esc(h.trades)} trades from ${esc(h.from)} to ${esc(h.to)}, ${esc(h.won)} made money · ${esc(h.trades_a_year)} trades a year, held ${esc(h.days_held)} days on average · $${esc(Number(h.cost_paid).toLocaleString())} of costs taken off · book of $${esc(Number(h.book).toLocaleString())}</p>` : "";
+
+function discoverSection() {
+  const r = (researchData || {}).research, c = repoData.counts;
+  const item = (x) => `<div class="guard"><span style="min-width:0;flex:1"><b>${safe(x.url) ? `<a href="${safe(x.url)}" target="_blank" rel="noopener">${esc(x.title)}</a>` : esc(x.title)}</b><br>
+      <span class="muted">${esc(x.source)} · ${esc(x.day)}${x.licence ? " · " + esc(x.licence) : ""}</span><br>
+      <span class="muted">${esc((x.summary || "").slice(0, 240))}${(x.summary || "").length > 240 ? "…" : ""}</span><br>
+      ${x.status === "new" ? `<button class="btn" data-research="read" data-id="${esc(x.id)}">Read into a rule</button> <button class="btn" data-research="dismiss" data-id="${esc(x.id)}">Dismiss</button>`
+        : `<span class="muted">${x.rule_key ? "Read: the rule is in the Library" : "Read: " + esc(x.note || "no testable rule found")}</span>`}</span></div>`;
+  const queue = !r ? `<p class="${(researchData || {}).failed ? "err" : "muted"}">${esc((researchData || {}).failed || "Loading…")}</p>`
+    : ((r.new || []).map(item).join("") || `<p class="muted">Nothing waiting. Buddy searches for new papers every Sunday.</p>`) +
+      ((r.read || []).length ? `<details><summary>Already read (${r.read.length})</summary>${r.read.map(item).join("")}</details>` : "");
+  const starts = r && (r.starting_points || []).length ? `<p class="muted" style="margin:8px 0 4px">Starting points (public, with a stated licence):</p><p style="display:flex;flex-wrap:wrap;gap:6px;margin:0">`
+    + r.starting_points.map((x) => `<button class="chip" data-start="${esc(x.url)}">${esc(x.title)}</button>`).join("") + `</p>` : "";
+  return card(`Research queue (${esc(c.queued)})`, queue, r ? esc(r.note || "") + (r.last_search ? " Last search: " + esc(r.last_search) + "." : "") : "") +
+    card("Find more", `<p><button class="btn solid" id="repo-discover">Read the public list of strategy papers</button> <button class="btn" id="research-search">Search for new papers now</button></p>
+      ${repoData.last_discovery ? `<p class="muted">Last read of the paper list: ${esc(repoData.last_discovery)}.</p>` : ""}
+      <p class="muted" style="margin-bottom:4px">A public GitHub file or folder (the repository must state a licence):</p>
+      <div style="display:flex;gap:8px;flex-wrap:wrap"><input id="research-url" placeholder="https://github.com/owner/name/tree/main/folder" aria-label="GitHub link" style="flex:1;min-width:220px"><button class="btn" id="research-github">Add from GitHub</button></div>${starts}`,
+      "Only sections that daily prices can test are read from the paper list. A paper becomes a rule only when you pick it.") +
+    card("Add a strategy from a document", `<p class="muted">Upload a document that describes a strategy (PDF, Word, web page or text), paste its text, or give a page's address. Buddy writes it as a rule and puts it in the Library. Nothing trades until you approve it.</p>
+      <p><input type="file" id="lab-file" accept=".pdf,.docx,.html,.htm,.txt,.md" aria-label="Strategy document"> <button class="btn solid" id="lab-upload">Upload and read</button></p>
+      <textarea id="lab-text" rows="4" style="width:100%;box-sizing:border-box;background:var(--bg);color:inherit;border:1px solid var(--line);border-radius:10px;padding:8px" placeholder="Or paste the strategy's text here" aria-label="Strategy text"></textarea>
+      <p><button class="btn" id="lab-paste">Read the pasted text</button></p>
+      <div style="display:flex;gap:8px;flex-wrap:wrap"><input id="lab-url" placeholder="Or a page's address: https://…" aria-label="Page address" style="flex:1;min-width:220px"><button class="btn" id="lab-link">Read this page</button></div>`,
+      "Buddy fetches a page once and keeps only the rule and the link. Pages that need a sign-in cannot be read this way: paste their text.") +
+    card("Where strategies come from", repoData.references.map((x) => `<div class="guard"><span style="min-width:0"><a href="${safe(x.url)}" target="_blank" rel="noopener"><b>${esc(x.title)}</b></a> <span class="chipk">${esc(x.licence)}</span><br><span class="muted">${esc(x.use)}</span></span></div>`).join(""));
+}
+
+function librarySection() {
+  const c = repoData.counts, added = Object.fromEntries(((labData || {}).added || []).map((r) => [r.key, r]));
+  const one = (s) => { const [mark, color] = MARK[s.verdict] || ["·", "muted"], mine = added[s.key];
     return `<div class="guard"><span class="mark" style="color:var(--${color})">${mark}</span><span style="min-width:0;flex:1">
       <b>${esc(s.name)}</b> <span class="chipk">${esc(s.stage)}</span><br><span class="muted">${esc(s.rule)}</span>
+      ${mine ? `<br>${mine.status !== "active" ? `<button class="btn solid" data-rule="approve" data-key="${esc(s.key)}">Approve and start testing</button> ` : `<button class="btn" data-rule="pause" data-key="${esc(s.key)}">Pause</button> `}<button class="btn" data-rule="remove" data-key="${esc(s.key)}">Remove</button>` : ""}
       <details><summary>Tests, source and what it needs</summary>
         ${score(s.history, "Past prices")}${score(s.live, "Live paper trades")}
         ${s.history && s.history.trades ? `<p class="muted" style="margin:6px 0 0">Against the market per trade: rising markets ${share(s.rising_market)}, falling markets ${share(s.falling_market)}, latest stretch ${share(s.latest)}.</p>` : ""}
-        <ul class="plain">${s.reasons.map((r) => `<li>${esc(r)}</li>`).join("")}</ul>
+        <ul class="plain">${s.reasons.map((x) => `<li>${esc(x)}</li>`).join("")}</ul>
+        ${mine && mine.needs.length ? `<p class="muted" style="margin:6px 0 0">Left out, because Buddy cannot measure it: ${mine.needs.map(esc).join("; ")}</p>` : ""}
+        ${mine && mine.captures ? `<p class="muted" style="margin:6px 0 0">How much of the strategy this rule holds: ${esc(mine.captures)}. Read the rule against the document before you approve.</p>` : ""}
         <p class="muted" style="margin:6px 0 0">Needs: ${esc(s.needs)} · held at most ${esc(s.hold_days)} days · source: ${safe(s.source_url) ? `<a href="${safe(s.source_url)}" target="_blank" rel="noopener">${esc(s.source)}</a>` : esc(s.source)}${s.licence ? ` (${esc(s.licence)})` : ""}</p>
       </details></span></div>`; };
   const shown = repoData.strategies.filter((s) => !repoFamily || s.family === repoFamily);
   const families = repoData.families.map((f) => `<button class="chip${repoFamily === f.key ? " on" : ""}" data-family="${esc(f.key)}" title="${esc(f.learns)}${f.research ? " · " + esc(f.research) : ""}">${esc(f.name)} (${esc(f.rules)})</button>`).join(" ");
   const picked = repoData.families.find((f) => f.key === repoFamily);
-  return card("Strategy repository", `<div class="kpis">${kpi(esc(c.collected), "strategies collected")}${kpi(esc(c.passed), "passed on past prices")}${kpi(esc(c.failed), "failed")}
-      ${kpi(esc(c.trading), "paper trading")}${kpi(esc(c.waiting), "waiting for your approval")}${kpi(esc(c.proven), "proven live")}</div>`, repoData.note) +
-    card("By family", `<p style="display:flex;flex-wrap:wrap;gap:6px;margin:0 0 8px"><button class="chip${repoFamily ? "" : " on"}" data-family="">All (${esc(c.collected)})</button> ${families}</p>
+  const none = ((labData || {}).not_rules || []);
+  return card("By family", `<p style="display:flex;flex-wrap:wrap;gap:6px;margin:0 0 8px"><button class="chip${repoFamily ? "" : " on"}" data-family="">All (${esc(c.collected)})</button> ${families}</p>
       ${picked ? `<p class="muted">${esc(picked.learns)}${picked.research ? ` · research: ${esc(picked.research)}` : ""}</p>` : ""}
       ${shown.map(one).join("") || `<p class="muted">No strategy collected in this family yet.</p>`}`,
-      "Approve, pause or remove a rule, and run the replay on past prices, in Money → Invest → Trading.") +
-    card("Finding more", `<p>${esc(c.queued)} papers and files are waiting in the research queue.${repoData.last_discovery ? ` Last read of the paper list: ${esc(repoData.last_discovery)}.` : ""}</p>
-      <p><button class="btn solid" id="repo-discover">Read the public list of strategy papers</button></p>
-      ${repoData.references.map((r) => `<div class="guard"><span style="min-width:0"><a href="${safe(r.url)}" target="_blank" rel="noopener"><b>${esc(r.title)}</b></a> <span class="chipk">${esc(r.licence)}</span><br><span class="muted">${esc(r.use)}</span></span></div>`).join("")}`,
-      "The list is a public-domain directory. Only its sections that daily prices can test are read; intraday, options and crypto papers are left out. A paper becomes a rule only when you pick it from the research queue.") +
-    card("The rules this repository keeps", `<ul class="plain">${repoData.policy.map((p) => `<li style="margin:4px 0">${esc(p)}</li>`).join("")}</ul>`);
+      "A rule you approve starts paper trading the next weekday. Run the replay in Test to fill in its record on past prices.") +
+    (none.length ? card(`Papers that hold no rule of their own (${none.length})`, none.map((n) => `<p class="muted"><b>${safe(n.source_url) ? `<a href="${safe(n.source_url)}" target="_blank" rel="noopener">${esc(n.source)}</a>` : esc(n.source)}</b><br>${esc(n.why)}</p>`).join("")) : "");
+}
+
+function testSection() {
+  const rp = (labData || {}).replay || {}, b = (researchData || {}).benchmarks || {}, f = b.factors || {};
+  const line = rp.state === "running" ? "A replay over past prices is running; refresh in a minute or two."
+    : rp.state === "failed" ? "The last replay failed: " + (rp.why || "")
+    : rp.state === "done" ? `History covers ${rp.from} to ${rp.to}: ${Number(rp.trades).toLocaleString()} finished trades, replayed ${rp.at}.`
+    : "History has not been replayed yet.";
+  const frows = (f.rows || []).map((x) => `<div class="guard"><span style="min-width:0;flex:1"><b>${esc(x.name)}</b> <span class="muted">${esc(x.what)}</span></span>
+      <span style="text-align:right;white-space:nowrap">${share(x.last_12_months)} <span class="muted">last 12 months</span><br>${share(x.average_year)} <span class="muted">a year</span></span></div>`).join("");
+  const lrows = (b.lists || []).map((l) => `<div class="guard"><span style="min-width:0;flex:1"><b>${esc(l.title || l.name)}</b><br><span class="muted">${esc(l.symbols)} symbols · ${esc(l.day)}${l.in_use ? " · used by the lab" : ""}</span></span>
+      <button class="btn" data-uselist="${l.in_use ? "" : esc(l.name)}">${l.in_use ? "Stop using" : "Use in the lab"}</button></div>`).join("");
+  return card("Replay on past prices", `<p>${esc(line)}</p>
+      <p><button class="btn solid" id="lab-replay">Replay over past prices</button> <button class="btn" id="lab-run">Run the lab now</button> <button class="btn" id="desk-refresh">Refresh</button></p>`,
+      esc((labData || {}).history_note || "")) +
+    card("What a rule must clear", `<ul class="plain">${repoData.policy.map((p) => `<li style="margin:4px 0">${esc(p)}</li>`).join("")}</ul>`,
+      "Passed on past prices means: at least 30 past trades, beat the market after costs, also in the latest stretch, no fall deeper than 35%, and unlikely to be luck given how many rules were tried.") +
+    card("Yardsticks: what plain styles returned", (frows || `<p class="muted">Not fetched yet.</p>`) + `<p><button class="btn" id="research-factors">Fetch the factor returns</button> <button class="btn" id="research-company">Fetch company figures now</button></p>`, esc(f.note || "")) +
+    card("Stock lists the rules trade", (lrows || `<p class="muted">No lists yet. The lab uses its built-in list of about a hundred large US stocks and funds.</p>`) +
+      `<p class="muted">Upload a holdings or index file (CSV or Excel with a Ticker column):</p>
+       <div style="display:flex;gap:8px;flex-wrap:wrap"><input id="list-name" placeholder="List name, e.g. nasdaq100" maxlength="30" aria-label="List name"><input type="file" id="list-file" accept=".csv,.xlsx,.txt" aria-label="Holdings file"><button class="btn" id="list-upload">Upload</button></div>`,
+      "Each list is kept with its date, so past membership builds up from today.");
+}
+
+function rankSection() {
+  const rows = repoData.strategies.map((s) => { const h = s.history || {};
+    return `<tr><td>${esc(s.rank)}</td><td><b>${esc(s.name)}</b><br><span class="muted">${esc(s.stage)}</span></td>
+      <td>${h.trades ? share(h.average_vs_market) : "–"}</td><td>${h.trades ? share(h.yearly_return) : "–"}</td><td>${esc(h.sharpe ?? "–")}</td>
+      <td>${h.trades ? share(-h.worst_fall) : "–"}</td><td>${h.not_luck != null ? Math.round(h.not_luck * 100) + "%" : "–"}</td><td>${esc(h.trades || 0)}</td></tr>`; }).join("");
+  return card("Ranking", `<div style="overflow-x:auto"><table class="grid"><tr><th>#</th><th>Rule</th><th>A trade against the market</th><th>Return a year</th><th>Sharpe</th><th>Worst fall</th><th>Not luck</th><th>Past trades</th></tr>${rows}</table></div>`,
+    "Proven live first, then rules that passed on past prices, then by how far a trade beat the market in the test. " + esc(repoData.note || ""));
+}
+
+function paperSection() {
+  const rows = ((labData || {}).strategies || []);
+  const sum = (k) => rows.reduce((a, x) => a + (x[k] || 0), 0);
+  const list = rows.map((s) => `<div class="guard"><span style="min-width:0;flex:1"><b>${esc(s.name)}</b><br><span class="muted">${esc(s.says)}</span></span>
+      <span style="text-align:right;white-space:nowrap">${esc(s.open)} open<br><span class="muted">${esc(s.closed)} closed</span></span></div>`).join("");
+  return card("Paper trading", `<div class="kpis">${kpi(esc(sum("open")), "trades open now")}${kpi(esc(sum("closed")), "closed so far")}${kpi(sum("closed") ? `${esc(sum("won"))} of ${esc(sum("closed"))}` : "–", "closed trades that made money")}${kpi(esc(repoData.counts.trading), "rules trading")}</div>
+      ${list || `<p class="muted">${esc((labData || {}).failed || "Loading…")}</p>`}
+      <p><button class="btn solid" id="see-trades">See every trade</button> <button class="btn" id="lab-run">Run the lab now</button></p>`,
+    esc((labData || {}).note || "Every approved rule puts a fixed amount of pretend money on each pick, every weekday. Nothing real is bought."));
+}
+
+function monitorSection() {
+  const COLOR = { holding: "sev-good", failing: "sev-high", weaker: "sev-medium", "too early": "muted", "not trading": "muted" };
+  const WORD = { holding: "Holding up", failing: "Failing live", weaker: "Weaker than its test", "too early": "Too early", "not trading": "Not trading" };
+  const order = ["failing", "weaker", "holding", "too early", "not trading"];
+  const rows = [...repoData.strategies].sort((a, b) => order.indexOf(a.watch.state) - order.indexOf(b.watch.state)).map((s) =>
+    `<div class="guard"><span class="mark" style="color:var(--${COLOR[s.watch.state] || "muted"})">●</span><span style="min-width:0;flex:1"><b>${esc(s.name)}</b> <span class="chipk">${esc(WORD[s.watch.state] || s.watch.state)}</span><br>
+      <span class="muted">${esc(s.watch.says)}</span></span></div>`).join("");
+  const c = repoData.counts;
+  return card("Is each rule doing live what it did in its test?", `<div class="kpis">${kpi(esc(c.failing_live), "failing live")}${kpi(esc(c.weaker_live), "weaker than their test")}${kpi(esc(c.proven), "proven live")}</div>${rows}`,
+    "A rule is compared with its test only after 10 live closed trades. Buddy shows this; it does not pause a rule by itself. Pause one in the Library.");
+}
+
+function strategies() {
+  if (!repoData) { loadRepo(); return `<p class="muted">Loading…</p>`; }
+  if (repoData.failed) return `<p class="err">${esc(repoData.failed)}</p>`;
+  if (!labData && !deskBusy) loadDesk();
+  const c = repoData.counts;
+  const chips = SECTIONS.map(([k, label]) => `<button class="chip${k === section ? " on" : ""}" data-section="${k}">${label}${k === "discover" && c.queued ? ` (${esc(c.queued)})` : k === "monitor" && (c.failing_live + c.weaker_live) ? ` (${esc(c.failing_live + c.weaker_live)})` : ""}</button>`).join(" ");
+  return card("Investment Intelligence", `<div class="kpis">${kpi(esc(c.collected), "strategies collected")}${kpi(esc(c.passed), "passed on past prices")}${kpi(esc(c.failed), "failed")}
+      ${kpi(esc(c.trading), "paper trading")}${kpi(esc(c.waiting), "waiting for your approval")}${kpi(esc(c.proven), "proven live")}</div>
+      <p style="display:flex;flex-wrap:wrap;gap:6px;margin:12px 0 0">${chips}</p>`,
+      "Finds investment strategies in published research, rewrites each as a plain rule, tests it itself on past prices, and practises with pretend money. Nothing real is bought.") +
+    { discover: discoverSection, library: librarySection, test: testSection, rank: rankSection, paper: paperSection, monitor: monitorSection }[section]();
 }
 
 // --- Predictions: the three engines, what each learns from, and whether a tested model is in use
@@ -251,7 +371,35 @@ function render() {
   document.querySelectorAll("#main [data-tech]").forEach((b) => b.onclick = () => openTech(b.dataset.tech));
   document.querySelectorAll("[data-sector]").forEach((b) => b.onclick = () => follow(b.dataset.sector, b.dataset.on === "1"));
   document.querySelectorAll("[data-family]").forEach((b) => b.onclick = () => { repoFamily = b.dataset.family; render(); });
-  if ($("repo-discover")) $("repo-discover").onclick = () => { notice("Reading the list…"); loadRepo({ action: "discover" }); };
+  document.querySelectorAll("[data-section]").forEach((b) => b.onclick = () => { section = b.dataset.section; storageSet("intelSection", section); render(); });
+  const on = (id, fn) => { if ($(id)) $(id).onclick = () => fn($(id)); };
+  on("repo-discover", (b) => desk("/api/intel/strategies", { action: "discover" }, b, "Reading the list…"));
+  on("research-search", (b) => desk("/api/invest/research", { action: "search" }, b, "Searching…"));
+  on("research-factors", (b) => desk("/api/invest/research", { action: "factors" }, b, "Fetching…"));
+  on("research-company", (b) => desk("/api/invest/research", { action: "company_figures" }, b, "Fetching…"));
+  on("research-github", (b) => { const url = $("research-url").value.trim(); if (url) desk("/api/invest/research", { action: "github", url }, b, "Adding…"); });
+  document.querySelectorAll("[data-start]").forEach((b) => b.onclick = () => desk("/api/invest/research", { action: "github", url: b.dataset.start }, b));
+  document.querySelectorAll("[data-research]").forEach((b) => b.onclick = () => desk("/api/invest/research", { action: b.dataset.research, id: Number(b.dataset.id) }, b, b.dataset.research === "read" ? "Reading…" : "…"));
+  document.querySelectorAll("[data-uselist]").forEach((b) => b.onclick = () => desk("/api/invest/research", { action: "use_list", name: b.dataset.uselist }, b));
+  document.querySelectorAll("[data-rule]").forEach((b) => b.onclick = () => desk("/api/invest/lab/rule", { key: b.dataset.key, action: b.dataset.rule }, b));
+  on("lab-replay", (b) => desk("/api/invest/lab/replay", {}, b, "Starting…"));
+  on("lab-run", (b) => desk("/api/invest/lab", {}, b, "Running…"));
+  on("desk-refresh", () => { labData = null; researchData = null; repoData = null; render(); });
+  on("lab-paste", (b) => { const text = $("lab-text").value.trim(); if (text) desk("/api/invest/lab/upload", { name: "pasted text", text }, b, "Reading…"); });
+  on("lab-link", (b) => { const url = $("lab-url").value.trim(); if (url) desk("/api/invest/lab/upload", { url }, b, "Reading the page…"); });
+  const sendFile = (input, limit, make, b) => {
+    const file = $(input).files[0];
+    if (!file) { notice("Choose a file first."); return; }
+    if (file.size > limit) { notice("That file is too large."); return; }
+    const reader = new FileReader();
+    reader.onload = () => make(file, String(reader.result).split(",")[1] || "");
+    reader.onerror = () => notice("That file could not be read.");
+    reader.readAsDataURL(file);
+  };
+  on("lab-upload", (b) => sendFile("lab-file", 8000000, (file, data) => desk("/api/invest/lab/upload", { name: file.name, data }, b, "Reading…"), b));
+  on("list-upload", (b) => { const name = $("list-name").value.trim(); if (!name) { notice("Give the list a name."); return; }
+    sendFile("list-file", 8000000, (file, data) => desk("/api/invest/research", { action: "upload_list", name, filename: file.name, data }, b, "Uploading…"), b); });
+  on("see-trades", () => { storageSet("investTab", "practice"); location.href = "invest.html"; });
   if ($("scan")) $("scan").onclick = scan;
   if ($("history")) $("history").onclick = () => loadHistory($("history"));
 
