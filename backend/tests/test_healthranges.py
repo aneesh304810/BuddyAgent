@@ -107,7 +107,9 @@ def test_the_health_tool_gives_claude_ranges_when_on_and_nothing_when_off(memory
     got = privacygate.status(memory)
     assert got["health_ranges"]["on"] is True and got["health_ranges"]["generalised"] == 2
     assert "BUDDY_HEALTH_RANGES" in got["health_ranges"]["how"]
-    assert [e["action"] for e in got["events"]][:1] == ["generalised"] and "93" not in privacygate.dumps(got)
+    assert [e["action"] for e in got["events"]][:1] == ["generalised"]
+    kept_record = privacygate.dumps(got)       # not bare digits: a random reference number can contain any
+    assert "readiness" not in kept_record and "oura_ring" not in kept_record and "hrv" not in kept_record
 
 
 def test_in_the_chat_claude_gets_ranges_and_the_owner_gets_the_numbers(monkeypatch):
@@ -130,7 +132,7 @@ def test_in_the_chat_claude_gets_ranges_and_the_owner_gets_the_numbers(monkeypat
     second = {"messages": fake.requests[1]["messages"]}
     assert privacygate.sanitize_request(second) == 0                    # what the tool gave passes the gateway as it is
     sent = json.dumps(second, default=str)
-    assert "sleep duration: latest below usual" in sent and "93" not in sent and "oura_ring" not in sent
+    assert "sleep duration: latest below usual" in sent and "readiness\\\"" not in sent and "oura_ring" not in sent
     privacygate._memory = None
 
 

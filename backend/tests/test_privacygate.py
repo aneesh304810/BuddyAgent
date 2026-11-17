@@ -242,13 +242,14 @@ def test_in_the_chat_a_health_message_is_answered_by_buddy_and_a_health_tools_re
     asyncio.run(convo.reply("My HRV was 42 last night, is that bad?", say))
     assert fake.requests == []                                         # nothing was sent to the model
     assert "Privacy Gateway blocked this request" in said[0] and "on your screen now" in said[0]
-    assert "42" not in json.dumps(convo.messages, default=str)         # and the words are not kept for later turns
+    kept_turns = json.dumps(convo.messages, default=str)               # and the words are not kept for later turns
+    assert "HRV" not in kept_turns and "is that bad" not in kept_turns  # (not bare digits: the time of day is in there)
     assert any(c.get("title") == "Your health" for c in convo.cards.cards.values()) if hasattr(convo.cards, "cards") else True
 
     asyncio.run(convo.reply("Show me my health data", say))            # the model asks for the tool
     assert len(fake.requests) == 2
     second = json.dumps(fake.requests[1]["messages"], default=str)
-    assert "Withheld by the Privacy Gateway" in second and "81" not in second and "readiness" not in second
+    assert "Withheld by the Privacy Gateway" in second and "readiness" not in second and "oura_ring" not in second
     actions = [e["action"] for e in privacygate.status(mem)["events"]]
     assert "blocked" in actions and "withheld" in actions
     privacygate._memory = None
