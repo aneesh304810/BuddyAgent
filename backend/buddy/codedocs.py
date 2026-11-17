@@ -196,7 +196,7 @@ COMPONENTS = [  # every server module belongs to one feature (tests check none i
       "prices.py", "amazon.py", "seasons.py"]),
     ("The price book, pattern learning and trained models", "A separate market-price database, nightly pattern "
      "learning in the sandbox, and models trained on judged calls once there is enough data",
-     ["pricebook.py", "patterns.py", "modeltrain.py"]),
+     ["pricebook.py", "productid.py", "patterns.py", "modeltrain.py"]),
     ("Investing: signals, research and practice", "Chart setups and trade ideas, Reddit and news signals, buy and sell "
      "signals with a track record, live triggers, investor checklists, fund holdings, the committee and journal, a "
      "paper portfolio and Buddy's own practice book; never trades",

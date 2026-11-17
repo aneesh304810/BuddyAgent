@@ -507,3 +507,22 @@ code is run.
 - **Twelve more figures** (`stratlab._more`), available to rules and to the model: `ret_1`, `ret_12_1`, `above_low`,
   `months_up`, `vol_20`, `vol_change`, `range_20`, `band_width`, `up_days`, `skew_63`, `fall_63`, `traded`.
   Trades recorded before this change do not carry them; run the replay again so the history does.
+
+## Product, category and brand (the price book)
+
+`productid.py` reads a deal headline into the product it is about ("baseus s2"), its brand and its category
+("security camera"). Rules only; the same headline always gives the same answer. Before this, a price was filed under
+the whole headline, store and price included, so nothing ever had a history and every deal looked like the lowest.
+
+- `observations` and `deals` carry `product`, `brand` and `category`. Older rows are filed the first time the price
+  book is read (`pricebook.identify`). A multi-pack is its own product ("x2"), never compared with a single one.
+- History, the lowest price and the chart look a product up by its filed name, so a price watch ("sony wh-1000xm6")
+  and deals from different sources meet in one history.
+- The Deals page calls a price the lowest only when the product has been seen on three different days, says "first
+  time" for a single sighting, and shows the usual deal price for the brand and category once there are five deals.
+- It is a best reading, not a catalogue: an unknown brand is taken from a capitalised first word, and a headline with
+  no model code is filed under its first telling words.
+- **Travel is filed the same way.** A flight: product = the route, `place` = the destination, brand = the airline,
+  category = the cabin (economy, premium economy, business, first, or "not stated": never guessed). A hotel: product
+  = the hotel or place searched, `place` = the place, brand = the chain. A fare is compared only within its cabin.
+  Searched fares carry the cabin from the travel profile; emailed fares take the airline and cabin from the headline.

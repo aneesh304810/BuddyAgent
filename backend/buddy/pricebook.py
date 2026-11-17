@@ -135,6 +135,10 @@ def conn(memory):
             for column in ("domain VARCHAR DEFAULT 'product'", "item VARCHAR DEFAULT ''", "regular_price DOUBLE",
                            "ends VARCHAR DEFAULT ''", "reason VARCHAR DEFAULT ''", "model VARCHAR DEFAULT ''"):  # deals from the deals inbox carry these too
                 c.execute(f"ALTER TABLE deals ADD COLUMN IF NOT EXISTS {column}")
+            for table in ("deals", "observations"):  # which product a price is for, its brand and its category
+                for column in ("product VARCHAR", "brand VARCHAR", "category VARCHAR", "place VARCHAR"):
+                    c.execute(f"ALTER TABLE {table} ADD COLUMN IF NOT EXISTS {column}")
+            c.execute("CREATE INDEX IF NOT EXISTS obs_product ON observations (domain, product)")
             _open[where] = c
             try:
                 import_old(memory, c)
@@ -171,20 +175,67 @@ def _date(text):
 
 def observe(memory, domain: str, item: str, price: float, *, currency: str = "USD", seller: str = "",
             regular_price=None, on_sale=None, url: str = "", source: str = "", travel_date=None, return_date=None,
-            stops=None, nights=None, seen_at: datetime | None = None) -> None:
+            stops=None, nights=None, seen_at: datetime | None = None, title: str = "", cabin: str = "") -> None:
+    """One price seen. It is filed at once under its product, brand and category (productid.py): for a flight, the
+    route, the airline and the cabin; for a hotel, the place and the chain. title: the words it came with, when
+    they say more than the item (an emailed fare's headline names the airline and the cabin)."""
     if not item or price is None or float(price) <= 0 or domain not in ("product", "flight", "hotel"):
         return
+    got = _identity(domain, item, seller or source, title, cabin)
     run(memory, "INSERT INTO observations (seen_at, domain, item, price, currency, seller, regular_price, on_sale, "
-                "url, source, travel_date, return_date, stops, nights) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)",
+                "url, source, travel_date, return_date, stops, nights, product, brand, category, place) VALUES (?, ?, ?, "
+                "?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)",
         (utc(seen_at), domain, key(item), float(price), (currency or "USD")[:8],
          str(seller or "")[:80], regular_price, on_sale, str(url or "")[:500], str(source or "")[:40],
-         _date(travel_date), _date(return_date), stops, nights))
+         _date(travel_date), _date(return_date), stops, nights, got["product"] or key(item), got["brand"],
+         got["category"], got.get("place", "")))
+
+
+def _identity(domain: str, item: str, seller: str = "", title: str = "", cabin: str = "") -> dict:
+    from . import productid  # noqa: PLC0415
+    if domain == "product":
+        return {**productid.identity(item), "place": ""}
+    return productid.travel(domain, item, seller, title, cabin)
+
+
+def identify(memory, limit: int = 20000) -> int:
+    """File every price and deal that has no product yet under its product, brand and category (productid.py).
+    Prices recorded before this existed are filed the first time this runs. Returns how many were filed."""
+    from . import productid  # noqa: PLC0415
+    done = 0
+    todo = run(memory, "SELECT DISTINCT item AS t, domain AS d, COALESCE(NULLIF(seller, ''), source) AS who FROM observations "
+                       f"WHERE product IS NULL LIMIT {int(limit)}")
+    for r in todo:
+        got = _identity(r["d"], r["t"], r["who"] or "")
+        run(memory, "UPDATE observations SET product = ?, brand = ?, category = ?, place = ? WHERE product IS NULL AND "
+                    "item = ? AND domain = ? AND COALESCE(NULLIF(seller, ''), source) IS NOT DISTINCT FROM ?",
+            (got["product"] or key(r["t"]), got["brand"], got["category"], got.get("place", ""), r["t"], r["d"], r["who"]))
+    done += len(todo)
+    todo = run(memory, "SELECT DISTINCT title AS t, COALESCE(domain, 'product') AS d, COALESCE(item, '') AS i, "
+                       f"COALESCE(store, '') AS who FROM deals WHERE product IS NULL LIMIT {int(limit)}")
+    for r in todo:
+        got = _identity(r["d"], r["t"] if r["d"] == "product" else (r["i"] or r["t"]), r["who"], r["t"])
+        run(memory, "UPDATE deals SET product = ?, brand = ?, category = ?, place = ? WHERE product IS NULL AND title = ? "
+                    "AND COALESCE(domain, 'product') = ? AND COALESCE(item, '') = ? AND COALESCE(store, '') = ?",
+            (got["product"] or key(r["t"]), got["brand"], got["category"], got.get("place", ""), r["t"], r["d"], r["i"], r["who"]))
+    done += len(todo)
+    return done
+
+
+def _names(item: str, domain: str) -> tuple[str, str]:
+    """The two names an item may be filed under: as given, and as the product it names."""
+    if domain != "product":
+        return key(item), key(item)
+    from . import productid  # noqa: PLC0415
+    return key(item), productid.product(item) or key(item)
 
 
 def history(memory, item: str, domain: str = "product", days: int = 365) -> list[dict]:
     since = utc(datetime.now(timezone.utc) - timedelta(days=days))
-    rows = run(memory, "SELECT seen_at, price, currency, seller, source FROM observations WHERE domain = ? AND item = ? "
-                       "AND seen_at >= ? ORDER BY seen_at", (domain, key(item), since))
+    identify(memory)
+    rows = run(memory, "SELECT seen_at, price, currency, seller, source FROM observations WHERE domain = ? AND (item = ? "
+                       "OR product = ? OR product = ?) AND seen_at >= ? ORDER BY seen_at",
+               (domain, key(item), *_names(item, domain), since))
     if not rows and key(item):
         words = key(item).split()
         rows = run(memory, "SELECT seen_at, price, currency, seller, source FROM observations WHERE domain = ? AND "
@@ -194,7 +245,9 @@ def history(memory, item: str, domain: str = "product", days: int = 365) -> list
 
 
 def lowest(memory, item: str, domain: str = "product") -> float | None:
-    got = run(memory, "SELECT MIN(price) AS low FROM observations WHERE domain = ? AND item = ?", (domain, key(item)))
+    identify(memory)
+    got = run(memory, "SELECT MIN(price) AS low FROM observations WHERE domain = ? AND (item = ? OR product = ? OR "
+                      "product = ?)", (domain, key(item), *_names(item, domain)))
     return got[0]["low"] if got and got[0]["low"] is not None else None
 
 
@@ -269,9 +322,14 @@ def snapshot(memory, folder: str) -> str:
     return str(target)
 
 
+SEEN_DAYS, USUAL_MIN = 3, 5  # days a product must have been seen to call a price its lowest; deals for a "usual"
+
+
 def deals_page(memory, days: int = 7, domain: str = "", query: str = "", limit: int = 300) -> dict:
-    """The Deals page's list: recent deals (feeds and the deals inbox) with the lowest price seen for each item, so a
-    deal at or under it is marked. Market data only."""
+    """The Deals page's list: recent deals (feeds and the deals inbox), each filed under its product, brand and
+    category, with the lowest price seen for that product. A deal is called the lowest only when the product has been
+    seen on SEEN_DAYS different days: the first sighting of anything is trivially its lowest. Market data only."""
+    identify(memory)
     since = (datetime.now(timezone.utc).date() - timedelta(days=max(1, min(days, 90)))).isoformat()
     where, args = ["seen_on >= ?"], [since]
     for w in [w for w in re.findall(r"[a-z0-9]{2,}", (query or "").lower())][:6]:
@@ -284,19 +342,30 @@ def deals_page(memory, days: int = 7, domain: str = "", query: str = "", limit: 
     for kind in kinds:
         rows += run(memory, "SELECT d.id, d.seen_on, d.source, d.title, d.url, d.price, d.store, "
                             "COALESCE(d.domain, 'product') AS domain, COALESCE(NULLIF(d.item, ''), lower(d.title)) AS item, "
-                            "d.regular_price, d.ends FROM deals d WHERE " + " AND ".join(where)
+                            "d.regular_price, d.ends, d.product, d.brand, d.category, d.place FROM deals d WHERE " + " AND ".join(where)
                     + " AND COALESCE(d.domain, 'product') = ?"
                     + f" ORDER BY d.seen_on DESC, d.id DESC LIMIT {int(limit)}", (*args, kind))
     totals = {r["domain"]: int(r["n"]) for r in run(
         memory, "SELECT COALESCE(domain, 'product') AS domain, COUNT(*) AS n FROM deals d WHERE " + " AND ".join(where)
                 + " GROUP BY 1", tuple(args))}
-    lows = {(r["domain"], r["item"]): r["low"] for r in run(
-        memory, "SELECT domain, item, MIN(price) AS low, COUNT(*) AS n FROM observations GROUP BY domain, item")}
+    # A flight is compared within its cabin only: a business fare is not a bad economy fare.
+    lows = {(r["domain"], r["product"], r["cabin"]): r for r in run(
+        memory, "SELECT domain, product, CASE WHEN domain = 'flight' THEN category ELSE '' END AS cabin, MIN(price) AS low, "
+                "COUNT(DISTINCT CAST(seen_at AS DATE)) AS days, COUNT(*) AS n FROM observations GROUP BY 1, 2, 3")}
+    usual = {(r["brand"], r["category"]): r for r in run(
+        memory, "SELECT brand, category, MEDIAN(price) AS mid, COUNT(DISTINCT product) AS products, COUNT(*) AS n FROM "
+                "observations WHERE domain = 'product' AND brand <> '' GROUP BY brand, category HAVING COUNT(*) >= ?",
+        (USUAL_MIN,))}
     out = []
     for r in rows:
-        low = lows.get((r["domain"], key(r["item"])))
-        out.append({**r, "seen_on": str(r["seen_on"]), "lowest_seen": low,
-                    "is_lowest": bool(r["price"] and low and r["price"] <= low * 1.001),
+        seen = lows.get((r["domain"], r["product"] or key(r["item"]), r["category"] if r["domain"] == "flight" else "")) or {}
+        low, days_seen = seen.get("low"), int(seen.get("days") or 0)
+        group = usual.get((r["brand"], r["category"])) if r["domain"] == "product" else None
+        out.append({**r, "seen_on": str(r["seen_on"]), "lowest_seen": low if days_seen >= 2 else None,
+                    "seen_days": days_seen,
+                    "is_lowest": bool(r["price"] and low and days_seen >= SEEN_DAYS and r["price"] <= low * 1.001),
+                    "usual": ({"price": round(group["mid"], 2), "deals": int(group["n"]), "products": int(group["products"])}
+                              if group else None),
                     "off": round(1 - r["price"] / r["regular_price"], 2) if r["price"] and r["regular_price"] else None,
                     "url": r["url"] if str(r["url"]).startswith("https://") else ""})
     counts = {d: totals.get(d, 0) for d in ("product", "flight", "hotel")}  # all of them, not just those shown
@@ -306,9 +375,10 @@ def deals_page(memory, days: int = 7, domain: str = "", query: str = "", limit: 
 
 def chart(memory, item: str, domain: str = "product", days: int = 365) -> dict:
     """One item's price history for the Deals page's chart: the day's lowest price, per day."""
+    identify(memory)
     rows = run(memory, "SELECT CAST(seen_at AS DATE) AS day, MIN(price) AS price FROM observations WHERE domain = ? "
-                       "AND item = ? AND seen_at >= ? GROUP BY day ORDER BY day",
-               (domain, key(item), utc(datetime.now(timezone.utc) - timedelta(days=days))))
+                       "AND (item = ? OR product = ? OR product = ?) AND seen_at >= ? GROUP BY day ORDER BY day",
+               (domain, key(item), *_names(item, domain), utc(datetime.now(timezone.utc) - timedelta(days=days))))
     return {"item": item, "domain": domain, "points": [{"day": str(r["day"]), "price": r["price"]} for r in rows],
             "lowest": min((r["price"] for r in rows), default=None)}
 

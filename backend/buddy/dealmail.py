@@ -555,7 +555,7 @@ def keep(memory: Memory, deals: list[dict], when: datetime | None = None, source
             pricebook.observe(memory, d["domain"], d["item"], d["price"], seller=d["store"], url=d["url"],
                               regular_price=d["regular"], on_sale=bool(d["regular"]),
                               source="deal notification" if source.startswith("app:") else "deal email",
-                              seen_at=when)
+                              seen_at=when, title=d["title"])
     return added
 
 

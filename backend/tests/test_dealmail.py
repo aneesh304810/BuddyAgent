@@ -91,7 +91,8 @@ def test_nightly_run_keeps_deals_once_and_feeds_the_page(memory):
     page = pricebook.deals_page(memory, days=7)
     assert page["counts"] == {"product": 2, "flight": 1, "hotel": 0}
     sony = next(d for d in page["deals"] if d["title"].startswith("Sony"))
-    assert sony["is_lowest"] and sony["off"] == 0.33 and sony["url"].startswith("https://")
+    assert not sony["is_lowest"] and sony["seen_days"] == 1 and sony["off"] == 0.33  # one sighting is not "the lowest"
+    assert sony["off"] == 0.33 and sony["url"].startswith("https://")
     fare = next(d for d in page["deals"] if d["domain"] == "flight")
     assert pricebook.chart(memory, fare["item"], "flight")["points"][0]["price"] == 398
     assert [d["title"][:4] for d in pricebook.deals_page(memory, query="oled")["deals"]] == ["LG 6"]

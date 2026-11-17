@@ -1061,7 +1061,7 @@ class Travel:
         if rows:
             self.memory.db.executemany("INSERT INTO travel_prices (route, day, source, price, currency, seen_at) "
                                        "VALUES (?, ?, ?, ?, ?, ?)", rows)
-            _to_pricebook(self.memory, rows)
+            _to_pricebook(self.memory, rows, self.profile().get("cabin") or "")
         self.memory.db.commit()
         self.roll_up()
 
@@ -1168,7 +1168,7 @@ class Travel:
         if best:
             db.execute("INSERT INTO travel_prices (route, day, source, price, currency, seen_at) VALUES (?,?,?,?,?,?)",
                        (route, day, "best", round(best, 2), currency, now))
-            _to_pricebook(self.memory, [(route, day, "best", round(best, 2), currency, now)])
+            _to_pricebook(self.memory, [(route, day, "best", round(best, 2), currency, now)], self.profile().get("cabin") or "")
             db.commit()
         if not best or len(past) < 3:
             return {"seen_before": len(past)}
@@ -1541,7 +1541,7 @@ async def run_tool(travel: Travel, args: dict) -> str:
     return json.dumps(_for_claude(result), ensure_ascii=False)
 
 
-def _to_pricebook(memory, rows) -> None:
+def _to_pricebook(memory, rows, cabin: str = "") -> None:
     """Fares and hotel rates also go into the price book (pricebook.py), Buddy's market-price database."""
     try:
         from . import pricebook  # noqa: PLC0415
@@ -1549,6 +1549,6 @@ def _to_pricebook(memory, rows) -> None:
             hotel = str(route).startswith("hotels:")
             seen_at = datetime.fromisoformat(seen) if isinstance(seen, str) else seen
             pricebook.observe(memory, "hotel" if hotel else "flight", route, price, currency=currency,
-                              source=source, travel_date=day, seen_at=seen_at)
+                              source=source, travel_date=day, seen_at=seen_at, cabin="" if hotel else cabin)
     except Exception:
         log.warning("price book: travel prices not copied", exc_info=True)

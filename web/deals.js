@@ -117,7 +117,11 @@ function render() {
       <div class="what">
         <b>${esc(d.title)}</b>
         <small>${esc(d.store || d.source)} · ${esc(d.seen_on)}${d.ends ? ` · ends ${esc(d.ends)}` : ""}</small><br>
-        ${d.is_lowest ? `<span class="pill low">Lowest Buddy has seen</span>` : d.lowest_seen ? `<span class="pill">Lowest seen ${money(d.lowest_seen)}</span>` : ""}
+        ${d.domain === "product" && (d.brand || d.category) ? `<small class="muted">${esc([d.brand, d.category].filter(Boolean).join(" · "))}${d.product ? ` · filed as “${esc(d.product)}”` : ""}</small><br>` : ""}
+        ${d.domain === "flight" ? `<small class="muted">${esc([String(d.product || "").toUpperCase(), d.brand, d.category === "not stated" ? "cabin not stated" : d.category].filter(Boolean).join(" · "))}</small><br>` : ""}
+        ${d.domain === "hotel" && (d.place || d.brand) ? `<small class="muted">${esc([d.place, d.brand].filter(Boolean).join(" · "))}</small><br>` : ""}
+        ${d.is_lowest ? `<span class="pill low">Lowest in ${esc(d.seen_days)} days Buddy has seen it</span>` : d.lowest_seen ? `<span class="pill">Lowest seen ${money(d.lowest_seen)}</span>` : d.seen_days <= 1 ? `<span class="pill">First time Buddy has seen this</span>` : ""}
+        ${d.usual && d.price ? `<span class="pill">Usual for ${esc(d.brand)} ${esc(d.category)} deals: ${money(d.usual.price)}</span>` : ""}
         ${d.off ? `<span class="pill">${Math.round(d.off * 100)}% off</span>` : ""}
         <div>${safe(d.url) ? `<a class="btn" href="${esc(safe(d.url))}" target="_blank" rel="noopener noreferrer">Open deal</a>` : `<small class="muted">No link came with this one</small>`}
           <button class="btn" data-i="${i}">Price history</button></div>
@@ -146,7 +150,7 @@ async function history_(d) {
   $("sheet").classList.add("open");
   $("panel").querySelector(".close").onclick = () => $("sheet").classList.remove("open");
   try {
-    const h = await api(`/api/deals/history?item=${encodeURIComponent(d.item)}&domain=${encodeURIComponent(d.domain)}`);
+    const h = await api(`/api/deals/history?item=${encodeURIComponent(d.product || d.item)}&domain=${encodeURIComponent(d.domain)}`);
     $("panel").innerHTML = `<button class="close" aria-label="Close">×</button><h2>${esc(d.title)}</h2>
       <p class="muted">${esc(d.domain === "flight" ? "Route " + d.item.toUpperCase() : d.domain === "hotel" ? d.item.replace("hotels:", "Hotels in ") : "Every price Buddy has seen")}:
         ${h.points.length} day${h.points.length === 1 ? "" : "s"}, lowest ${money(h.lowest)}</p>

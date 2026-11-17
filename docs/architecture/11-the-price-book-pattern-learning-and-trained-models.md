@@ -12,12 +12,14 @@ flowchart LR
     end
     subgraph Modules["Modules"]
         pricebook_py["pricebook.py<br/>Buddy's separate database of market prices and deals (DuckDB), for…"]
+        productid_py["productid.py<br/>which product a deal headline is about, its brand and its category"]
         patterns_py["patterns.py<br/>Nightly pattern learning in the sandbox: Buddy hands the price book…"]
         modeltrain_py["modeltrain.py<br/>Trained models, when there is enough to learn from: each week Buddy…"]
     end
     you --> t_price_book
     t_price_book --> pricebook_py
     pricebook_py --> patterns_py
+    pricebook_py --> productid_py
     patterns_py --> pricebook_py
     modeltrain_py --> pricebook_py
     db[("Your database<br/>deals, launches, meta, models, observations, pattern_months, predictions")]
@@ -75,7 +77,35 @@ Older history from Buddy's personal database (price_seen, deals, buy_predictions
 
 - Tables: `deals`, `launches`, `meta`, `observations`, `pattern_months`, `predictions`
 - Settings: `BUDDY_PRICEBOOK`
-- Uses: patterns.py, tools.py
+- Uses: patterns.py, productid.py, tools.py
+
+### productid.py
+
+```text
+Product identity: which product a deal headline is about, its brand and its category.
+
+A price is only history if the same product is filed under the same name each time. Deal headlines are not that:
+"Amazon - Baseus S2 4K Solar Wireless Outdoor Security Camera $79.99" carries the store and today's price, so
+every headline is a new "product" and nothing ever has a history. This module reads a headline into
+
+    product   the brand and the model ("baseus s2"); a multi-pack is its own product ("wyze solar cam pan x2")
+    brand     "baseus"
+    category  "security camera"
+
+so prices are collected per product, and can also be compared across a brand or a category when a product is new.
+
+Travel is filed the same way, with its own words:
+
+    flight   product = the route ("mia-lim"), place = the destination ("lim"), brand = the airline,
+             category = the cabin (economy, premium economy, business, first; "not stated" when nobody said)
+    hotel    product = the hotel or the place searched, place = the place, brand = the chain, category = "hotel"
+
+A business fare is never compared with an economy one: the cabin is part of what a flight price is a price of.
+Rules only, no AI model: the same headline always gives the same answer. It is a best reading, not a catalogue.
+When no brand or model can be read, the cleaned headline is the product, which is still stable.
+```
+
+- Uses: shopper.py
 
 ### patterns.py
 
