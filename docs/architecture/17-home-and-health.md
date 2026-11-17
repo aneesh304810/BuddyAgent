@@ -18,6 +18,7 @@ flowchart LR
         health_data_py["health_data.py<br/>Buddy Connect's Health group"]
         oura_py["oura.py<br/>The owner's Oura Ring, through Buddy Connect (Health group) and…"]
         coach_py["coach.py<br/>goals, a few daily habits, food targets, tracking and timely nudges"]
+        healthpage_py["healthpage.py<br/>the owner's own numbers, shown to the owner, worked out by rules"]
     end
     you --> t_thermostat
     t_thermostat --> nest_py
@@ -30,6 +31,9 @@ flowchart LR
     health_data_py --> oura_py
     coach_py --> health_data_py
     coach_py --> oura_py
+    healthpage_py --> coach_py
+    healthpage_py --> health_data_py
+    healthpage_py --> oura_py
     db[("Your database<br/>coach_log, coach_meals, health_daily, oura_daily")]
     health_data_py --> db
     oura_py --> db
@@ -50,10 +54,12 @@ flowchart LR
     nest_py -. uses .-> o_1
     o_2["Memory"]
     nest_py -. uses .-> o_2
-    o_3["Speaking up on its own"]
+    o_3["Security and privacy"]
     nest_py -. uses .-> o_3
-    o_4["Travel and getting around"]
+    o_4["Speaking up on its own"]
     nest_py -. uses .-> o_4
+    o_5["Travel and getting around"]
+    nest_py -. uses .-> o_5
 ```
 
 The diagram reads left to right: what you ask, the tools Buddy uses, the modules that do the work, and what they keep or call. Dashed arrows are other features this one relies on.
@@ -152,8 +158,29 @@ Personal: kept on this server (90 days of logs), seen only by Claude. "Forget my
 - Tables: `coach_log`, `coach_meals`
 - Uses: health_data.py, location.py, memory.py, oura.py, tools.py
 
+### healthpage.py
+
+```text
+The Health page (web/health.html): the owner's own numbers, shown to the owner, worked out by rules.
+
+Since the Privacy Gateway, no AI model is given health information, so Buddy no longer talks about it. This page
+is where the owner sees it instead, and where the health plan is set up and changed (a form, in place of the
+conversation that used to do it).
+
+  view     today's readings with what they mean for the day (coach.body: fixed rules), each measure over the
+           last weeks against the owner's own usual (the same bands healthranges uses), the plan's habits today,
+           how each habit went over 7 and 30 days, and food against the plan's targets.
+  act      tick a habit off, note a meal (the owner types the calories and protein if they want them counted:
+           nothing estimates them), save or forget the plan, read the ring now.
+
+Nothing here calls a model or leaves this server, apart from reading the ring from Oura when the owner presses
+"Read the ring now". It is not medical advice.
+```
+
+- Uses: coach.py, health_data.py, healthranges.py, memory.py, oura.py, tools.py
+
 ## How it connects
 
-- Relies on: Buddy Connect; Claude: the brain; Memory; Speaking up on its own: briefing, reminders and alerts; Travel and getting around
+- Relies on: Buddy Connect; Claude: the brain; Memory; Security and privacy; Speaking up on its own: briefing, reminders and alerts; Travel and getting around
 - Relied on by: Claude: the brain; Security and privacy; Speaking up on its own: briefing, reminders and alerts; The server and the app
 

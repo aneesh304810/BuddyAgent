@@ -61,7 +61,7 @@ import androidx.compose.ui.unit.sp
  *   Money          accounts and bills, spending, cards, investing
  *   Trips & Deals  travel and deals, with the buy-now-or-wait calls
  *   Discover       news, intelligence, the library and reports
- *   More           how Buddy runs (Maestro, Connections, Security) and your setup
+ *   More           your health, how Buddy runs (Maestro, Connections, Security) and your setup
  *
  * Alerts open from the bell in the header on every screen. There is one conversation: on the other four
  * places a microphone button talks to the same Buddy, and the reply shows above it and in the conversation.
@@ -88,7 +88,7 @@ fun parentOf(screen: Screen): Screen? = when (screen) {
     Screen.News, Screen.Intelligence, Screen.Library, Screen.Reports -> Screen.Discover
     is Screen.LibraryItem -> Screen.Library
     is Screen.Report -> Screen.Reports
-    Screen.Maestro, Screen.Insights, Screen.Connections, Screen.Security, Screen.Settings -> Screen.More
+    Screen.Maestro, Screen.Insights, Screen.Connections, Screen.Security, Screen.Settings, Screen.Health -> Screen.More
     Screen.Alerts -> Screen.Talk
     is Screen.Card -> Screen.Talk
 }
@@ -122,13 +122,14 @@ fun titleOf(screen: Screen): String = when (screen) {
     Screen.Maestro, Screen.Insights -> "Maestro"
     Screen.Connections -> "Connections"
     Screen.Security -> "Security"
+    Screen.Health -> "Health"
     Screen.Settings -> "Settings"
     Screen.Alerts -> "Alerts"
     is Screen.Card -> "Details"
 }
 
 // --- icons: line shapes on a 24 by 24 grid ------------------------------------------------------------------
-enum class Glyph { BUDDY, MONEY, TRIPS, DISCOVER, MORE, BELL, MIC, STOP, BACK, NEXT, MAESTRO, PLUG, SHIELD, GEAR }
+enum class Glyph { BUDDY, MONEY, TRIPS, DISCOVER, MORE, BELL, MIC, STOP, BACK, NEXT, MAESTRO, PLUG, SHIELD, GEAR, PULSE }
 
 @Composable
 fun GlyphIcon(glyph: Glyph, color: Color, size: Dp = 24.dp, modifier: Modifier = Modifier) {
@@ -181,6 +182,7 @@ private fun DrawScope.draw(glyph: Glyph, color: Color) {
             line(9f, 3f, 9f, 7f); line(15f, 3f, 15f, 7f); box(6f, 7f, 12f, 8f, 3f); line(12f, 15f, 12f, 21f)
         }
         Glyph.SHIELD -> shape(12f, 3f, 20f, 6f, 20f, 12f, 12f, 21f, 4f, 12f, 4f, 6f, closed = true)
+        Glyph.PULSE -> shape(3f, 12f, 8f, 12f, 10f, 6f, 14f, 18f, 16f, 12f, 21f, 12f)
         Glyph.GEAR -> {
             drawCircle(color, 3f * u, at(12f, 12f), style = pen)
             drawCircle(color, 8f * u, at(12f, 12f), style = pen)
@@ -368,6 +370,9 @@ private fun MoreGroup(title: String, rows: @Composable () -> Unit) {
 @Composable
 fun MoreScreen(onNavigate: (Screen) -> Unit) {
     Column(Modifier.fillMaxSize().verticalScroll(rememberScrollState())) {
+        MoreGroup("YOU") {
+            MoreRow(Glyph.PULSE, "Health", "Your ring and phone numbers, your plan, habits and meals") { onNavigate(Screen.Health) }
+        }
         MoreGroup("HOW BUDDY RUNS") {
             MoreRow(Glyph.MAESTRO, "Maestro", "AI models, who may see what, and AI spending") { onNavigate(Screen.Maestro) }
             MoreRow(Glyph.PLUG, "Connections", "The outside services Buddy uses, and whether each works") { onNavigate(Screen.Connections) }

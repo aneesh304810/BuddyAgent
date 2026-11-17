@@ -1600,6 +1600,26 @@ async def api_privacy() -> dict:
     return await asyncio.to_thread(privacygate.status, memory)
 
 
+# --- health (web/health.html): the owner's own numbers by rules, the plan, habits and meals. No model is involved.
+@app.get("/api/health/page", dependencies=[Depends(require_admin)])
+async def api_health_page(days: int = 30) -> dict:
+    from . import healthpage  # noqa: PLC0415
+    return await asyncio.to_thread(healthpage.view, memory, days)
+
+
+@app.post("/api/health/page", dependencies=[Depends(require_admin)])
+async def api_health_act(body: dict) -> dict:
+    """Tick a habit, note a meal, save or forget the plan, read the ring now."""
+    from . import healthpage  # noqa: PLC0415
+    try:
+        return await asyncio.to_thread(healthpage.act, memory, body)
+    except ToolError as e:
+        raise HTTPException(status_code=400, detail=str(e)) from e
+    except Exception as e:
+        log.info("health page: %s failed: %s", str(body.get("action"))[:20], type(e).__name__)
+        raise HTTPException(status_code=502, detail="That could not be done just now. Try again in a minute.") from e
+
+
 @app.get("/api/security", dependencies=[Depends(require_admin)])
 async def api_security() -> dict:
     from . import securitywatch

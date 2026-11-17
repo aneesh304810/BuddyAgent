@@ -142,6 +142,7 @@ sealed interface Screen {
     data object Deals : Screen
     data object Alerts : Screen
     data object Security : Screen
+    data object Health : Screen     // your own health numbers, the plan, habits and meals (web/health.html)
     data object Intelligence : Screen
     data object Maestro : Screen
     data object Trips : Screen      // Trips & Deals: travel and deals as tabs (Nav.kt)
@@ -432,6 +433,10 @@ private fun BuddyScreen(
             }
             Screen.Intelligence -> {  // the Buddy Intelligence Platform: convergence, stages, evidence (web/intel.html)
                 BuddyPage(prefs.link, "intel.html")
+                return@Column
+            }
+            Screen.Health -> {  // the owner's health numbers by rules; no AI model is given them (web/health.html)
+                BuddyPage(prefs.link, "health.html")
                 return@Column
             }
             Screen.Security -> {  // the daily threat watch: layers, open and fixed findings (web/security.html)

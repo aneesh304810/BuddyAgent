@@ -35,7 +35,7 @@ wrong.
 | **Money** | Accounts and bills, Spending, Cards, Invest |
 | **Trips & Deals** | Travel and deals, with the buy-now-or-wait calls |
 | **Discover** | News, Intelligence, Library, Reports |
-| **More** | How Buddy runs (Maestro, Connections, Security) and your setup (Alerts, Settings) |
+| **More** | Your health (Health), how Buddy runs (Maestro, Connections, Security) and your setup (Alerts, Settings) |
 
 Alerts open from the bell in the header on every screen. The phone's Back button goes up one level, then
 to the conversation.
