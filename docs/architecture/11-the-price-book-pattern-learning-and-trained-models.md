@@ -13,6 +13,7 @@ flowchart LR
     subgraph Modules["Modules"]
         pricebook_py["pricebook.py<br/>Buddy's separate database of market prices and deals (DuckDB), for…"]
         pricestore_py["pricestore.py<br/>Daily stock prices, kept"]
+        pricecheck_py["pricecheck.py<br/>A second opinion on the kept daily prices"]
         productid_py["productid.py<br/>which product a deal headline is about, its brand and its category"]
         patterns_py["patterns.py<br/>Nightly pattern learning in the sandbox: Buddy hands the price book…"]
         modeltrain_py["modeltrain.py<br/>Trained models, when there is enough to learn from: each week Buddy…"]
@@ -22,23 +23,28 @@ flowchart LR
     pricebook_py --> patterns_py
     pricebook_py --> productid_py
     pricestore_py --> pricebook_py
+    pricecheck_py --> pricebook_py
+    pricecheck_py --> pricestore_py
     patterns_py --> pricebook_py
     modeltrain_py --> pricebook_py
     db[("Your database<br/>daily_prices, deals, launches, meta, models, observations, pattern_months, predictions and more")]
     pricebook_py --> db
     pricestore_py --> db
+    pricecheck_py --> db
     modeltrain_py --> db
-    o_0["Buddy Intelligence Platform"]
+    s_tiingo["Tiingo (price cross-check)<br/>(public data only)"]
+    pricecheck_py --> s_tiingo
+    o_0["Buddy Connect"]
     pricebook_py -. uses .-> o_0
-    o_1["Claude"]
+    o_1["Buddy Intelligence Platform"]
     pricebook_py -. uses .-> o_1
-    o_2["Fixing and explaining itself"]
+    o_2["Claude"]
     pricebook_py -. uses .-> o_2
-    o_3["Investing"]
+    o_3["Fixing and explaining itself"]
     pricebook_py -. uses .-> o_3
-    o_4["Memory"]
+    o_4["Investing"]
     pricebook_py -. uses .-> o_4
-    o_5["Shopping and deals"]
+    o_5["Memory"]
     pricebook_py -. uses .-> o_5
 ```
 
@@ -106,6 +112,32 @@ providers are kept apart and never mixed in one series.
 
 - Tables: `daily_prices`, `price_revisions`
 - Uses: memory.py, pricebook.py
+
+### pricecheck.py
+
+```text
+A second opinion on the kept daily prices. With one source, a wrong price is kept as it stands and every test
+built on it is wrong too. This compares a few symbols a day against a second, independent provider (Tiingo, on
+its free plan) and says where the two disagree.
+
+  off      until the owner sets BUDDY_TIINGO_KEY. Nothing is sent and nothing is claimed.
+  each day CHECK_A_DAY symbols from the price store, the ones checked longest ago first, so the whole list is
+           gone round in a week or so. One request a symbol, well inside the free plan's hourly limit.
+  compare  the last WINDOW_DAYS of closes, day by day, against the second source's unadjusted close. A day that
+           differs by more than DIFFERS is a disagreement. The newest day held is left out (it may have been
+           fetched before the close), and a symbol whose shares split inside the window is not compared (one
+           source adjusts for the split and the other reports the price as it was).
+  record   per symbol: agrees, differs (with the worst day and both prices), or not compared and why.
+
+What a disagreement means: one of the two sources is wrong, or they treat a corporate event differently. It does
+not say which. Nothing is corrected automatically; the lab keeps using its own source. Only ticker symbols and
+dates are sent.
+```
+
+- Tables: `price_checks`
+- Outside services: Tiingo (price cross-check)
+- Settings: `BUDDY_TIINGO_KEY`
+- Uses: gateway.py, memory.py, pricebook.py, pricestore.py, tools.py
 
 ### productid.py
 
@@ -191,6 +223,6 @@ many calls, and whether it is now in use. A model is one more opinion with a tra
 
 ## How it connects
 
-- Relies on: Buddy Intelligence Platform; Claude: the brain; Fixing and explaining itself; Investing: signals, research and practice; Memory; Shopping and deals
+- Relies on: Buddy Connect; Buddy Intelligence Platform; Claude: the brain; Fixing and explaining itself; Investing: signals, research and practice; Memory; Shopping and deals
 - Relied on by: Buddy Intelligence Platform; Claude: the brain; Investing: signals, research and practice; Learning: the English and investing tutors; Shopping and deals; Speaking up on its own: briefing, reminders and alerts; The server and the app; Travel and getting around
 

@@ -216,6 +216,8 @@ EXTRA = [
     ("Finance & markets", "News fact check (optional; any one is enough)",
      ["BUDDY_NEWSDATA_KEY", "BUDDY_PERIGON_KEY", "BUDDY_NEWSCATCHER_KEY"],
      "asked only about a story the free model could not settle, on a company Buddy is acting on"),
+    ("Finance & markets", "Price cross-check (optional)", ["BUDDY_TIINGO_KEY"],
+     "a second source that checks a few of the kept daily prices each day"),
     ("Intelligence", "Intelligence API key", ["BUDDY_INTEL_API_KEY"], "lets another program read the Intelligence API"),
     ("Server", "DigitalOcean (read-only)", ["BUDDY_DO_TOKEN"], "server size and cost, for the self-check"),
     ("Server", "Tailscale", ["BUDDY_TAILSCALE_API_KEY"], "removing a device from your network"),

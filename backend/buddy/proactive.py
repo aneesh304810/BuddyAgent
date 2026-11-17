@@ -701,6 +701,18 @@ async def run(memory: Memory, deliver: Deliver, connected=None) -> None:
                             await deliver("money", told, topic="investing:lab")
                     except Exception:
                         log.exception("the strategy lab failed")
+                from . import pricecheck  # noqa: PLC0415  a second source checks a few kept prices (off without its key)
+                if pricecheck.due(memory):
+                    memory.set(pricecheck.DAY_KEY, local_now().date().isoformat())
+                    try:
+                        got = await asyncio.to_thread(pricecheck.daily, memory)
+                        log.info("price check: %d checked, %d agree, %d differ, %d not compared", got["checked"],
+                                 got["agree"], got["differ"], got["skipped"])
+                        told = pricecheck.message(got)
+                        if told and not in_quiet_hours():
+                            await deliver("money", told, topic="investing:prices")
+                    except Exception:
+                        log.exception("the price cross-check failed")
                 from . import stratauto  # noqa: PLC0415  queued papers read and tested; failing rules paused
                 if stratauto.due(memory):
                     memory.set(stratauto.DAY_KEY, local_now().date().isoformat())

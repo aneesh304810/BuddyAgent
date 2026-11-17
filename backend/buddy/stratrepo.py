@@ -287,8 +287,8 @@ def view(memory: Memory) -> dict:
 
 def _prices(memory: Memory) -> dict:
     try:
-        from . import pricestore  # noqa: PLC0415
-        return pricestore.status(memory)
+        from . import pricecheck, pricestore  # noqa: PLC0415
+        return {**pricestore.status(memory), "check": pricecheck.status(memory)}
     except Exception:
         log.info("stratrepo: the price store could not be read", exc_info=True)
         return {}

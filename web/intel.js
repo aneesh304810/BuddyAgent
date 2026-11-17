@@ -223,6 +223,12 @@ function testSection() {
         <p class="muted">${(p.sources || []).map((x) => `${esc(x.source)}: ${Number(x.prices).toLocaleString()} prices, last fetched ${esc(String(x.fetched).slice(0, 16))} UTC`).join(" · ")}</p>`
         : `<p class="muted">None kept yet. They are kept the first time the lab runs or a replay is started after this update.</p>`; })(),
       esc((repoData.prices || {}).note || "")) +
+    card("Price cross-check", (() => { const k = (repoData.prices || {}).check || {};
+      if (!k.set_up) return `<p class="muted">${esc(k.note || "Not set up.")}</p>`;
+      const rows = (k.differing || []).map((d) => `<div class="guard"><span class="mark" style="color:var(--sev-high)">!</span><span style="min-width:0;flex:1"><b>${esc(d.symbol)}</b> on ${esc(d.day)}<br>
+          <span class="muted">kept ${esc(Number(d.ours).toFixed(2))}, second source ${esc(Number(d.theirs).toFixed(2))}: ${share(d.worst)} apart · checked ${esc(d.checked)}</span></span></div>`).join("");
+      return `<div class="kpis">${kpi(esc(k.agree), "symbols that agree")}${kpi(esc(k.differ), "that differ")}${kpi(esc(k.not_compared), "not compared")}${kpi(esc(k.last || "–"), "last check")}</div>${rows}`; })(),
+      (((repoData.prices || {}).check || {}).set_up ? esc(repoData.prices.check.note) + ` ${esc(repoData.prices.check.a_day)} symbols are checked a day, the ones checked longest ago first.` : "")) +
     card("What a rule must clear", `<ul class="plain">${repoData.policy.map((p) => `<li style="margin:4px 0">${esc(p)}</li>`).join("")}</ul>`,
       "Passed on past prices means: at least 30 past trades, beat the market after costs, also in the latest stretch, no fall deeper than 35%, and unlikely to be luck given how many rules were tried.") +
     card("Yardsticks: what plain styles returned", (frows || `<p class="muted">Not fetched yet.</p>`) + `<p><button class="btn" id="research-factors">Fetch the factor returns</button> <button class="btn" id="research-company">Fetch company figures now</button></p>`, esc(f.note || "")) +

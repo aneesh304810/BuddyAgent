@@ -586,3 +586,12 @@ when fetched).
 - Not covered: companies that stopped trading before Buddy first asked, and which companies were in an index on a
   past date. There is one source at a time and no second source to cross-check against yet.
 - Shown in Intelligence → Strategies → Test ("Daily prices kept on this server").
+
+## Price cross-check (`pricecheck.py`)
+
+Off until `BUDDY_TIINGO_KEY` is set. Then, once a day, 20 kept symbols (the ones checked longest ago first) are
+compared against a second, independent source over the last 30 days of closes. A day more than 1% apart is a
+disagreement, recorded with both prices and told to the owner. The newest day is left out, and a symbol whose shares
+split inside the window is not compared, since one source adjusts for it and the other does not. A disagreement
+means one of the two is wrong or they treat a company event differently: nothing is corrected automatically. Only
+ticker symbols and dates are sent. Shown in Intelligence → Strategies → Test.
