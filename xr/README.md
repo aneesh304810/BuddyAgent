@@ -46,6 +46,8 @@ node bin/buddyxr.js new my-app   # a folder with a working app and its test
 | `src/runtime.js` | Runs an app on a host: state, focus, paging, input |
 | `src/hosts/core.js` | A host for tests, and the message bridge to a native app |
 | `src/hosts/evenhub.js` | A host for one maker's glasses, through its plugin system. Not yet run on glasses |
+| `src/hosts/mentra.js` | A host on top of MentraOS, an open-source glasses runtime. Not yet run on glasses |
+| `examples/mentra-server.js` | Buddy Serve as a MentraOS app server |
 | `src/agent.js` | Four tools that let an AI agent show, ask and offer a choice on the glasses |
 | `src/check.js` | Runs an app on every kind of glasses and says where it would not work |
 | `src/index.d.ts` | Types, for apps written in TypeScript |
@@ -60,8 +62,8 @@ The full guide is `docs/BUDDY-XR.md` in this repository.
 - **No real glasses.** Nothing has run on hardware. The product families carry what the open-source device layer
   ([xg.glass](https://github.com/hkust-spark/xg-glass-sdk), Apache-2.0) declares for its adapters; display sizes
   other than one are defaults, not measurements.
-- **One host for real glasses, untested.** `evenHubHost` is written against one maker's published plugin SDK and
-  tested against a stand-in for it. It has not run on a pair, and the lines and characters that fit are estimates.
+- **Two hosts for real glasses, untested.** `evenHubHost` (one maker's plugin system) and `mentraHost` (on top of
+  MentraOS) are written against the published SDKs and tested against stand-ins. Neither has run on a pair.
 - **No native host.** `bridgeHost` defines the messages; the Android app that would hold the connection and pass
   them to the glasses is not written.
 - **No packaging or publishing** for any maker's store.

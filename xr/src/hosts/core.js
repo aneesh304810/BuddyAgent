@@ -6,7 +6,8 @@
 //                  to the native side:   { op: "show", frame }   { op: "speak", text }   { op: "capture", id }
 //                  from the native side: { op: "input", event }  { op: "captured", id, image | error }
 //                The native half is not written yet, so this has not been run against real glasses.
-// The simulator's host is in simulator/sim.js; the host for one maker's plugin system is in evenhub.js.
+// The simulator's host is in simulator/sim.js; the host for one maker's plugin system is in evenhub.js
+// and the host on top of MentraOS in mentra.js.
 
 export function memoryHost(profile) {
   let listener = () => {};

@@ -7,5 +7,6 @@ export { script } from "./speech.js";
 export { runApp } from "./runtime.js";
 export { memoryHost, bridgeHost } from "./hosts/core.js";
 export { evenHubHost } from "./hosts/evenhub.js";
+export { mentraHost, profileFromCapabilities } from "./hosts/mentra.js";
 export { AGENT_TOOLS, agentSession } from "./agent.js";
 export { check, works } from "./check.js";

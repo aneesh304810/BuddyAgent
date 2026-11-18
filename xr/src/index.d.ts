@@ -9,7 +9,7 @@ export interface Profile {
   id: string; name: string; about: string;
   display: Display | null; speaker: boolean; mic: boolean; camera: boolean;
   input: Array<"tap" | "double" | "long" | "swipe">;
-  route: "direct" | "maker-app";
+  route: "direct" | "maker-app" | "cloud"; speakerPrivate?: boolean;
   class?: string; tested?: boolean; source?: string;
 }
 
@@ -48,7 +48,7 @@ export interface Frame { id: string; title: string; lines: Line[]; page: number;
 
 export type InputEvent = { type: "tap" | "double" | "long" | "swipe-forward" | "swipe-back" } | { type: "voice"; text: string };
 export interface Host { profile: Profile; show(frame: Frame): void; speak(text: string): void; on(listener: (event: InputEvent) => void): void; capture?(): Promise<unknown> }
-export interface RunOptions { speakPersonal?: boolean; onError?: (error: Error) => void }
+export interface RunOptions { speakPersonal?: boolean; allowCloud?: boolean; onError?: (error: Error) => void }
 export interface Run<S = any> {
   readonly state: S; readonly frame: Frame | null; readonly profile: Profile;
   withheld: { display: number; speech: number }; errors: Error[];
@@ -90,3 +90,8 @@ export interface AgentSession {
   call(name: "glasses_choose", args: { title: string; options: string[]; privacy?: Privacy }): Promise<Reached & { choice?: string; index?: number; cancelled?: boolean }>;
 }
 export function agentSession(host: Host, options?: RunOptions & { name?: string; onSay?: (words: string) => void }): AgentSession;
+
+/** A profile built from what a MentraOS session reports for the wearer's glasses. */
+export function profileFromCapabilities(capabilities: unknown, options?: { cols?: number }): Profile;
+/** A host on top of MentraOS. `session` is the AppSession its AppServer hands to onSession. Not yet run on glasses. */
+export function mentraHost(session: unknown, options?: { profile?: Profile; cols?: number; gestures?: Record<string, string>; onProblem?: (error: Error) => void }): Host & { close(): void };

@@ -143,7 +143,7 @@ test("a failing handler is reported, not swallowed", async () => {
 test("every profile is complete, and the families keep what their adapters declare", () => {
   for (const [id, p] of Object.entries(PROFILES)) {
     assert.equal(p.id, id);
-    assert.ok(p.name && p.about && Array.isArray(p.input) && ["direct", "maker-app"].includes(p.route), id);
+    assert.ok(p.name && p.about && Array.isArray(p.input) && ["direct", "maker-app", "cloud"].includes(p.route), id);
     if (p.display) assert.ok(p.display.lines >= 2 && p.display.cols >= 16 && ["text", "color"].includes(p.display.kind), id);
   }
   for (const f of Object.values(FAMILIES)) assert.equal(f.tested, false);   // nothing has run on hardware yet

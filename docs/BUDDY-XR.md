@@ -88,6 +88,10 @@ before anything reaches the glasses, and an app cannot switch it off.
 | `personal` | Yes: only the wearer sees the lens | Only if the wearer chose it (`speakPersonal`), because people nearby hear an open-ear speaker |
 | `health` | Only on glasses reached directly from the phone, not through a maker's app | Never |
 
+One route is stricter. Where everything passes through a third party's cloud (as on the MentraOS host, section
+7), personal content is neither shown nor spoken unless whoever deploys the app accepts that route
+(`allowCloud`), and health content is never sent.
+
 What is held back is replaced with "Private. Open your phone." or "You have a private update. Check your phone.",
 so the wearer knows something is there.
 
@@ -161,6 +165,22 @@ how many lines and characters really fit (the font is not fixed-width, so the pr
 packaging it the way the maker's store wants, and the wearer's words, because the bridge delivers audio and not
 text (pass `transcribe` to supply speech-to-text; without it, input is touch only).
 
+**Written, not yet run on glasses:** `mentraHost` (`src/hosts/mentra.js`), on top of MentraOS, an open-source
+glasses runtime (MIT). One host reaches every pair MentraOS supports. It is written against the published SDK;
+the calls it makes are compiled against the SDK's own types, and it is tested against a stand-in for a session.
+
+- A MentraOS app is a server that MentraOS's cloud calls when the wearer opens the app.
+  `examples/mentra-server.js` is Buddy Serve as such a server. Running it needs a MentraOS developer account, a
+  registered app with its key, and supported glasses.
+- The profile is built from what the session reports for the wearer's glasses (display lines, speaker,
+  microphone, camera, buttons), so those are the device's own figures. Characters a line is not reported and is
+  a default.
+- The wearer's words arrive as text, because MentraOS transcribes them: voice input works on this host.
+- On glasses with one button, a short press is next and a long press chooses; back is by voice.
+- Everything shown, said and heard passes through MentraOS's cloud. That is why this host's route is "cloud" and
+  the stricter privacy rule applies. In the example, a guest's allergy is not sent to the glasses unless
+  `ALLOW_CLOUD=yes` is set.
+
 **Planned:**
 
 1. **A phone app** holding the connection to the glasses through the open-source device layer xg.glass
@@ -171,9 +191,6 @@ text (pass `transcribe` to supply speech-to-text; without it, input is touch onl
 
 Each maker's store has its own account, packaging and review. The framework can prepare a package; the developer
 submits it.
-
-A fourth route is worth weighing: writing a host for an existing open-source glasses runtime (section 8), which
-would reach the devices it already supports without a host for each.
 
 ## 8. What already exists (looked up on 18 November 2026)
 
@@ -200,7 +217,7 @@ We looked at public pages only; any of these may exist inside those products wit
 
 ## What is not built
 
-- Anything run on real glasses. One host is written and untested on hardware.
+- Anything run on real glasses. Two hosts are written and untested on hardware.
 - Packaging and publishing for any store.
 - Speech recognition and speech output (hosts supply them).
 - Measured display sizes: only one family's line count comes from its adapter's source; the rest are defaults.

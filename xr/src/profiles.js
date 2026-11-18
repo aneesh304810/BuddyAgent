@@ -7,8 +7,9 @@
 //   mic       can it hear the wearer (voice commands need a host that turns speech into text)
 //   camera    can it take a photo
 //   input     physical input the host reports: "tap", "double", "long", "swipe"
-//   route     how content reaches the glasses: "direct" (this phone to the glasses, nothing in between) or
-//             "maker-app" (through the maker's own app or service). The privacy rules use it.
+//   route     how content reaches the glasses: "direct" (this phone to the glasses, nothing in between),
+//             "maker-app" (through the maker's own app) or "cloud" (through a third party's servers).
+//             The privacy rules use it.
 //
 // CLASSES are the three shapes of glasses on sale. FAMILIES are real product families: each is a class plus what
 // the open-source device layer (xg.glass, Apache-2.0) declares for its adapter. None has been run on hardware
