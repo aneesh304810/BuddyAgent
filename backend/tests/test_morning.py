@@ -31,10 +31,10 @@ MARKET = {"indexes": {"S&P 500": {"day": 0.8, "week": 1.5, "month": 3.0, "ytd": 
           "concept": {"key": "diversify", "title": "Diversification", "text": "Spread money over many things."}}
 
 
-def say(memory, text, days_ago=0, via="typed"):
+def say(memory, text, days_ago=0, via="typed", now=NOW):
     memory.db.execute(tutor.SCHEMA)
     memory.db.execute("INSERT INTO utterances (at, text, via) VALUES (?, ?, ?)",
-                      ((NOW - timedelta(days=days_ago)).isoformat(), text, via))
+                      ((now - timedelta(days=days_ago)).isoformat(), text, via))
     memory.db.commit()
 
 
@@ -76,7 +76,8 @@ def test_a_models_lesson_is_used_only_when_whole_else_the_numbers_teach(memory):
 # --- the English lesson ---------------------------------------------------------------------------------------
 def test_the_english_lesson_uses_the_owners_sentences_and_only_claude_reads_them(memory):
     for i in range(6):
-        say(memory, f"I want that you check the price number {i}", days_ago=1)
+        # the lesson reads the last two days by the real clock, so these are dated from it and not from NOW
+        say(memory, f"I want that you check the price number {i}", days_ago=1, now=datetime.now(timezone.utc))
     got = {}
 
     async def writer(memory, said, unclear):
