@@ -23,28 +23,29 @@ const CSS = `
 .xrs-about { color:var(--dim); font-size:13px; flex:1 1 220px; }
 .xrs-grid { display:grid; grid-template-columns:minmax(0,1.5fr) minmax(0,1fr); gap:12px; }
 @media (max-width:720px) { .xrs-grid { grid-template-columns:minmax(0,1fr); } }
-.xrs-stage { position:relative; aspect-ratio:16/10; border-radius:16px; overflow:hidden; border:1px solid var(--line);
+.xrs-stage { position:relative; container-type:inline-size; aspect-ratio:16/10; border-radius:16px; overflow:hidden; border:1px solid var(--line);
   background:radial-gradient(60% 50% at 22% 30%, rgba(255,196,120,.35), transparent 70%),
     radial-gradient(40% 40% at 78% 22%, rgba(255,226,170,.28), transparent 70%),
     radial-gradient(70% 60% at 60% 95%, rgba(64,96,86,.55), transparent 70%), linear-gradient(180deg,#2a2622,#151a18); }
 .xrs-stage::after { content:""; position:absolute; inset:0; border-radius:16px; box-shadow:inset 0 0 0 10px rgba(0,0,0,.35), inset 0 0 90px rgba(0,0,0,.6); pointer-events:none; }
 .xrs-tag { position:absolute; left:14px; bottom:12px; font-size:11.5px; letter-spacing:.06em; text-transform:uppercase; color:rgba(255,255,255,.55); z-index:2; }
-.xrs-hud { position:absolute; right:6%; top:9%; width:56%; z-index:1; }
-.xrs-hud.text { font:600 clamp(11px,1.9vw,15px)/1.5 ui-monospace,"SF Mono",Menlo,Consolas,monospace; color:var(--glow);
+.xrs-hud { position:absolute; right:5%; top:9%; z-index:1; }
+.xrs-hud.color { width:58%; }
+.xrs-hud.text { font:600 clamp(9px,3.1cqw,17px)/1.5 ui-monospace,"SF Mono",Menlo,Consolas,monospace; color:var(--glow);
   text-shadow:0 0 8px rgba(127,227,196,.55); white-space:pre; }
 .xrs-hud.text .t { opacity:.7; text-transform:uppercase; letter-spacing:.06em; }
-.xrs-hud.text .on { color:#fff; }
-.xrs-hud.text .alert { color:#fff; }
+.xrs-hud.text .k-on { color:#fff; }
+.xrs-hud.text .k-alert { color:#fff; }
 .xrs-hud.color { background:rgba(8,14,12,.72); border:1px solid rgba(127,227,196,.35); border-radius:14px; padding:12px 14px;
-  backdrop-filter:blur(3px); font-size:clamp(12px,1.9vw,15px); }
+  backdrop-filter:blur(3px); font-size:clamp(10px,2.6cqw,15px); }
 .xrs-hud.color .t { font-weight:700; color:#fff; margin-bottom:6px; display:flex; justify-content:space-between; gap:8px; }
 .xrs-hud.color .t small { color:var(--dim); font-weight:500; }
 .xrs-hud.color .l { padding:2px 8px; border-radius:8px; white-space:pre-wrap; overflow-wrap:anywhere; }
-.xrs-hud.color .l.choice { border:1px solid transparent; margin-top:3px; }
-.xrs-hud.color .l.on { background:rgba(127,227,196,.18); border-color:rgba(127,227,196,.55); color:#fff; }
-.xrs-hud.color .l.alert { background:rgba(127,227,196,.12); border:1px solid rgba(127,227,196,.45); color:#fff; font-weight:600; margin-bottom:4px; }
-.xrs-hud.color .l.alert.warn { background:rgba(255,208,138,.1); border-color:rgba(255,208,138,.5); color:var(--amber); }
-.xrs-hud.color .l.ask { font-weight:600; color:#fff; margin-top:4px; }
+.xrs-hud.color .l.k-choice { border:1px solid transparent; margin-top:3px; }
+.xrs-hud.color .l.k-on { background:rgba(127,227,196,.18); border-color:rgba(127,227,196,.55); color:#fff; }
+.xrs-hud.color .l.k-alert { background:rgba(127,227,196,.12); border:1px solid rgba(127,227,196,.45); color:#fff; font-weight:600; margin-bottom:4px; }
+.xrs-hud.color .l.k-alert.k-warn { background:rgba(255,208,138,.1); border-color:rgba(255,208,138,.5); color:var(--amber); }
+.xrs-hud.color .l.k-ask { font-weight:600; color:#fff; margin-top:4px; }
 .xrs-hud.color .bar { height:6px; border-radius:3px; background:rgba(255,255,255,.14); margin:2px 8px 4px; }
 .xrs-hud.color .bar i { display:block; height:100%; border-radius:3px; background:var(--glow); }
 .xrs-hud.color .pic { border-radius:10px; border:1px dashed rgba(127,227,196,.45); padding:14px 10px; text-align:center; color:var(--dim); font-size:12.5px; margin-bottom:6px; }
@@ -108,7 +109,7 @@ export function mountSimulator(root, { makeApp, profiles = ["text", "color", "au
     } else if (frame) {
       const kind = p.display.kind;
       const line = (l) => {
-        const cls = [l.kind === "item" || l.kind === "option" ? "choice" : l.kind, l.focused ? "on" : "", l.level === "warn" ? "warn" : ""].filter(Boolean).join(" ");
+        const cls = [l.kind === "item" || l.kind === "option" ? "choice" : l.kind, l.focused ? "on" : "", l.level === "warn" ? "warn" : ""].filter(Boolean).map((c) => "k-" + c).join(" ");   // prefixed: a host page's own styles must not reach these
         if (kind === "text") return `<span class="${cls}">${esc(l.text)}</span>`;
         return `<div class="l ${cls}">${esc(l.text.replace(/^[› ] /, ""))}</div>${l.value != null ? `<div class="bar"><i style="width:${Math.round(l.value * 100)}%"></i></div>` : ""}`;
       };
