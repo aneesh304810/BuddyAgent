@@ -1,0 +1,12 @@
+{
+  "name": "buddy-xr",
+  "version": "0.1.0",
+  "description": "Write a smart-glasses app once; it adapts to the glasses it runs on.",
+  "type": "module",
+  "main": "src/index.js",
+  "types": "src/index.d.ts",
+  "bin": { "buddyxr": "bin/buddyxr.js" },
+  "scripts": { "test": "node --test", "check": "node bin/buddyxr.js check apps/serve/app.js", "sim": "node bin/buddyxr.js sim" },
+  "license": "UNLICENSED",
+  "private": true
+}

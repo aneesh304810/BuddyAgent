@@ -1,0 +1,33 @@
+<!doctype html>
+<html lang="en">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width, initial-scale=1">
+<title>Buddy XR simulator</title>
+<style>
+body { margin:0; background:#060b09; color:#e9f1ee; font:15px/1.5 system-ui,-apple-system,"Segoe UI",Roboto,sans-serif; }
+main { max-width:980px; margin:0 auto; padding:20px 16px 60px; }
+h1 { font-size:20px; margin:0 0 4px; } p.lead { color:#8fa39c; margin:0 0 16px; }
+</style>
+</head>
+<body>
+<main>
+  <h1>Buddy XR simulator</h1>
+  <p class="lead">Buddy Serve, written once, on each kind of glasses. Say a table, say the order, send it.</p>
+  <div id="sim"></div>
+</main>
+<script type="module">
+import { mountSimulator } from "./sim.js";
+import { PROFILES } from "../src/index.js";
+import { demoServe } from "../apps/serve/app.js";
+const all = new URLSearchParams(location.search).get("profiles") !== "classes";
+window.sim = mountSimulator(document.getElementById("sim"), {
+  makeApp: () => demoServe().app,
+  profiles: all ? Object.keys(PROFILES) : ["text", "color", "audio"],
+  start: new URLSearchParams(location.search).get("glasses") || "text",
+  phrases: ["table one", "two lattes and an avocado toast", "a croissant, peanut allergy", "two pancakes", "yes", "no", "next", "back"],
+  events: [{ label: "Kitchen: table 4 is ready", event: { type: "ready", table: 4 } }, { label: "Table 2 wants the check", event: { type: "check", table: 2 } }],
+});
+</script>
+</body>
+</html>
