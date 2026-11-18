@@ -194,6 +194,10 @@ shown, and health details too. It is written against the maker's developer kit (
   font lacks. How readable that is through the lens is not known until it is tried on a pair.
 - It neither speaks nor listens yet. Pass `say` to speak another way, such as through the phone, and call
   `heard(text)` with words recognised elsewhere. No camera yet.
+- The Studio has a box, "Run it on your glasses" (`studio/glasses.js`). It connects from Chrome on Android or on
+  a computer, through the maker's own Bluetooth library (`vendor/brilliant-ble`, unchanged, BSD-3-Clause, loaded
+  only when someone presses the button), and runs the app being built. It was checked in a browser against a
+  pretend pair that answers as the library expects; that check is not part of the automatic tests.
 - Tests: `test/halo.test.js` uses a stand-in for the kit's Bluetooth class. `test/halo-lua.test.js` runs the
   script itself in a Lua interpreter against a stand-in for the device, with the packets the host really sends.
   It needs `npm install --no-save fengari@0.1.4` and is skipped without it. It has not been run in the maker's
@@ -243,7 +247,7 @@ We looked at public pages only; any of these may exist inside those products wit
 ## What is not built
 
 - Anything run on real glasses. Three hosts are written and untested on hardware.
-- A page or phone app that connects Halo and runs an app on it. The host exists; nothing opens the connection yet.
+- Halo from Buddy's own phone app. The Studio can open the connection from a browser; the phone app cannot yet.
 - Packaging and publishing for any store.
 - Speech recognition and speech output (hosts supply them).
 - Measured display sizes: only one family's line count comes from its adapter's source; the rest are defaults.

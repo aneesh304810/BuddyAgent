@@ -57,6 +57,8 @@ node bin/buddyxr.js new my-app   # a folder with a working app and its test
 | `apps/serve/` | Buddy Serve: a waiter says the order, it is checked against the menu, then sent |
 | `src/builder.js` | An app from a plain list of steps (tell, do, ask, choose, note), for people who do not write code |
 | `studio/` | The Studio: build an app without code by filling in and dragging steps, or write code; run it on each kind of glasses and see the check |
+| `studio/glasses.js` | The Studio's "Run it on your glasses" box: connects a pair of Halo glasses from Chrome and runs the app on them |
+| `vendor/brilliant-ble/` | The maker's Bluetooth library for Halo, unchanged (BSD-3-Clause). Only the Studio loads it |
 | `CLAUDE.md` | What Claude Code reads to build apps here: the blocks, the privacy rule, how to test |
 | `templates/github/` | Two GitHub workflows: check every change; let Claude Code build apps on your own account |
 | `tools/site.mjs` | Builds the Studio's starting points, CLAUDE.md and the website tutorial from the tested code |
@@ -71,7 +73,7 @@ The full guide is `docs/BUDDY-XR.md` in this repository.
   other than one are defaults, not measurements. Halo's facts come from its maker's developer kit instead.
 - **Three hosts for real glasses, untested.** `evenHubHost` (one maker's plugin system), `mentraHost` (on top of
   MentraOS) and `haloHost` (Brilliant Labs Halo, over Bluetooth) are written against the published SDKs and
-  tested against stand-ins. None has run on a pair. Nothing opens the Bluetooth connection for `haloHost` yet.
+  tested against stand-ins. None has run on a pair. The Studio can open the Bluetooth connection for `haloHost` from Chrome.
 - **No native host.** `bridgeHost` defines the messages; the Android app that would hold the connection and pass
   them to the glasses is not written.
 - **No packaging or publishing** for any maker's store.

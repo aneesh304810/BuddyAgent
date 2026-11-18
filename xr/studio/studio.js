@@ -12,6 +12,7 @@ import { mountSimulator } from "../simulator/sim.js";
 import { TEMPLATES } from "./templates.js";
 import { prompt } from "./reference.js";
 import { mountBuilder } from "./builder-ui.js";
+import { mountGlasses } from "./glasses.js";
 
 const LIB = new URL("../src/index.js", import.meta.url).href;
 const DRAFT = "buddyxr-studio-draft", MODE = "buddyxr-studio-mode";
@@ -22,6 +23,8 @@ const keep = { get(k) { try { return JSON.parse(localStorage.getItem(k) || "null
   clear(k) { try { localStorage.removeItem(k); } catch { /* nothing to clear */ } } };
 
 let sim = null, app = null, lastUrl = "", mode = "build", builder = null;
+// the same app on a real pair of glasses, when one is connected: its own copy, with its own state
+const glasses = mountGlasses($("glasses"), { makeApp: () => app });
 
 /** Turn the editor's text into an app: load it as a module, with "buddy-xr" pointing at the framework. */
 async function load(code) {
@@ -60,6 +63,7 @@ function show(made) {
       phrases: ["next", "select", "yes", "no", "back"], onError: (e) => problem(`The app stopped: ${e.message}`) });
   } catch (e) { sim = null; problem(`The app could not start: ${e.message}`); return; }
   report();
+  glasses.restart();
 }
 
 async function run() {
