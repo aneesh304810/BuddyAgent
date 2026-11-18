@@ -1,0 +1,52 @@
+# Lets Claude Code build and change Buddy XR apps in this repository when someone with write access mentions
+# @claude in an issue or a pull request, for example:
+#   "@claude build an app in xr/apps/picking: a warehouse picking list. Show the next item and its shelf,
+#    let me say done, and ask before closing the order."
+# Claude Code reads xr/CLAUDE.md, writes the app and its test, and opens a pull request. The check workflow
+# (buddy-xr-check.yml) then runs on that pull request.
+#
+# It runs on YOUR OWN Claude account, never ours. Add ONE of these as a repository secret
+# (Settings > Secrets and variables > Actions) and keep the matching line below:
+#   ANTHROPIC_API_KEY          an API key, billed by use
+#   CLAUDE_CODE_OAUTH_TOKEN    a token for a Claude subscription, made with: claude setup-token
+# Never put either in a file. Inputs and defaults change: see the action's own guide before relying on this,
+# https://github.com/anthropics/claude-code-action
+#
+# Copy to .github/workflows/buddy-xr-claude.yml.
+name: Claude Code for Buddy XR
+
+on:
+  issue_comment:
+    types: [created]
+  pull_request_review_comment:
+    types: [created]
+  issues:
+    types: [opened]
+
+permissions:
+  contents: write
+  pull-requests: write
+  issues: write
+  id-token: write
+
+jobs:
+  claude:
+    # Only for people who can already write to this repository, and only when they ask.
+    if: >-
+      (contains(github.event.comment.body, '@claude') || contains(github.event.issue.body, '@claude')) &&
+      contains(fromJSON('["OWNER", "MEMBER", "COLLABORATOR"]'),
+               github.event.comment.author_association || github.event.issue.author_association)
+    runs-on: ubuntu-latest
+    timeout-minutes: 30
+    steps:
+      - uses: actions/checkout@v4
+
+      - uses: actions/setup-node@v4
+        with:
+          node-version: "22"
+
+      - uses: anthropics/claude-code-action@v1
+        with:
+          anthropic_api_key: ${{ secrets.ANTHROPIC_API_KEY }}
+          # claude_code_oauth_token: ${{ secrets.CLAUDE_CODE_OAUTH_TOKEN }}
+          claude_args: --max-turns 30

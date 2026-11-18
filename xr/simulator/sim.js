@@ -71,14 +71,17 @@ const CSS = `
 
 const esc = (s) => String(s ?? "").replace(/[&<>"']/g, (c) => ({ "&": "&amp;", "<": "&lt;", ">": "&gt;", '"': "&quot;", "'": "&#39;" }[c]));
 
-export function mountSimulator(root, { makeApp, profiles = ["text", "color", "audio"], events = [], phrases = [], start } = {}) {
+let mounted = 0;
+
+export function mountSimulator(root, { makeApp, profiles = ["text", "color", "audio"], events = [], phrases = [], start, onError } = {}) {
+  const pick = "xrs-device-" + (++mounted);                 // several simulators can share a page
   if (!document.getElementById("xrs-css")) { const s = document.createElement("style"); s.id = "xrs-css"; s.textContent = CSS; document.head.appendChild(s); }
   let id = profiles.includes(start) ? start : profiles[0], run = null, frame = null, spoken = [], speakPersonal = false;
 
   root.classList.add("xrs");
   root.innerHTML = `
-    <div class="xrs-top"><label for="xrs-device">Glasses</label>
-      <select id="xrs-device">${profiles.map((p) => `<option value="${esc(p)}">${esc(PROFILES[p].name)}</option>`).join("")}</select>
+    <div class="xrs-top"><label for="${pick}">Glasses</label>
+      <select id="${pick}" data-device>${profiles.map((p) => `<option value="${esc(p)}">${esc(PROFILES[p].name)}</option>`).join("")}</select>
       <span class="xrs-about" data-about></span><button data-reset>Start again</button></div>
     <div class="xrs-grid">
       <div class="xrs-stage" data-stage aria-live="polite"></div>
@@ -134,7 +137,7 @@ export function mountSimulator(root, { makeApp, profiles = ["text", "color", "au
       : `<span style="color:var(--dim);font-size:13px">No tap or swipe on these: voice only.</span>`;
     $("[data-touch]").querySelectorAll("button").forEach((b) => b.onclick = () => host.listener({ type: b.dataset.touchType }));
     $("[data-words]").disabled = $("[data-speak]").disabled = !p.mic;
-    run = runApp(makeApp(), host, { speakPersonal, onError: (e) => { spoken.push("(app error: " + e.message + ")"); draw(); } });
+    run = runApp(makeApp(), host, { speakPersonal, onError: (e) => { if (onError) onError(e); else { spoken.push("(app error: " + e.message + ")"); draw(); } } });
     draw();
   }
 
@@ -144,13 +147,13 @@ export function mountSimulator(root, { makeApp, profiles = ["text", "color", "au
   $("[data-speak]").onclick = () => { say($("[data-words]").value); $("[data-words]").value = ""; };
   $("[data-words]").onkeydown = (e) => { if (e.key === "Enter") $("[data-speak]").click(); };
   $("[data-reset]").onclick = begin;
-  $("#xrs-device").value = id;
-  $("#xrs-device").onchange = (e) => { id = e.target.value; begin(); };
+  $("[data-device]").value = id;
+  $("[data-device]").onchange = (e) => { id = e.target.value; begin(); };
   $("[data-personal]").onchange = (e) => { speakPersonal = e.target.checked; begin(); };
   if (events.length) {
     $("[data-events]").innerHTML = events.map((ev, i) => `<button data-event="${i}">${esc(ev.label)}</button>`).join("");
     $("[data-events]").querySelectorAll("button").forEach((b) => b.onclick = () => run.notify(events[Number(b.dataset.event)].event));
   }
   begin();
-  return { get run() { return run; }, pick(next) { id = next; $("#xrs-device").value = next; begin(); }, say, host };
+  return { get run() { return run; }, pick(next) { id = next; $("[data-device]").value = next; begin(); }, restart: begin, say, host };
 }

@@ -1,0 +1,67 @@
+<!doctype html>
+<html lang="en">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width, initial-scale=1">
+<meta name="robots" content="noindex, nofollow">
+<title>Buddy XR Studio</title>
+<style>
+:root { --ink:#060b09; --panel:#0e1714; --line:rgba(127,227,196,.22); --glow:#7fe3c4; --dim:#8fa39c; --text:#e9f1ee; --bad:#ff9d8a; --warn:#ffd08a; color-scheme:dark; }
+* { box-sizing:border-box; }
+body { margin:0; background:var(--ink); color:var(--text); font:15px/1.5 system-ui,-apple-system,"Segoe UI",Roboto,sans-serif; }
+header { display:flex; flex-wrap:wrap; align-items:center; gap:10px 16px; padding:12px 16px; border-bottom:1px solid var(--line); }
+header h1 { font-size:18px; margin:0; } header span { color:var(--dim); font-size:13.5px; flex:1 1 240px; }
+header a { color:var(--glow); font-size:14px; text-decoration:none; } header a:hover { text-decoration:underline; }
+main { display:grid; grid-template-columns:minmax(0,1fr) minmax(0,1fr); gap:14px; padding:14px 16px 40px; max-width:1500px; margin:0 auto; }
+@media (max-width:980px) { main { grid-template-columns:minmax(0,1fr); } }
+section { min-width:0; }
+.bar { display:flex; flex-wrap:wrap; gap:8px; align-items:center; margin-bottom:8px; }
+.bar label { color:var(--dim); font-size:13px; }
+select, input[type=text] { background:#111c19; color:inherit; border:1px solid var(--line); border-radius:10px; padding:8px 10px; font:inherit; min-width:0; }
+select { flex:1 1 200px; } input[type=text] { flex:1 1 200px; font:13px/1.4 ui-monospace,"SF Mono",Menlo,Consolas,monospace; }
+button { font:inherit; font-size:14px; color:inherit; background:#13201c; border:1px solid var(--line); border-radius:999px; padding:8px 14px; cursor:pointer; }
+button:hover, button:focus-visible { border-color:var(--glow); outline:none; }
+button.main { background:var(--glow); color:#06110e; border-color:var(--glow); font-weight:600; }
+textarea { width:100%; height:min(62vh,640px); min-height:320px; resize:vertical; background:var(--panel); color:var(--text); border:1px solid var(--line);
+  border-radius:14px; padding:14px; font:13.5px/1.55 ui-monospace,"SF Mono",Menlo,Consolas,monospace; tab-size:2; white-space:pre; overflow:auto; }
+textarea:focus-visible { outline:none; border-color:var(--glow); }
+textarea.small { height:84px; min-height:60px; font:14px/1.5 system-ui,-apple-system,"Segoe UI",Roboto,sans-serif; white-space:pre-wrap; }
+#problem { background:rgba(255,157,138,.1); border:1px solid rgba(255,157,138,.5); color:var(--bad); border-radius:12px; padding:10px 14px; margin:10px 0 0; white-space:pre-wrap; overflow-wrap:anywhere; }
+.box { border:1px solid var(--line); border-radius:14px; padding:12px 14px; background:var(--panel); margin-top:12px; }
+.box h2 { margin:0 0 8px; font-size:12px; letter-spacing:.06em; text-transform:uppercase; color:var(--dim); font-weight:600; }
+.row { display:flex; gap:10px; padding:5px 0; } .row b { flex:0 0 52px; } .ok { color:var(--glow); } .bad { color:var(--bad); }
+.finding { margin:0 0 4px 62px; font-size:13.5px; color:var(--dim); } .finding.error { color:var(--bad); } .finding.warn { color:var(--warn); }
+.sum { color:var(--dim); font-size:13.5px; margin:8px 0 0; }
+.hint { color:var(--dim); font-size:13px; margin:8px 2px 0; }
+kbd { border:1px solid var(--line); border-radius:5px; padding:0 5px; font:12px ui-monospace,Menlo,Consolas,monospace; }
+</style>
+</head>
+<body>
+<header>
+  <h1>Buddy XR Studio</h1>
+  <span>Write a glasses app, run it on each kind of glasses, see where it would fail. It runs in your browser only.</span>
+  <a href="../../buddy-xr-tutorial.html">Tutorial</a><a href="../../buddy-xr.html">Developer guide</a>
+</header>
+<main>
+  <section aria-label="The code">
+    <div class="bar"><label for="template">Start from</label><select id="template"></select>
+      <button class="main" id="run">Run</button><button id="reset" title="Throw away your changes and load the starting point again">Reset</button><button id="save">Download app.js</button></div>
+    <textarea id="code" spellcheck="false" autocapitalize="off" autocomplete="off" aria-label="The app's code"></textarea>
+    <p id="problem" role="alert" hidden></p>
+    <div class="box"><h2>Or describe it, and let an AI assistant write it</h2>
+      <textarea id="wanted" class="small" placeholder="For example: a warehouse picking list. Show the next item and its shelf, let me say done, and ask before closing the order." aria-label="What the app should do, in your own words"></textarea>
+      <div class="bar" style="margin:8px 0 0"><button id="copy">Copy instructions for Claude Code</button><span class="hint" id="copied" style="margin:0"></span></div>
+      <p class="hint">Paste them into Claude Code or another AI assistant, paste the code it gives you into the editor above, and press Run. Nothing is sent from this page: you choose where to paste.</p></div>
+    <p class="hint"><kbd>Ctrl</kbd> + <kbd>Enter</kbd> runs it. Your draft is kept in this browser only. Paste only code you trust: it runs as part of this page.</p>
+  </section>
+  <section aria-label="The app running">
+    <div id="sim"></div>
+    <div class="box"><h2>Send something from outside</h2>
+      <div class="bar" style="margin:0"><input type="text" id="event" placeholder='{ "type": "parcel", "address": "9 Quay Street" }' aria-label="An event, as JSON"><button id="send">Send</button></div>
+      <p class="hint">Goes to the app's <code>onEvent</code>, as your own system would send it.</p></div>
+    <div class="box"><h2>Check on every kind of glasses</h2><div id="check"></div></div>
+  </section>
+</main>
+<script type="module" src="studio.js"></script>
+</body>
+</html>

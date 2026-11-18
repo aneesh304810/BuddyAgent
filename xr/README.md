@@ -28,7 +28,7 @@ Node 20 or later. There is nothing to install: the framework has no dependencies
 ```
 cd xr
 npm test                 # the framework's tests and Buddy Serve's
-npm run sim              # the simulator, at http://localhost:8770/simulator/
+npm run sim              # the simulator at http://localhost:8770/simulator/ and the Studio at /studio/
 npm run check            # Buddy Serve on every kind of glasses
 node bin/buddyxr.js glasses
 node bin/buddyxr.js new my-app   # a folder with a working app and its test
@@ -53,6 +53,10 @@ node bin/buddyxr.js new my-app   # a folder with a working app and its test
 | `src/index.d.ts` | Types, for apps written in TypeScript |
 | `simulator/` | The simulator |
 | `apps/serve/` | Buddy Serve: a waiter says the order, it is checked against the menu, then sent |
+| `studio/` | The Studio: write an app in the browser, run it on each kind of glasses, see the check |
+| `CLAUDE.md` | What Claude Code reads to build apps here: the blocks, the privacy rule, how to test |
+| `templates/github/` | Two GitHub workflows: check every change; let Claude Code build apps on your own account |
+| `tools/site.mjs` | Builds the Studio's starting points, CLAUDE.md and the website tutorial from the tested code |
 | `bin/buddyxr.js` | The command line: `new`, `check`, `glasses`, `sim` |
 
 The full guide is `docs/BUDDY-XR.md` in this repository.

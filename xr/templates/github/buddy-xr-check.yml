@@ -1,0 +1,35 @@
+# Checks every change: the tests, then every app on every kind of glasses. No AI and no key are needed.
+# Copy to .github/workflows/buddy-xr-check.yml. It expects the toolkit in the folder named by TOOLKIT.
+name: Buddy XR check
+
+on:
+  push:
+  pull_request:
+
+permissions:
+  contents: read
+
+env:
+  TOOLKIT: xr
+
+jobs:
+  check:
+    runs-on: ubuntu-latest
+    timeout-minutes: 10
+    steps:
+      - uses: actions/checkout@v4
+
+      - uses: actions/setup-node@v4
+        with:
+          node-version: "22"
+
+      - name: Tests
+        working-directory: ${{ env.TOOLKIT }}
+        run: node --test
+
+      - name: Every app on every kind of glasses
+        working-directory: ${{ env.TOOLKIT }}
+        run: |
+          for app in apps/*/app.js; do
+            node bin/buddyxr.js check "$app"
+          done
