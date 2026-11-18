@@ -34,7 +34,7 @@ export const Image = (src, props = {}) => node("image", { ...props, src: String(
 /** An app: its starting state, the screen for a state, and what to do with events.
  *    view(state, ctx)      -> Screen(...)
  *    onVoice(text, ctx)    words that were not a navigation command
- *    onEvent(event, ctx)   something from outside (the kitchen, a server): run.notify(event)
+ *    onEvent(event, ctx)   something from outside (an office, a server): run.notify(event)
  *    onBack(ctx)           the wearer went back
  *    needs                 what the app cannot work without: ["camera"], ["mic"]
  */

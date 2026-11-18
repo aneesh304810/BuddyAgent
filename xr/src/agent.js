@@ -10,7 +10,7 @@
 // inputSchema), so it can be handed to either. agentSession(host) runs them:
 //
 //   const session = agentSession(host, { onSay: (words) => sendToAgent(words) });
-//   const result = await session.call("glasses_ask", { question: "Send to the kitchen?" });   // { answer: "yes" }
+//   const result = await session.call("glasses_ask", { question: "Navigate there?" });   // { answer: "yes" }
 //
 // Every result says what actually reached the wearer ({ shown, spoken, withheld }), so an agent is not left
 // believing the wearer saw something that was held back.

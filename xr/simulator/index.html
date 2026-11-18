@@ -20,8 +20,16 @@ h1 { font-size:20px; margin:0 0 4px; } p.lead { color:#8fa39c; margin:0 0 16px; 
 import { mountSimulator } from "./sim.js";
 import { PROFILES } from "../src/index.js";
 import { demoServe } from "../apps/serve/app.js";
+import { createVisit } from "../apps/visit/app.js";
 const all = new URLSearchParams(location.search).get("profiles") !== "classes";
-window.sim = mountSimulator(document.getElementById("sim"), {
+const visit = new URLSearchParams(location.search).get("app") === "visit";
+window.sim = mountSimulator(document.getElementById("sim"), visit ? {
+  makeApp: () => createVisit(),
+  profiles: all ? Object.keys(PROFILES) : ["text", "color", "audio"],
+  start: new URLSearchParams(location.search).get("glasses") || "text",
+  phrases: ["next", "select", "note the valve is worn", "yes", "no", "back"],
+  events: [{ label: "Office: the part has arrived", event: { text: "The part has arrived at the van." } }],
+} : {
   makeApp: () => demoServe().app,
   profiles: all ? Object.keys(PROFILES) : ["text", "color", "audio"],
   start: new URLSearchParams(location.search).get("glasses") || "text",
