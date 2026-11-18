@@ -1,5 +1,5 @@
 // Not run: compiled by `tsc --noEmit` to prove an app can be written in TypeScript against the framework's types.
-import { Ask, CLASSES, List, Screen, Text, check, defineApp, memoryHost, runApp } from "../src/index.js";
+import { Ask, CLASSES, List, Screen, Text, agentSession, check, defineApp, memoryHost, runApp } from "../src/index.js";
 
 interface State { gate: string; going: boolean }
 
@@ -17,4 +17,5 @@ const host = memoryHost(CLASSES.text);
 const run = runApp(app, host);
 const gate: string = run.state.gate;
 const lines: string[] = host.last ? host.last.lines.map((l) => l.text) : [];
+export const answer: Promise<"yes" | "no" | undefined> = agentSession(memoryHost(CLASSES.audio)).call("glasses_ask", { question: "Go?" }).then((r) => r.answer);
 export const ok = check(app).length >= 0 && gate.length > 0 && lines.length >= 0;

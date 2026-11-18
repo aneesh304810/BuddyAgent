@@ -4,7 +4,7 @@ export type Privacy = "public" | "personal" | "health";
 export interface BlockProps { privacy?: Privacy }
 export interface Block { type: string; props: Record<string, unknown>; children: Block[] }
 
-export interface Display { kind: "text" | "color"; lines: number; cols: number; images: boolean; linesMeasured?: boolean }
+export interface Display { kind: "text" | "color"; lines: number; cols: number; images: boolean; linesMeasured?: boolean; proportional?: boolean }
 export interface Profile {
   id: string; name: string; about: string;
   display: Display | null; speaker: boolean; mic: boolean; camera: boolean;
@@ -75,3 +75,18 @@ export function bridgeHost(profile: Profile, post: (message: unknown) => void): 
 export interface Finding { profile: string; level: "error" | "warn" | "info"; text: string }
 export function check(app: App, options?: { profiles?: string[]; states?: object[]; options?: RunOptions }): Finding[];
 export function works(findings: Finding[], profile: string): boolean;
+
+/** A host for Even Realities glasses through the maker's plugin system. `bridge` is what the maker's SDK returns. Not yet run on glasses. */
+export function evenHubHost(bridge: unknown, options?: { profile?: Profile; transcribe?: (audio: unknown) => string | Promise<string>; onProblem?: (error: Error) => void }): Host & { settled(): Promise<void>; listen(): Promise<boolean> };
+
+export interface AgentTool { name: string; description: string; inputSchema: Record<string, unknown> }
+export const AGENT_TOOLS: AgentTool[];
+export interface Reached { shown: boolean; spoken: boolean; withheld: number }
+export interface AgentSession {
+  run: Run; tools: AgentTool[]; stop(): void;
+  call(name: "glasses_describe"): Promise<Record<string, unknown>>;
+  call(name: "glasses_show", args: { title: string; lines?: string[]; alert?: string; privacy?: Privacy }): Promise<Reached>;
+  call(name: "glasses_ask", args: { question: string; title?: string; privacy?: Privacy }): Promise<Reached & { answer?: "yes" | "no"; cancelled?: boolean }>;
+  call(name: "glasses_choose", args: { title: string; options: string[]; privacy?: Privacy }): Promise<Reached & { choice?: string; index?: number; cancelled?: boolean }>;
+}
+export function agentSession(host: Host, options?: RunOptions & { name?: string; onSay?: (words: string) => void }): AgentSession;

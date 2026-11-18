@@ -71,8 +71,8 @@ export function frame(screen, list, profile, { focus = 0, page = 0, options = {}
     const width = d.cols - mark.length;
     // a value sits at the right edge of its line when there is room, like a price on a bill
     const whole = !ok ? WITHHELD.display : !r.right ? r.text
-      : r.text.length + 1 + r.right.length <= width ? r.text + " ".repeat(width - r.text.length - r.right.length) + r.right : `${r.text} ${r.right}`;
-    (ok && r.right && whole.length === width ? [whole] : wrap(whole, width)).forEach((text, i) =>
+      : !d.proportional && r.text.length + 1 + r.right.length <= width ? r.text + " ".repeat(width - r.text.length - r.right.length) + r.right : `${r.text}  ${r.right}`;
+    (ok && r.right && (whole.length === width || (d.proportional && whole.length <= width)) ? [whole] : wrap(whole, width)).forEach((text, i) =>
       lines.push({ text: (i ? " ".repeat(mark.length) : mark) + text, kind: r.kind, focused: r === focused, ...(r.level ? { level: r.level } : {}),
         ...(r.kind === "progress" && ok ? { value: r.value } : {}) }));
   }

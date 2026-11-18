@@ -1,7 +1,8 @@
 // What a pair of glasses can do. An app never asks "which brand is this?": it describes what to tell the wearer,
 // and the framework uses the profile to decide how.
 //
-//   display   null, or { kind: "text" | "color", lines, cols, images }
+//   display   null, or { kind: "text" | "color", lines, cols, images, proportional }
+//             proportional: the font is not fixed-width, so nothing is lined up with spaces
 //   speaker   can it play speech to the wearer
 //   mic       can it hear the wearer (voice commands need a host that turns speech into text)
 //   camera    can it take a photo
@@ -32,6 +33,9 @@ export const FAMILIES = {
     "Camera, microphone and speaker through the maker's phone toolkit. No display, no tap events."),
   even: family("even", "Even Realities G1", "text", { display: { kind: "text", lines: 5, cols: 30, images: false, linesMeasured: true } },
     "Text display (five lines a page), microphone, tap and long press. No camera, no speaker."),
+  "even-g2": family("even-g2", "Even Realities G2 (through the maker's plugin system)", "text",
+    { display: { kind: "text", lines: 7, cols: 40, images: false, proportional: true }, input: ["tap", "double", "long", "swipe"], route: "maker-app" },
+    "A web app inside the maker's phone app. Text display, microphone, tap, double tap, long press and scroll. No speaker. The font is not fixed-width."),
   frame: family("frame", "Brilliant Labs Frame", "text", { camera: true, input: ["tap"] },
     "Text display, camera, microphone and tap. No speaker."),
   rokid: family("rokid", "Rokid Glasses", "text", { speaker: true, camera: true, input: [], route: "maker-app" },

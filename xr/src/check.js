@@ -2,7 +2,7 @@
 // Each finding: { profile, level: "error" | "warn" | "info", text }. An error means the app does not work there.
 
 import { PROFILES, canChoose, canOutput } from "./profiles.js";
-import { memoryHost } from "./hosts.js";
+import { memoryHost } from "./hosts/core.js";
 import { runApp } from "./runtime.js";
 
 export function check(app, { profiles = Object.keys(PROFILES), states = [], options = {} } = {}) {
