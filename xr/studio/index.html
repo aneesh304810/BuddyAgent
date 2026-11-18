@@ -10,23 +10,29 @@
 * { box-sizing:border-box; }
 body { margin:0; background:var(--ink); color:var(--text); font:15px/1.5 system-ui,-apple-system,"Segoe UI",Roboto,sans-serif; }
 header { display:flex; flex-wrap:wrap; align-items:center; gap:10px 16px; padding:12px 16px; border-bottom:1px solid var(--line); }
-header h1 { font-size:18px; margin:0; } header span { color:var(--dim); font-size:13.5px; flex:1 1 240px; }
+header h1 { font-size:18px; margin:0; } header > span { color:var(--dim); font-size:13.5px; flex:1 1 240px; }
 header a { color:var(--glow); font-size:14px; text-decoration:none; } header a:hover { text-decoration:underline; }
-main { display:grid; grid-template-columns:minmax(0,1fr) minmax(0,1fr); gap:14px; padding:14px 16px 40px; max-width:1500px; margin:0 auto; }
+.modes { display:flex; gap:6px; padding:12px 16px 0; max-width:1500px; margin:0 auto; }
+.modes button { border-radius:12px 12px 0 0; border-bottom:0; padding:9px 16px; color:var(--dim); }
+.modes button.on { background:var(--panel); color:var(--text); border-color:var(--glow); font-weight:600; }
+main { display:grid; grid-template-columns:minmax(0,1fr) minmax(0,1fr); gap:14px; padding:14px 16px 40px; max-width:1500px; margin:0 auto; align-items:start; }
 @media (max-width:980px) { main { grid-template-columns:minmax(0,1fr); } }
+@media (min-width:981px) { main > section:last-child { position:sticky; top:10px; max-height:calc(100vh - 20px); overflow:auto; } }
 section { min-width:0; }
 .bar { display:flex; flex-wrap:wrap; gap:8px; align-items:center; margin-bottom:8px; }
 .bar label { color:var(--dim); font-size:13px; }
-select, input[type=text] { background:#111c19; color:inherit; border:1px solid var(--line); border-radius:10px; padding:8px 10px; font:inherit; min-width:0; }
-select { flex:1 1 200px; } input[type=text] { flex:1 1 200px; font:13px/1.4 ui-monospace,"SF Mono",Menlo,Consolas,monospace; }
+select, input[type=text], textarea { background:#111c19; color:inherit; border:1px solid var(--line); border-radius:10px; padding:8px 10px; font:inherit; min-width:0; }
+select:focus-visible, input:focus-visible, textarea:focus-visible { outline:none; border-color:var(--glow); }
+.bar select, .bar input[type=text] { flex:1 1 200px; }
+#event { font:13px/1.4 ui-monospace,"SF Mono",Menlo,Consolas,monospace; }
 button { font:inherit; font-size:14px; color:inherit; background:#13201c; border:1px solid var(--line); border-radius:999px; padding:8px 14px; cursor:pointer; }
 button:hover, button:focus-visible { border-color:var(--glow); outline:none; }
 button.main { background:var(--glow); color:#06110e; border-color:var(--glow); font-weight:600; }
-textarea { width:100%; height:min(62vh,640px); min-height:320px; resize:vertical; background:var(--panel); color:var(--text); border:1px solid var(--line);
-  border-radius:14px; padding:14px; font:13.5px/1.55 ui-monospace,"SF Mono",Menlo,Consolas,monospace; tab-size:2; white-space:pre; overflow:auto; }
-textarea:focus-visible { outline:none; border-color:var(--glow); }
-textarea.small { height:84px; min-height:60px; font:14px/1.5 system-ui,-apple-system,"Segoe UI",Roboto,sans-serif; white-space:pre-wrap; }
-#problem { background:rgba(255,157,138,.1); border:1px solid rgba(255,157,138,.5); color:var(--bad); border-radius:12px; padding:10px 14px; margin:10px 0 0; white-space:pre-wrap; overflow-wrap:anywhere; }
+button[disabled] { opacity:.4; cursor:default; }
+#code { width:100%; height:min(62vh,640px); min-height:320px; resize:vertical; background:var(--panel); border-radius:14px; padding:14px;
+  font:13.5px/1.55 ui-monospace,"SF Mono",Menlo,Consolas,monospace; tab-size:2; white-space:pre; overflow:auto; }
+#wanted { width:100%; height:84px; min-height:60px; resize:vertical; }
+#problem { background:rgba(255,157,138,.1); border:1px solid rgba(255,157,138,.5); color:var(--bad); border-radius:12px; padding:10px 14px; margin:0 0 12px; white-space:pre-wrap; overflow-wrap:anywhere; }
 .box { border:1px solid var(--line); border-radius:14px; padding:12px 14px; background:var(--panel); margin-top:12px; }
 .box h2 { margin:0 0 8px; font-size:12px; letter-spacing:.06em; text-transform:uppercase; color:var(--dim); font-weight:600; }
 .row { display:flex; gap:10px; padding:5px 0; } .row b { flex:0 0 52px; } .ok { color:var(--glow); } .bad { color:var(--bad); }
@@ -34,34 +40,83 @@ textarea.small { height:84px; min-height:60px; font:14px/1.5 system-ui,-apple-sy
 .sum { color:var(--dim); font-size:13.5px; margin:8px 0 0; }
 .hint { color:var(--dim); font-size:13px; margin:8px 2px 0; }
 kbd { border:1px solid var(--line); border-radius:5px; padding:0 5px; font:12px ui-monospace,Menlo,Consolas,monospace; }
+/* the no-code builder */
+#builder { background:var(--panel); border:1px solid var(--line); border-radius:0 14px 14px 14px; padding:16px; }
+.b-field { margin-bottom:18px; }
+.b-field > label { display:flex; align-items:center; gap:10px; font-weight:600; margin-bottom:8px; }
+.b-field > label b { flex:none; width:26px; height:26px; border-radius:50%; background:var(--glow); color:#06110e; display:grid; place-items:center; font-size:14px; }
+.b-field > select, .b-field > input { width:100%; font-size:16px; padding:10px 12px; }
+.b-steps { list-style:none; margin:0; padding:0; display:flex; flex-direction:column; gap:10px; }
+.b-step { border:1px solid var(--line); border-radius:12px; padding:10px; background:#0b1412; position:relative; }
+.b-step.lifted { opacity:.45; }
+.b-step.before::before, .b-step.after::after { content:""; position:absolute; left:0; right:0; height:3px; background:var(--glow); border-radius:2px; }
+.b-step.before::before { top:-7px; } .b-step.after::after { bottom:-7px; }
+.b-head { display:flex; align-items:center; gap:8px; margin-bottom:8px; }
+.b-grip { cursor:grab; font-size:20px; line-height:1; color:var(--dim); padding:4px 2px; user-select:none; touch-action:none; }
+.b-grip:active { cursor:grabbing; }
+.b-num { flex:none; min-width:24px; height:24px; border-radius:50%; border:1px solid var(--line); display:grid; place-items:center; font-size:13px; color:var(--dim); }
+.b-head select { flex:1 1 160px; }
+.b-move { display:flex; gap:4px; } .b-move button { padding:5px 10px; border-radius:8px; }
+.b-step textarea { width:100%; resize:vertical; font-size:15px; }
+.b-sub { display:block; color:var(--dim); font-size:13px; margin-top:8px; }
+.b-sub input, .b-sub select, .b-sub textarea { display:block; width:100%; margin-top:4px; color:var(--text); }
+.b-add { display:flex; flex-wrap:wrap; gap:6px; align-items:center; margin-top:12px; } .b-add span { color:var(--dim); font-size:13px; flex:0 0 100%; }
+.b-add button { border-radius:10px; cursor:grab; touch-action:none; }
+#builder.dragging { user-select:none; cursor:grabbing; }
+.b-wrong { color:var(--bad); margin:0 0 6px; } .b-tip { color:var(--warn); margin:0 0 6px; font-size:14px; }
+dialog { background:var(--panel); color:var(--text); border:1px solid var(--glow); border-radius:16px; padding:22px; max-width:min(520px,92vw); }
+dialog::backdrop { background:rgba(0,0,0,.6); }
+dialog h2 { margin:0 0 8px; font-size:19px; } dialog p { margin:0 0 12px; } dialog ul { margin:0 0 14px; padding-left:20px; }
+dialog a.main { display:inline-block; background:var(--glow); color:#06110e; border-radius:999px; padding:9px 16px; font-weight:600; text-decoration:none; margin-right:8px; }
 </style>
 </head>
 <body>
 <header>
   <h1>Buddy XR Studio</h1>
-  <span>Write a glasses app, run it on each kind of glasses, see where it would fail. It runs in your browser only.</span>
-  <a href="../../buddy-xr-tutorial.html">Tutorial</a><a href="../../buddy-xr.html">Developer guide</a>
+  <span>Build an app for smart glasses and try it here. No glasses and nothing to install. It runs in your browser only.</span>
+  <a href="../../buddy-xr-tutorial.html">Tutorial</a><a href="../../buddy-xr.html">Developer guide</a><a href="../../../pricing.html">Pricing</a>
 </header>
+<div class="modes" role="tablist" aria-label="How to build">
+  <button type="button" role="tab" data-mode="build">Build without code</button>
+  <button type="button" role="tab" data-mode="code">Write code</button>
+</div>
 <main>
-  <section aria-label="The code">
-    <div class="bar"><label for="template">Start from</label><select id="template"></select>
-      <button class="main" id="run">Run</button><button id="reset" title="Throw away your changes and load the starting point again">Reset</button><button id="save">Download app.js</button></div>
-    <textarea id="code" spellcheck="false" autocapitalize="off" autocomplete="off" aria-label="The app's code"></textarea>
+  <section aria-label="Your app">
     <p id="problem" role="alert" hidden></p>
-    <div class="box"><h2>Or describe it, and let an AI assistant write it</h2>
-      <textarea id="wanted" class="small" placeholder="For example: a warehouse picking list. Show the next item and its shelf, let me say done, and ask before closing the order." aria-label="What the app should do, in your own words"></textarea>
-      <div class="bar" style="margin:8px 0 0"><button id="copy">Copy instructions for Claude Code</button><span class="hint" id="copied" style="margin:0"></span></div>
-      <p class="hint">Paste them into Claude Code or another AI assistant, paste the code it gives you into the editor above, and press Run. Nothing is sent from this page: you choose where to paste.</p></div>
-    <p class="hint"><kbd>Ctrl</kbd> + <kbd>Enter</kbd> runs it. Your draft is kept in this browser only. Paste only code you trust: it runs as part of this page.</p>
+    <div id="pane-build"><div id="builder"></div></div>
+    <div id="pane-code" hidden>
+      <div class="bar"><label for="template">Start from</label><select id="template"></select>
+        <button class="main" id="run">Run</button><button id="reset" title="Throw away your changes and load the starting point again">Reset</button><button id="save">Download app.js</button></div>
+      <textarea id="code" spellcheck="false" autocapitalize="off" autocomplete="off" aria-label="The app's code"></textarea>
+      <div class="box"><h2>Or describe it, and let an AI assistant write it</h2>
+        <textarea id="wanted" placeholder="For example: a warehouse picking list. Show the next item and its shelf, let me say done, and ask before closing the order." aria-label="What the app should do, in your own words"></textarea>
+        <div class="bar" style="margin:8px 0 0"><button id="copy">Copy instructions for Claude Code</button><span class="hint" id="copied" style="margin:0"></span></div>
+        <p class="hint">Paste them into Claude Code or another AI assistant, paste the code it gives you into the editor above, and press Run. Nothing is sent from this page: you choose where to paste.</p></div>
+      <p class="hint"><kbd>Ctrl</kbd> + <kbd>Enter</kbd> runs it. Your draft is kept in this browser only. Paste only code you trust: it runs as part of this page.</p>
+    </div>
   </section>
   <section aria-label="The app running">
     <div id="sim"></div>
-    <div class="box"><h2>Send something from outside</h2>
+    <div class="box" id="outside-build"><h2>Send the wearer a message</h2>
+      <div class="bar" style="margin:0"><input type="text" id="message" value="The delivery has arrived at the gate." maxlength="160" aria-label="A message to the wearer"><button id="message-send">Send</button></div>
+      <p class="hint">As your office would, while they are working. It appears on whatever step they are on.</p></div>
+    <div class="box" id="outside-code" hidden><h2>Send something from outside</h2>
       <div class="bar" style="margin:0"><input type="text" id="event" placeholder='{ "type": "parcel", "address": "9 Quay Street" }' aria-label="An event, as JSON"><button id="send">Send</button></div>
       <p class="hint">Goes to the app's <code>onEvent</code>, as your own system would send it.</p></div>
-    <div class="box"><h2>Check on every kind of glasses</h2><div id="check"></div></div>
+    <div class="box"><h2>Will it work on every kind of glasses?</h2><div id="check"></div></div>
   </section>
 </main>
+<dialog id="launch" aria-labelledby="launch-title">
+  <h2 id="launch-title">Launch “<span id="launch-name"></span>”</h2>
+  <p>Launching puts your app on your team's glasses and keeps it up to date.</p>
+  <ul>
+    <li><strong>Building and trying it here is free</strong>, for as long as you like.</li>
+    <li><strong>Launching is on the Launch plan:</strong> a planned $29 a month for each launched app, with 20,000 Buddy Points of use included.</li>
+    <li><strong>Launching is not open yet.</strong> Nothing has run on real glasses so far, and we are not taking payment.</li>
+  </ul>
+  <p>Join the launch list and we will tell you when your app can go live. Your steps stay in your browser; only the app's name and how many steps it has go in the email.</p>
+  <a class="main" id="launch-mail" href="mailto:hello@buddylabs.io">Join the launch list</a><button type="button" id="launch-close">Not now</button>
+</dialog>
 <script type="module" src="studio.js"></script>
 </body>
 </html>

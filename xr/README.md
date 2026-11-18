@@ -53,7 +53,8 @@ node bin/buddyxr.js new my-app   # a folder with a working app and its test
 | `src/index.d.ts` | Types, for apps written in TypeScript |
 | `simulator/` | The simulator |
 | `apps/serve/` | Buddy Serve: a waiter says the order, it is checked against the menu, then sent |
-| `studio/` | The Studio: write an app in the browser, run it on each kind of glasses, see the check |
+| `src/builder.js` | An app from a plain list of steps (tell, do, ask, choose, note), for people who do not write code |
+| `studio/` | The Studio: build an app without code by filling in and dragging steps, or write code; run it on each kind of glasses and see the check |
 | `CLAUDE.md` | What Claude Code reads to build apps here: the blocks, the privacy rule, how to test |
 | `templates/github/` | Two GitHub workflows: check every change; let Claude Code build apps on your own account |
 | `tools/site.mjs` | Builds the Studio's starting points, CLAUDE.md and the website tutorial from the tested code |

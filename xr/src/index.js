@@ -10,3 +10,4 @@ export { evenHubHost } from "./hosts/evenhub.js";
 export { mentraHost, profileFromCapabilities } from "./hosts/mentra.js";
 export { AGENT_TOOLS, agentSession } from "./agent.js";
 export { check, works } from "./check.js";
+export { KINDS, advice, buildApp, problems, toCode } from "./builder.js";
