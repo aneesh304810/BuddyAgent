@@ -79,6 +79,13 @@ export function works(findings: Finding[], profile: string): boolean;
 /** A host for Even Realities glasses through the maker's plugin system. `bridge` is what the maker's SDK returns. Not yet run on glasses. */
 export function evenHubHost(bridge: unknown, options?: { profile?: Profile; transcribe?: (audio: unknown) => string | Promise<string>; onProblem?: (error: Error) => void }): Host & { settled(): Promise<void>; listen(): Promise<boolean> };
 
+/** A host for Brilliant Labs Halo. `ble` is the maker's BrilliantBle, already connected. Not yet run on glasses. */
+export function haloHost(ble: unknown, options?: { profile?: Profile; large?: boolean; taps?: boolean; say?: (text: string) => void | Promise<void>; hears?: boolean; onProblem?: (error: Error) => void }): Host & {
+  heard(text: string): void; settled(): Promise<void>; close(): Promise<void> };
+/** The script haloHost copies to the glasses, and the message codes it uses. */
+export const HALO_APP: string;
+export const HALO: { frame: number; click: number; tap: number; file: string; module: string; ready: string };
+
 export interface AgentTool { name: string; description: string; inputSchema: Record<string, unknown> }
 export const AGENT_TOOLS: AgentTool[];
 export interface Reached { shown: boolean; spoken: boolean; withheld: number }

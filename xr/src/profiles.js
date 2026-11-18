@@ -39,6 +39,11 @@ export const FAMILIES = {
     "A web app inside the maker's phone app. Text display, microphone, tap, double tap, long press and scroll. No speaker. The font is not fixed-width."),
   frame: family("frame", "Brilliant Labs Frame", "text", { camera: true, input: ["tap"] },
     "Text display, camera, microphone and tap. No speaker."),
+  // Halo's facts come from the maker's own developer kit and emulator, not from the device layer the others use.
+  halo: { ...family("halo", "Brilliant Labs Halo", "color",
+    { display: { kind: "color", lines: 10, cols: 26, images: false, round: true }, input: ["tap", "double", "long"], route: "direct" },
+    "A round colour display of 256 by 256 points, a button, tap, two microphones, bone-conduction speakers and a small camera. Reached from the phone over Bluetooth."),
+    source: "the maker's developer kit (brilliant_sdk, BSD-3-Clause) and its Halo emulator; not yet run on hardware from Buddy XR" },
   rokid: family("rokid", "Rokid Glasses", "text", { speaker: true, camera: true, input: [], route: "maker-app" },
     "Text display, camera, microphone and speech. No tap events."),
   rayneo: family("rayneo", "RayNeo (on-glasses runtime)", "color", { input: [], route: "direct" },

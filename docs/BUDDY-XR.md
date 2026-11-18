@@ -181,6 +181,31 @@ the calls it makes are compiled against the SDK's own types, and it is tested ag
   the stricter privacy rule applies. In the example, a guest's allergy is not sent to the glasses unless
   `ALLOW_CLOUD=yes` is set.
 
+**Written, not yet run on glasses:** `haloHost` (`src/hosts/halo.js`), for Brilliant Labs Halo. These glasses are
+reached from the phone over Bluetooth with nothing in between, so the route is "direct": personal details may be
+shown, and health details too. It is written against the maker's developer kit (`brilliant_sdk`, BSD-3-Clause).
+
+- The host copies a small script to the glasses as `buddy_xr.lua` and starts it. It does not replace `main.lua`,
+  the glasses' own start-up script. The script draws the lines it is sent and reports the button and taps.
+- A whole screen travels as one message, split into packets and acknowledged the way the kit does it.
+- One press or tap moves to the next choice, two choose, and a long press or three taps go back.
+- The display is round, 256 by 256 points, and the glasses' font is fixed-width and ASCII only. The host keeps
+  the text inside the circle (10 lines of 26 characters, or 6 of 13 with `large: true`) and replaces signs the
+  font lacks. How readable that is through the lens is not known until it is tried on a pair.
+- It neither speaks nor listens yet. Pass `say` to speak another way, such as through the phone, and call
+  `heard(text)` with words recognised elsewhere. No camera yet.
+- Tests: `test/halo.test.js` uses a stand-in for the kit's Bluetooth class. `test/halo-lua.test.js` runs the
+  script itself in a Lua interpreter against a stand-in for the device, with the packets the host really sends.
+  It needs `npm install --no-save fengari@0.1.4` and is skipped without it. It has not been run in the maker's
+  own Halo emulator.
+
+```js
+import { BrilliantBle } from "brilliant-ble";          // the maker's kit, in a page opened in Chrome
+const ble = new BrilliantBle();
+await ble.connect();                                   // the browser asks which glasses
+runApp(app, haloHost(ble));
+```
+
 **Planned:**
 
 1. **A phone app** holding the connection to the glasses through the open-source device layer xg.glass
@@ -217,7 +242,8 @@ We looked at public pages only; any of these may exist inside those products wit
 
 ## What is not built
 
-- Anything run on real glasses. Two hosts are written and untested on hardware.
+- Anything run on real glasses. Three hosts are written and untested on hardware.
+- A page or phone app that connects Halo and runs an app on it. The host exists; nothing opens the connection yet.
 - Packaging and publishing for any store.
 - Speech recognition and speech output (hosts supply them).
 - Measured display sizes: only one family's line count comes from its adapter's source; the rest are defaults.

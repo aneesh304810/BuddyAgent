@@ -28,6 +28,7 @@ Node 20 or later. There is nothing to install: the framework has no dependencies
 ```
 cd xr
 npm test                 # the framework's tests and Buddy Serve's
+npm install --no-save fengari@0.1.4   # optional: lets the tests run the script that goes on Halo glasses
 npm run sim              # the simulator at http://localhost:8770/simulator/ and the Studio at /studio/
 npm run check            # Buddy Serve on every kind of glasses
 node bin/buddyxr.js glasses
@@ -39,7 +40,7 @@ node bin/buddyxr.js new my-app   # a folder with a working app and its test
 | Path | What it is |
 |---|---|
 | `src/widgets.js` | The blocks an app is written in: Screen, Text, Stat, List, Progress, Ask, Alert, Image |
-| `src/profiles.js` | What each kind of glasses can do: three classes, and nine product families |
+| `src/profiles.js` | What each kind of glasses can do: three classes, and ten product families |
 | `src/layout.js` | A screen as lines for a display: wrapped, paged, the choice in focus marked |
 | `src/speech.js` | A screen as sentences for the ear |
 | `src/privacy.js` | What may be shown or spoken, by how private it is |
@@ -47,6 +48,7 @@ node bin/buddyxr.js new my-app   # a folder with a working app and its test
 | `src/hosts/core.js` | A host for tests, and the message bridge to a native app |
 | `src/hosts/evenhub.js` | A host for one maker's glasses, through its plugin system. Not yet run on glasses |
 | `src/hosts/mentra.js` | A host on top of MentraOS, an open-source glasses runtime. Not yet run on glasses |
+| `src/hosts/halo.js` | A host for Brilliant Labs Halo, over Bluetooth from the phone, with the script it runs on the glasses. Not yet run on glasses |
 | `examples/mentra-server.js` | Buddy Serve as a MentraOS app server |
 | `src/agent.js` | Four tools that let an AI agent show, ask and offer a choice on the glasses |
 | `src/check.js` | Runs an app on every kind of glasses and says where it would not work |
@@ -66,9 +68,10 @@ The full guide is `docs/BUDDY-XR.md` in this repository.
 
 - **No real glasses.** Nothing has run on hardware. The product families carry what the open-source device layer
   ([xg.glass](https://github.com/hkust-spark/xg-glass-sdk), Apache-2.0) declares for its adapters; display sizes
-  other than one are defaults, not measurements.
-- **Two hosts for real glasses, untested.** `evenHubHost` (one maker's plugin system) and `mentraHost` (on top of
-  MentraOS) are written against the published SDKs and tested against stand-ins. Neither has run on a pair.
+  other than one are defaults, not measurements. Halo's facts come from its maker's developer kit instead.
+- **Three hosts for real glasses, untested.** `evenHubHost` (one maker's plugin system), `mentraHost` (on top of
+  MentraOS) and `haloHost` (Brilliant Labs Halo, over Bluetooth) are written against the published SDKs and
+  tested against stand-ins. None has run on a pair. Nothing opens the Bluetooth connection for `haloHost` yet.
 - **No native host.** `bridgeHost` defines the messages; the Android app that would hold the connection and pass
   them to the glasses is not written.
 - **No packaging or publishing** for any maker's store.

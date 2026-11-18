@@ -10,3 +10,4 @@ backend/files/
 /files/
 *.db-shm
 *.db-wal
+node_modules/

@@ -36,6 +36,10 @@ jobs:
         with:
           node-version: "22"
 
+      - name: Lua interpreter for the script that runs on Halo glasses
+        working-directory: xr
+        run: npm install --no-save --no-audit --no-fund fengari@0.1.4
+
       - name: Buddy XR tests (the glasses framework and Buddy Serve)
         working-directory: xr
         run: node --test
