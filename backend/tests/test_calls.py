@@ -1197,3 +1197,49 @@ def test_a_call_flips_to_the_callers_language_and_the_voice_follows(monkeypatch,
 def test_calls_kept_in_english_use_the_english_hearing_and_never_change_voice(monkeypatch, env):
     monkeypatch.setenv("BUDDY_CALL_LANGUAGES", "en")
     assert calls.call_languages() == ["en"] and calls.languages_note() == ""
+
+
+# --- timing: where a call's time goes, without its words ----------------------------------------------------------
+def test_each_turn_of_a_call_says_where_the_time_went():
+    now, lines = [100.0], []
+    timing = calls.Timing(12, "tell_me", 0.3, clock=lambda: now[0], say=lambda fmt, *a: lines.append(fmt % a))
+    timing.started(hearing="flux-general-multi", leaning_towards="en", voice_model="eleven_flash_v2_5")
+    assert lines[0] == ("call 12 timing: a tell_me call; hearing flux-general-multi; leaning towards en; "
+                        "voice model eleven_flash_v2_5")
+    # "Hello?" for 0.6 s; the pause is noticed 0.3 s later and the ready greeting goes out; the voice takes 0.45 s
+    timing.spoke(); now[0] += 0.9; timing.quiet(); timing.words("the ready greeting"); now[0] += 0.45; timing.voice()
+    assert lines[1] == ("call 12 timing turn 1 (tell_me): they spoke 0.6 s; +0.30 s pause noticed; +0.30 s first words "
+                        "written (the ready greeting); +0.75 s voice started. Slowest step: the voice, 0.45 s")
+    # a question: Deepgram 0.5 s after the pause is noticed, Claude 1.8 s, the voice 0.4 s
+    now[0] += 3
+    timing.spoke(); now[0] += 2.3; timing.quiet(); now[0] += 0.5; timing.text("en"); timing.asked()
+    now[0] += 1.8; timing.words("Claude"); timing.words("a filler"); now[0] += 0.4
+    timing.quiet(); timing.text("es")  # a cough after the reply was on its way: not this turn's
+    timing.voice()
+    assert lines[2] == ("call 12 timing turn 2 (tell_me): they spoke 2.0 s; +0.30 s pause noticed; +0.80 s words from "
+                        "Deepgram [en]; +0.80 s Claude asked; +2.60 s first words written (Claude); +3.00 s voice "
+                        "started. Slowest step: Claude, 1.80 s")
+    timing.voice()  # audio with no words behind it (the rest of the same reply): nothing more to say
+    assert len(lines) == 3
+    timing.words("Claude"); now[0] += 0.3; timing.voice()  # nobody had spoken: Buddy went first
+    assert lines[3] == ("call 12 timing turn 3 (tell_me): Buddy spoke first (Claude); the voice started 0.30 s after "
+                        "its words were written")
+    # Deepgram's end of turn can come before the speech detector notices the pause: no negative times
+    timing.spoke(); now[0] += 1.0; timing.text("en"); timing.asked(); now[0] += 0.2; timing.quiet()
+    now[0] += 1.0; timing.words("Claude"); now[0] += 0.3; timing.voice()
+    assert "Slowest step: Claude" in lines[4] and "-" not in lines[4].split("):", 1)[1]
+    assert not any("Hello" in line for line in lines)  # never the words
+
+
+def test_a_real_call_writes_its_timing_to_the_log(monkeypatch, env, caplog):
+    """The whole-call test again, watching the log: the call's set-up line and a timing line, and no words."""
+    import logging
+    pytest.importorskip("pipecat")
+    caplog.set_level(logging.INFO, logger="buddy.calls")
+    test_a_call_flips_to_the_callers_language_and_the_voice_follows(monkeypatch, env)
+    said = [r.getMessage() for r in caplog.records if r.name == "buddy.calls"]
+    assert any(" timing: a question call; hearing flux-general-multi; leaning towards en; voice model " in m for m in said)
+    turn = next(m for m in said if " timing turn 1 (question):" in m)
+    assert "words from Deepgram [es]" in turn and "first words written (Claude)" in turn and "voice started" in turn
+    assert any("now speaking Spanish" in m for m in said)
+    assert not any("buenos" in m or "asistente" in m for m in said)  # times and languages only, never what was said

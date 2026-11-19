@@ -170,6 +170,35 @@ key set here is used there too.
 | The call doesn't go through | Plivo console → Logs → Calls shows why (credit, number, or a blocked destination) |
 | The phone rings but Buddy is silent | A wrong voice or model ID: clear `BUDDY_CALL_VOICE` / `BUDDY_CALL_VOICE_MODEL` (run `set.sh` and press Enter). Still silent: run `journalctl -u buddy -f` during a test call and send the lines that mention `call` |
 | The other side sees "Spam Likely" with your own number | Run `calls.sh` again and answer **N** to use the Plivo number |
+| A long pause before Buddy answers | `sudo bash /opt/buddy/deploy/calllog.sh` shows, for each turn, how long each step took and which was slowest (below) |
+
+### Where a call's time goes
+Every turn of a call writes one line to the server's log, counted from the moment the other person stopped
+speaking. No words are logged. Read them with:
+
+```
+sudo bash /opt/buddy/deploy/calllog.sh          # calls in the last 2 hours
+sudo bash /opt/buddy/deploy/calllog.sh 30       # the last 30 minutes
+sudo bash /opt/buddy/deploy/calllog.sh live     # watch a call as it happens
+```
+
+A line looks like this:
+
+```
+call 12 timing turn 2 (tell_me): they spoke 2.0 s; +0.30 s pause noticed; +0.80 s words from Deepgram [en];
+  +0.80 s Claude asked; +2.60 s first words written (Claude); +3.00 s voice started. Slowest step: Claude, 1.80 s
+```
+
+| Step | What it is | If it is the slow one |
+|---|---|---|
+| pause noticed | Buddy's speech detector heard them stop | Fixed at 0.3 s |
+| words from Deepgram | The hearing gave the words and judged the turn finished; `[en]` is the language it heard | A short "Hello?" leaves it unsure for up to 0.9 s. Much more than that: Deepgram or the connection to it |
+| Claude asked | The question went to Claude | Later than the words only when Buddy was still busy with the turn before |
+| first words written | Claude's first sentence was ready ("the ready greeting" and "a filler" need no Claude) | The model, or on a call to you with Buddy's whole brain, the first reply, which reads all of Buddy's instructions and tools |
+| voice started | ElevenLabs' audio began on the line: the pause the caller hears ends here | ElevenLabs, or the server too busy to send audio on time |
+
+The script ends with a count of which step was slowest and the five longest waits. The first line of each call
+says which hearing and voice models it used.
 
 ## 9. Buddy answers the calls you miss
 

@@ -1248,6 +1248,80 @@ def prewarm() -> None:
         log.info("call engine not preloaded", exc_info=True)
 
 
+class Timing:
+    """Where the time goes on a call, one line per turn in the server's log; deploy/calllog.sh prints them.
+
+    Each line counts from the moment the other person stopped speaking: the pause being noticed, the words coming
+    from Deepgram, Claude being asked, Buddy's first words being written, and the voice starting. It names the
+    slowest step. No words are logged: calls keep no transcript."""
+
+    def __init__(self, call_id, kind: str, stop_secs: float, clock=None, say=None):
+        self.call_id, self.kind, self.stop_secs = call_id, kind, stop_secs
+        self.clock = clock or (lambda: asyncio.get_running_loop().time())
+        self.say = say or log.info
+        self.turn, self.marks, self.note = 0, {}, {}
+
+    def started(self, **about) -> None:
+        """The call's set-up, once: which hearing and voice it uses."""
+        self.say("call %s timing: a %s call; %s", self.call_id, self.kind,
+                 "; ".join(f"{k.replace('_', ' ')} {v}" for k, v in about.items()))
+
+    def spoke(self) -> None:
+        self.marks.setdefault("spoke", self.clock())
+
+    def quiet(self) -> None:
+        if "words" not in self.marks:  # a pause after Buddy's reply was already on its way is the next turn's
+            self.marks["quiet"] = self.clock()
+
+    def text(self, lang: str = "") -> None:
+        if "words" not in self.marks:
+            self.marks["text"] = self.clock()
+            self.note["lang"] = lang
+
+    def asked(self) -> None:
+        self.marks.setdefault("asked", self.clock())
+
+    def words(self, what: str = "Claude") -> None:
+        """Buddy's first words of this turn were handed to the voice: by Claude, the ready greeting, or a filler."""
+        if "words" not in self.marks:
+            self.marks["words"] = self.clock()
+            self.note["what"] = what
+
+    def voice(self) -> None:
+        """The voice started on the line: the turn is complete, report it."""
+        if "words" not in self.marks:
+            return
+        self.marks["voice"] = self.clock()
+        self.turn += 1
+        m, note = self.marks, self.note
+        self.marks, self.note = {}, {}
+        ended = (m["quiet"] - self.stop_secs) if "quiet" in m else None  # when they actually stopped speaking
+        if ended is None and "text" in m:
+            ended = m["text"]
+        if ended is None:  # nobody had spoken: Buddy spoke first
+            self.say("call %s timing turn %d (%s): Buddy spoke first (%s); the voice started %.2f s after its words "
+                     "were written", self.call_id, self.turn, self.kind, note.get("what", "Claude"),
+                     m["voice"] - m["words"])
+            return
+        at = lambda name: max(0.0, m[name] - ended) if name in m else None  # noqa: E731
+        steps, last = [], 0.0
+        for name, label in (("quiet", "noticing the pause"), ("text", "Deepgram"), ("asked", "waiting to ask"),
+                            ("words", note.get("what", "Claude")), ("voice", "the voice")):
+            t = at(name)
+            if t is not None and t >= last:
+                steps.append((label, t - last))
+                last = t
+        slowest = max(steps, key=lambda s: s[1]) if steps else ("", 0.0)
+        parts = [f"they spoke {m['quiet'] - self.stop_secs - m['spoke']:.1f} s" if "spoke" in m and "quiet" in m else ""]
+        for name, label in (("quiet", "pause noticed"), ("text", "words from Deepgram"), ("asked", "Claude asked"),
+                            ("words", f"first words written ({note.get('what', 'Claude')})"), ("voice", "voice started")):
+            if at(name) is not None:
+                parts.append(f"+{at(name):.2f} s {label}" + (f" [{note['lang']}]" if name == "text" and note.get("lang") else ""))
+        self.say("call %s timing turn %d (%s): %s. Slowest step: %s, %.2f s", self.call_id, self.turn, self.kind,
+                 "; ".join(p for p in parts if p), slowest[0], slowest[1])
+
+
+
 def flux_hearing(env=None, *, languages=("en",), hints=(), terms=(), eot: float | None = None,
                  eot_timeout_ms: int | None = None):
     """Deepgram's Flux, for a call or for Talk mode (liveears.py). This is the only place it is made, so the opt-out
@@ -1412,6 +1486,7 @@ async def run_stream(memory: Memory, websocket, call: dict, deliver=None, env=No
             started = asyncio.get_running_loop().time()
             self.thinking = True
             filler = asyncio.ensure_future(self._filler(said))
+            timing.asked()
             try:
                 await mind.heard(said, lang)
                 if _env("BUDDY_CALL_DEBUG", env) == "1":
@@ -1434,6 +1509,7 @@ async def run_stream(memory: Memory, websocket, call: dict, deliver=None, env=No
             if isinstance(frame, VADUserStartedSpeakingFrame):
                 if direction == FrameDirection.DOWNSTREAM:
                     self.user_talking = True
+                    timing.spoke()
                     if self.reply and not self.reply.done() and not self.thinking:
                         self.reply.cancel()  # still waiting to see if they're done: wait for the rest
                     # Not stopping Buddy here: a cough, an "okay" or the line's echo would cut it off mid-word.
@@ -1443,6 +1519,7 @@ async def run_stream(memory: Memory, websocket, call: dict, deliver=None, env=No
             if isinstance(frame, VADUserStoppedSpeakingFrame):
                 if direction == FrameDirection.DOWNSTREAM:
                     self.user_talking = False
+                    timing.quiet()
                     if mind.opener and not mind.spoke_any:  # their first "Hello?": answer at once, no waiting
                         asyncio.ensure_future(mind.open_now())
                     self._later(0.15)  # usually the words are in already; a late final word starts its own short wait
@@ -1457,6 +1534,7 @@ async def run_stream(memory: Memory, websocket, call: dict, deliver=None, env=No
                 if isinstance(frame, TranscriptionFrame):
                     self.words.append(text)
                     self.langs.append(str(getattr(frame.language, "value", frame.language) or ""))
+                    timing.text(self.langs[-1])
                     if flux:  # Flux sends the whole turn once it's sure they've finished: answer now
                         self._later(0.0, final=True)
                     elif not self.user_talking:
@@ -1464,6 +1542,7 @@ async def run_stream(memory: Memory, websocket, call: dict, deliver=None, env=No
                 return
             if isinstance(frame, BotStartedSpeakingFrame):
                 self.bot_talking = True
+                timing.voice()
             elif isinstance(frame, BotStoppedSpeakingFrame):
                 self.bot_talking = False
                 done_speaking.set()
@@ -1513,6 +1592,14 @@ async def run_stream(memory: Memory, websocket, call: dict, deliver=None, env=No
                         failed[0], failed[1])
             if failed[1] != TTS_MODEL:
                 await asyncio.to_thread(model_refused, memory, failed[1])
+    timing = Timing(call["id"], call["kind"], VAD_STOP_S if flux else 0.5)
+    timing.started(hearing=(FLUX_MODEL if many else FLUX_MODEL_EN) if flux else STT_MODEL,
+                   leaning_towards=",".join(hint_languages(env)) or "no language" if many else "English only",
+                   voice_model=model)
+    with contextlib.suppress(Exception):  # said in the log when Deepgram's connection has trouble (it retries itself)
+        @stt.event_handler("on_connection_error")
+        async def _hearing_trouble(_service, error):
+            log.warning("call %s: Deepgram's connection had trouble (%s)", call["id"], str(error)[:200])
     talk = Talk()
     done_speaking = asyncio.Event()
     done_speaking.set()  # nothing said yet
@@ -1539,6 +1626,8 @@ async def run_stream(memory: Memory, websocket, call: dict, deliver=None, env=No
     async def speak(text: str) -> None:
         if many:
             await follow_language(text)
+        timing.words("a filler" if text in FILLERS or any(text in f for f in FILLERS_BY_LANGUAGE.values())
+                     else "the ready greeting" if text == mind.opener else "Claude")
         last_said["text"], last_said["at"] = text, asyncio.get_running_loop().time() + 0.08 * len(text)
         spoken_chars[0] += len(text)
         done_speaking.clear()
