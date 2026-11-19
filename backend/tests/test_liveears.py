@@ -329,15 +329,23 @@ class Engine:
 
 
 def test_noise_removal_is_off_unless_switched_on_and_installed(tmp_path, monkeypatch):
+    import sys
+
     from buddy import denoise
     assert denoise.setting({}) == "off" and denoise.setting({"BUDDY_NOISE_CANCEL": "talk"}) == "talk"
     assert denoise.setting({"BUDDY_NOISE_CANCEL": "on"}) == "talk" and denoise.setting({"BUDDY_NOISE_CANCEL": "nonsense"}) == "off"
+    # the library is stood in for: it is installed on the server (deploy/noise.sh), not where the tests run
+    monkeypatch.setitem(sys.modules, "sherpa_onnx", SimpleNamespace(OnlineSpeechDenoiser=object))
     monkeypatch.setenv("BUDDY_NOISE_MODEL", str(tmp_path / "missing.onnx"))
-    assert not denoise.available() and not denoise.wanted({"BUDDY_NOISE_CANCEL": "talk"})  # switched on, not installed
+    assert not denoise.available() and not denoise.wanted({"BUDDY_NOISE_CANCEL": "talk"})  # switched on, no model
     assert not denoise.wanted({})
     (tmp_path / "model.onnx").write_bytes(b"x")
     monkeypatch.setenv("BUDDY_NOISE_MODEL", str(tmp_path / "model.onnx"))
     assert denoise.wanted({"BUDDY_NOISE_CANCEL": "talk"}) and not denoise.wanted({"BUDDY_NOISE_CANCEL": "off"})
+    monkeypatch.setitem(sys.modules, "sherpa_onnx", SimpleNamespace())  # an older library, without the denoiser
+    assert not denoise.available()
+    monkeypatch.setitem(sys.modules, "sherpa_onnx", None)               # the library isn't installed at all
+    assert not denoise.available() and not denoise.wanted({"BUDDY_NOISE_CANCEL": "talk"})
 
 
 def test_the_cleaner_turns_the_phones_audio_into_the_models_and_back():
