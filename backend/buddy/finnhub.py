@@ -58,6 +58,15 @@ def earnings(memory: Memory, symbol: str, days: int = 14, env=None, fetch=None, 
     return dates[0] if dates else ""
 
 
+def earnings_around(memory: Memory, symbol: str, day: date, env=None, fetch=None) -> list[dict]:
+    """Earnings reports from four days before `day` up to it: [{"date", "hour"}]. hour is bmo (before the market
+    opens), amc (after it closes), dmh (during the session) or ''."""
+    got = _get(memory, "calendar/earnings", {"symbol": symbol, "from": (day - timedelta(days=4)).isoformat(),
+                                             "to": day.isoformat()}, env, fetch) or {}
+    return [{"date": str(e.get("date")), "hour": str(e.get("hour") or "").lower()}
+            for e in got.get("earningsCalendar") or [] if e.get("date")]
+
+
 def insiders(memory: Memory, symbol: str, env=None, fetch=None, today: date | None = None) -> float | None:
     """Insider sentiment over the last three months: Finnhub's monthly share purchase ratio, -100 (all selling)
     to 100 (all buying), averaged. None when there is none."""

@@ -760,6 +760,16 @@ async def run(memory: Memory, deliver: Deliver, connected=None) -> None:
             try:  # markets: the daily scan after the US close (or when asked), and ideas checked in market hours
                 from . import markets as mkt  # noqa: PLC0415
                 trader = mkt.Markets(memory)
+                try:  # day-trade practice (dayplan.py): yesterday's kept trades are settled, then the morning scan
+                    from . import dayplan  # noqa: PLC0415
+                    if dayplan.scan_due(memory):
+                        memory.set(dayplan.SCAN_KEY, datetime.now(dayplan.NY).date().isoformat())
+                        await asyncio.to_thread(dayplan.settle, memory, trader.data)
+                        found = dayplan.scan_message(await asyncio.to_thread(dayplan.scan, memory, None, trader.data))
+                        if found and not in_quiet_hours():
+                            await deliver("money", found, topic="investing:daytrade")
+                except Exception:
+                    log.exception("day-trade practice scan failed")
                 if memory.get("markets:scan_requested") or (MARKET_SCAN and mkt.scan_due(memory)):
                     asked = bool(memory.get("markets:scan_requested"))
                     memory.set("markets:scan_requested", "")

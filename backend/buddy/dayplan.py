@@ -9,6 +9,11 @@
   check    Pass or block against the owner's limits: loss per trade, loss per day, trades per day, reward to risk,
            time of day and position size.
 
+  earnings The session that reacts to an earnings report is unlike the stock's ordinary days, so a plan on that day
+           is blocked (Finnhub's earnings calendar, when its key is set).
+  scan     Each morning, the owner's watched stocks are checked for a close beyond the opening range, and the ones
+           that pass the limits are sent in one message.
+
 A plan can be kept as a practice trade. It is settled from that day's real bars after the close, so the replay's
 odds can be compared with what happened. Buddy never places an order: nothing here can reach a broker.
 
@@ -39,7 +44,12 @@ RANGE_BARS, LAST = 3, 76                          # the opening range is 15 minu
 MIN_SESSIONS, USE_SESSIONS = 20, 60
 LIMITS_KEY = "dayplan:limits"
 LIMITS = {"account": 5000.0, "max_loss": 50.0, "max_daily_loss": 150.0, "max_trades_per_day": 3,
-          "min_reward_to_risk": 1.0, "max_position_pct": 60.0, "last_entry": "15:00", "cost_per_share": 0.02}
+          "min_reward_to_risk": 1.0, "max_position_pct": 60.0, "last_entry": "15:00", "cost_per_share": 0.02,
+          "block_on_earnings": True, "morning_scan": True}
+SWITCHES = ("block_on_earnings", "morning_scan")
+SCAN_KEY, SCAN_AT, SCAN_UNTIL, SCAN_MAX, SCAN_REPLAYS = "dayplan:scan:day", 10 * 60 + 20, 12 * 60, 30, 2000
+LIQUID = ("SPY", "QQQ", "AAPL", "MSFT", "NVDA", "AMZN", "GOOGL", "META", "TSLA", "AMD", "NFLX", "AVGO", "JPM", "XOM",
+          "COST")  # scanned when the owner's own lists are short
 NOTE = ("Practice only. A replay is built from the stock's own recent bars: it shows how much the price moves, "
         "not which way, and it is not a prediction. Day trading loses most people money. Buddy never places an order.")
 
@@ -219,6 +229,9 @@ def set_limits(memory: Memory, changes: dict) -> dict:
     for key, value in (changes or {}).items():
         if key not in LIMITS or value in (None, ""):
             continue
+        if key in SWITCHES:
+            now[key] = value if isinstance(value, bool) else str(value).strip().lower() in ("1", "true", "yes", "on")
+            continue
         if key == "last_entry":
             hour, _, minute = str(value).partition(":")
             if not (hour.isdigit() and minute.isdigit() and 9 <= int(hour) <= 15 and int(minute) < 60):
@@ -244,9 +257,11 @@ def size(entry: float, stop: float, lim: dict) -> dict:
             "limited_by": "your limit on one position" if by_position < by_loss else "your limit on the loss of one trade"}
 
 
-def check(plan: dict, sizing: dict, lim: dict, today: dict) -> dict:
+def check(plan: dict, sizing: dict, lim: dict, today: dict, earnings: dict | None = None) -> dict:
     """Pass or block, with each reason in plain words. today: {"trades", "lost"} for this day's practice trades."""
     blocks = []
+    if earnings and earnings.get("reaction_day") and lim.get("block_on_earnings", True):
+        blocks.append(earnings["text"] + " The replay is built from its ordinary days and does not describe today.")
     if sizing["shares"] < 1:
         blocks.append(f"One share already risks ${plan['risk_per_share']:,.2f}, more than your limit of "
                       f"${lim['max_loss']:,.2f} a trade (or than your limit on one position).")
@@ -262,6 +277,34 @@ def check(plan: dict, sizing: dict, lim: dict, today: dict) -> dict:
     if OPEN + (plan["entry_bar"] + 1) * BAR > int(hour) * 60 + int(minute):
         blocks.append(f"The entry came at {plan['entry_time']}, after your last entry time of {lim['last_entry']} New York time.")
     return {"verdict": "block" if blocks else "pass", "reasons": blocks}
+
+
+# --- earnings -------------------------------------------------------------------------------------------------
+def earnings_today(memory: Memory, symbol: str, day: str, env=None, fetch=None) -> dict | None:
+    """Is `day` the session that reacts to an earnings report? None when Finnhub is not set up or did not answer.
+    A report before the open or during the session makes that day the reaction; one after the close makes the next
+    session the reaction, and a day trade on the report's own day is out before it."""
+    from . import finnhub  # noqa: PLC0415
+    if not finnhub.configured(env):
+        return None
+    try:
+        reports = finnhub.earnings_around(memory, symbol, date.fromisoformat(day), env, fetch)
+    except Exception as e:
+        log.info("earnings for %s could not be read (%s)", symbol, type(e).__name__)
+        return None
+    before = date.fromisoformat(day) - timedelta(days=1)
+    while before.weekday() > 4:
+        before -= timedelta(days=1)
+    for r in reports:
+        if r["date"] == day and r["hour"] != "amc":
+            when = " before the open" if r["hour"] == "bmo" else ""
+            return {"reaction_day": True, "text": f"{symbol} reports earnings today{when}."}
+        if r["date"] == before.isoformat() and r["hour"] == "amc":
+            return {"reaction_day": True, "text": f"{symbol} reported earnings after the last close, so today is the "
+                                                  "session that reacts to it."}
+    if any(r["date"] == day for r in reports):
+        return {"reaction_day": False, "text": f"{symbol} reports earnings after today's close. A day trade is out before then."}
+    return {"reaction_day": False, "text": ""}
 
 
 # --- practice trades, kept in the price book ------------------------------------------------------------------
@@ -357,8 +400,30 @@ def record(memory: Memory) -> dict:
 
 
 # --- the whole thing for one stock ----------------------------------------------------------------------------
+def _closed(data, sym: str, now: datetime) -> dict[str, list]:
+    """The stock's sessions, from bars that have closed by `now`."""
+    return sessions([b for b in data.intraday(sym, BAR, 95)
+                     if datetime.fromisoformat(str(b["t"]).replace("Z", "+00:00")) + timedelta(minutes=BAR) <= now])
+
+
+def _assess(memory: Memory, sym: str, by_day: dict, day: str, side: str, stop_rule: str, reward: float, lim: dict,
+            replays: int, earnings) -> dict:
+    """The plan for one stock and side on `day`; with its replay, size and check when the rule has triggered.
+    earnings: a function giving that day's earnings note, asked only when there is a plan to check."""
+    past = [f for d, s in by_day.items() if d < day for f in [filled(s)] if f][-USE_SESSIONS:]
+    out = {"plan": make_plan(by_day[day], side, stop_rule, reward), "past": past}
+    plan = out["plan"]
+    if plan["status"] == "triggered":
+        out["earnings"] = earnings()
+        out["replay"] = replay(past, plan["entry"], plan["stop"], plan["target"], plan["entry_bar"], side,
+                               replays=replays, cost=lim["cost_per_share"])
+        out["size"] = size(plan["entry"], plan["stop"], lim)
+        out["check"] = check(plan, out["size"], lim, today_so_far(memory, day), out["earnings"])
+    return out
+
+
 def day_plan(memory: Memory, symbol: str, side: str = "buy", stop_rule: str = "middle", reward: float = 1.0,
-             data=None, now: datetime | None = None, replays: int = 10000) -> dict:
+             data=None, now: datetime | None = None, replays: int = 10000, env=None, fetch=None) -> dict:
     from .markets import Data  # noqa: PLC0415
     sym = "".join(c for c in str(symbol).upper() if c.isalnum() or c in ".-")[:10]
     if not sym:
@@ -366,30 +431,112 @@ def day_plan(memory: Memory, symbol: str, side: str = "buy", stop_rule: str = "m
     if side not in ("buy", "short") or stop_rule not in ("middle", "far") or not 0.5 <= float(reward) <= 5:
         raise ToolError("side is buy or short; stop is middle or far; reward is between 0.5 and 5 times the risk.")
     data, now = data or Data(memory), now or datetime.now(NY)
-    bars = [b for b in data.intraday(sym, BAR, 95)                   # only bars that have closed
-            if datetime.fromisoformat(str(b["t"]).replace("Z", "+00:00")) + timedelta(minutes=BAR) <= now]
-    by_day = sessions(bars)
+    by_day = _closed(data, sym, now)
     if not by_day:
         raise ToolError(f"No 5-minute bars came back for {sym}. Check the symbol.")
     today = now.date().isoformat()
     day = today if today in by_day else max(by_day)
-    past = [f for d, s in by_day.items() if d < day for f in [filled(s)] if f][-USE_SESSIONS:]
     lim = limits(memory)
-    out = {"symbol": sym, "day": day, "plan": make_plan(by_day[day], side, stop_rule, float(reward)),
-           "history": history(past, side, stop_rule, float(reward)), "limits": lim, "note": NOTE}
+    got = _assess(memory, sym, by_day, day, side, stop_rule, float(reward), lim, replays,
+                  lambda: earnings_today(memory, sym, day, env, fetch))
+    out = {"symbol": sym, "day": day, "plan": got["plan"],
+           "history": history(got["past"], side, stop_rule, float(reward)), "limits": lim, "note": NOTE}
     if day != today:
         out["market"] = f"The market has no bars for today yet, so this is the last session ({day}), for study."
     if (memory.get("markets:feed") or "sip") == "sip":
         out["prices"] = "Prices are about 15 minutes behind on this data plan."
-    plan = out["plan"]
-    if plan["status"] == "triggered":
-        out["replay"] = replay(past, plan["entry"], plan["stop"], plan["target"], plan["entry_bar"], side,
-                               replays=replays, cost=lim["cost_per_share"])
-        out["size"] = size(plan["entry"], plan["stop"], lim)
-        out["check"] = check(plan, out["size"], lim, today_so_far(memory, day))
+    if got["plan"]["status"] == "triggered":
+        out.update({k: got[k] for k in ("replay", "size", "check")})
+        if got["earnings"] and got["earnings"]["text"]:
+            out["earnings"] = got["earnings"]["text"]
         if day == today:
             memory.set(f"dayplan:last:{sym}", json.dumps({k: out[k] for k in ("symbol", "day", "plan", "replay", "size", "check")}))
     return out
+
+
+# --- the morning scan -----------------------------------------------------------------------------------------
+def universe(memory: Memory) -> list[str]:
+    """The stocks to scan: the ones in Buddy's open practice trades and on the watchlists first, then a few of the
+    most traded, up to SCAN_MAX."""
+    mine = []
+    try:
+        from . import newsdesk  # noqa: PLC0415
+        mine = list(newsdesk.acting_on(memory))
+    except Exception:
+        log.info("day-trade scan: the watchlists could not be read", exc_info=True)
+    seen = []
+    for s in [*mine, *LIQUID]:
+        s = str(s).upper().strip()
+        if s not in seen and 0 < len(s) <= 6 and all(c.isalpha() or c == "." for c in s):
+            seen.append(s)
+    return seen[:SCAN_MAX]
+
+
+def scan(memory: Memory, symbols: list[str] | None = None, data=None, now: datetime | None = None,
+         replays: int = SCAN_REPLAYS, env=None, fetch=None) -> dict:
+    """Which of these stocks has closed beyond its opening range today, each with its plan, replay, size and check.
+    Those that pass the limits come first, best replay first."""
+    from .markets import Data  # noqa: PLC0415
+    data, now, lim = data or Data(memory), now or datetime.now(NY), limits(memory)
+    today, found, errors, open_today = now.date().isoformat(), [], [], 0
+    symbols = [str(s).upper() for s in (symbols or universe(memory))][:SCAN_MAX]
+    for sym in symbols:
+        try:
+            by_day = _closed(data, sym, now)
+        except Exception as e:
+            errors.append(f"{sym}: {' '.join(str(e).split())[:80] or type(e).__name__}")
+            continue
+        if today not in by_day:
+            continue
+        open_today += 1
+        for side in ("buy", "short"):
+            try:
+                got = _assess(memory, sym, by_day, today, side, "middle", 1.0, lim, replays,
+                              lambda sym=sym: earnings_today(memory, sym, today, env, fetch))
+            except ToolError:
+                continue  # too little history for a replay
+            if got["plan"]["status"] != "triggered":
+                continue
+            plan, odds = got["plan"], got["replay"]
+            memory.set(f"dayplan:last:{sym}", json.dumps({"symbol": sym, "day": today, "plan": plan, "replay": odds,
+                                                          "size": got["size"], "check": got["check"]}))
+            found.append({"symbol": sym, "side": side, "entry": plan["entry"], "stop": plan["stop"],
+                          "target": plan["target"], "entry_time": plan["entry_time"],
+                          "target_first": odds["target_first"], "stop_first": odds["stop_first"],
+                          "average_r": odds["average_r"], "verdict": odds["verdict"], "shares": got["size"]["shares"],
+                          "check": got["check"]["verdict"], "reasons": got["check"]["reasons"],
+                          "earnings": (got["earnings"] or {}).get("text", "")})
+    found.sort(key=lambda r: (r["check"] != "pass", -r["average_r"]))
+    out = {"day": today, "scanned": len(symbols), "trading_today": open_today, "triggered": found[:12],
+           "errors": errors[:5], "note": NOTE}
+    if not open_today:
+        out["market"] = "None of these stocks has bars for today yet: the market may be closed, or it is too early."
+    return out
+
+
+def scan_due(memory: Memory, now: datetime | None = None) -> bool:
+    """Once each weekday morning, 50 minutes after the open, so the opening range and a few bars after it are in."""
+    now = now or datetime.now(NY)
+    minutes = now.hour * 60 + now.minute
+    return (limits(memory)["morning_scan"] and now.weekday() < 5 and SCAN_AT <= minutes < SCAN_UNTIL
+            and memory.get(SCAN_KEY) != now.date().isoformat())
+
+
+def scan_message(result: dict) -> str:
+    """The morning message, as "spoken || shown"; empty when nothing passed the limits (then nothing is sent)."""
+    good = [r for r in result["triggered"] if r["check"] == "pass"]
+    if not good:
+        return ""
+    lines = [f"- **{r['symbol']}** {r['side']}: entry {r['entry']:,.2f} at {r['entry_time']}, stop {r['stop']:,.2f}, "
+             f"target {r['target']:,.2f}. Replays: target first {r['target_first']:.0%}, stop first {r['stop_first']:.0%}. "
+             f"{r['shares']} shares." + (f" {r['earnings']}" if r["earnings"] else "") for r in good[:3]]
+    more = len(result["triggered"]) - len(good)
+    spoken = (f"Day-trade practice scan: {len(good)} of {result['trading_today']} stocks closed beyond their opening "
+              f"range and passed your limits. The best by replay is {good[0]['symbol']}.")
+    shown = ("**Day-trade practice scan**\n" + "\n".join(lines)
+             + (f"\n{more} more triggered and were blocked by your limits." if more else "")
+             + "\nPractice only: a replay is not a prediction. Say \"keep\" with a symbol to follow one on paper.")
+    return f"{spoken} || {shown}"
 
 
 TOOL = {
@@ -401,12 +548,15 @@ TOOL = {
         "from the stock's own recent bars, how the same rule ended on each past session, how many shares fit the "
         "owner's loss limit, and pass or block against their limits. keep: keep today's plan for a symbol as a "
         "practice trade (ask first); it is settled from real bars after the close. record: the practice trades and "
-        "whether the replays' odds matched what happened. limits: see or change the limits (account, max_loss, "
-        "max_daily_loss, max_trades_per_day, min_reward_to_risk, max_position_pct, last_entry, cost_per_share). "
+        "whether the replays' odds matched what happened. scan: which watched stocks have closed beyond their opening "
+        "range today (or the symbols given), best replay first; Buddy also runs it each weekday morning. limits: see "
+        "or change the limits (account, max_loss, max_daily_loss, max_trades_per_day, min_reward_to_risk, "
+        "max_position_pct, last_entry, cost_per_share, block_on_earnings, morning_scan). "
         "Always say it is practice, that a replay is not a prediction, and that day trading loses most people money."),
     "input_schema": {"type": "object", "properties": {
-        "action": {"type": "string", "enum": ["plan", "keep", "record", "limits"]},
+        "action": {"type": "string", "enum": ["plan", "keep", "record", "scan", "limits"]},
         "symbol": {"type": "string"},
+        "symbols": {"type": "array", "items": {"type": "string"}, "description": "scan: these instead of the watchlists"},
         "side": {"type": "string", "enum": ["buy", "short"]},
         "stop": {"type": "string", "enum": ["middle", "far"], "description": "the middle of the opening range, or its far side"},
         "reward": {"type": "number", "description": "the target as a multiple of the risk (default 1)"},
@@ -426,6 +576,8 @@ def run_tool(memory: Memory, args: dict, data=None, now: datetime | None = None)
     if action == "record":
         settle(memory, data or Data(memory), now)
         return json.dumps(record(memory), default=str)
+    if action == "scan":
+        return json.dumps(scan(memory, args.get("symbols") or None, data, now), default=str)
     if action == "limits":
         return json.dumps({"limits": set_limits(memory, args.get("changes") or {}), "note": NOTE})
-    raise ToolError("day_trade_practice: plan, keep, record or limits.")
+    raise ToolError("day_trade_practice: plan, keep, record, scan or limits.")

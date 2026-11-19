@@ -72,7 +72,9 @@ flowchart LR
     signals_py --> finnhub_py
     signals_py --> markets_py
     simbook_py --> markets_py
+    dayplan_py --> finnhub_py
     dayplan_py --> markets_py
+    dayplan_py --> newsdesk_py
     stratlab_py --> benchmarks_py
     stratlab_py --> finnhub_py
     stratlab_py --> fundamentals_py
@@ -164,7 +166,7 @@ The diagram reads left to right: what you ask, the tools Buddy uses, the modules
 |---|---|---|---|
 | `recommendations` | Buy and sell signals by category, with reasons and Buddy's own record | show, settings, switch, record, run, live, paper, scorecard, model | recommend.py |
 | `community_signals` | What people are saying on Reddit about deals, travel, products and markets, read once a night from the communities the owner follows, tagged (ticker, product, c | status, test, run, trending, about, add, remove, switch | signals.py |
-| `day_trade_practice` | Practice day trading on paper, one US stock at a time; Buddy never places an order | plan, keep, record, limits | dayplan.py |
+| `day_trade_practice` | Practice day trading on paper, one US stock at a time; Buddy never places an order | plan, keep, record, scan, limits | dayplan.py |
 | `markets` | Trade ideas from chart patterns, with entries, stops and targets, and what Reddit, StockTwits and the news say; ideas only, you never trade | scan, ideas, analyze, watch, unwatch, bought, sold, settings, test | markets.py |
 | `investor_checks` | Run the classic investors' checklists on a US company from its own SEC filings and today's price: Graham (defensive investor's tests), Quality (the Buffett and  | - | lenses.py |
 | `fund_holdings` | What well-known funds reported owning in their quarterly SEC 13F filings (Berkshire Hathaway, Bridgewater, Pershing Square, Scion, Renaissance, Appaloosa, Green | show, who_holds, status, refresh, follow, unfollow | funds.py |
@@ -287,6 +289,11 @@ Day-trade practice: a plan before the trade, the odds by replay, the size and th
   check    Pass or block against the owner's limits: loss per trade, loss per day, trades per day, reward to risk,
            time of day and position size.
 
+  earnings The session that reacts to an earnings report is unlike the stock's ordinary days, so a plan on that day
+           is blocked (Finnhub's earnings calendar, when its key is set).
+  scan     Each morning, the owner's watched stocks are checked for a close beyond the opening range, and the ones
+           that pass the limits are sent in one message.
+
 A plan can be kept as a practice trade. It is settled from that day's real bars after the close, so the replay's
 odds can be compared with what happened. Buddy never places an order: nothing here can reach a broker.
 
@@ -300,7 +307,7 @@ runs from one past session, so a move's follow-through is kept; a cost per share
 ```
 
 - Tables: `day_trades`
-- Uses: markets.py, memory.py, pricebook.py, tools.py
+- Uses: finnhub.py, markets.py, memory.py, newsdesk.py, pricebook.py, tools.py
 
 ### stratlab.py
 

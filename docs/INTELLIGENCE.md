@@ -319,6 +319,8 @@ Practice on paper, one US stock at a time. Nothing here can reach a broker. Tool
 | Replay | The rest of the day replayed 10,000 times from the stock's own 5-minute bars at the same time of day over its last sessions (up to 60, at least 20), and the same rule re-run on each of those real sessions: target first, stop first, or neither by the close. |
 | Size | Whole shares so the stop costs no more than the limit for one trade, and the position no more than its share of the account. |
 | Check | Pass or block: loss per trade, loss per day, trades per day, reward to risk, last entry time. Each reason is said in plain words. |
+| Earnings | A plan is blocked on the session that reacts to an earnings report: a report before the open or during the session, or one after the previous close. A report after today's close is said, not blocked, because a day trade is out before it. From Finnhub's earnings calendar; with no Finnhub key there is no check. Off with the limit `block_on_earnings`. |
+| Scan | Each weekday at 10:20 AM New York time, up to 30 stocks are checked for a close beyond the opening range, both ways: the ones in open practice trades and on the watchlists first, then fifteen of the most traded. Each hit gets its plan, 2,000 replays, size and check. Those that pass the limits are sent in one message, best replay first; when none passes, nothing is sent. Yesterday's kept trades are settled first. Off with the limit `morning_scan`, or by muting "the day-trade practice scan" in Alert settings. |
 
 - **Source.** 5-minute bars from Alpaca's market data (`markets.Data.intraday`), through Buddy Connect. Only the
   ticker symbol is sent. It needs the Alpaca key already used for daily prices. On the free plan the bars cover
@@ -335,8 +337,8 @@ Practice on paper, one US stock at a time. Nothing here can reach a broker. Tool
   unofficial chart address; bars are drawn in runs of three from one past session, so a move's follow-through is
   kept; and a cost per share is taken off every outcome. The pack's broker, scanner and news parts were not
   brought in.
-- **Not built.** No scan for setups across many stocks, no alert when a kept trade reaches its stop or target
-  during the day, no page in the app, and no check for an earnings report on the day.
+- **Not built.** No alert when a kept trade reaches its stop or target during the day, and no page in the app.
+  The scan looks for one setup only (the opening-range close), and reads each stock's bars with one request.
 
 ## The strategy lab
 

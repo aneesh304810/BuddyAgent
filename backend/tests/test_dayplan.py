@@ -185,3 +185,85 @@ def test_five_minute_bars_come_from_alpaca_with_the_whole_market_feed_when_the_p
     assert "feed=iex" in seen[1] and "end=" not in seen[1] and memory.get("markets:feed") == "iex"
     with pytest.raises(ToolError, match="Alpaca market data key"):
         Data(memory, env={}, fetch=fetch).intraday("TSLA")
+
+
+def reports(rows):
+    def fetch(url, data=None, headers=None):
+        assert "calendar/earnings" in url and "symbol=TSLA" in url
+        return json.dumps({"earningsCalendar": rows}).encode()
+    return fetch
+
+
+def test_a_plan_on_the_session_that_reacts_to_earnings_is_blocked(memory):
+    data, env = FakeData(all_bars()), {"BUDDY_FINNHUB_KEY": "k"}
+
+    def plan(rows, **more):
+        return dp.day_plan(memory, "TSLA", data=data, now=at(10, 0), replays=300, env=env, fetch=reports(rows), **more)
+
+    after_close = plan([{"date": "2026-11-18", "hour": "amc"}])
+    assert after_close["check"]["verdict"] == "block"
+    assert "reported earnings after the last close" in after_close["check"]["reasons"][0]
+    assert "does not describe today" in after_close["check"]["reasons"][0]
+    assert "reports earnings today before the open" in plan([{"date": "2026-11-19", "hour": "bmo"}])["check"]["reasons"][0]
+    tonight = plan([{"date": "2026-11-19", "hour": "amc"}])
+    assert tonight["check"]["verdict"] == "pass" and "out before then" in tonight["earnings"]   # said, not blocked
+    quiet = plan([{"date": "2026-11-16", "hour": "amc"}])                           # an older report: an ordinary day
+    assert quiet["check"]["verdict"] == "pass" and "earnings" not in quiet
+    assert dp.earnings_today(memory, "TSLA", "2026-11-23", env, reports([{"date": "2026-11-20", "hour": "amc"}]))["reaction_day"]
+    assert dp.earnings_today(memory, "TSLA", "2026-11-19", {}, reports([])) is None  # no Finnhub key: no check, no block
+    dp.set_limits(memory, {"block_on_earnings": "off"})
+    allowed = plan([{"date": "2026-11-18", "hour": "amc"}])
+    assert allowed["check"]["verdict"] == "pass" and allowed["limits"]["block_on_earnings"] is False
+
+
+class ManyStocks:
+    def __init__(self, by_symbol):
+        self.by_symbol, self.asked = by_symbol, []
+
+    def intraday(self, symbol, minutes=5, days=95):
+        self.asked.append(symbol)
+        if symbol not in self.by_symbol:
+            raise ToolError(f"No bars for {symbol}.")
+        return self.by_symbol[symbol]
+
+
+def test_the_morning_scan_finds_breakouts_and_sends_only_what_passes_the_limits(memory):
+    quiet_day = [{"t": stamp(TODAY, i), "o": 100.0, "h": 100.5 if i < 3 else 100.2, "l": 99.5 if i < 3 else 99.8,
+                  "c": 100.0, "v": 1000} for i in range(dp.SESSION_BARS)]
+    history = [b for i, d in enumerate(weekdays(30, TODAY)) for b in session(d, seed=i)]
+    data = ManyStocks({"TSLA": all_bars(), "FLAT": history + quiet_day,
+                       "NEW": [b for i, d in enumerate(weekdays(5, TODAY)) for b in session(d, seed=i)] + breakout_day(TODAY)})
+    got = dp.scan(memory, ["tsla", "FLAT", "NEW", "GONE"], data, at(10, 20), replays=300, env={})
+    assert got["scanned"] == 4 and got["trading_today"] == 3 and got["errors"] == ["GONE: No bars for GONE."]
+    assert [(r["symbol"], r["side"], r["check"]) for r in got["triggered"]] == [("TSLA", "buy", "pass")]   # NEW: too little history
+    said = dp.scan_message(got)
+    spoken, shown = said.split(" || ")
+    assert spoken.startswith("Day-trade practice scan: 1 of 3 stocks closed beyond their opening range")
+    assert "- **TSLA** buy: entry 101.50 at 9:50 AM, stop 100.50, target 102.50." in shown and "29 shares." in shown
+    assert "a replay is not a prediction" in shown
+    assert dp.keep(memory, "TSLA", at(10, 25))["kept"]                              # a scanned plan can be kept
+
+    dp.set_limits(memory, {"max_trades_per_day": 1})                                # one practice trade is already kept today
+    blocked = dp.scan(memory, ["TSLA"], data, at(10, 30), replays=300, env={})
+    assert blocked["triggered"][0]["check"] == "block" and dp.scan_message(blocked) == ""   # nothing passes: no message
+    closed = dp.scan(memory, ["TSLA"], data, at(10, 20, TODAY + timedelta(days=2)), replays=300, env={})
+    assert closed["trading_today"] == 0 and "market may be closed" in closed["market"]
+    answer = json.loads(dp.run_tool(memory, {"action": "scan", "symbols": ["FLAT"]}, data, at(10, 40)))
+    assert answer["triggered"] == [] and answer["trading_today"] == 1
+
+
+def test_the_scan_runs_once_each_weekday_morning_over_the_owners_stocks_first(memory):
+    assert not dp.scan_due(memory, at(10, 19)) and dp.scan_due(memory, at(10, 20)) and not dp.scan_due(memory, at(12, 0))
+    assert not dp.scan_due(memory, at(10, 30, TODAY + timedelta(days=2)))            # a Saturday
+    memory.set(dp.SCAN_KEY, TODAY.isoformat())
+    assert not dp.scan_due(memory, at(10, 30))                                      # once a day
+    memory.set(dp.SCAN_KEY, "")
+    dp.set_limits(memory, {"morning_scan": False})
+    assert not dp.scan_due(memory, at(10, 30))                                      # switched off
+    assert dp.universe(memory)[:3] == ["SPY", "QQQ", "AAPL"] and len(dp.universe(memory)) == len(dp.LIQUID)
+    memory.db.execute("CREATE TABLE IF NOT EXISTS mkt_watch (symbol TEXT, market TEXT)")
+    memory.db.execute("INSERT INTO mkt_watch VALUES ('PLTR', 'us'), ('NVDA', 'us'), ('RELIANCE.NS', 'india')")
+    memory.db.commit()
+    mine = dp.universe(memory)
+    assert mine[:2] == ["NVDA", "PLTR"] or mine[:2] == ["PLTR", "NVDA"]
+    assert mine.count("NVDA") == 1 and "RELIANCE.NS" not in mine and len(mine) <= dp.SCAN_MAX
