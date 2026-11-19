@@ -16,6 +16,7 @@ import asyncio
 import base64
 import json
 import os
+import re
 import time
 import urllib.parse
 import urllib.request
@@ -254,6 +255,8 @@ def social_tools(social: Social) -> list[dict]:
 
 
 SOCIAL_TOOL_NAMES = {"trending", "reddit", "google_search"}
+# how Buddy Connect words a failure of the service itself (gateway.call), as opposed to a refusal made here
+SERVICE_FAILED = re.compile(r"said HTTP \d|isn't data|can't be reached|too many calls this minute")
 
 
 # Back off tools that keep failing: after FAIL_LIMIT failures in a row, skip real calls for PAUSE_SECONDS.
@@ -320,7 +323,11 @@ async def _run(social: Social, name: str, args: dict) -> str:
                                              args.get("country", "US"), args.get("num", 10))
         else:
             raise ToolError(f"Unknown tool {name}")
-    except ToolError:
+    except ToolError as e:
+        # The service itself failed (out of credits, over its limit, unreachable): Claude's own web search does not
+        # depend on it, so say so. A privacy refusal, or a service the owner switched off, is final: no such hint.
+        if SERVICE_FAILED.search(str(e)) and "web_search" not in str(e):
+            raise ToolError(f"{e} Use web_search for this instead: it does not depend on that service.") from e
         raise
     except Exception as e:
         raise ToolError(f"{name} didn't answer ({type(e).__name__}). Try web_search instead.") from e

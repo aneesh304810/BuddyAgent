@@ -68,6 +68,28 @@ def test_reddit_and_google_when_connected():
     assert g["answerBox"] == {"answer": "La Mar"} and g["results"][0]["title"] == "Best ceviche in Lima"
 
 
+def test_when_the_search_service_fails_buddy_is_told_its_own_web_search_still_works():
+    import io
+    import urllib.error
+
+    from buddy.gateway import ConnectError
+
+    def out_of_credits(url, data=None, headers=None):
+        raise urllib.error.HTTPError(url, 400, "Bad Request", {}, io.BytesIO(b'{"message": "Not enough credits"}'))
+
+    social = Social(env={"BUDDY_SERPER_KEY": "serper-key"}, http=out_of_credits)
+    with pytest.raises(ToolError, match=r"said HTTP 400.*Not enough credits.*Use web_search for this instead"):
+        asyncio.run(run_social_tool(social, "google_search", {"query": "companies that start trading today", "news": True}))
+
+    def refused_here(query, news=False, country="US", num=10):      # a privacy refusal is final: no way round is offered
+        raise ConnectError("serper", "Serper may not see personal data, so I didn't send this there.")
+
+    social.google = refused_here
+    with pytest.raises(ToolError) as e:
+        asyncio.run(run_social_tool(social, "google_search", {"query": "my diagnosis"}))
+    assert "web_search" not in str(e.value) and "personal data" in str(e.value)
+
+
 def test_reddit_through_google_without_an_app():
     calls = []
 
