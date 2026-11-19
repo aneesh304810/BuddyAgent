@@ -200,10 +200,11 @@ def test_find_names_every_match_so_an_attached_service_never_looks_absent(tmp_pa
     said = gateway.run_tool(m, {"action": "find", "query": "news"})
     full, also = said.split("Also matching")
     assert full.count("\n- ") == 5 and "NewsCatcher" not in full  # the cut that made Buddy say it was not attached
-    assert "NewsCatcher (news fact check): attached, not used yet" in also
-    assert "Perigon (news fact check): not attached" in also and "NewsData.io (news fact check): attached" in also
+    assert "NewsCatcher (news search and fact check): attached, not used yet" in also
+    assert "Perigon (news search and fact check): not attached" in also
+    assert "NewsData.io (news search and fact check): attached" in also
     by_name = gateway.run_tool(m, {"action": "find", "query": "newscatcher"})
-    assert "attached, not used yet" in by_name and "not used for everyday news lookups" in by_name
+    assert "attached, not used yet" in by_name and "when Google News (Serper) cannot answer" in by_name
     assert "Also matching" not in by_name
 
 

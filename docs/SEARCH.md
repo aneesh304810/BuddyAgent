@@ -9,6 +9,7 @@ hundred tokens instead of tens of thousands: better data for less money.
 | **Google Trends** | What's being searched right now, per country, with the news behind it | Free | None: always on |
 | **Reddit** | Real people's opinions, reviews and tips; top posts and comments of any subreddit | Free (Reddit's personal-use API) | 2 minutes, below |
 | **Google results, News and Maps places** (via Serper) | Google's own ranking, answer box, top stories; places with ratings, prices and hours | About $0.001 | 2 minutes, below |
+| **News services** (NewsCatcher, NewsData.io, Perigon, Marketaux, then GDELT) | Headlines on a topic when Google News can't answer | Free within each service's monthly allowance | A key for any of them; GDELT needs none |
 | Claude's web search | Any page on the web | About $0.01 plus the results it reads | None |
 | Reading a whole page | Everything on one page | Its length in tokens (1–3 cents) | None |
 
@@ -90,6 +91,31 @@ Try: *"What does Reddit say about Cusco in December?"*, *"Top posts in r/persona
 2. `sudo bash /opt/buddy/deploy/set.sh BUDDY_SERPER_KEY`
 
 Try: *"Google the best ceviche in Lima"*, *"Any news about Copa Libertadores?"*.
+
+## When Google News can't answer (`newsfeed.py`)
+A news search (`google_search` with `news=true`, and the news part of a watched topic) goes to Google News
+through Serper first. When Serper is not set up, fails, or says it is out of credits, the same call asks the
+news services that have a key, in this order, and the first with headlines answers:
+
+| Order | Service | Key |
+|---|---|---|
+| 1 | NewsCatcher | `BUDDY_NEWSCATCHER_KEY` |
+| 2 | NewsData.io | `BUDDY_NEWSDATA_KEY` |
+| 3 | Perigon | `BUDDY_PERIGON_KEY` |
+| 4 | Marketaux | `BUDDY_MARKETAUX_KEY` |
+| 5 | GDELT | none (one search every five seconds) |
+
+- The answer says which service it came from (`answered_by`) and why Serper and any earlier service didn't
+  answer (`fallback_reason`, `also_failed`). A watched topic lists the same reasons under "Not reached".
+- A watched topic also falls back when Google News answers but has nothing on the topic.
+- A service that says it is out of credits, or refuses its key, is left out for an hour, Serper included.
+- Each service is sent the search words only.
+- A plain web search is not turned into a news search: when Serper fails, Buddy is told to use Claude's own
+  web search. Web search failing three times pauses web search for half an hour, not news.
+- **Allowances.** NewsData.io, Perigon and NewsCatcher are the same services the news fact check uses
+  (docs/INTELLIGENCE.md), and their free plans are small. The fact check keeps its own monthly limit; news
+  search has none beyond Buddy Connect's per-minute limits, so a month with Serper out of credits uses them
+  faster. When one runs out, the next is asked.
 
 ## X (Twitter)
 Not included: X's official API, including trends, is paid (its entry plans cost hundreds of

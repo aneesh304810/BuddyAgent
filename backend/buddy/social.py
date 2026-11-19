@@ -77,6 +77,11 @@ class Social:
     def has_google(self) -> bool:
         return bool(self.setting("BUDDY_SERPER_KEY"))
 
+    def has_news(self) -> bool:
+        """A news service besides Google News has a key (NewsCatcher, NewsData.io, Perigon, Marketaux)."""
+        from . import newsfeed  # noqa: PLC0415
+        return newsfeed.has_news(self.env)
+
     # --- Reddit ------------------------------------------------------------
     def _reddit_auth(self) -> str:
         if self._reddit_token and self._reddit_token[1] > time.time() + 60:
@@ -143,13 +148,23 @@ class Social:
             raise ToolError("What should I search Google for?")
         endpoint = "news" if news else "search"
         body = json.dumps({"q": query, "gl": _country(country).lower(), "num": max(1, min(int(num or 10), 20))})
-        from . import gateway  # noqa: PLC0415  (Buddy Connect: key, retries, clear errors)
-        data = gateway.call(None, "serper", f"/{endpoint}", data=body.encode(),
-                            headers={"Content-Type": "application/json"}, fetch=self.http, env=self.env)
+        from . import gateway, newsfeed  # noqa: PLC0415  (Buddy Connect: key, retries, clear errors)
+        if news and (not self.has_google() or newsfeed.serper_paused()):
+            why = ("Google News (Serper) isn't connected" if not self.has_google()
+                   else f"Google News (Serper) {newsfeed.SKIPPED}")
+            return self._news_fallback(query, num, why)
+        try:
+            data = gateway.call(None, "serper", f"/{endpoint}", data=body.encode(),
+                                headers={"Content-Type": "application/json"}, fetch=self.http, env=self.env)
+        except gateway.ConnectError as e:
+            if not news:
+                raise
+            newsfeed.note_serper_failure(e)  # out of credits: don't ask Serper first again for a while
+            return self._news_fallback(query, num, f"Google News (Serper) failed: {e}")
         _metered("serper", endpoint)
         if news:
             return {"news": [{k: n.get(k) for k in ("title", "source", "date", "snippet", "link", "imageUrl")}
-                             for n in data.get("news", [])]}
+                             for n in data.get("news", [])], "answered_by": "Google News (Serper)"}
         out = {"results": [{k: r.get(k) for k in ("title", "snippet", "date", "link")}
                            for r in data.get("organic", [])]}
         for key in ("answerBox", "knowledgeGraph"):
@@ -159,6 +174,19 @@ class Social:
             out["top_stories"] = [{k: t.get(k) for k in ("title", "source", "date", "link")}
                                   for t in data["topStories"]]
         return out
+
+    def _news_fallback(self, query: str, num: int, why: str) -> dict:
+        """News from the owner's connected news services (newsfeed.py) when Google News can't answer: which one
+        answered, and why Serper and any earlier service didn't."""
+        from . import newsfeed  # noqa: PLC0415
+        got = newsfeed.search(query, env=self.env, fetch=self.http, num=max(1, min(int(num or 10), 20)))
+        tried = [f"{t['source']}: {t['error']}" for t in got["tried"]]
+        if not got["news"]:
+            raise ToolError(f"No news source could answer. {why}. " + (" ".join(f"{t}." for t in tried) if tried else
+                            "No other news service is connected (NewsCatcher, NewsData.io, Perigon or Marketaux)."))
+        _metered(got["service"], "news")  # shown under API calls, like a Serper search
+        return {"news": got["news"], "answered_by": got["answered_by"], "fallback_reason": why,
+                **({"also_failed": tried} if tried else {})}
 
     # --- Google Maps places (Serper) ----------------------------------------------
     def places(self, query: str, country: str = "US", num: int = 12) -> list[dict]:
@@ -231,12 +259,15 @@ def social_tools(social: Social) -> list[dict]:
                 "additionalProperties": False,
             },
         })
-    if social.has_google():
+    if social.has_google() or social.has_news():
         tools.append({
             "name": "google_search",
             "description": "Search the web: Google's own results (with its answer box and top stories), or "
             "Google News with news=true, for a country. The first choice for anything current: about a tenth "
-            "of a cent, a tenth of web_search. read_top 1-3 also reads the best results in the same step "
+            "of a cent, a tenth of web_search. With news=true, when Google News is out of credits or not set up, "
+            "the owner's connected news services (NewsCatcher, NewsData.io, Perigon, Marketaux, then GDELT) answer "
+            "instead in the same call; answered_by names the source, fallback_reason says why. Say which source "
+            "answered. read_top 1-3 also reads the best results in the same step "
             "(a free model pulls out the facts that answer the query), for when snippets aren't enough.",
             "input_schema": {
                 "type": "object",
@@ -265,8 +296,15 @@ _fails: dict[str, int] = {}
 _paused_until: dict[str, float] = {}
 
 
+def _lane(name: str, args: dict) -> str:
+    """What backs off together. A news search has other services behind it (newsfeed.py), so web search failing three
+    times (Serper out of credits) must not pause news along with it."""
+    return name + (":news" if name == "google_search" and args.get("news") else "")
+
+
 async def run_social_tool(social: Social, name: str, args: dict) -> str:
-    if _paused_until.get(name, 0) > time.time() and not _cache.get(name + json.dumps(args, sort_keys=True)):
+    lane = _lane(name, args)
+    if _paused_until.get(lane, 0) > time.time() and not _cache.get(name + json.dumps(args, sort_keys=True)):
         raise ToolError(f"{name} keeps failing, so I'm pausing it for a while. Try web_search instead.")
     key = name + json.dumps(args, sort_keys=True)
     hit = _cache.get(key)
@@ -276,12 +314,12 @@ async def run_social_tool(social: Social, name: str, args: dict) -> str:
         try:
             result = await _run(social, name, args)
         except ToolError:
-            _fails[name] = _fails.get(name, 0) + 1
-            if _fails[name] >= FAIL_LIMIT:
-                _paused_until[name] = time.time() + PAUSE_SECONDS
-                _fails[name] = 0
+            _fails[lane] = _fails.get(lane, 0) + 1
+            if _fails[lane] >= FAIL_LIMIT:
+                _paused_until[lane] = time.time() + PAUSE_SECONDS
+                _fails[lane] = 0
             raise
-        _fails[name] = 0
+        _fails[lane] = 0
         _cache[key] = (time.time() + CACHE_SECONDS.get(name, 600), result)
         if len(_cache) > 500:  # keep memory small: drop the oldest half
             for old in sorted(_cache, key=lambda k: _cache[k][0])[:250]:
@@ -317,8 +355,9 @@ async def _run(social: Social, name: str, args: dict) -> str:
                 social.reddit, args.get("action", "search"), args.get("query", ""), args.get("subreddit", ""),
                 args.get("sort", "relevance"), args.get("period", "week"), args.get("limit", 10), args.get("post", ""))
         elif name == "google_search":
-            if not social.has_google():
-                raise ToolError("Google search isn't connected yet (docs/SEARCH.md).")
+            if not social.has_google() and not (args.get("news") and social.has_news()):
+                raise ToolError("Google search isn't connected yet (docs/SEARCH.md)."
+                                + (" Connected news services answer with news=true." if social.has_news() else ""))
             result = await asyncio.to_thread(social.google, args.get("query", ""), bool(args.get("news")),
                                              args.get("country", "US"), args.get("num", 10))
         else:

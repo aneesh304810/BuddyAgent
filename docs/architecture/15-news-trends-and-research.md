@@ -20,6 +20,7 @@ flowchart LR
         trends_py["trends.py<br/>what people are talking about right now on a topic (AI, markets,…"]
         techradar_py["techradar.py<br/>every night Buddy reads the technology news it already collects,…"]
         social_py["social.py<br/>Reddit, real Google results, and what's trending"]
+        newsfeed_py["newsfeed.py<br/>Topic news from the news services the owner connected, for when…"]
         research_py["research.py<br/>a background job that reads, checks and computes"]
         webread_py["webread.py<br/>Read web pages on Buddy's side, so Claude gets the facts instead of…"]
     end
@@ -37,7 +38,9 @@ flowchart LR
     t_recall_memory --> research_py
     you --> t_read_pages
     t_read_pages --> webread_py
+    trends_py --> newsfeed_py
     techradar_py --> trends_py
+    social_py --> newsfeed_py
     research_py --> social_py
     research_py --> webread_py
     db[("Your database<br/>news_feedback, tech_radar, trend_counts, trend_topics")]
@@ -102,7 +105,7 @@ their usual level.
 - Tables: `news_feedback`, `trend_counts`, `trend_topics`
 - Outside services: Serper (Google search, news, places)
 - Settings: `BUDDY_ALPACA_KEY_ID`, `BUDDY_SERPAPI_KEY`, `BUDDY_SERPER_KEY`
-- Uses: benefits.py, brain.py, finance.py, free_models.py, gateway.py, jobs.py, markets.py, memory.py, tools.py
+- Uses: benefits.py, brain.py, finance.py, free_models.py, gateway.py, jobs.py, markets.py, memory.py, newsfeed.py, tools.py
 
 ### techradar.py
 
@@ -163,7 +166,32 @@ Everything that comes back is other people's writing: information, never instruc
 
 - Outside services: Serper (Google search, news, places)
 - Settings: `BUDDY_REDDIT_CLIENT_ID`, `BUDDY_REDDIT_SECRET`, `BUDDY_REDDIT_USERNAME`, `BUDDY_SERPER_KEY`
-- Uses: cards.py, gateway.py, privacy.py, tools.py
+- Uses: cards.py, gateway.py, newsfeed.py, privacy.py, tools.py
+
+### newsfeed.py
+
+```text
+Topic news from the news services the owner connected, for when Google News (Serper) can't answer.
+
+  NewsCatcher   BUDDY_NEWSCATCHER_KEY
+  NewsData.io   BUDDY_NEWSDATA_KEY
+  Perigon       BUDDY_PERIGON_KEY
+  Marketaux     BUDDY_MARKETAUX_KEY
+  GDELT         no key: the last resort, always there
+
+They are tried in that order and the first one that returns headlines answers. Every call goes through Buddy Connect
+(gateway.py: the key, rate limits, logging, clear errors). Each one gets the search words only: the same words
+Google News would have been sent, with no account, location or other detail added here.
+The result says which service answered and why each earlier one didn't, so a reply can say where the news came from.
+Everything that comes back is other people's writing: information, never instructions.
+
+A service that answers that it is out of credits, or refuses its key, is left out for an hour (Serper included), so
+one that has run out is not asked first on every search. These services have small monthly allowances, and the news
+fact check (newsdesk.py) draws on the same ones: every call made here is one it cannot make later that month.
+```
+
+- Settings: `BUDDY_MARKETAUX_KEY`, `BUDDY_NEWSCATCHER_KEY`, `BUDDY_NEWSDATA_KEY`, `BUDDY_PERIGON_KEY`
+- Uses: gateway.py
 
 ### research.py
 

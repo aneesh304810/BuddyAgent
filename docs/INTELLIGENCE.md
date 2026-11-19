@@ -495,7 +495,9 @@ their text instead.
   is narrow: the company's name AND two or three words that pin down the event, chosen by the free model (or taken
   from the headline), so one call returns that story's reports. Nothing else is sent. A matching report from a rated outlet is kept with the company's headlines, so the story's
   rating rises. With no key, the story is written to `news_checks` as "would have asked". A monthly limit (default 30)
-  covers all three together.
+  covers all three together. That limit counts fact checks only: the same three services also answer news
+  searches when Google News cannot (`newsfeed.py`, docs/SEARCH.md), and those calls come out of the same
+  allowance at each service.
 - Runs once a day in the proactive loop; `GET/POST /api/invest/newsdesk`; shown in Investing → Trading as
   "News behind the trades" and "Paid news checks".
 

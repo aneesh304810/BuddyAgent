@@ -915,7 +915,7 @@ class Markets:
         got = self.data.bars(m, [sym, BENCHMARK[m]] if sym != BENCHMARK[m] else [sym])
         rows = got.get(sym) or []
         if len(rows) < 60:
-            raise ToolError(f"Not enough price history for {sym}: check the symbol.")
+            return self._young(sym, m, rows)
         c = [b["c"] for b in rows]
         r = rsi(c)
         out = {"symbol": sym, "market": m, "close": rows[-1]["c"], "day": rows[-1]["d"],
@@ -924,6 +924,31 @@ class Markets:
                "change_1m": round(100 * (c[-1] / c[-22] - 1), 1), "change_3m": round(100 * (c[-1] / c[-64] - 1), 1),
                "setups": find_setups(rows, got.get(BENCHMARK[m]), m), "reddit": self.data.reddit(sym, m),
                "stocktwits": self.data.stocktwits(sym, m), "news": self.data.news(sym, m), "note": DISCLAIMER}
+        return json.loads(json.dumps(out, default=lambda x: round(x, 4) if isinstance(x, float) else str(x)))
+
+    def _young(self, sym: str, m: str, rows: list[dict]) -> dict:
+        """Fewer than 60 trading days of prices: most likely a newly listed stock (an IPO), so say so plainly and give
+        what the days there are can show, instead of failing. With no prices at all it may also be a typo."""
+        out = {"symbol": sym, "market": m, "status": "new_listing" if rows else "no_price_history",
+               "trading_days": len(rows), "note": DISCLAIMER}
+        if rows:
+            c = [b["c"] for b in rows]
+            out.update({"close": rows[-1]["c"], "day": rows[-1]["d"], "first_day": rows[0]["d"],
+                        "first_close": rows[0]["c"], "change_since_first_day": round(100 * (c[-1] / c[0] - 1), 1) if c[0] else None,
+                        "high_since_listing": max(b["h"] for b in rows), "low_since_listing": min(b["l"] for b in rows),
+                        "message": f"{sym} has only {len(rows)} trading day{'s' if len(rows) != 1 else ''} of price "
+                                   f"history (since {rows[0]['d']}), so it looks newly listed. The full analysis needs "
+                                   "at least 60 days for its moving averages, RSI and setups, so those are left out; "
+                                   "here is what the days so far show."})
+        else:
+            out["message"] = (f"No price history came back for {sym}. Either it listed in the last day or two (price "
+                              "sources can take a few days to carry a new listing), or the symbol is wrong: check it "
+                              "and try again in a few days.")
+        for key, get in (("news", self.data.news), ("stocktwits", self.data.stocktwits)):
+            try:
+                out[key] = get(sym, m)
+            except Exception as e:  # the message above still answers
+                out[key + "_error"] = f"{type(e).__name__}"
         return json.loads(json.dumps(out, default=lambda x: round(x, 4) if isinstance(x, float) else str(x)))
 
     def test(self) -> str:

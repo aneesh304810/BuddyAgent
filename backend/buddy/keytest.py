@@ -213,9 +213,10 @@ EXTRA = [
     ("Travel & transit", "Duffel", ["BUDDY_DUFFEL_TOKEN"], "flight fare search"),
     ("Travel & transit", "Travelpayouts", ["BUDDY_TRAVELPAYOUTS_TOKEN"], "fare history"),
     ("Shopping", "17TRACK", ["BUDDY_17TRACK_KEY"], "live package tracking"),
-    ("Finance & markets", "News fact check (optional; any one is enough)",
+    ("Finance & markets", "News search backup and fact check (optional; any one is enough)",
      ["BUDDY_NEWSDATA_KEY", "BUDDY_PERIGON_KEY", "BUDDY_NEWSCATCHER_KEY"],
-     "asked only about a story the free model could not settle, on a company Buddy is acting on"),
+     "news on a topic when Google News cannot answer; and a story the free model could not settle, on a company "
+     "Buddy is acting on"),
     ("Finance & markets", "Price cross-check (optional)", ["BUDDY_TIINGO_KEY"],
      "a second source that checks a few of the kept daily prices each day"),
     ("Intelligence", "Intelligence API key", ["BUDDY_INTEL_API_KEY"], "lets another program read the Intelligence API"),

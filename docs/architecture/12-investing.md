@@ -139,7 +139,7 @@ flowchart LR
     benchmarks_py --> s_fund_holdings
     s_github["GitHub (trending projects)<br/>(public data only)"]
     researchdesk_py --> s_github
-    s_marketaux["Marketaux (news sentiment)<br/>(public data only)"]
+    s_marketaux["Marketaux (news sentiment and news search)<br/>(public data only)"]
     newssent_py --> s_marketaux
     s_reddit["Reddit<br/>(public data only)"]
     signals_py --> s_reddit
@@ -473,7 +473,7 @@ with each paper trade (f_sentiment_7) and shows them, and no trade is decided on
 ```
 
 - Tables: `news_sentiment`
-- Outside services: Alpha Vantage (news sentiment), Marketaux (news sentiment)
+- Outside services: Alpha Vantage (news sentiment), Marketaux (news sentiment and news search)
 - Settings: `BUDDY_ALPHAVANTAGE_KEY`, `BUDDY_MARKETAUX_KEY`
 - Uses: gateway.py, memory.py, pricebook.py, tools.py, watchpicks.py
 

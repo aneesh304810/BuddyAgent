@@ -117,8 +117,10 @@ CATALOG: dict[str, dict] = {
                     "used_for": "US federal awards that mention a technology, with recipient and amount", "moved": True},
     "gdelt": {"group": "Intelligence", "title": "GDELT (news worldwide)", "hosts": ["https://api.gdeltproject.org"],
               "auth": {"type": "none"}, "cost": 0.0, "per_minute": 40, "privacy": "public", "no_backup": True,
-              "used_for": "news coverage of a technology: title, outlet and date (the search phrase only); asked "
-                          "at most once every 5.5 seconds, as the service requires", "moved": True},
+              "used_for": "news coverage of a technology: title, outlet and date (the search phrase only); also the "
+                          "last one asked for news on a topic when Google News and the connected news services "
+                          "cannot answer (the search words only); asked at most once every 5.5 seconds, as the "
+                          "service requires", "moved": True},
     "openalex": {"group": "Intelligence", "title": "OpenAlex (scholarly works)", "hosts": ["https://api.openalex.org"],
                  "auth": {"type": "none"}, "cost": 0.0, "per_minute": 60, "privacy": "public", "no_backup": True,
                  "used_for": "new scholarly works on a technology across every field", "moved": True},
@@ -166,27 +168,31 @@ CATALOG: dict[str, dict] = {
                      "hosts": ["https://www.alphavantage.co"], "auth": {"type": "param", "secret": "BUDDY_ALPHAVANTAGE_KEY"},
                      "cost": 0.0, "per_minute": 5, "privacy": "public", "no_backup": True,
                      "used_for": "how the news on a company reads, as a score (ticker symbols only)"},
-    "marketaux": {"group": "Finance & markets", "title": "Marketaux (news sentiment)",
+    "marketaux": {"group": "Finance & markets", "title": "Marketaux (news sentiment and news search)",
                   "hosts": ["https://api.marketaux.com"], "auth": {"type": "param", "secret": "BUDDY_MARKETAUX_KEY"},
                   "cost": 0.0, "per_minute": 10, "privacy": "public", "no_backup": True,
-                  "used_for": "how the news on a company reads, as a score (ticker symbols only)"},
-    "newsdata": {"group": "Finance & markets", "title": "NewsData.io (news fact check)",
+                  "used_for": "how the news on a company reads, as a score (ticker symbols only); also news on a "
+                              "topic when Google News (Serper) cannot answer (the search words only), asked fourth"},
+    "newsdata": {"group": "Finance & markets", "title": "NewsData.io (news search and fact check)",
                  "hosts": ["https://newsdata.io"], "auth": {"type": "param", "secret": "BUDDY_NEWSDATA_KEY"},
                  "cost": 0.0, "per_minute": 5, "privacy": "public", "no_backup": True,
-                 "used_for": "who else reports a story Buddy is unsure of (a company's name only); asked first of "
-                             "three; not used for everyday news lookups"},
-    "perigon": {"group": "Finance & markets", "title": "Perigon (news fact check)",
+                 "used_for": "news on a topic when Google News (Serper) cannot answer (the search words only), "
+                             "asked second; and who else reports a story Buddy is unsure of (a company's name "
+                             "and a few headline words), asked first of three"},
+    "perigon": {"group": "Finance & markets", "title": "Perigon (news search and fact check)",
                 "hosts": ["https://api.goperigon.com", "https://api.perigon.io"],
                 "auth": {"type": "header", "header": "x-api-key", "secret": "BUDDY_PERIGON_KEY"},
                 "cost": 0.0, "per_minute": 5, "privacy": "public",
-                "used_for": "who else reports a story Buddy is unsure of (a company's name only); asked second of "
-                            "three; not used for everyday news lookups"},
-    "newscatcher": {"group": "Finance & markets", "title": "NewsCatcher (news fact check)",
+                "used_for": "news on a topic when Google News (Serper) cannot answer (the search words only), "
+                            "asked third; and who else reports a story Buddy is unsure of (a company's name and "
+                            "a few headline words), asked second of three"},
+    "newscatcher": {"group": "Finance & markets", "title": "NewsCatcher (news search and fact check)",
                     "hosts": ["https://v3-api.newscatcherapi.com"],
                     "auth": {"type": "header", "header": "x-api-token", "secret": "BUDDY_NEWSCATCHER_KEY"},
                     "cost": 0.0, "per_minute": 5, "privacy": "public", "no_backup": True,
-                    "used_for": "who else reports a story Buddy is unsure of (a company's name only); asked last of "
-                                "three; not used for everyday news lookups"},
+                    "used_for": "news on a topic when Google News (Serper) cannot answer (the search words only), "
+                                "asked first; and who else reports a story Buddy is unsure of (a company's name "
+                                "and a few headline words), asked last of three"},
     "tiingo": {"group": "Finance & markets", "title": "Tiingo (price cross-check)", "hosts": ["https://api.tiingo.com"],
                "auth": {"type": "header", "header": "Authorization", "prefix": "Token ", "secret": "BUDDY_TIINGO_KEY"},
                "cost": 0.0, "per_minute": 30, "privacy": "public", "no_backup": True,

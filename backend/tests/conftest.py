@@ -83,3 +83,15 @@ def _fresh_rate_limits():
 def _no_claude_cutoff(monkeypatch):
     """The monthly Claude cutoff (budgets.py) is off unless a test sets one."""
     monkeypatch.setenv("BUDDY_CLAUDE_KILL_USD", "0")
+
+
+@pytest.fixture(autouse=True)
+def _serper_not_paused():
+    """newsfeed remembers a service being out of credits in the process, and the search tools remember what keeps
+    failing: each test starts with every service available."""
+    from buddy import newsfeed, social
+
+    newsfeed.reset()
+    social._fails.clear()
+    social._paused_until.clear()
+    yield

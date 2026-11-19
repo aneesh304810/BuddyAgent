@@ -173,14 +173,50 @@ class Trends:
                  "thread": f"https://news.ycombinator.com/item?id={h.get('objectID')}"}
                 for h in got.get("hits", []) if h.get("title")]
 
-    def news(self, query: str, kind: str) -> list[dict]:
-        if not self.setting("BUDDY_SERPER_KEY"):
-            return []
-        body = json.dumps({"q": query, "gl": "in" if kind == "india" else "us", "tbs": "qdr:d", "num": 20}).encode()
-        got = self._serper("/news", body)
-        return [{"source": f"News: {n.get('source', '')}".strip(), "title": n.get("title") or "", "url": n.get("link") or "",
-                 "score": 0, "comments": 0, "ts": time.time() - 6 * 3600, "when": n.get("date", "")}
-                for n in got.get("news", []) if n.get("title")]
+    def news(self, query: str, kind: str, days: int = 1) -> list[dict]:
+        """Google News (Serper); when it fails, is out of credits or finds nothing, the owner's connected news
+        services (newsfeed.py). Why each one didn't answer goes into self.news_errors, for the reply."""
+        from . import gateway, newsfeed  # noqa: PLC0415
+        self.news_errors = []
+        if self.setting("BUDDY_SERPER_KEY") and not newsfeed.serper_paused():
+            body = json.dumps({"q": query, "gl": "in" if kind == "india" else "us",
+                               "tbs": "qdr:d" if days <= 1 else "qdr:w", "num": 20}).encode()
+            try:
+                got = self._serper("/news", body)
+                items = [{"source": f"News: {n.get('source', '')}".strip(), "title": n.get("title") or "",
+                          "url": n.get("link") or "", "score": 0, "comments": 0, "ts": time.time() - 6 * 3600,
+                          "when": n.get("date", "")} for n in got.get("news", []) if n.get("title")]
+                if items:
+                    return items
+                self.news_errors.append("Google News (Serper): no coverage of this topic")
+            except gateway.ConnectError as e:
+                newsfeed.note_serper_failure(e)
+                self.news_errors.append(f"Google News (Serper): {e}")
+        elif self.setting("BUDDY_SERPER_KEY"):
+            self.news_errors.append(f"Google News (Serper): {newsfeed.SKIPPED}")
+        before = self.news_errors
+        items = self.news_fallback(query, days)
+        self.news_errors = before + self.news_errors
+        return items
+
+    def news_fallback(self, query: str, days: int = 1) -> list[dict]:
+        """Headlines from the first connected news service that has some (NewsCatcher, NewsData.io, Perigon,
+        Marketaux, then GDELT)."""
+        from . import newsfeed  # noqa: PLC0415
+        got = newsfeed.search(re.sub(r'"', "", query), self.memory, self.env,
+                              lambda u, d, h: self.fetch(u, h or {}, d) if d is not None else self.fetch(u, h or {}),
+                              days=max(2, days), num=20)
+        self.news_errors = [f"{t['source']}: {t['error']}" for t in got["tried"]]
+        now = time.time()
+        out = []
+        for n in got["news"]:
+            try:
+                ts = datetime.fromisoformat(n["date"]).replace(tzinfo=timezone.utc).timestamp() + 12 * 3600
+            except ValueError:
+                ts = now - 6 * 3600
+            out.append({"source": f"News ({got['answered_by']}): {n['source']}", "title": n["title"],
+                        "url": n["link"], "score": 0, "comments": 0, "ts": min(ts, now), "when": n["date"]})
+        return out
 
     def google_trends(self, query: str, kind: str) -> list[dict]:
         """Rising searches for the topic over the last week: 'Breakout' or '+350%'."""
@@ -243,7 +279,9 @@ class Trends:
         return out[:12]
 
     def alpaca(self, kind: str) -> tuple[list[dict], dict]:
-        """Market headlines, plus top movers and most active (stocks), when the Alpaca plan has them."""
+        """Market headlines, plus top movers and most active (stocks), when the Alpaca plan has them. Why the
+        headlines didn't come (if they didn't) goes into self.alpaca_error, for the reply."""
+        self.alpaca_error = ""
         if not self.market.alpaca:
             return [], {}
         items, moves = [], {}
@@ -259,6 +297,7 @@ class Trends:
                               "url": n.get("url", ""), "score": len(n.get("symbols") or []), "comments": 0, "ts": ts})
         except Exception as e:
             log.info("alpaca news: %s", type(e).__name__)
+            self.alpaca_error = f"{type(e).__name__}: {' '.join(str(e).split())[:160]}".rstrip(": ")
         if kind == "markets":
             for path, key in (("v1beta1/screener/stocks/movers?top=8", "movers"),
                               ("v1beta1/screener/stocks/most-actives?by=volume&top=8", "actives")):
@@ -312,7 +351,8 @@ class Trends:
                 if src == "hackernews":
                     items += self.hackernews(query, max(days, 1))
                 elif src == "news":
-                    items += self.news(query, kind)
+                    items += self.news(query, kind, days)
+                    errors += [f"news: {e}" for e in getattr(self, "news_errors", [])]
                 elif src == "trends":
                     rising = self.google_trends(query, kind)
                 elif src == "arxiv":
@@ -324,10 +364,12 @@ class Trends:
                 elif src == "alpaca":
                     got, moves = self.alpaca(kind)
                     items += got
+                    if getattr(self, "alpaca_error", ""):  # the news source above has already tried the others
+                        errors.append(f"alpaca news: {self.alpaca_error}")
                 elif src == "reddit":
                     items += self.reddit(query, kind, days)
             except Exception as e:
-                errors.append(f"{src}: {type(e).__name__}")
+                errors.append(f"{src}: {type(e).__name__}" + (f": {' '.join(str(e).split())[:160]}" if str(e) else ""))
         stories = self.personalize(rank(items), topic["name"])
         self._count(topic["name"], items)
         return {"topic": topic["name"], "kind": kind, "days": days, "stories": stories[:15], "rising": rising,
