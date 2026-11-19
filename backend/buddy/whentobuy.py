@@ -402,12 +402,8 @@ DROPPED = 0.92  # "the price did come down": 8% or more under the price at the c
 
 
 def _ready(memory: Memory) -> None:
-    from . import pricebook  # noqa: PLC0415
+    from . import pricebook  # noqa: PLC0415  it adds this table's newer columns once, when it opens
     pricebook.conn(memory)
-    pricebook.run(memory, "ALTER TABLE predictions ADD COLUMN IF NOT EXISTS parts VARCHAR")
-    pricebook.run(memory, "ALTER TABLE predictions ADD COLUMN IF NOT EXISTS travel_date DATE")
-    pricebook.run(memory, "ALTER TABLE predictions ADD COLUMN IF NOT EXISTS nights INTEGER")
-    pricebook.run(memory, "ALTER TABLE predictions ADD COLUMN IF NOT EXISTS factors VARCHAR")
 
 
 def learn(memory: Memory, domain: str = "product") -> dict:
@@ -635,23 +631,32 @@ def open_calls(memory: Memory, today: date | None = None, limit: int = 30) -> di
     names = {"product": "Product", "flight": "Flight", "hotel": "Hotel"}
     calls = []
     for r in rows:
-        wait = r["decision"] == "wait"
-        rec = record.get(r["domain"], {"judged": 0, "right": 0})
-        calls.append({
+        try:
+            calls.append(_call_card(r, record, names))
+        except Exception:  # one odd row must not take the whole view down
+            log.warning("a buy-or-wait call could not be shown (id %s)", r.get("id"), exc_info=True)
+    return {"calls": calls, "record": record,
+            "note": "Rough odds from the prices Buddy has seen, the sales calendar and the season, not a promise. "
+                    "Buddy never buys or books."}
+
+
+def _call_card(r: dict, record: dict, names: dict) -> dict:
+    wait = r["decision"] == "wait"
+    rec = record.get(r["domain"], {"judged": 0, "right": 0})
+    target, price, chance = (v if isinstance(v, (int, float)) and v == v and abs(v) != float("inf") else None
+                             for v in (r["target"], r["price"], r["chance"]))
+    return ({
             "id": r["id"], "what": r["item"], "kind": names.get(r["domain"], "Product"), "domain": r["domain"],
-            "price": r["price"], "call": "Wait" if wait else ("Book now" if r["domain"] != "product" else "Buy now"),
-            "wait": wait, "chance": r["chance"],
-            "why": (f"Worth waiting for about ${r['target']:,.0f}" + (f", around {r['event']}" if r["event"] else "")
-                    + f". Buddy checks again by {r['by_date']}.") if wait
+            "price": price, "call": "Wait" if wait else ("Book now" if r["domain"] != "product" else "Buy now"),
+            "wait": wait, "chance": chance,
+            "why": ((f"Worth waiting for about ${target:,.0f}" if target is not None else "Worth waiting")
+                    + (f", around {r['event']}" if r["event"] else "") + f". Buddy checks again by {r['by_date']}.") if wait
             else "Little chance of a better price soon, by what Buddy has seen.",
             "travel_date": str(r["travel_date"]) if r.get("travel_date") else "",
             "made_on": str(r["made_on"]), "recheck_by": str(r["by_date"]),
             "record": (f"{rec['right']} of {rec['judged']} past {names.get(r['domain'], 'product').lower()} calls were right"
                        if rec["judged"] else "No past calls of this kind judged yet"),
         })
-    return {"calls": calls, "record": record,
-            "note": "Rough odds from the prices Buddy has seen, the sales calendar and the season, not a promise. "
-                    "Buddy never buys or books."}
 
 
 TOOL = {

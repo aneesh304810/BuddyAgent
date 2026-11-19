@@ -100,14 +100,28 @@ async function renderAlerts(fresh) {
   } catch (e) { $("main").innerHTML = `<p class="err">${esc(e.message)}</p>`; }
 }
 
+// Why a list is empty: when the feeds were last read and what each one said.
+function collectorNote() {
+  const c = data && data.collector;
+  if (!c) return "";
+  if (c.off) return `<p class="muted">The morning deals collector is switched off. Ask Buddy to turn daily deals on.</p>`;
+  if (!c.last_run) return `<p class="muted">The deal feeds have not been read yet. They are read each morning after ${Number(c.starts_at_hour) || 9}:00.</p>`;
+  const lines = (c.feeds || []).map((f) => `<li>${esc(f)}</li>`).join("");
+  return `<p class="muted">The deal feeds were last read on ${esc(c.last_run)}${c.new_deals === 0 ? ", and nothing new came from them" : ""}.</p>` + (lines ? `<ul class="muted">${lines}</ul>` : "");
+}
+
 function render() {
   tabs();
   if (tab === "foryou") { renderForYou(); return; }
   if (tab === "predicted") { renderPredicted(); return; }
   if (tab === "alerts") { renderAlerts(); return; }
-  const list = (data?.deals || []).filter((d) => d.domain === tab);
+  if (!data) {   // the list never arrived: say so, not "no deals here yet"
+    $("main").innerHTML = loadError ? `<p class="err">${esc(loadError)}</p>` : `<p class="muted">Loading the deals…</p>`;
+    return;
+  }
+  const list = (data.deals || []).filter((d) => d.domain === tab);
   if (!list.length) {
-    $("main").innerHTML = `<p class="muted">No ${tab === "product" ? "product" : tab} deals here yet. Deals arrive from the deal feeds every morning and from your deals inbox every night.</p>`;
+    $("main").innerHTML = `<p class="muted">No ${tab === "product" ? "product" : tab} deals here yet. Deals arrive from the deal feeds every morning and from your deals inbox every night.</p>` + collectorNote();
     return;
   }
   const total = (data.counts || {})[tab] || list.length;
@@ -162,11 +176,13 @@ async function history_(d) {
 }
 $("sheet").onclick = (e) => { if (e.target === $("sheet")) $("sheet").classList.remove("open"); };
 
+let loadError = "";
 async function load() {
   try {
     data = await api(`/api/deals?days=${encodeURIComponent($("days").value)}&q=${encodeURIComponent($("q").value)}`);
-    render();
-  } catch (e) { $("main").innerHTML = `<p class="err">${esc(e.message)}</p>`; }
+    loadError = "";
+  } catch (e) { data = null; loadError = `The deals list could not be loaded. ${e.message}`; }
+  render();
 }
 $("q").oninput = () => { clearTimeout(timer); timer = setTimeout(load, 350); };
 $("days").onchange = load;

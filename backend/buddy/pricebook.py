@@ -138,6 +138,8 @@ def conn(memory):
             for table in ("deals", "observations"):  # which product a price is for, its brand and its category
                 for column in ("product VARCHAR", "brand VARCHAR", "category VARCHAR", "place VARCHAR"):
                     c.execute(f"ALTER TABLE {table} ADD COLUMN IF NOT EXISTS {column}")
+            for column in ("parts VARCHAR", "travel_date DATE", "nights INTEGER", "factors VARCHAR"):  # what a
+                c.execute(f"ALTER TABLE predictions ADD COLUMN IF NOT EXISTS {column}")     # buy-or-wait call keeps
             c.execute("CREATE INDEX IF NOT EXISTS obs_product ON observations (domain, product)")
             _open[where] = c
             try:
@@ -329,7 +331,10 @@ def deals_page(memory, days: int = 7, domain: str = "", query: str = "", limit: 
     """The Deals page's list: recent deals (feeds and the deals inbox), each filed under its product, brand and
     category, with the lowest price seen for that product. A deal is called the lowest only when the product has been
     seen on SEEN_DAYS different days: the first sighting of anything is trivially its lowest. Market data only."""
-    identify(memory)
+    try:
+        identify(memory)
+    except Exception:  # filing deals under their products is a help, not a condition: the page still lists them
+        log.warning("price book: filing deals under their products failed", exc_info=True)
     since = (datetime.now(timezone.utc).date() - timedelta(days=max(1, min(days, 90)))).isoformat()
     where, args = ["seen_on >= ?"], [since]
     for w in [w for w in re.findall(r"[a-z0-9]{2,}", (query or "").lower())][:6]:

@@ -471,3 +471,24 @@ def test_conversation_survives_a_restart(monkeypatch, tmp_path):
     assert c.messages[-1]["content"] == "Saturday 9 AM at the park."
     c.log_new_messages()  # resumed lines are not logged twice
     assert m.db.execute("SELECT COUNT(*) FROM convo_log").fetchone()[0] == 3
+
+
+def test_a_page_request_that_fails_says_why_and_the_deals_page_learns_the_collectors_status(monkeypatch):
+    from buddy import whentobuy
+
+    monkeypatch.setattr(server, "authorized", lambda t: t == "s3cret")
+    headers = {"Authorization": "Bearer s3cret"}
+
+    def broken(memory):
+        raise RuntimeError("the price book is locked: https://x.example/y?apikey=SECRET123")
+
+    monkeypatch.setattr(whentobuy, "open_calls", broken)
+    with TestClient(server.app, raise_server_exceptions=False) as client:
+        assert client.get("/api/deals/calls").status_code == 401                 # still needs the owner's token
+        failed = client.get("/api/deals/calls", headers=headers)
+        assert failed.status_code == 500
+        said = failed.json()["detail"]
+        assert said.startswith("Buddy hit an error here: RuntimeError: the price book is locked")
+        assert "SECRET123" not in said                                            # a key in an address is never shown
+        page = client.get("/api/deals?days=7", headers=headers).json()
+        assert set(page["collector"]) >= {"off", "last_run", "feeds", "starts_at_hour"}

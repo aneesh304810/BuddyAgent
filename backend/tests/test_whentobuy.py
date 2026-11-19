@@ -134,3 +134,25 @@ def test_open_calls_list_what_buddy_is_waiting_on_with_the_record_of_its_kind(tm
         assert whentobuy.open_calls(memory, today + timedelta(days=400))["calls"] == []  # past their re-check date
     finally:
         pricebook.close_all()
+
+
+def test_for_you_shows_the_calls_it_can_and_skips_one_it_cannot(memory, monkeypatch):
+    from buddy import pricebook
+    w.advise(memory, "Sony WH-1000XM6 headphones", 399.0, kind="electronics")
+    w.advise(memory, "Dyson V15", 649.0, kind="home", lowest=640, average=648)
+    assert {"parts", "travel_date", "nights", "factors"} <= {r["column_name"] for r in pricebook.run(memory, "DESCRIBE predictions")}
+    got = w.open_calls(memory)
+    assert len(got["calls"]) == 2 and all(c["why"] for c in got["calls"])
+    card = w._call_card({"id": 9, "domain": "product", "item": "x", "decision": "wait", "target": None, "price": float("nan"),
+                         "chance": 0.6, "event": "", "by_date": "2026-12-01", "made_on": "2026-11-19", "travel_date": None},
+                        {}, {"product": "Product"})
+    assert card["why"].startswith("Worth waiting. Buddy checks again") and card["price"] is None   # no number, no failure
+    real = w._call_card
+
+    def odd(r, record, names):
+        if r["item"].startswith("Dyson"):
+            raise ValueError("an odd row")
+        return real(r, record, names)
+
+    monkeypatch.setattr(w, "_call_card", odd)
+    assert [c["what"] for c in w.open_calls(memory)["calls"]] == ["Sony WH-1000XM6 headphones"]

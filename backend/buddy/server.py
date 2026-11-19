@@ -572,6 +572,21 @@ async def lifespan(app: FastAPI):
 app = FastAPI(title="Buddy", lifespan=lifespan, docs_url=None, redoc_url=None, openapi_url=None)
 
 
+@app.exception_handler(Exception)
+async def unexpected(request: Request, exc: Exception):
+    """A page's request that fails says why, so the page can show more than "Error 500". Only for Buddy's own
+    pages (/api/, which all need the owner's token); the full error is in the server log either way."""
+    from fastapi.responses import JSONResponse
+
+    from . import gateway  # noqa: PLC0415
+
+    log.error("unhandled error on %s: %s", request.url.path, type(exc).__name__, exc_info=exc)
+    if not request.url.path.startswith("/api/"):
+        return JSONResponse({"detail": "Internal Server Error"}, status_code=500)
+    reason = gateway._redact(" ".join(f"{type(exc).__name__}: {exc}".split()))[:220]
+    return JSONResponse({"detail": f"Buddy hit an error here: {reason}"}, status_code=500)
+
+
 @app.middleware("http")
 async def protect(request: Request, call_next):
     """Lockout, access log and security headers for every page and API call (guard.py)."""
@@ -2051,8 +2066,13 @@ async def api_cards_action(body: dict) -> dict:
 # --- deals (web/deals.html): deals from the feeds and the deals inbox, with each item's price history
 @app.get("/api/deals", dependencies=[Depends(require_admin)])
 async def api_deals(days: int = 7, domain: str = "", q: str = "") -> dict:
-    from . import pricebook  # noqa: PLC0415
-    return await asyncio.to_thread(pricebook.deals_page, memory, days, domain, q)
+    from . import dealcollector, pricebook  # noqa: PLC0415
+    out = await asyncio.to_thread(pricebook.deals_page, memory, days, domain, q)
+    try:  # when the feeds and the inbox were last read and what they said: why a list is empty, if it is
+        out["collector"] = dealcollector.page_status(memory)
+    except Exception:
+        log.warning("deals page: the collector's status could not be read", exc_info=True)
+    return out
 
 
 @app.get("/api/deals/calls", dependencies=[Depends(require_admin)])

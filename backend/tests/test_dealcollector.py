@@ -139,3 +139,25 @@ def test_catalog_follows_what_keeps_showing_up(memory):
     assert dc.check_catalog(memory, env, fetch_for([], shopping), budget=1) == 1
     assert pricebook.lowest(memory, "sony wh-1000xm6") == 310.0 and pricebook.lowest(memory, "dewalt dcd999") == 179.0
     assert dc.check_catalog(memory, {}, fetch_for([])) == 0  # no search key: nothing spent
+
+
+def test_a_paused_feed_is_tried_again_and_the_page_can_say_why_it_is_empty(memory):
+    name = dc.feeds(memory)[0]["name"]
+    assert dc.page_status(memory)["last_run"] == ""                     # nothing read yet: the page says so
+    memory.set("dealfeed:failures", json.dumps({name: dc.FAIL_DAYS}))  # it failed three days running
+    seen = []
+    new, status = dc.read_feeds(memory, fetch_for(seen))
+    paused = next(s for s in status if s.startswith(name))
+    assert "paused after failing 3 days in a row" in paused and "tries it again every 7 days" in paused
+    assert json.loads(memory.get("dealfeed:failures"))[name] == dc.FAIL_DAYS + 1   # each paused day is counted
+    # the day its turn comes it is read again, and a good read clears the count for good
+    memory.set("dealfeed:failures", json.dumps({name: dc.FAIL_DAYS + dc.RETRY_EVERY - 1}))
+    new, status = dc.read_feeds(memory, fetch_for(seen))
+    assert next(s for s in status if s.startswith(name)).endswith(" new")
+    assert name not in json.loads(memory.get("dealfeed:failures"))
+
+    dc.run(memory, fetch=fetch_for([]))
+    page = dc.page_status(memory)
+    assert page["last_run"] and page["off"] is False and any(s.startswith(name) for s in page["feeds"])
+    memory.set(dc.OFF_KEY, "1")
+    assert dc.page_status(memory)["off"] is True

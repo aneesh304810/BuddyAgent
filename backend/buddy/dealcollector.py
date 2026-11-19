@@ -61,6 +61,7 @@ DEFAULT_FEEDS = [
     {"name": "Woot", "service": "deal_feed", "url": "https://www.woot.com/blog/feed.rss"},
 ]
 FAIL_DAYS = 3  # a feed that fails this many days running is paused (shown in status; "add" it again to retry)
+RETRY_EVERY = 7  # and tried again by itself every this many days, so a site that was down for a while comes back
 
 
 
@@ -194,7 +195,7 @@ def _note_failures(memory: Memory, status: list[str]) -> None:
     fails = _failures(memory)
     for line in status:
         name, _, said = line.partition(": ")
-        if said.startswith("couldn't read it"):
+        if said.startswith(("couldn't read it", "paused")):   # a paused day counts too: that is how its turn comes
             fails[name] = fails.get(name, 0) + 1
         elif said.endswith(" new"):
             fails.pop(name, None)
@@ -208,8 +209,10 @@ def read_feeds(memory: Memory, fetch=None) -> tuple[list[dict], list[str]]:
     new, status = [], []
     fails = _failures(memory)
     for f in feeds(memory):
-        if fails.get(f["name"], 0) >= FAIL_DAYS:
-            status.append(f"{f['name']}: paused after failing {FAIL_DAYS} days in a row (check its feed address)")
+        failed = fails.get(f["name"], 0)
+        if failed >= FAIL_DAYS and (failed - FAIL_DAYS) % RETRY_EVERY != RETRY_EVERY - 1:
+            status.append(f"{f['name']}: paused after failing {FAIL_DAYS} days in a row (check its feed address); "
+                          f"Buddy tries it again every {RETRY_EVERY} days")
             continue
         try:
             if not allowed(memory, f["service"], f["url"], fetch):
@@ -238,6 +241,21 @@ def read_feeds(memory: Memory, fetch=None) -> tuple[list[dict], list[str]]:
         status.append(f"{f['name']}: {added} new")
     _note_failures(memory, status)
     return new, status
+
+
+def page_status(memory: Memory) -> dict:
+    """For the Deals page: when the feeds and the deals inbox were last read and what each one said, so an empty
+    page can say why it is empty."""
+    def kept(key):
+        try:
+            return json.loads(memory.get(key) or "null")
+        except ValueError:
+            return None
+    feeds_run, inbox = kept(STATUS_KEY) or {}, kept("dealmail:status")
+    return {"off": memory.get(OFF_KEY) == "1", "last_run": feeds_run.get("day") or "",
+            "feeds": [str(line)[:200] for line in feeds_run.get("feeds") or []],
+            "new_deals": feeds_run.get("new_deals"), "starts_at_hour": START_HOUR,
+            "inbox": json.dumps(inbox)[:300] if inbox else ""}
 
 
 # --- what the owner wants -------------------------------------------------------------------------------------
