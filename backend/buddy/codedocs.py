@@ -199,8 +199,8 @@ COMPONENTS = [  # every server module belongs to one feature (tests check none i
      ["pricebook.py", "pricestore.py", "pricecheck.py", "productid.py", "patterns.py", "modeltrain.py"]),
     ("Investing: signals, research and practice", "Chart setups and trade ideas, Reddit and news signals, buy and sell "
      "signals with a track record, live triggers, investor checklists, fund holdings, the committee and journal, a "
-     "paper portfolio and Buddy's own practice book; never trades",
-     ["recommend.py", "signals.py", "simbook.py", "stratlab.py", "stratrules.py", "strategy_seeds.py", "researchdesk.py", "benchmarks.py", "newssent.py", "newsdesk.py", "docread.py", "fundamentals.py", "labsetup.py", "crossmarket.py", "markets.py", "livewatch.py", "lenses.py", "funds.py", "journal.py",
+     "paper portfolio, Buddy's own practice book and day-trade practice; never trades",
+     ["recommend.py", "signals.py", "simbook.py", "dayplan.py", "stratlab.py", "stratrules.py", "strategy_seeds.py", "researchdesk.py", "benchmarks.py", "newssent.py", "newsdesk.py", "docread.py", "fundamentals.py", "labsetup.py", "crossmarket.py", "markets.py", "livewatch.py", "lenses.py", "funds.py", "journal.py",
       "paper.py", "investors.py", "finnhub.py", "invest.py"]),
     ("Travel and getting around", "Flights and hotels with book now or wait, checking the hotel direct, saved "
      "searches, seats, transit alerts, maps, rides, weather and where you are",

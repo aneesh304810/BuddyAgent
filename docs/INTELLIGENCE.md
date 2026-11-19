@@ -309,6 +309,35 @@ That lean is added to the price trend, insiders and analysts exactly as the Redd
 needs the evidence and the trend to agree; the trend alone opens nothing. "The Intelligence evidence" is
 re-weighed from closed trades like the other reasons. Nothing real is ever bought or sold.
 
+## Day-trade practice (`dayplan.py`)
+
+Practice on paper, one US stock at a time. Nothing here can reach a broker. Tool: `day_trade_practice`.
+
+| Step | What it does |
+|---|---|
+| Plan | The opening range is the first 15 minutes. The entry is the first 5-minute bar that closes beyond it. The stop (the middle of the range, or its far side) and the target (a multiple of that risk) are fixed beforehand. Out by 3:55 PM New York time whatever happens. |
+| Replay | The rest of the day replayed 10,000 times from the stock's own 5-minute bars at the same time of day over its last sessions (up to 60, at least 20), and the same rule re-run on each of those real sessions: target first, stop first, or neither by the close. |
+| Size | Whole shares so the stop costs no more than the limit for one trade, and the position no more than its share of the account. |
+| Check | Pass or block: loss per trade, loss per day, trades per day, reward to risk, last entry time. Each reason is said in plain words. |
+
+- **Source.** 5-minute bars from Alpaca's market data (`markets.Data.intraday`), through Buddy Connect. Only the
+  ticker symbol is sent. It needs the Alpaca key already used for daily prices. On the free plan the bars cover
+  every exchange but are about 15 minutes behind; the reply says so.
+- **Practice trades.** `keep` records today's plan (after the owner's yes) in the price book table `day_trades`.
+  After the close it is settled from that day's real bars, and `record` shows what the replays said beside what
+  happened.
+- **Limits.** Defaults: a $5,000 practice account, $50 a trade, $150 a day, 3 trades a day, a target at least equal
+  to the risk, no entry after 3:00 PM, 2 cents a share for the spread. `limits` changes them.
+- **What a replay is.** It is built from how much the stock has moved at each time of day. It says how far the
+  price tends to travel, not which way, and it is not a prediction.
+- **Where the method comes from.** It follows the "Time Machine" in day-trader-skill (MIT licence, copyright (c)
+  2026 Jake Schincariol). The code is Buddy's own. It differs in three ways: official bars instead of an
+  unofficial chart address; bars are drawn in runs of three from one past session, so a move's follow-through is
+  kept; and a cost per share is taken off every outcome. The pack's broker, scanner and news parts were not
+  brought in.
+- **Not built.** No scan for setups across many stocks, no alert when a kept trade reaches its stop or target
+  during the day, no page in the app, and no check for an earnings report on the day.
+
 ## The strategy lab
 
 Paper trading that does not wait for Reddit or for evidence (`stratlab.py`). Each weekday morning six

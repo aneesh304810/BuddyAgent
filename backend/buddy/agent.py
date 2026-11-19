@@ -62,6 +62,7 @@ from .selfcheck import TOOL as SELF_CHECK_TOOL
 from .market_school import TOOL as MARKET_SCHOOL_TOOL
 from .shopper import TOOL as SHOPPING_PROFILE_TOOL
 from .whentobuy import TOOL as WHEN_TO_BUY_TOOL
+from .dayplan import TOOL as DAY_TRADE_PRACTICE_TOOL
 from .dealcollector import TOOL as DAILY_DEALS_TOOL
 from .pricebook import TOOL as PRICE_BOOK_TOOL
 from .dealforecast import TOOL as DEAL_FORECAST_TOOL
@@ -863,7 +864,7 @@ class Conversation:
                      WEATHER_TOOL, PACKAGES_TOOL, MESSAGE_TOOL, BUDGET_TOOL, COSTWATCH_TOOL, ADVICE_TOOL, EDIT_TOOL,
                      RECALL_CONVO_TOOL, CLAUDE_FIX_TOOL, COMMUTE_TOOL, ROUTINE_TOOL, CALENDAR_ADD_TOOL,
                      CONNECTIONS_TOOL, AMAZON_TOOL, MY_HEALTH_TOOL, HEALTH_INFO_TOOL, HEALTH_PLAN_TOOL, RESTAURANTS_TOOL, ENTERTAINMENT_TOOL, SELF_CHECK_TOOL, MARKET_SCHOOL_TOOL, SHOPPING_PROFILE_TOOL, WHEN_TO_BUY_TOOL, DAILY_DEALS_TOOL, PRICE_BOOK_TOOL, DEAL_FORECAST_TOOL, HOTEL_DIRECT_TOOL, SEASONAL_PRICES_TOOL, COMMUNITY_SIGNALS_TOOL, RECOMMENDATIONS_TOOL, INVESTOR_CHECKS_TOOL,
-    FUND_HOLDINGS_TOOL, INVESTMENT_JOURNAL_TOOL, PAPER_PORTFOLIO_TOOL, INVESTOR_LIBRARY_TOOL, ALERT_SETTINGS_TOOL, TRAVEL_TIMING_TOOL, MORNING_TUTOR_TOOL, EMAIL_ORGANIZER_TOOL, CANCEL_SUBSCRIPTION_TOOL, LIFE_MEMORY_TOOL, SECURITY_WATCH_TOOL, MODEL_SCOUT_TOOL, TECH_RADAR_TOOL, INTELLIGENCE_TOOL, MAESTRO_TOOL,
+    FUND_HOLDINGS_TOOL, INVESTMENT_JOURNAL_TOOL, PAPER_PORTFOLIO_TOOL, DAY_TRADE_PRACTICE_TOOL, INVESTOR_LIBRARY_TOOL, ALERT_SETTINGS_TOOL, TRAVEL_TIMING_TOOL, MORNING_TUTOR_TOOL, EMAIL_ORGANIZER_TOOL, CANCEL_SUBSCRIPTION_TOOL, LIFE_MEMORY_TOOL, SECURITY_WATCH_TOOL, MODEL_SCOUT_TOOL, TECH_RADAR_TOOL, INTELLIGENCE_TOOL, MAESTRO_TOOL,
                      THERMOSTAT_TOOL, PHONE_CALL_TOOL]
         spending += [BROWSE_TOOL] if self.jobs else []  # listed even when the sandbox is down: it says what to fix
         if self.memory.get("forms:phone") != "1":  # the owner's choice: forms always in Buddy's own browser
@@ -1102,6 +1103,9 @@ class Conversation:
         if name == "daily_deals":  # deal feeds and daily price checks for what they want; never buys
             from . import dealcollector  # noqa: PLC0415
             return await asyncio.to_thread(dealcollector.run_tool, self.memory, args)
+        if name == "day_trade_practice":  # a day-trade plan, its odds by replay, size and limits; paper only
+            from . import dayplan  # noqa: PLC0415
+            return await asyncio.to_thread(dayplan.run_tool, self.memory, args)
         if name == "when_to_buy":  # buy now or wait, kept as a prediction and checked later; never buys
             from . import whentobuy  # noqa: PLC0415
             return await asyncio.to_thread(whentobuy.run_tool, self.memory, args)

@@ -1,6 +1,6 @@
 # Investing: signals, research and practice
 
-Chart setups and trade ideas, Reddit and news signals, buy and sell signals with a track record, live triggers, investor checklists, fund holdings, the committee and journal, a paper portfolio and Buddy's own practice book; never trades.
+Chart setups and trade ideas, Reddit and news signals, buy and sell signals with a track record, live triggers, investor checklists, fund holdings, the committee and journal, a paper portfolio, Buddy's own practice book and day-trade practice; never trades.
 
 ## Architecture
 
@@ -10,6 +10,7 @@ flowchart LR
     subgraph Tools["What Buddy can do"]
         t_recommendations["recommendations"]
         t_community_signals["community_signals"]
+        t_day_trade_practice["day_trade_practice"]
         t_markets["markets"]
         t_investor_checks["investor_checks"]
         t_fund_holdings["fund_holdings"]
@@ -21,6 +22,7 @@ flowchart LR
         recommend_py["recommend.py<br/>Buy and sell signals by category, each with its reasons and Buddy's…"]
         signals_py["signals.py<br/>what people are saying on Reddit about deals, travel, products and…"]
         simbook_py["simbook.py<br/>every signal Buddy makes is paper-traded automatically, by fixed…"]
+        dayplan_py["dayplan.py<br/>a plan before the trade, the odds by replay, the size and the limits"]
         stratlab_py["stratlab.py<br/>well-known trading rules, each paper-traded every weekday, to see…"]
         stratrules_py["stratrules.py<br/>a document that describes a trading strategy becomes a rule the…"]
         strategy_seeds_py["strategy_seeds.py<br/>Strategies read from research papers the owner supplied, shipped as…"]
@@ -46,6 +48,8 @@ flowchart LR
     t_recommendations --> recommend_py
     you --> t_community_signals
     t_community_signals --> signals_py
+    you --> t_day_trade_practice
+    t_day_trade_practice --> dayplan_py
     you --> t_markets
     t_markets --> markets_py
     you --> t_investor_checks
@@ -68,6 +72,7 @@ flowchart LR
     signals_py --> finnhub_py
     signals_py --> markets_py
     simbook_py --> markets_py
+    dayplan_py --> markets_py
     stratlab_py --> benchmarks_py
     stratlab_py --> finnhub_py
     stratlab_py --> fundamentals_py
@@ -102,10 +107,11 @@ flowchart LR
     paper_py --> finnhub_py
     paper_py --> markets_py
     invest_py --> markets_py
-    db[("Your database<br/>api_calls, factor_returns, fund_filings, fund_holdings, fundamentals, inv_journal, lab_rules, lab_trades and more")]
+    db[("Your database<br/>api_calls, day_trades, factor_returns, fund_filings, fund_holdings, fundamentals, inv_journal, lab_rules and more")]
     recommend_py --> db
     signals_py --> db
     simbook_py --> db
+    dayplan_py --> db
     stratlab_py --> db
     stratrules_py --> db
     researchdesk_py --> db
@@ -158,6 +164,7 @@ The diagram reads left to right: what you ask, the tools Buddy uses, the modules
 |---|---|---|---|
 | `recommendations` | Buy and sell signals by category, with reasons and Buddy's own record | show, settings, switch, record, run, live, paper, scorecard, model | recommend.py |
 | `community_signals` | What people are saying on Reddit about deals, travel, products and markets, read once a night from the communities the owner follows, tagged (ticker, product, c | status, test, run, trending, about, add, remove, switch | signals.py |
+| `day_trade_practice` | Practice day trading on paper, one US stock at a time; Buddy never places an order | plan, keep, record, limits | dayplan.py |
 | `markets` | Trade ideas from chart patterns, with entries, stops and targets, and what Reddit, StockTwits and the news say; ideas only, you never trade | scan, ideas, analyze, watch, unwatch, bought, sold, settings, test | markets.py |
 | `investor_checks` | Run the classic investors' checklists on a US company from its own SEC filings and today's price: Graham (defensive investor's tests), Quality (the Buffett and  | - | lenses.py |
 | `fund_holdings` | What well-known funds reported owning in their quarterly SEC 13F filings (Berkshire Hathaway, Bridgewater, Pershing Square, Scion, Renaissance, Appaloosa, Green | show, who_holds, status, refresh, follow, unfollow | funds.py |
@@ -264,6 +271,35 @@ not taken off. A few dozen trades prove little: results say so until there are e
 ```
 
 - Tables: `sim_trades`
+- Uses: markets.py, memory.py, pricebook.py, tools.py
+
+### dayplan.py
+
+```text
+Day-trade practice: a plan before the trade, the odds by replay, the size and the limits. Paper only.
+
+  plan     The opening range (the first 15 minutes), an entry when a 5-minute bar closes beyond it, a stop and a
+           target fixed beforehand, and out by 3:55 PM New York time whatever happens.
+  replay   The rest of the day replayed 10,000 times from the stock's own 5-minute bars at the same time of day
+           over its last sessions, and the same rule re-run on each of those real sessions: how often the target
+           came first, the stop first, or neither by the close.
+  size     How many shares fit the most the owner will lose on one trade.
+  check    Pass or block against the owner's limits: loss per trade, loss per day, trades per day, reward to risk,
+           time of day and position size.
+
+A plan can be kept as a practice trade. It is settled from that day's real bars after the close, so the replay's
+odds can be compared with what happened. Buddy never places an order: nothing here can reach a broker.
+
+Bars come from Alpaca's market data through Buddy Connect (markets.Data.intraday): only the ticker symbol is
+sent. Everything else is arithmetic on those bars, with the standard library only. Practice trades are kept in the
+price book, beside Buddy's other practice trades.
+
+The method follows the "Time Machine" in day-trader-skill (MIT licence, copyright (c) 2026 Jake Schincariol). This
+is Buddy's own code. What differs: official bars instead of an unofficial chart address; bars are drawn in short
+runs from one past session, so a move's follow-through is kept; a cost per share for the spread; and no broker.
+```
+
+- Tables: `day_trades`
 - Uses: markets.py, memory.py, pricebook.py, tools.py
 
 ### stratlab.py

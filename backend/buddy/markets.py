@@ -209,6 +209,40 @@ class Data:
                 log.info("free bars %s: %s", s, type(e).__name__)
         return out
 
+    def intraday(self, symbol: str, minutes: int = 5, days: int = 95) -> list[dict]:
+        """A US stock's bars of `minutes` minutes over the last `days` days, oldest first: [{"t" (the bar's start,
+        UTC), "o", "h", "l", "c", "v"}]. From Alpaca only (official market data; the ticker symbol is all that is
+        sent). The free plan gives every exchange's bars up to 15 minutes ago (SIP), else its own exchange's (IEX)."""
+        if not self.alpaca:
+            raise ToolError("Minute-by-minute prices need the Alpaca market data key (set.sh BUDDY_ALPACA_KEY_ID and "
+                            "BUDDY_ALPACA_SECRET).")
+        sym = symbol.strip().upper()
+        feed = self.memory.get("markets:feed") or "sip"
+        start = (datetime.now(timezone.utc) - timedelta(days=days)).strftime("%Y-%m-%dT00:00:00Z")
+        out, token = [], ""
+        for _ in range(40):
+            q = {"symbols": sym, "timeframe": f"{int(minutes)}Min", "start": start, "limit": 10000,
+                 "adjustment": "split", "feed": feed}
+            if feed == "sip":
+                q["end"] = (datetime.now(timezone.utc) - timedelta(minutes=16)).strftime("%Y-%m-%dT%H:%M:%SZ")
+            if token:
+                q["page_token"] = token
+            try:
+                got = self._json("alpaca", "https://data.alpaca.markets/v2/stocks/bars?" + urllib.parse.urlencode(q),
+                                 self.alpaca, purpose="day-trade practice")
+            except Exception as e:
+                if feed == "sip" and getattr(e, "code", None) in (401, 403, 422):
+                    feed, out, token = "iex", [], ""  # this plan can't read SIP: IEX from now on
+                    self.memory.set("markets:feed", "iex")
+                    continue
+                raise
+            out += [{"t": r["t"], "o": r["o"], "h": r["h"], "l": r["l"], "c": r["c"], "v": r.get("v", 0)}
+                    for r in (got.get("bars") or {}).get(sym) or []]
+            token = got.get("next_page_token") or ""
+            if not token:
+                break
+        return out
+
     def _stooq(self, symbol: str) -> list[dict]:
         raw = self._get("stooq", f"https://stooq.com/q/d/l/?s={urllib.parse.quote(symbol.lower().replace('.', '-'))}.us&i=d")
         rows = []
