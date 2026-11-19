@@ -177,6 +177,34 @@ def test_bills_more_than_the_cash(monkeypatch):
         "groups": {"cash": [{"balance": 1800}]}, "totals": {"cash": 1800.0}})
     out = moments(memory).now(now=datetime.now().replace(hour=10), here=None)
     assert any("$2,400 in bills is due" in m["text"] and "have $1,800" in m["text"] for m in out)
+    assert next(m for m in out if "in bills is due" in m["text"])["kind"] == "bill"     # labelled Money, not Travel
+
+
+def test_the_bills_alert_adds_up_and_counts_a_bill_once(monkeypatch):
+    memory = setup()
+    from buddy import attention, plaid
+    from buddy.money import Money
+    money, today = Money(memory), date.today()
+    late, soon = (today - timedelta(days=6)).isoformat(), (today + timedelta(days=3)).isoformat()
+    money.add_bill("Cloudflare", 32, "USD", late, source="email:1")
+    money.add_bill("American Express", 389, "USD", late, source="email:2")
+    money.add_bill("American Express", 389, "USD", late, source="email:3")        # the reminder for the same bill
+    assert len(money.open_bills(5)) == 2                                          # refused: it is the same bill
+    memory.db.execute("INSERT INTO bills (biller, amount, currency, due_date, card, source, created_at) VALUES "
+                      "('american express', 389, 'USD', ?, '', 'email:old', 'x')", (late,))   # saved before that rule
+    memory.db.commit()
+    assert len(money.open_bills(5)) == 2                                          # still listed once
+    for i, amount in enumerate((11742, 900, 800, 700)):
+        money.add_bill(f"Card {i}", amount, "USD", soon, source=f"email:c{i}")
+    monkeypatch.setattr(plaid.Plaid, "accounts_overview", lambda self: {
+        "groups": {"cash": [{"balance": 1074}]}, "totals": {"cash": 1074.0}})
+    text = next(m["text"] for m in moments(memory).now(now=datetime.now().replace(hour=10), here=None) if "in bills" in m["text"])
+    assert "$14,563 in bills is due" in text and "$421 of it already overdue" in text    # 32 + 389 once + the four cards
+    assert "Card 0 $11,742" in text and "Card 1 $900" in text and "and 2 more" in text   # the largest four, then the rest
+    assert text.count("American Express") <= 1 and "have $1,074" in text
+    assert attention.category_of("bill") == "Money" and attention.category_of("weather") == "Home"
+    assert money.mark_paid("american express")["amount"] == 389                   # paying it closes every copy
+    assert [b["biller"] for b in money.open_bills(5) if "merican" in b["biller"]] == []
 
 
 def test_time_to_leave_for_an_appointment_and_tomorrows_overlap():

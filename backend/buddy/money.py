@@ -160,6 +160,11 @@ class Money:
         except ValueError:
             return  # no readable due date: nothing to remind about
         source = source or f"manual:{biller}:{due}"
+        if self.memory.db.execute(  # the same bill from another email (a statement, then its reminder): already here
+                "SELECT 1 FROM bills WHERE lower(biller) = lower(?) AND amount = ? AND currency = ? AND due_date = ? "
+                "AND card = ? AND source <> ?", (biller.strip()[:80], round(amount, 2), (currency or "USD").upper()[:3],
+                                                 due, card[:20], source)).fetchone():
+            return
         self.memory.db.execute(
             "INSERT OR IGNORE INTO bills (biller, amount, currency, due_date, card, source, created_at) "
             "VALUES (?, ?, ?, ?, ?, ?, ?)",
@@ -175,8 +180,11 @@ class Money:
         match = next((b for b in bills if str(b["id"]) == what), None) or next(
             (b for b in bills if what and (what in b["biller"].lower() or b["biller"].lower() in what
                                           or (b["card"] and b["card"].lower() == what))), None)
-        if match:
-            self.memory.db.execute("UPDATE bills SET status = 'paid' WHERE id = ?", (match["id"],))
+        if match:  # with any copy of the same bill saved before copies were refused
+            self.memory.db.execute(
+                "UPDATE bills SET status = 'paid' WHERE status = 'open' AND lower(biller) = lower(?) AND amount = ? "
+                "AND currency = ? AND due_date = ? AND card = ?",
+                (match["biller"], match["amount"], match["currency"], match["due_date"], match["card"]))
             self.memory.db.commit()
         return match
 
@@ -295,10 +303,12 @@ class Money:
             "ORDER BY day DESC, id DESC LIMIT ?", (limit,))]
 
     def open_bills(self, days: int = 14) -> list[dict]:
+        """Open bills due within `days` (overdue ones too), earliest first. The same bill saved twice (same biller,
+        amount, due date and card) is listed once."""
         until = (local_now().date() + timedelta(days=days)).isoformat()
         return [dict(r) for r in self.memory.db.execute(
-            "SELECT id, biller, amount, currency, due_date, card FROM bills WHERE status = 'open' "
-            "AND due_date <= ? ORDER BY due_date", (until,))]
+            "SELECT MIN(id) AS id, biller, amount, currency, due_date, card FROM bills WHERE status = 'open' "
+            "AND due_date <= ? GROUP BY lower(biller), amount, currency, due_date, card ORDER BY due_date, id", (until,))]
 
     def bills_to_remind(self) -> list[dict]:
         """Open bills due within BILL_WARN_DAYS (or overdue) not yet reminded today."""

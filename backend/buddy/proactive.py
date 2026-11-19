@@ -509,7 +509,7 @@ async def run(memory: Memory, deliver: Deliver, connected=None) -> None:
                     away = atlas.situation().get("place") not in ("home", "")
                     for item in parcels.news(away_from_home=away):
                         if (item["urgent"] or (not in_quiet_hours() and not hold)) and \
-                                await deliver("travel", item["text"]):
+                                await deliver("package", item["text"]):
                             parcels.told(item)
                 except Exception:
                     log.exception("packages failed")
@@ -522,7 +522,7 @@ async def run(memory: Memory, deliver: Deliver, connected=None) -> None:
                         today = (fc or {}).get("days", [{}])[0] if fc else {}
                         if today and (today.get("wet") or (today.get("rain_chance") or 0) >= 60):
                             when = Weather.wet_from(fc, today["day"])
-                            extra.append({"key": f"wx:{today['day']}", "urgent": False,
+                            extra.append({"key": f"wx:{today['day']}", "urgent": False, "kind": "weather",
                                           "text": f"{today['conditions'].capitalize()} likely today"
                                                   f" ({today.get('rain_chance') or '?'}%{', ' + when if when else ''}), "
                                                   f"{today['high']}/{today['low']}{fc['unit']}. Take an umbrella."})
@@ -532,10 +532,11 @@ async def run(memory: Memory, deliver: Deliver, connected=None) -> None:
                 from . import commute  # noqa: PLC0415
                 heads = await asyncio.to_thread(commute.nudges, memory)  # before the usual leave: trains, alerts
                 from . import nest  # noqa: PLC0415  after leaving: the house still heating? offer eco
-                heads += await asyncio.to_thread(nest.nudges, memory)
+                heads += [{**n, "kind": "home"} for n in await asyncio.to_thread(nest.nudges, memory)]
                 for m in await asyncio.to_thread(moments.now) + await asyncio.to_thread(atlas.nudges) + heads + extra:
+                    # each message says what it is about (a bill, the weather, the house); the rest are travel
                     if (m["urgent"] or (not in_quiet_hours() and not hold)) and not moments._said(m["key"]) \
-                            and await deliver("travel", m["text"]):
+                            and await deliver(m.get("kind") or "travel", m["text"]):
                         moments.told(m)
             except Exception:
                 log.exception("connecting plans failed")

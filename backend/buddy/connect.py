@@ -392,9 +392,10 @@ class Moments:
     def _said(self, key: str) -> bool:
         return bool(self.memory.get(f"connect:said:{key}"))
 
-    def _say(self, out: list, key: str, text: str, urgent: bool = False) -> None:
+    def _say(self, out: list, key: str, text: str, urgent: bool = False, kind: str = "") -> None:
+        """kind: what the message is about when it is not travel (the app labels it from this)."""
         if not self._said(key):
-            out.append({"key": key, "text": text, "urgent": urgent})
+            out.append({"key": key, "text": text, "urgent": urgent, **({"kind": kind} if kind else {})})
 
     def told(self, m: dict) -> None:
         self.memory.set(f"connect:said:{m['key']}", datetime.now(timezone.utc).isoformat())
@@ -513,11 +514,17 @@ class Moments:
         if have >= due:
             return []
         last = max(b["due_date"] for b in bills)
-        names = ", ".join(f"{b['biller']} ${b['amount']:,.0f} ({b['due_date'][5:]})" for b in bills[:4])
+        # the total covers every bill, so the list must say so: the four largest by name, then how many more
+        shown = sorted(bills, key=lambda b: -b["amount"])[:4]
+        names = ", ".join(f"{b['biller']} ${b['amount']:,.0f} ({b['due_date'][5:]})" for b in shown)
+        if len(bills) > len(shown):
+            names += f", and {len(bills) - len(shown)} more"
+        overdue = sum(b["amount"] for b in bills if b["due_date"] < now.date().isoformat())
+        late = f", ${overdue:,.0f} of it already overdue" if overdue else ""
         out = []
         self._say(out, f"cash:{last}:{len(bills)}:{int(due)}",
-                  f"Heads-up: ${due:,.0f} in bills is due by {date.fromisoformat(last):%b %-d} ({names}), and your "
-                  f"checking and savings have ${have:,.0f}. You may want to move money before then.")
+                  f"Heads-up: ${due:,.0f} in bills is due by {date.fromisoformat(last):%b %-d}{late} ({names}), and "
+                  f"your checking and savings have ${have:,.0f}. You may want to move money before then.", kind="bill")
         return out
 
     # calendar: time to leave for an event with a place, and tomorrow's overlaps
