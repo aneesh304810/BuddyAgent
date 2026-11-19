@@ -6,6 +6,10 @@ say, and ElevenLabs says it in a natural female voice. Cost: audio goes to Deepg
 so a long hold costs little more than the phone line; Claude is asked only when a person (or a phone menu) has
 finished speaking, and a recording heard before ("your call is important to us") isn't sent to Claude again.
 
+Languages: a call starts in English and follows the other person into any of ten languages (CALL_LANGUAGES):
+Deepgram's Flux Multilingual says which language each turn was in, Claude answers in it, and the voice speaks the
+language Buddy's words are written in. The owner's summary is always in English.
+
 Kinds of call:
   appointment   book (or move) an appointment, e.g. with a doctor, within the times the owner allowed, using
                 their calendar to avoid clashes; Buddy may give name, callback number, date of birth and insurance.
@@ -81,9 +85,24 @@ def brain_goodbye(heard: str, asked_more: bool) -> bool:
     return asked_more and not AGREE.search(text)
 
 
+# The same in the other languages a call can be held in (calls.CALL_LANGUAGES).
+GOODBYE_WORDS |= set(
+    "adiós adios gracias muchas hasta luego pronto igualmente chao bueno vale de nada que tenga buen día buenas tardes "
+    "noches perfecto muy amable usted sí claro listo está bien "
+    "au revoir merci beaucoup bonne journée soirée à bientôt vous aussi également rien d'accord parfait oui très salut "
+    "tschüss auf wiedersehen wiederhören danke schön vielen dank bitte ebenfalls gleichfalls schönen tag abend noch "
+    "ihnen auch ja gut alles klar perfekt bis bald "
+    "tchau adeus obrigado obrigada muito até mais bom dia boa tarde noite para você também tá certo perfeito sim bem "
+    "ciao arrivederci arrivederla grazie mille presto buona giornata serata anche lei altrettanto prego perfetto va "
+    "bene dag doei tot ziens u wel bedankt fijne prettige ook insgelijks graag gedaan goed prima oké "
+    "नमस्ते धन्यवाद शुक्रिया ठीक है जी हाँ अलविदा फिर मिलेंगे आपका दिन शुभ हो बहुत "
+    "до свидания спасибо большое пока всего доброго хорошего дня вечера вам тоже и хорошо да ладно отлично "
+    "ありがとうございます ありがとうございました 失礼します 失礼いたします さようなら はい よろしくお願いします どうも".split())
+
+
 def is_goodbye(heard: str) -> bool:
     """Only parting words ("OK, thanks, you too, bye!"): the call can end. Anything more and they have more to say."""
-    words = re.findall(r"[a-z'-]+", (heard or "").lower())
+    words = _words(heard)
     return bool(words) and len(words) <= 12 and all(w in GOODBYE_WORDS for w in words)
 FILLER_AFTER_S = 1.6              # no reply yet after this long: a quick "Mm-hmm" rather than silence
 FIRST_PIECE_WORDS = 4             # the first words spoken while Claude still writes: at least this many
@@ -93,7 +112,8 @@ AUDIO_LEAD_S = 0.4                # Buddy's voice is sent this far ahead, so net
 VOICE_SPEED = 0.95                # ElevenLabs: 1.0 is normal; a little slower is clearer on a phone line
 TTS_MODEL = "eleven_flash_v2_5"  # the fallback voice model; voice_model() normally picks a newer real-time one
 STT_MODEL = "nova-3-general"      # the older hearing model (BUDDY_CALL_STT=nova-3)
-FLUX_MODEL = "flux-general-en"     # Deepgram Flux: hears the words and decides when the caller has finished
+FLUX_MODEL = "flux-general-multi"  # Deepgram Flux: the words, the language of each turn, and when they've finished
+FLUX_MODEL_EN = "flux-general-en"  # the same in English only (BUDDY_CALL_LANGUAGES=en)
 FLUX_EOT = 0.7                     # how sure Flux must be that they've finished (higher waits a bit longer)
 FLUX_EOT_TIMEOUT_MS = 900          # and at most this much quiet before the turn ends anyway: a bare "Hello?" or
                                    # "OK" leaves Flux unsure, and with its 3 s default the caller sat in silence
@@ -137,6 +157,115 @@ def _ready(memory: Memory) -> None:
 
 def _env(name: str, env=None) -> str:
     return gateway._secret(env, name)
+
+# --- languages ----------------------------------------------------------------------------------------------
+# What Deepgram Flux hears (one model for all ten, switching whenever the speaker does). Every ElevenLabs real-time
+# voice model speaks all ten with the same voice.
+CALL_LANGUAGES = {"en": "English", "es": "Spanish", "fr": "French", "de": "German", "hi": "Hindi", "ru": "Russian",
+                  "pt": "Portuguese", "ja": "Japanese", "it": "Italian", "nl": "Dutch"}
+_SCRIPTS = (("hi", re.compile(r"[\u0900-\u097F]")), ("ru", re.compile(r"[\u0400-\u04FF]")),
+            ("ja", re.compile(r"[\u3040-\u30FF\u4E00-\u9FFF]")))
+# Words that give a language away: common ones that English and the other languages here don't share.
+_TELL = {
+    "en": "the is are you and what can please thank thanks hello this that for have with your will would i'm it's "
+          "yes we they there here when how not but from about okay sorry i'll let's call back right today tomorrow",
+    "es": "el los las que por para una está estoy sí hola gracias buenos buenas cómo qué usted quiero necesito señor "
+          "señora favor puedo tiene tengo hablar cita días tardes muy bien pero esto eso aquí soy mañana hoy con del "
+          "le momento llamar llamo también ahora claro",
+    "fr": "le les des et une pour avec est pas oui bonjour merci vous je nous plaît qui dans sur mais très bien suis "
+          "avez voudrais rendez-vous demain aujourd'hui monsieur madame c'est ça du au ne cette votre appel instant",
+    "de": "der das und ist nicht ich sie wir ein eine mit für ja nein guten danke bitte hallo haben möchte termin "
+          "morgen heute aber sehr gut auf zu können kann wie ihnen einen moment sind den dem",
+    "pt": "os que em um uma não sim olá obrigado obrigada você bom boa está estou quero preciso senhor senhora muito "
+          "bem mas isso aqui amanhã hoje falar tem tenho dia tarde com da ao só momento ligar também agora",
+    "it": "il gli di che un una con non sì ciao grazie buongiorno buonasera lei sono è vorrei signore signora molto "
+          "bene questo qui domani oggi parlare posso appuntamento della per favore attimo anche adesso",
+    "nl": "het een en niet ik wij met voor ja nee goedemorgen goedemiddag dank hallo heb hebben wil graag afspraak "
+          "morgen vandaag maar heel goed kunt wat hoe dat deze meneer mevrouw alstublieft bedankt bent zijn",
+}
+_TELL = {lang: frozenset(words.split()) for lang, words in _TELL.items()}
+_SHARED = {w for a in _TELL for b in _TELL if a < b for w in _TELL[a] & _TELL[b]}  # tells nothing between those two
+_WORD = re.compile(r"[^\s.,!?¡¿;:\"«»()\[\]।、。！？…]+")
+
+
+def _words(text: str) -> list[str]:
+    """A sentence's words in any script, lower case (Hindi words stay whole; Japanese comes as phrases)."""
+    return _WORD.findall((text or "").lower())
+
+
+def call_languages(env=None) -> list[str]:
+    """The languages a call may be held in, English first: all ten unless BUDDY_CALL_LANGUAGES narrows it
+    ("en" keeps calls in English only; "en,es" allows Spanish too)."""
+    raw = (_env("BUDDY_CALL_LANGUAGES", env) or "all").lower().strip()
+    if raw in ("all", "*"):
+        return list(CALL_LANGUAGES)
+    picked = [c.strip()[:2] for c in raw.split(",")]
+    return list(dict.fromkeys(["en"] + [c for c in picked if c in CALL_LANGUAGES]))
+
+
+def hint_languages(env=None) -> list[str]:
+    """What the hearing leans towards before anyone has spoken another language. English by default, so English with a
+    heavy accent is not taken for another language; a hint only leans, it does not stop the others being heard.
+    BUDDY_CALL_LANGUAGE_HINTS: a list ("en,es"), or "none" to lean nowhere."""
+    raw = (_env("BUDDY_CALL_LANGUAGE_HINTS", env) or "en").lower().strip()
+    if raw in ("none", "off"):
+        return []
+    allowed = call_languages(env)
+    return list(dict.fromkeys(c for c in (p.strip()[:2] for p in raw.split(",")) if c in allowed))
+
+
+def language_of(text: str, current: str = "en", allowed=None) -> str:
+    """The language a sentence is written in, among the call's languages; `current` when the words don't say (a name,
+    a number, "OK"). Used on Buddy's own words, so the voice speaks the language they are written in, and to check
+    what the hearing says about theirs."""
+    allowed = list(allowed or CALL_LANGUAGES)
+    for lang, script in _SCRIPTS:
+        if lang in allowed and len(script.findall(text or "")) >= 2:
+            return lang
+    words = set(_words(text))
+    scores = sorted(((len(words & (_TELL[lang] - _SHARED)) + 0.5 * len(words & _TELL[lang] & _SHARED), lang)
+                     for lang in allowed if lang in _TELL), reverse=True)
+    if not scores:
+        return current
+    best, lang = scores[0]
+    second = scores[1][0] if len(scores) > 1 else 0.0
+    enough = best >= 2 or (best >= 1 and len(words) <= 3)
+    return lang if enough and best > second else current
+
+
+def heard_language(said: str, lang: str, allowed=None) -> str:
+    """The language the hearing gave for a turn, when the words bear it out; "" when they don't (English with an
+    accent taken for Hindi comes back in Latin letters: not Hindi) or it isn't one of the call's languages."""
+    lang = str(getattr(lang, "value", lang) or "").split("-")[0].lower()
+    allowed = list(allowed or CALL_LANGUAGES)
+    if lang not in allowed:
+        return ""
+    return lang if language_of(said, "" if lang != "en" else "en", allowed) == lang else ""
+
+
+def languages_note(env=None) -> str:
+    """The part of every call's instructions about languages ("" when calls are kept in English)."""
+    langs = call_languages(env)
+    if len(langs) < 2:
+        return ""
+    names = ", ".join(CALL_LANGUAGES[c] for c in langs)
+    return f"""
+
+Languages: you can hold this call in {names}. A turn that is not in English is marked, for example \
+"[They said, in Spanish]". Speak the language the person speaks: when their latest turn is marked, reply in that \
+language, naturally and politely (the formal "you"), with numbers, dates and times written as words in that language; \
+when a turn is marked English again, go back to English. A recorded phone menu or hold message that offers another \
+language is not a person speaking it: stay in English. Whatever the language, introduce yourself the same way, share \
+only what you may, and say honestly that you are an AI assistant when asked. The line after ## and its "outcome" are \
+always in English."""
+
+
+FILLERS_BY_LANGUAGE = {"es": ("Un momento.", "Claro,", "Entiendo,"), "fr": ("Un instant.", "D'accord,", "Très bien,"),
+                       "de": ("Einen Moment.", "Alles klar,", "Verstehe,"), "pt": ("Um momento.", "Certo,", "Entendi,"),
+                       "it": ("Un attimo.", "Certo,", "Capisco,"), "nl": ("Een moment.", "Oké,", "Prima,"),
+                       "hi": ("एक क्षण।", "ठीक है,", "जी,"), "ru": ("Одну минуту.", "Хорошо,", "Понятно,"),
+                       "ja": ("少々お待ちください。", "はい、", "かしこまりました、")}
+
 
 
 def price(name: str, env=None) -> float:
@@ -607,6 +736,11 @@ carry on.
 
 
 def system_prompt(memory: Memory, call: dict, env=None) -> str:
+    """A call's instructions: what this kind of call is for, then which languages it may be held in."""
+    return _kind_prompt(memory, call, env) + languages_note(env)
+
+
+def _kind_prompt(memory: Memory, call: dict, env=None) -> str:
     if call["kind"] == SCREEN:
         return screen_prompt(memory, call, env)
     if call["kind"] == "tell_me":
@@ -842,12 +976,22 @@ class Mind:
         self.ended = False
         self.heard_any = self.spoke_any = False
         self.claude_usd = 0.0
+        self.languages = call_languages(env)
+        self.language = "en"            # the language Buddy last spoke (set where its words are voiced)
 
     @staticmethod
     def _key(text: str) -> str:
-        return " ".join(re.sub(r"[^a-z0-9 ]", "", text.lower()).split())
+        return " ".join(w.strip("'") for w in _words(text))
 
-    async def heard(self, said: str) -> None:
+    def _they_said(self, said: str, lang: str = "") -> str:
+        """Their turn as the call's history keeps it, marked with its language when that isn't English (or when it
+        is English again after Buddy spoke another language)."""
+        lang = heard_language(said, lang, self.languages)
+        if lang and (lang != "en" or self.language != "en"):
+            return f"[They said, in {CALL_LANGUAGES[lang]}] {said}"
+        return f"[They said] {said}"
+
+    async def heard(self, said: str, lang: str = "") -> None:
         said = (said or "").strip()
         if not said or self.ended:
             return
@@ -855,7 +999,7 @@ class Mind:
             self.heard_any = True
         if self.opened:  # the opener already answered this (their "Hello?"): note both, Claude takes the next turn
             self.opened = False
-            self.history.append({"role": "user", "content": f"[They said] {said}"})
+            self.history.append({"role": "user", "content": self._they_said(said, lang)})
             self.history.append({"role": "assistant", "content": f"{self.opener}\n## {json.dumps({'action': 'continue'})}"})
             if _env("BUDDY_CALL_DEBUG", self.env) == "1":
                 log.warning("call %s heard: %s (answered with the opener)", self.call["id"], said[:300])
@@ -876,7 +1020,7 @@ class Mind:
         key = self._key(said)
         if len(key) > 25 and key in self.recordings:
             return  # the same hold message again: nothing to decide
-        self.history.append({"role": "user", "content": f"[They said] {said}"})
+        self.history.append({"role": "user", "content": self._they_said(said, lang)})
         if _env("BUDDY_CALL_DEBUG", self.env) == "1":  # testing only: calls keep no transcript otherwise
             log.warning("call %s heard: %s", self.call["id"], said[:300])
         if getattr(self.brain, "streams", False):
@@ -1054,13 +1198,13 @@ def looks_like_echo(heard: str, said: str) -> bool:
     """Buddy's own voice coming back down the line: a run of Buddy's last words, in order, with nothing new (or only
     "uh"/"hmm" noise). A real answer is never dropped, however short ("no", "OK") or however much it repeats the
     question ("yes, the 3 pm appointment is available" has "yes" in it, so it's the caller)."""
-    words = re.findall(r"[a-z0-9']+", (heard or "").lower())
+    words = _words(heard)  # in any script: Hindi, Russian or Japanese used to count as no words, and was dropped
     real = [w for w in words if w not in NOISE_WORDS]
     if not real:
         return True  # only noise: nothing to answer
     if len(real) < 2:
         return False  # "no", "yes", "OK", "Sam": an answer
-    mine = re.findall(r"[a-z0-9']+", (said or "").lower())
+    mine = _words(said)
     n = len(real)
     return any(mine[i:i + n] == real for i in range(len(mine) - n + 1))  # a stretch of what Buddy just said
 
@@ -1184,8 +1328,8 @@ async def run_stream(memory: Memory, websocket, call: dict, deliver=None, env=No
     from pipecat.audio.vad.vad_analyzer import VADParams  # noqa: PLC0415
     from pipecat.frames.frames import (  # noqa: PLC0415
         BotStartedSpeakingFrame, BotStoppedSpeakingFrame, EndFrame, InterimTranscriptionFrame,
-        TranscriptionFrame, TTSSpeakFrame, VADUserStartedSpeakingFrame,
-        VADUserStoppedSpeakingFrame)
+        STTUpdateSettingsFrame, TranscriptionFrame, TTSSpeakFrame, TTSUpdateSettingsFrame,
+        VADUserStartedSpeakingFrame, VADUserStoppedSpeakingFrame)
     from pipecat.pipeline.pipeline import Pipeline  # noqa: PLC0415
     from pipecat.pipeline.worker import PipelineParams, PipelineWorker  # noqa: PLC0415
     from pipecat.processors.audio.vad_processor import VADProcessor  # noqa: PLC0415
@@ -1209,6 +1353,7 @@ async def run_stream(memory: Memory, websocket, call: dict, deliver=None, env=No
         def __init__(self):
             super().__init__()
             self.words: list[str] = []
+            self.langs: list[str] = []  # the language the hearing gave for each piece of this turn
             self.user_talking = self.bot_talking = False
             self.reply: asyncio.Task | None = None
             self.thinking = False
@@ -1228,7 +1373,9 @@ async def run_stream(memory: Memory, websocket, call: dict, deliver=None, env=No
             await asyncio.sleep(FILLER_AFTER_S)
             if (call["kind"] != "hold_connect" and not mind.ended and not self.bot_talking
                     and len(said.split()) >= 4 and mind.spoke_any and mind.convo is None):  # the brain has its own
-                await speak(FILLERS[int(asyncio.get_running_loop().time() * 10) % len(FILLERS)])
+                fillers = FILLERS if mind.language == "en" else FILLERS_BY_LANGUAGE.get(mind.language, ())
+                if fillers:
+                    await speak(fillers[int(asyncio.get_running_loop().time() * 10) % len(fillers)])
 
         def _echo(self, text: str) -> bool:
             """Buddy's own voice coming back down the line (phone lines leak a little echo): a transcript heard
@@ -1243,11 +1390,13 @@ async def run_stream(memory: Memory, websocket, call: dict, deliver=None, env=No
             if (self.user_talking and not final) or not self.words:
                 return  # final: Flux decided they've finished, even if Silero hasn't heard the silence yet
             said, self.words = " ".join(self.words), []
+            given, self.langs = [g for g in self.langs if g], []
+            lang = max(set(given), key=given.count) if given else ""
             started = asyncio.get_running_loop().time()
             self.thinking = True
             filler = asyncio.ensure_future(self._filler(said))
             try:
-                await mind.heard(said)
+                await mind.heard(said, lang)
                 if _env("BUDDY_CALL_DEBUG", env) == "1":
                     log.warning("call %s: reply ready %.1f s after they stopped talking", call["id"],
                                 asyncio.get_running_loop().time() - started + 0.85)
@@ -1290,6 +1439,7 @@ async def run_stream(memory: Memory, websocket, call: dict, deliver=None, env=No
                     await self.broadcast_interruption()  # they're really talking over Buddy: Buddy stops
                 if isinstance(frame, TranscriptionFrame):
                     self.words.append(text)
+                    self.langs.append(str(getattr(frame.language, "value", frame.language) or ""))
                     if flux:  # Flux sends the whole turn once it's sure they've finished: answer now
                         self._later(0.0, final=True)
                     elif not self.user_talking:
@@ -1310,18 +1460,23 @@ async def run_stream(memory: Memory, websocket, call: dict, deliver=None, env=No
     transport = FastAPIWebsocketTransport(websocket=websocket, params=FastAPIWebsocketParams(
         audio_in_enabled=True, audio_out_enabled=True, add_wav_header=False, serializer=serializer))
     flux = (env_get("BUDDY_CALL_STT") or "flux").lower() != "nova-3"
+    languages = call_languages(env)
+    many = flux and len(languages) > 1  # one hearing model for every language; without Flux, English as before
     stt = None
     if flux:
         try:
             from pipecat.services.deepgram.flux.stt import DeepgramFluxSTTService  # noqa: PLC0415
             terms = [w for w in o["name"].split() if len(w) > 2]
+            hints = [Language(c) for c in hint_languages(env)] if many else []
             stt = DeepgramFluxSTTService(
                 api_key=env_get("BUDDY_DEEPGRAM_KEY"), mip_opt_out=True, should_interrupt=False,
-                settings=DeepgramFluxSTTService.Settings(model=FLUX_MODEL, eot_threshold=FLUX_EOT,
-                                                         eot_timeout_ms=FLUX_EOT_TIMEOUT_MS, **({"keyterm": terms} if terms else {})))
+                settings=DeepgramFluxSTTService.Settings(
+                    model=FLUX_MODEL if many else FLUX_MODEL_EN, eot_threshold=FLUX_EOT,
+                    eot_timeout_ms=FLUX_EOT_TIMEOUT_MS, **({"keyterm": terms} if terms else {}),
+                    **({"language_hints": hints} if hints else {})))
         except Exception:
             log.warning("call %s: Deepgram Flux isn't available here; using %s", call["id"], STT_MODEL, exc_info=True)
-            flux = False
+            flux = many = False
     stt = stt or DeepgramSTTService(
         api_key=env_get("BUDDY_DEEPGRAM_KEY"), mip_opt_out=True,
         settings=DeepgramSTTService.Settings(model=STT_MODEL, language=Language.EN_US, smart_format=True,
@@ -1352,7 +1507,27 @@ async def run_stream(memory: Memory, websocket, call: dict, deliver=None, env=No
     done_speaking.set()  # nothing said yet
     call_uuid = data.get("call_id") or call["call_sid"]
 
+    async def follow_language(text: str) -> None:
+        """The voice speaks the language Buddy's words are written in, and the hearing leans towards it too. Buddy
+        decides when to change language (its instructions); this only follows what it wrote."""
+        lang = language_of(text, mind.language, languages)
+        if lang == mind.language:
+            return
+        mind.language = lang
+        log.info("call %s: now speaking %s", call["id"], CALL_LANGUAGES[lang])
+        try:  # never worth losing the call over: without it the voice works the language out from the words
+            await talk.push_frame(TTSUpdateSettingsFrame(delta=ElevenLabsTTSService.Settings(language=Language(lang)),
+                                                         reach_inactive_services=True), FrameDirection.DOWNSTREAM)
+        except Exception:
+            log.warning("call %s: couldn't tell the voice the language", call["id"], exc_info=True)
+        lean = list(dict.fromkeys([lang] + hint_languages(env)))
+        with contextlib.suppress(Exception):  # the hearing still hears every language without the hint
+            await worker.queue_frame(STTUpdateSettingsFrame(
+                delta=DeepgramFluxSTTService.Settings(language_hints=[Language(c) for c in lean])))
+
     async def speak(text: str) -> None:
+        if many:
+            await follow_language(text)
         last_said["text"], last_said["at"] = text, asyncio.get_running_loop().time() + 0.08 * len(text)
         spoken_chars[0] += len(text)
         done_speaking.clear()

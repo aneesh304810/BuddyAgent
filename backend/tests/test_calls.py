@@ -1035,3 +1035,165 @@ def test_brain_goodbye_needs_real_parting_words():
     assert not calls.brain_goodbye("Sure, go ahead", True)
     assert calls.brain_goodbye("No", True) and not calls.brain_goodbye("No", False)
     assert not calls.brain_goodbye("Bye the way, can you check my calendar for tomorrow afternoon please", False)
+
+
+# --- languages -------------------------------------------------------------------------------------------------
+SAID_IN = [("Hola, buenos días, ¿en qué le puedo ayudar?", "es"), ("Bonjour, cabinet du docteur Martin, je vous écoute.", "fr"),
+           ("Guten Tag, Praxis Doktor Weber, was kann ich für Sie tun?", "de"), ("Olá, bom dia, em que posso ajudar você?", "pt"),
+           ("Buongiorno, studio del dottor Rossi, come posso aiutarla?", "it"),
+           ("Goedemorgen, met de praktijk, wat kan ik voor u doen?", "nl"), ("नमस्ते, डॉक्टर मेहता का क्लिनिक, बताइए।", "hi"),
+           ("Здравствуйте, клиника доктора Иванова, слушаю вас.", "ru"), ("お電話ありがとうございます。田中クリニックでございます。", "ja"),
+           ("Hi, thank you for calling Doctor Mehta's office, how can I help you?", "en")]
+
+
+def test_the_language_of_a_sentence_is_read_from_its_words():
+    for text, lang in SAID_IN:
+        assert calls.language_of(text) == lang, text
+    # a name, a number or "OK" says nothing: the call stays in the language it is in
+    for unclear in ("OK", "5 5 5 1 2 3 4", "Pérez", "María García"):
+        assert calls.language_of(unclear, "en") == "en" and calls.language_of(unclear, "es") == "es", unclear
+    assert calls.language_of("Yes, this is Maria Garcia speaking") == "en"  # a Spanish name in an English sentence
+    assert calls.language_of("Hola, buenos días", "en", ["en", "fr"]) == "en"  # Spanish isn't one of this call's languages
+
+
+def test_an_accent_taken_for_another_language_is_not_marked_as_it():
+    # the hearing says Hindi, but the words came back as English: English with an accent, not Hindi
+    assert calls.heard_language("I want to book an appointment for tomorrow", "hi") == ""
+    assert calls.heard_language("Hola, buenos días", "es") == "es" and calls.heard_language("Hola, buenos días", "en") == ""
+    assert calls.heard_language("Hello there", "en-US") == "en"
+    assert calls.heard_language("ok", "ml") == ""  # Malayalam isn't among the languages calls can hear
+
+
+def test_turns_are_marked_with_their_language_and_the_instructions_say_what_to_do(tmp_path):
+    m = Memory(tmp_path / "b.db")
+    call = calls.plan(m, "Dr. Pérez", "2015550123", "question", "opening hours")
+    moves = Moves({"say": "Claro, un momento.", "action": "continue"}, {"say": "Sure.", "action": "continue"},
+                  {"say": "OK.", "action": "continue"})
+    mind, out = _mind(m, call, moves)
+    asyncio.run(mind.heard("Hola, buenos días, consultorio del doctor Pérez.", "es"))
+    assert moves.seen[0][-1]["content"].startswith("[They said, in Spanish] Hola")
+    mind.language = "es"  # Buddy answered in Spanish (the voice follows its words)
+    asyncio.run(mind.heard("Sorry, do you speak English?", "en"))
+    assert moves.seen[1][-1]["content"].startswith("[They said, in English] Sorry")  # so Buddy goes back to English
+    mind.language = "en"
+    asyncio.run(mind.heard("I can help you with that", "hi"))  # an accent, not Hindi: not marked
+    assert moves.seen[2][-1]["content"] == "[They said] I can help you with that"
+    prompt = calls.system_prompt(m, call)
+    assert "Languages: you can hold this call in English, Spanish" in prompt and '"outcome" are always in English' in prompt
+    assert "honestly that you are an AI assistant" in prompt and "recorded phone menu" in prompt
+    for kind in ("appointment", "hold_connect"):
+        assert "Languages:" in calls.system_prompt(m, calls.plan(m, "X", "2015550123", kind, "a goal"))
+    only_english = {"BUDDY_CALL_LANGUAGES": "en"}
+    assert "Languages:" not in calls.system_prompt(m, call, only_english)
+    assert calls.call_languages(only_english) == ["en"] and calls.call_languages({"BUDDY_CALL_LANGUAGES": "es, hi, ml"}) == ["en", "es", "hi"]
+    assert calls.hint_languages({}) == ["en"] and calls.hint_languages({"BUDDY_CALL_LANGUAGE_HINTS": "none"}) == []
+
+
+def test_parting_words_and_the_echo_check_work_in_other_languages():
+    for bye in ("Gracias, adiós.", "Merci beaucoup, au revoir !", "धन्यवाद, नमस्ते।", "はい、ありがとうございました。失礼します。",
+                "Vielen Dank, auf Wiederhören.", "OK, thanks, you too, bye!"):
+        assert calls.is_goodbye(bye), bye
+    assert not calls.is_goodbye("Gracias, pero tengo otra pregunta")
+    # Hindi used to count as "no words at all" and was dropped as noise whenever Buddy had just spoken
+    assert not calls.looks_like_echo("नमस्ते, मुझे अपॉइंटमेंट चाहिए", "Hi, this is Sam's assistant")
+    assert calls.looks_like_echo("this is Sam's assistant", "Hi, this is Sam's assistant, calling")
+    assert calls.looks_like_echo("uh hmm", "Hi there")
+
+
+def test_a_call_flips_to_the_callers_language_and_the_voice_follows(monkeypatch, env):
+    """They answer in Spanish: the turn reaches Claude marked Spanish, Buddy's Spanish words are voiced as Spanish
+    (the voice is told before the words), the hearing leans towards Spanish, and the owner's summary is in English."""
+    pytest.importorskip("pipecat")
+    from fastapi.testclient import TestClient
+    from pipecat.frames.frames import (StartFrame, STTUpdateSettingsFrame, TranscriptionFrame, TTSAudioRawFrame,
+                                       TTSSpeakFrame, TTSUpdateSettingsFrame)
+    from pipecat.processors.frame_processor import FrameProcessor
+    from pipecat.services.deepgram import stt as dg
+    from pipecat.services.deepgram.flux import stt as dgf
+    from pipecat.services.elevenlabs import tts as el
+    from pipecat.transcriptions.language import Language
+
+    from buddy import server
+
+    class StandInSettings:
+        def __init__(self, **kw):
+            self.kw = kw
+
+    heard_settings, voice_events, hints = [], [], []
+
+    class FakeSTT(FrameProcessor):
+        Settings = StandInSettings
+
+        def __init__(self, **kw):
+            super().__init__()
+            heard_settings.append(kw["settings"].kw)
+
+        async def process_frame(self, frame, direction):
+            await super().process_frame(frame, direction)
+            if isinstance(frame, STTUpdateSettingsFrame):
+                hints.append(frame.delta.kw["language_hints"])
+            await self.push_frame(frame, direction)
+            if isinstance(frame, StartFrame):  # the person answers, in Spanish
+                async def answer():
+                    await asyncio.sleep(0.3)
+                    await self.push_frame(TranscriptionFrame("Hola, buenos días, consultorio del doctor Pérez.",
+                                                             "caller", "", Language.ES))
+                self.create_task(answer())
+
+    class FakeTTS(FrameProcessor):
+        Settings = StandInSettings
+
+        def __init__(self, **kw):
+            super().__init__()
+
+        async def process_frame(self, frame, direction):
+            await super().process_frame(frame, direction)
+            if isinstance(frame, TTSUpdateSettingsFrame):
+                voice_events.append(("language", frame.delta.kw["language"]))
+            if isinstance(frame, TTSSpeakFrame):
+                voice_events.append(("say", frame.text))
+                await self.push_frame(TTSAudioRawFrame(audio=b"\0\0" * 2400, sample_rate=8000, num_channels=1))
+                return
+            await self.push_frame(frame, direction)
+
+    hung, told = [], []
+    monkeypatch.setattr(dg, "DeepgramSTTService", FakeSTT)
+    monkeypatch.setattr(dgf, "DeepgramFluxSTTService", FakeSTT)
+    monkeypatch.setattr(el, "ElevenLabsTTSService", FakeTTS)
+    monkeypatch.setattr(calls, "QUIET_START_S", 5.0)
+    monkeypatch.setattr(calls, "CLOSE_WAIT_S", 0.2)
+    monkeypatch.setattr(calls, "voice_model", lambda memory, env=None, fetch=None: calls.TTS_MODEL)
+    spanish = "Hola, soy la asistente de Sam Rivera. ¿A qué hora abren mañana?"
+    moves = Moves({"say": spanish, "action": "end", "outcome": "They open at nine tomorrow."})
+    monkeypatch.setattr(calls, "think", moves)
+    monkeypatch.setattr(calls, "hangup", lambda mem, uuid, env=None, fetch=None: hung.append(uuid))
+
+    async def deliver(kind, text, **extra):
+        told.append(text)
+    monkeypatch.setattr(server, "deliver", deliver)
+
+    c = calls.plan(server.memory, "Dr. Pérez", "2015550123", "question", "opening hours tomorrow")
+    calls.update(server.memory, c["id"], status="answered", call_sid="cu-9")
+    with TestClient(server.app) as client:
+        with client.websocket_connect(f"/calls/stream/{c['id']}/{c['token']}") as ws:
+            ws.send_text(json.dumps({"event": "start", "start": {"streamId": "st-9", "callId": "cu-9"}}))
+            silence = base64.b64encode(b"\xff" * 160).decode()
+            for _ in range(5):  # the line's first audio: the stream starts once it has arrived
+                ws.send_text(json.dumps({"event": "media", "media": {"payload": silence}}))
+            try:
+                while True:
+                    msg = json.loads(ws.receive_text())
+                    if msg.get("event") == "playAudio":
+                        ws.send_text(json.dumps({"event": "media", "media": {"payload": silence}}))
+            except Exception:
+                pass  # Buddy ended the call: the stream closes
+    assert heard_settings[0]["model"] == "flux-general-multi" and heard_settings[0]["language_hints"] == [Language.EN]
+    assert moves.seen[0][-1]["content"].startswith("[They said, in Spanish] Hola, buenos días")
+    assert voice_events == [("language", Language.ES), ("say", spanish)]  # told the language before the words
+    assert hints == [[Language.ES, Language.EN]]
+    assert hung == ["cu-9"] and any("They open at nine tomorrow." in t for t in told)
+
+
+def test_calls_kept_in_english_use_the_english_hearing_and_never_change_voice(monkeypatch, env):
+    monkeypatch.setenv("BUDDY_CALL_LANGUAGES", "en")
+    assert calls.call_languages() == ["en"] and calls.languages_note() == ""

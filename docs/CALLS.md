@@ -136,6 +136,27 @@ Rough cost:
 - a 5-minute appointment call: about $0.15–0.30, with the voice about $0.06–0.10 of that;
 - a 45-minute hold: about $0.30–0.60, because nothing goes to Deepgram or Claude while nobody is talking.
 
+### Languages
+A call can be held in ten languages: English, Spanish, French, German, Hindi, Russian, Portuguese, Japanese,
+Italian and Dutch. Buddy starts in English and changes when the person it reaches speaks another of them, and
+changes back when they do.
+
+- **Hearing.** One Deepgram model (Flux Multilingual) hears all ten and says which language each turn was in.
+  It leans towards English until someone speaks another language, so English with a heavy accent is not taken
+  for a different language. If it does name another language but the words came back as English, Buddy treats
+  the turn as English.
+- **Speaking.** Buddy decides which language to answer in from the person's last turn. The voice follows the
+  language Buddy's words are written in, with the same voice in every language.
+- **What stays the same.** It introduces itself the same way, shares only what it may, and says it is an AI
+  assistant when asked, in whatever language. A recorded menu that offers another language ("Para español,
+  oprima el dos") does not change the call's language. The summary you get is always in English.
+- **Not covered:** Malayalam, Tamil, Telugu, Kannada and other languages outside the ten. The hearing model
+  does not have them.
+- **Settings** (`set.sh`): `BUDDY_CALL_LANGUAGES` narrows the list (`en` keeps every call in English, as before;
+  `en,es` allows Spanish only). `BUDDY_CALL_LANGUAGE_HINTS` changes what the hearing leans towards at the start
+  (`en` by default; `en,es`; or `none` to lean nowhere).
+- Not yet tried on a real call in another language: the first few are worth listening in on.
+
 ## 8. If something's wrong
 
 | Problem | Fix |

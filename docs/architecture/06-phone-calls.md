@@ -63,6 +63,10 @@ say, and ElevenLabs says it in a natural female voice. Cost: audio goes to Deepg
 so a long hold costs little more than the phone line; Claude is asked only when a person (or a phone menu) has
 finished speaking, and a recording heard before ("your call is important to us") isn't sent to Claude again.
 
+Languages: a call starts in English and follows the other person into any of ten languages (CALL_LANGUAGES):
+Deepgram's Flux Multilingual says which language each turn was in, Claude answers in it, and the voice speaks the
+language Buddy's words are written in. The owner's summary is always in English.
+
 Kinds of call:
   appointment   book (or move) an appointment, e.g. with a doctor, within the times the owner allowed, using
                 their calendar to avoid clashes; Buddy may give name, callback number, date of birth and insurance.
@@ -83,7 +87,7 @@ every request there carries the call's random token in its path, and Plivo's own
 
 - Tables: `phone_calls`
 - Outside services: ElevenLabs (Buddy's call voice), Plivo (phone calls)
-- Settings: `BUDDY_CALLS_PER_DAY`, `BUDDY_CALLS_PUBLIC_URL`, `BUDDY_CALL_BRAIN`, `BUDDY_CALL_DEBUG`, `BUDDY_CALL_PRICE_LINE_MIN`, `BUDDY_CALL_PRICE_LISTEN_MIN`, `BUDDY_CALL_PRICE_VOICE_1K`, `BUDDY_CALL_PRICE_VOICE_1K_FULL`, `BUDDY_CALL_SHOW_MY_NUMBER`, `BUDDY_CALL_STT`, `BUDDY_CALL_VOICE`, `BUDDY_CALL_VOICE_MODEL` and 9 more
+- Settings: `BUDDY_CALLS_PER_DAY`, `BUDDY_CALLS_PUBLIC_URL`, `BUDDY_CALL_BRAIN`, `BUDDY_CALL_DEBUG`, `BUDDY_CALL_LANGUAGES`, `BUDDY_CALL_LANGUAGE_HINTS`, `BUDDY_CALL_PRICE_LINE_MIN`, `BUDDY_CALL_PRICE_LISTEN_MIN`, `BUDDY_CALL_PRICE_VOICE_1K`, `BUDDY_CALL_PRICE_VOICE_1K_FULL`, `BUDDY_CALL_SHOW_MY_NUMBER`, `BUDDY_CALL_STT` and 11 more
 - Uses: commute.py, config.py, contacts.py, gateway.py, memory.py, routine.py, scheduling.py, tools.py, travel.py, usage.py
 
 ### contacts.py
