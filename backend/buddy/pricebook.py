@@ -105,6 +105,8 @@ CREATE TABLE IF NOT EXISTS meta (key VARCHAR PRIMARY KEY, value VARCHAR);
 
 _lock = threading.RLock()
 _open: dict[str, object] = {}
+_filing_off: set[str] = set()   # price books where filing under products failed in this process: not tried again
+_keep_index: set[str] = set()   # price books where the old index could not be removed in this process
 
 
 def key(text: str) -> str:
@@ -140,7 +142,15 @@ def conn(memory):
                     c.execute(f"ALTER TABLE {table} ADD COLUMN IF NOT EXISTS {column}")
             for column in ("parts VARCHAR", "travel_date DATE", "nights INTEGER", "factors VARCHAR"):  # what a
                 c.execute(f"ALTER TABLE predictions ADD COLUMN IF NOT EXISTS {column}")     # buy-or-wait call keeps
-            c.execute("CREATE INDEX IF NOT EXISTS obs_product ON observations (domain, product)")
+            # No index on the product column. Filing prices under their products rewrites that column, and rewriting
+            # an indexed column made the database engine stop with an internal error on a real price book. The
+            # price book is small enough to be read without it.
+            if where not in _keep_index:
+                try:
+                    c.execute("DROP INDEX IF EXISTS obs_product")
+                except Exception:
+                    _keep_index.add(where)
+                    log.warning("price book: the old product index could not be removed", exc_info=True)
             _open[where] = c
             try:
                 import_old(memory, c)
@@ -149,17 +159,46 @@ def conn(memory):
         return c
 
 
+def _stopped(error: Exception) -> bool:
+    """After an internal error the database engine refuses every statement until the database is opened again."""
+    return type(error).__name__ == "FatalException" or "database has been invalidated" in str(error)
+
+
+def _reopen(memory) -> None:
+    old = _open.pop(path_for(memory), None)
+    try:
+        if old is not None:
+            old.close()
+    except Exception:
+        pass
+
+
 def run(memory, sql: str, params=()) -> list[dict]:
     with _lock:
-        cur = conn(memory).cursor()
-        try:
-            cur.execute(sql, params)
-            if cur.description is None:
-                return []
-            names = [d[0] for d in cur.description]
-            return [dict(zip(names, row)) for row in cur.fetchall()]
-        finally:
-            cur.close()
+        for attempt in (0, 1):
+            try:
+                cur = conn(memory).cursor()
+                try:
+                    cur.execute(sql, params)
+                    if cur.description is None:
+                        return []
+                    names = [d[0] for d in cur.description]
+                    return [dict(zip(names, row)) for row in cur.fetchall()]
+                finally:
+                    try:
+                        cur.close()
+                    except Exception:
+                        pass
+            except Exception as e:
+                # The engine stopped earlier, on some other statement: open the price book again and ask once more,
+                # so one internal error does not take every page down until Buddy is restarted.
+                if attempt == 0 and _stopped(e) and not path_for(memory).startswith(":memory:"):
+                    log.error("price book: the database engine had stopped and was opened again: %s",
+                              " ".join(str(e).split())[:300])
+                    _reopen(memory)
+                    continue
+                raise
+        return []
 
 
 def utc(value) -> datetime:
@@ -203,7 +242,20 @@ def _identity(domain: str, item: str, seller: str = "", title: str = "", cabin: 
 def identify(memory, limit: int = 20000) -> int:
     """File every price and deal that has no product yet under its product, brand and category (productid.py).
     Prices recorded before this existed are filed the first time this runs. Returns how many were filed."""
-    from . import productid  # noqa: PLC0415
+    where = path_for(memory)
+    if where in _filing_off:
+        return 0
+    try:
+        return _file_all(memory, limit)
+    except Exception:
+        # Filing is a help, not a condition: the pages list an unfiled price under its own name. It is not tried
+        # again in this process, so a statement the engine cannot run does not stop the price book over and over.
+        _filing_off.add(where)
+        log.warning("price book: filing prices under their products failed and is off until Buddy restarts", exc_info=True)
+        return 0
+
+
+def _file_all(memory, limit: int) -> int:
     done = 0
     todo = run(memory, "SELECT DISTINCT item AS t, domain AS d, COALESCE(NULLIF(seller, ''), source) AS who FROM observations "
                        f"WHERE product IS NULL LIMIT {int(limit)}")
@@ -444,6 +496,8 @@ def close_all() -> None:
             except Exception:
                 pass
         _open.clear()
+        _filing_off.clear()
+        _keep_index.clear()
 
 
 TOOL = {

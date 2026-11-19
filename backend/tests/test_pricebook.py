@@ -172,3 +172,56 @@ def test_learning_waits_without_the_sandbox(memory, monkeypatch):
     from buddy import sandbox
     monkeypatch.setattr(sandbox, "available", lambda path=None: False)
     assert asyncio.run(patterns.learn(memory)).startswith("waiting: the sandbox isn't set up")
+
+
+def test_the_price_book_opens_itself_again_after_the_database_engine_stops(tmp_path):
+    from buddy.memory import Memory
+    m = Memory(tmp_path / "b.db")
+    pricebook.observe(m, "product", "Sony WH-1000XM6 headphones", 399.0, seller="Best Buy")
+    where = pricebook.path_for(m)
+    closed = []
+
+    class Stopped:  # what every statement gets after the engine's internal error
+        def cursor(self):
+            raise RuntimeError('FATAL Error: Failed: database has been invalidated because of a previous fatal error. '
+                               'The database must be restarted prior to being used again.')
+
+        def close(self):
+            closed.append(True)
+
+    pricebook._open.pop(where).close()
+    pricebook._open[where] = Stopped()
+    rows = pricebook.run(m, "SELECT COUNT(*) AS n FROM observations")     # opened again, and answered
+    assert rows == [{"n": 1}] and closed == [True] and not isinstance(pricebook._open[where], Stopped)
+    with pytest.raises(Exception, match="no_such_table"):                 # an ordinary mistake is still an error
+        pricebook.run(m, "SELECT * FROM no_such_table")
+    pricebook.close_all()
+
+
+def test_the_product_index_is_removed_and_a_failed_filing_does_not_take_the_pages_down(tmp_path, monkeypatch):
+    import duckdb
+
+    from buddy.memory import Memory
+    m = Memory(tmp_path / "b.db")
+    where = pricebook.path_for(m)
+    pricebook.observe(m, "product", "LG 27GP850 monitor", 249.0, seller="Newegg")
+    pricebook.close_all()
+    c = duckdb.connect(where)                                             # the index an earlier version made
+    c.execute("CREATE INDEX obs_product ON observations (domain, product)")
+    c.close()
+    names = {r["index_name"] for r in pricebook.run(m, "SELECT index_name FROM duckdb_indexes()")}
+    assert "obs_product" not in names and "obs_item" in names
+
+    pricebook.run(m, "INSERT INTO deals (seen_on, source, title, url, price, store) VALUES (current_date, 'feed', "
+                     "'LG 27GP850 Monitor $249', 'https://x.example/1', 249, 'Newegg')")
+
+    def broken(*a, **k):
+        raise RuntimeError("INTERNAL Error: Attempted to dereference shared_ptr that is NULL!")
+
+    monkeypatch.setattr(pricebook, "_identity", broken)
+    assert pricebook.identify(m) == 0                                     # it failed, and said so only in the log
+    monkeypatch.setattr(pricebook, "_identity", lambda *a, **k: pytest.fail("filing was tried again"))
+    page = pricebook.deals_page(m, 7)                                     # the page still lists the deal, unfiled
+    assert page["counts"]["product"] == 1 and page["deals"][0]["title"].startswith("LG 27GP850")
+    assert pricebook.history(m, "LG 27GP850 monitor")                     # and its price history is still readable
+    pricebook.close_all()
