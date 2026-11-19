@@ -260,6 +260,126 @@ only what you may, and say honestly that you are an AI assistant when asked. The
 always in English."""
 
 
+# --- the voice ------------------------------------------------------------------------------------------------
+VOICE_KEY = "calls:voice"          # the voice the owner chose in the app: {"id", "name"}
+BACKUP_KEY = "calls:voice_backup"  # a voice this account certainly has, looked up once a day: {"id", "day"}
+# How a voice's own description is matched to what the owner asks for ("soft", "funny", "deep"...).
+VOICE_WORDS = {
+    "soft": "soft calm warm gentle smooth relaxed soothing mellow pleasant quiet tender easy laid",
+    "funny": "playful fun funny witty cheerful upbeat humor humorous quirky lively bright sassy cheeky",
+    "friendly": "friendly casual conversational natural chill approachable warm",
+    "deep": "deep resonant rich low baritone husky",
+    "professional": "professional clear confident articulate formal crisp",
+    "young": "young youthful", "mature": "mature older middle",
+}
+
+
+def voices(memory, env=None, fetch=None) -> list[dict]:
+    """The voices this ElevenLabs account can speak with, as ElevenLabs describes them:
+    [{"id", "name", "gender", "accent", "age", "about", "sample"}] (sample: a short recording to listen to)."""
+    got = gateway.call(memory, "elevenlabs", "/v1/voices", env=env, fetch=fetch, purpose="choosing a voice")
+    out = []
+    for v in (got.get("voices") if isinstance(got, dict) else None) or []:
+        if not isinstance(v, dict) or not v.get("voice_id"):
+            continue
+        labels = v.get("labels") if isinstance(v.get("labels"), dict) else {}
+        about = " ".join(dict.fromkeys(str(x).strip() for x in (
+            labels.get("descriptive"), labels.get("description"), labels.get("use_case"), v.get("description")) if x))
+        out.append({"id": str(v["voice_id"]), "name": str(v.get("name") or "").strip(),
+                    "gender": str(labels.get("gender") or "").lower(), "accent": str(labels.get("accent") or ""),
+                    "age": str(labels.get("age") or ""), "about": " ".join(about.split())[:200],
+                    "sample": str(v.get("preview_url") or "")})
+    return out
+
+
+def match_voices(found: list[dict], gender: str = "", like: str = "", limit: int = 6) -> list[dict]:
+    """The voices of that gender, the ones whose description fits `like` ("soft, funny") first. Nothing is made up
+    about a voice: only ElevenLabs' own words about it are matched."""
+    gender = (gender or "").strip().lower()
+    pool = [v for v in found if not gender or v["gender"] == gender]
+    wanted = set()
+    for word in _words(like):
+        wanted |= set(VOICE_WORDS.get(word, word).split())
+
+    def fit(v: dict) -> int:
+        text = f"{v['about']} {v['age']}".lower()
+        return sum(1 for w in wanted if w in text)
+    return sorted(pool, key=lambda v: -fit(v))[:limit]
+
+
+def call_voice(memory, env=None) -> str:
+    """The voice calls speak with: the one chosen in the app, else BUDDY_CALL_VOICE, else the built-in one."""
+    try:
+        chosen = json.loads(memory.get(VOICE_KEY) or "{}") if memory is not None else {}
+    except ValueError:
+        chosen = {}
+    return str(chosen.get("id") or "") or _env("BUDDY_CALL_VOICE", env) or DEFAULT_VOICE
+
+
+def backup_voice(memory, env=None, fetch=None) -> str:
+    """A voice to fall back on if the chosen one is refused: one the account certainly has (asked once a day, since
+    ElevenLabs retires its ready-made voices from time to time), else the built-in one."""
+    today = local_now().date().isoformat()
+    try:
+        saved = json.loads(memory.get(BACKUP_KEY) or "{}") if memory is not None else {}
+    except ValueError:
+        saved = {}
+    if saved.get("id") and saved.get("day") == today:
+        return saved["id"]
+    backup = DEFAULT_VOICE
+    try:
+        have = voices(None, env, fetch)  # not logged against the service: a missing "Voices: Read" isn't a failure
+        if have and not any(v["id"] == DEFAULT_VOICE for v in have):
+            talk = [v for v in have if "conversation" in v["about"].lower()]
+            backup = (talk or have)[0]["id"]
+    except Exception as e:
+        log.info("voice list unavailable (%s); the backup voice stays the built-in one", type(e).__name__)
+    if memory is not None:
+        with contextlib.suppress(Exception):
+            memory.set(BACKUP_KEY, json.dumps({"id": backup, "day": today}))
+    return backup
+
+
+def voices_text(memory, gender: str = "", like: str = "", env=None, fetch=None) -> str:
+    """For the tool: the voices that fit, each with ElevenLabs' description and a sample to listen to."""
+    try:
+        found = voices(memory, env, fetch)
+    except gateway.ConnectError as e:
+        return (f"I couldn't get the voice list from ElevenLabs: {e} (its API key needs 'Voices: Read'; "
+                "docs/CALLS.md, step 3).")
+    fits = match_voices(found, gender, like)
+    if not fits:
+        return (f"This ElevenLabs account has no {gender or ''} voices. Add one at elevenlabs.io: Voices > Voice "
+                "Library > Add to my voices; then ask again.").replace("  ", " ")
+    now = call_voice(memory, env)
+    rows = [{"name": v["name"], "about": ", ".join(x for x in (v["gender"], v["age"], v["accent"], v["about"]) if x),
+             "listen": v["sample"], "in_use": v["id"] == now} for v in fits]
+    return ("Voices on this ElevenLabs account, best fit first. Give each as its name, what ElevenLabs says about it, "
+            "and its listen link, so they can hear it before choosing; then set_voice with the name they pick. Only "
+            "these exist: don't describe a voice beyond what is written here.\n" + json.dumps(rows, ensure_ascii=False))
+
+
+def set_voice(memory, which: str, env=None, fetch=None) -> str:
+    """Save the owner's choice (a voice's name or ID from the account's list); "default" goes back to the built-in."""
+    which = " ".join(str(which or "").split())
+    if not which:
+        return "Which voice? Ask for the list first (action voices)."
+    if which.lower() in ("default", "reset", "the default"):
+        memory.set(VOICE_KEY, "")
+        return "Calls are back on the voice set on the server (or the built-in one)."
+    try:
+        found = voices(memory, env, fetch)
+    except gateway.ConnectError as e:
+        return f"I couldn't check that voice with ElevenLabs: {e}"
+    hit = next((v for v in found if v["id"] == which or v["name"].lower() == which.lower()), None) or \
+        next((v for v in found if v["name"].lower().split(" ")[0] == which.lower().split(" ")[0]), None)
+    if hit is None:
+        return f"No voice called '{which}' on this ElevenLabs account. Ask for the list (action voices)."
+    memory.set(VOICE_KEY, json.dumps({"id": hit["id"], "name": hit["name"]}))
+    return (f"Done: calls will speak with {hit['name']} from the next call. To hear it, ask me to call you. "
+            "(This is the voice of phone calls; the app's own voice is chosen in the app's Settings.)")
+
+
 FILLERS_BY_LANGUAGE = {"es": ("Un momento.", "Claro,", "Entiendo,"), "fr": ("Un instant.", "D'accord,", "Très bien,"),
                        "de": ("Einen Moment.", "Alles klar,", "Verstehe,"), "pt": ("Um momento.", "Certo,", "Entendi,"),
                        "it": ("Un attimo.", "Certo,", "Capisco,"), "nl": ("Een moment.", "Oké,", "Prima,"),
@@ -535,7 +655,7 @@ def model_refused(memory, model: str) -> None:
 def voice_health(memory=None, env=None, fetch=None) -> None:
     """Buddy Connect's Test for ElevenLabs: say "Hi" (2 characters) with the exact voice and model calls use, so a
     refusal shows ElevenLabs' own reason (a live call only sees 'HTTP 400')."""
-    voice = _env("BUDDY_CALL_VOICE", env) or DEFAULT_VOICE
+    voice = call_voice(memory, env)
     model = voice_model(memory, env, fetch)
     try:
         gateway.call(memory, "elevenlabs", f"/v1/text-to-speech/{voice}?model_id={urllib.parse.quote(model)}"
@@ -1574,8 +1694,9 @@ async def run_stream(memory: Memory, websocket, call: dict, deliver=None, env=No
                                              keyterm=[w for w in o["name"].split() if len(w) > 2] or None))
     model = await asyncio.to_thread(voice_model, memory, env)
     from pipecat.pipeline.service_switcher import ServiceSwitcher, ServiceSwitcherStrategyFailover  # noqa: PLC0415
-    voice = env_get("BUDDY_CALL_VOICE") or DEFAULT_VOICE
-    choices = list(dict.fromkeys([(voice, model), (voice, TTS_MODEL), (DEFAULT_VOICE, TTS_MODEL)]))
+    voice = call_voice(memory, env)
+    backup = await asyncio.to_thread(backup_voice, memory, env)
+    choices = list(dict.fromkeys([(voice, model), (voice, TTS_MODEL), (backup, TTS_MODEL)]))
 
     def voice_service(v: str, m: str):
         # Tuned for phone lines: a touch slower and steadier, so it stays clear on a narrow 8 kHz line.
@@ -1920,9 +2041,15 @@ TOOL = {
     "outcomes, including calls Buddy answered for the user when they didn't pick up (kind screen: who called, the "
     "message, scams hung up on today). forget_caller (number): forget a caller Buddy saved after an important "
     "call. contact (who: a name, or number): look someone up in the phone's contacts (synced with the user's "
-    "permission) and Buddy's saved callers.",
+    "permission) and Buddy's saved callers. voices (voice_gender, voice_like): the voices calls can speak with, "
+    "from the user's ElevenLabs account, each with a link to listen ('I want a softer, male voice' -> "
+    "voice_gender male, voice_like 'soft'); set_voice (voice: the name they picked, or 'default'): calls speak "
+    "with it from the next call. This is the voice of phone calls only, not the app's.",
     "input_schema": {"type": "object", "properties": {
-        "action": {"type": "string", "enum": ["call", "status", "forget_caller", "contact"]},
+        "action": {"type": "string", "enum": ["call", "status", "forget_caller", "contact", "voices", "set_voice"]},
+        "voice_gender": {"type": "string", "enum": ["male", "female", ""], "description": "voices: which to list"},
+        "voice_like": {"type": "string", "description": "voices: how it should sound, e.g. 'soft, funny, deep'"},
+        "voice": {"type": "string", "description": "set_voice: the voice's name from the list, or 'default'"},
         "who": {"type": "string", "description": "who is being called, e.g. Dr. Mehta's office"},
         "number": {"type": "string", "description": "the number to call; \"me\" calls the user's own saved "
                    "mobile (e.g. a test call)"},
@@ -1944,6 +2071,10 @@ def status_text(memory: Memory) -> str:
 
 
 async def run_tool(memory: Memory, thrift, args: dict) -> str:
+    if args.get("action") == "voices":
+        return await asyncio.to_thread(voices_text, memory, args.get("voice_gender") or "", args.get("voice_like") or "")
+    if args.get("action") == "set_voice":
+        return await asyncio.to_thread(set_voice, memory, args.get("voice") or "")
     if args.get("action") == "status":
         return status_text(memory)
     if args.get("action") == "forget_caller":

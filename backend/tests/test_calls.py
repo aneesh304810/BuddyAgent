@@ -1243,3 +1243,91 @@ def test_a_real_call_writes_its_timing_to_the_log(monkeypatch, env, caplog):
     assert "words from Deepgram [es]" in turn and "first words written (Claude)" in turn and "voice started" in turn
     assert any("now speaking Spanish" in m for m in said)
     assert not any("buenos" in m or "asistente" in m for m in said)  # times and languages only, never what was said
+
+
+# --- choosing the call voice ------------------------------------------------------------------------------------------
+ACCOUNT_VOICES = {"voices": [
+    {"voice_id": "v-rachel", "name": "Rachel", "labels": {"gender": "female", "accent": "american", "age": "young",
+                                                         "description": "calm", "use_case": "narration"},
+     "preview_url": "https://samples.example/rachel.mp3"},
+    {"voice_id": "v-brian", "name": "Brian", "labels": {"gender": "male", "accent": "american", "age": "middle aged",
+                                                       "descriptive": "deep", "use_case": "narration"},
+     "preview_url": "https://samples.example/brian.mp3"},
+    {"voice_id": "v-will", "name": "Will - Relaxed Optimist", "description": "A soft, playful voice with a warm, easy manner.",
+     "labels": {"gender": "male", "accent": "american", "age": "young", "descriptive": "chill", "use_case": "conversational"},
+     "preview_url": "https://samples.example/will.mp3"},
+    {"name": "broken entry"},
+]}
+
+
+def voice_web(reply=ACCOUNT_VOICES):
+    seen = []
+
+    def fetch(url, data=None, headers=None):
+        seen.append((url, headers or {}))
+        if isinstance(reply, Exception):
+            raise reply
+        return json.dumps(reply).encode()
+    fetch.seen = seen
+    return fetch
+
+
+def test_the_call_voice_is_chosen_from_the_accounts_own_voices_by_listening(tmp_path):
+    m, env, web = Memory(tmp_path / "b.db"), {"BUDDY_ELEVENLABS_KEY": "el"}, voice_web()
+    found = calls.voices(m, env, web)
+    assert [v["name"] for v in found] == ["Rachel", "Brian", "Will - Relaxed Optimist"]  # the broken entry is skipped
+    assert web.seen[0][0].endswith("/v1/voices") and web.seen[0][1]["xi-api-key"] == "el"
+    fits = calls.match_voices(found, "male", "soft, funny")
+    assert [v["name"] for v in fits] == ["Will - Relaxed Optimist", "Brian"]  # male only; the soft, playful one first
+    assert calls.match_voices(found, "female", "soft")[0]["name"] == "Rachel" and len(calls.match_voices(found)) == 3
+    said = calls.voices_text(m, "male", "soft, funny", env, web)
+    rows = json.loads(said.split("\n", 1)[1])
+    assert rows[0] == {"name": "Will - Relaxed Optimist", "listen": "https://samples.example/will.mp3", "in_use": False,
+                       "about": "male, young, american, chill conversational A soft, playful voice with a warm, easy manner."}
+    assert "don't describe a voice beyond what is written here" in said
+    # nothing chosen yet: the server's setting, else the built-in voice
+    assert calls.call_voice(m, {}) == calls.DEFAULT_VOICE and calls.call_voice(m, {"BUDDY_CALL_VOICE": "v-env"}) == "v-env"
+    assert "No voice called 'Morgan'" in calls.set_voice(m, "Morgan", env, web)
+    assert "calls will speak with Will - Relaxed Optimist" in calls.set_voice(m, "will", env, web)  # by first name
+    assert calls.call_voice(m, {"BUDDY_CALL_VOICE": "v-env"}) == "v-will"  # the choice made in the app wins
+    assert json.loads(calls.voices_text(m, "male", "", env, web).split("\n", 1)[1])[1]["in_use"] is True
+    assert "back on the voice set on the server" in calls.set_voice(m, "default", env, web)
+    assert calls.call_voice(m, {}) == calls.DEFAULT_VOICE
+    refused = urllib_error(403, "missing_permissions")
+    assert "Voices: Read" in calls.voices_text(m, "male", "", env, voice_web(refused))
+    assert "no male voices" in calls.voices_text(m, "male", "", env, voice_web({"voices": [ACCOUNT_VOICES["voices"][0]]}))
+
+
+def urllib_error(code, text):
+    import io
+    import urllib.error
+    return urllib.error.HTTPError("u", code, "x", {}, io.BytesIO(json.dumps({"detail": {"status": text}}).encode()))
+
+
+def test_the_backup_voice_is_one_the_account_certainly_has(tmp_path):
+    """ElevenLabs retires its ready-made voices from time to time: if the built-in one is gone from the account, the
+    fallback is a voice that is there, looked up once a day."""
+    m, env = Memory(tmp_path / "b.db"), {"BUDDY_ELEVENLABS_KEY": "el"}
+    web = voice_web()
+    assert calls.backup_voice(m, env, web) == "v-will"                # the built-in voice isn't in this account's list
+    assert calls.backup_voice(m, env, web) == "v-will" and len(web.seen) == 1  # asked once a day
+    has_builtin = {"voices": ACCOUNT_VOICES["voices"] + [{"voice_id": calls.DEFAULT_VOICE, "name": "Rachel (built-in)",
+                                                          "labels": {"gender": "female"}}]}
+    assert calls.backup_voice(Memory(tmp_path / "c.db"), env, voice_web(has_builtin)) == calls.DEFAULT_VOICE
+    assert calls.backup_voice(Memory(tmp_path / "d.db"), env, voice_web(urllib_error(403, "no"))) == calls.DEFAULT_VOICE
+    assert calls.backup_voice(None, {}, voice_web()) == calls.DEFAULT_VOICE  # no key: nothing to ask
+
+
+def test_the_phone_tool_lists_and_sets_the_voice(tmp_path, monkeypatch):
+    m = Memory(tmp_path / "b.db")
+    monkeypatch.setattr(calls, "voices", lambda memory, env=None, fetch=None: calls.__dict__["_test_voices"])
+    calls._test_voices = [{"id": "v-will", "name": "Will", "gender": "male", "accent": "american", "age": "young",
+                           "about": "soft playful", "sample": "https://samples.example/will.mp3"}]
+    try:
+        listed = asyncio.run(calls.run_tool(m, None, {"action": "voices", "voice_gender": "male", "voice_like": "soft"}))
+        assert "https://samples.example/will.mp3" in listed
+        assert "Will from the next call" in asyncio.run(calls.run_tool(m, None, {"action": "set_voice", "voice": "Will"}))
+        assert calls.call_voice(m, {}) == "v-will"
+    finally:
+        del calls._test_voices
+    assert {"voices", "set_voice"} <= set(calls.TOOL["input_schema"]["properties"]["action"]["enum"])

@@ -34,8 +34,21 @@ Never paste a key in chat. The setup scripts ask for each one with hidden typing
    - everything else (Speech to Text, Agents, Music, Dubbing, …): **No access**
    - credit limit, if offered: for example 20,000 a month
 4. Copy the key (it's shown once).
-5. *Optional, a different voice:* Voices → Voice Library → filter female, English (American),
-   "Conversational" → **Add to my voices** → **Copy voice ID**.
+5. *Optional, a different voice:* Voices → Voice Library → filter by gender (male or female), English, and
+   "Conversational" → listen → **Add to my voices**. Then pick it in one of two ways:
+   - **In the app, by listening** (easiest): ask Buddy *"show me soft male voices for calls"*. It lists the
+     voices on your ElevenLabs account that fit, each with ElevenLabs' own description and a link to hear a
+     sample. Say *"use Will"* and calls speak with it from the next call. *"Go back to the default voice"*
+     undoes it. Then *"call me"* to hear it on a real call.
+   - **On the server:** **Copy voice ID** in ElevenLabs, then `sudo bash /opt/buddy/deploy/set.sh
+     BUDDY_CALL_VOICE` and paste it. A voice chosen in the app wins over this one.
+
+   A voice has to be on your account (the ready-made ones, or ones you added) to be used. If the chosen voice
+   is ever refused, the call carries on with a voice your account certainly has, looked up once a day, since
+   ElevenLabs retires its ready-made voices from time to time.
+   How Buddy *talks* (playful, formal, brief) is not the voice: tell Buddy, e.g. *"be funny with me"*. That
+   applies when it talks to you, in the app and on calls to you; on calls to other people it stays polite and
+   to the point.
 6. The voice model is chosen automatically: at the first call each day, Buddy asks ElevenLabs which models your
    account has and uses the newest **Turbo** model, the cheapest one made for live conversation (v4 Turbo,
    $0.04 per 1,000 characters), falling back to Flash. If the key's permissions list **Models**, give it

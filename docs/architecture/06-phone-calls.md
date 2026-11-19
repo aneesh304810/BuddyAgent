@@ -47,7 +47,7 @@ The diagram reads left to right: what you ask, the tools Buddy uses, the modules
 
 | Tool | What it is for | Actions | Module |
 |---|---|---|---|
-| `phone_call` | Call a business for the user, as their assistant (Buddy Connect: Plivo, with a natural voice) | call, status, forget_caller, contact | calls.py |
+| `phone_call` | Call a business for the user, as their assistant (Buddy Connect: Plivo, with a natural voice) | call, status, forget_caller, contact, voices, set_voice | calls.py |
 | `calendar_add` | Add an event to the user's phone calendar, only after their yes (asked automatically) | proposal, event, free, decline | scheduling.py |
 
 ## Technical design, module by module
