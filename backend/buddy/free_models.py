@@ -101,6 +101,7 @@ INSTRUCTIONS = {
     "Point out anything risky (deleting files, security).",
 }
 MAX_CHARS = 30_000
+OPENROUTER_TRIES = 3  # of today's free OpenRouter models, tried in turn before OpenRouter counts as failed
 # Speed first for these; for the rest, the best-suited model first unless it keeps failing.
 SPEED_FIRST = {"quick_answer", "classify", "rewrite", "small_talk"}
 TIMEOUT = {"small_talk": 8, "quick_answer": 12, "classify": 10, "rewrite": 15, "brainstorm": 20, "explain": 20,
@@ -417,7 +418,11 @@ class FreeModels:
         purpose = purpose or f"general:{kind}"
         prompt = (instruction.strip() + "\n\n" if instruction.strip() else "") + text
         tried = []
-        for name in self.order(kind)[:3]:  # at most three tries, so a slow day never drags on
+        slow = 0  # at most three real tries, so a slow day never drags on; one at its limit says so at once
+        for name in self.order(kind):
+            if slow >= 3:
+                break
+            slow += 1
             started = time.monotonic()
             self._last_model = ""
             try:
@@ -447,6 +452,7 @@ class FreeModels:
             except NeedsClaude:
                 raise  # not a failure: this one should be Claude's
             except RateLimited as e:
+                slow -= 1  # answered at once: the next free model gets a go, not paid Claude
                 self.cooldown[name] = time.time() + e.wait
                 if self.memory is not None and e.wait > 60:  # a long limit: remember it across calls too
                     self.memory.set(f"free:rest:{name}", str(time.time() + min(e.wait, 6 * 3600)))
@@ -462,6 +468,7 @@ class FreeModels:
                                seconds=time.monotonic() - started, ok=False, stop="at its free limit",
                                request=prompt)
             except _budget_stop() as e:  # Buddy's own budget pause, not the provider failing: no rest, no red mark
+                slow -= 1
                 tried.append(f"{name}: paused by your budget")
                 log.info("free model %s skipped: %s", name, e)
             except BadAnswer as e:
@@ -509,17 +516,35 @@ class FreeModels:
               max_tokens: int = 1500) -> tuple[str, dict]:
         if name in ("openrouter", "deepseek") and not (self.env.get(PROVIDERS[name]["model_setting"]) or "").strip():
             from . import openrouter_catalog  # noqa: PLC0415
-            tried = openrouter_catalog.models_for(self.memory, "code" if name == "deepseek" else self._kind)[:2]
-            for model in tried:  # today's picks; one that errors (gone, no longer free) is set aside, next one tried
+            tried = openrouter_catalog.models_for(self.memory, "code" if name == "deepseek" else self._kind)
+            tried = tried[:OPENROUTER_TRIES]
+            # Today's picks, in turn. OpenRouter's free models are each limited and fail on their own (one busy
+            # upstream, one gone), so one model's refusal moves on to the next free one instead of failing the
+            # whole provider and sending the work to paid Claude. One that's gone or no longer free is set aside.
+            # A timeout is not retried: a slow day must not drag on.
+            last: Exception | None = None
+            limited: RateLimited | None = None
+            for model in tried:
                 try:
                     return self._call_model(name, model, system, prompt, timeout, max_tokens)
-                except RateLimited:
-                    raise
+                except RateLimited as e:
+                    limited = limited if limited and limited.wait <= e.wait else e
+                    continue
                 except urllib.error.HTTPError as e:
+                    if e.code == 401:
+                        raise  # the key itself is refused: no other model will do better
                     if e.code in (400, 402, 403, 404):
                         openrouter_catalog.mark_bad(self.memory, model)
-                        continue
-                    raise
+                    last = e
+                    continue
+                except ValueError as e:  # an empty or odd reply from this model: the next one
+                    last = e
+                    continue
+            if tried:
+                if last is None and limited is not None:
+                    raise limited  # every free model there is at its limit
+                if last is not None:
+                    raise last
         return self._call_model(name, self.model_of(name), system, prompt, timeout, max_tokens)
 
     def _call_model(self, name: str, model: str, system: str, prompt: str, timeout: float,

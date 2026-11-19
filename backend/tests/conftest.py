@@ -76,6 +76,7 @@ def _fresh_rate_limits():
     from buddy import gateway
 
     gateway._recent.clear()
+    gateway._rest_local.clear()  # and which services are resting after failing again and again
     yield
 
 

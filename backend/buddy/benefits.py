@@ -29,6 +29,8 @@ changes to tracked credits are reported.
 Personal offers (Amex Offers, Chase Offers) and points balances aren't public: email or screenshots.
 """
 
+import contextlib
+import contextvars
 import json
 import logging
 import re
@@ -442,8 +444,31 @@ async def _search_issuer_free(memory: Memory, card: str) -> dict | None:
     return data if (cleaned["benefits"] or len(cleaned["earn_rates"]) >= 2) else None
 
 
+# Background lookups (the quarterly recheck, a newly seen card) hold none of the user's data and nobody is waiting
+# on them: free models only. When those can't (Serper or the free models failing), the lookup is skipped and tried
+# again on a later day, instead of falling to paid Claude (cost watch: card_lookup on Claude). A lookup the user
+# asks for still gets Claude's own search as the last resort.
+_FREE_ONLY: contextvars.ContextVar[bool] = contextvars.ContextVar("card_lookup_free_only", default=False)
+
+
 async def _search_free_first(memory: Memory, card: str) -> dict | None:
-    return await _search_issuer_free(memory, card) or await _search_issuer(memory, card)
+    found = await _search_issuer_free(memory, card)
+    if found or _FREE_ONLY.get():
+        if not found:
+            log.info("card lookup for %s: the free models couldn't, and it's background work: skipped, not sent "
+                     "to Claude", card)
+        return found
+    return await _search_issuer(memory, card)
+
+
+@contextlib.contextmanager
+def free_only():
+    """Card lookups inside this block never use paid Claude."""
+    token = _FREE_ONLY.set(True)
+    try:
+        yield
+    finally:
+        _FREE_ONLY.reset(token)
 
 
 async def _search_issuer(memory: Memory, card: str) -> dict | None:
@@ -950,7 +975,8 @@ class Benefits:
                 continue
             self.memory.set(mark, local_now().date().isoformat())
             try:
-                found = await self.lookup(card)
+                with free_only():
+                    found = await self.lookup(card)
             except Exception as e:  # not an issuer card we can find, or no connection: offered once only
                 log.info("benefits lookup for a new card failed: %s", type(e).__name__)
                 continue
@@ -1046,7 +1072,8 @@ class Benefits:
                 continue
             tracked = [b for b in self.all() if _key(b["card"]) == row["card_key"] and "Published by" in b["notes"]]
             try:  # every saved card is refreshed; only tracked credits get a message
-                new = await self.lookup(row["card_name"], fresh=True)
+                with free_only():
+                    new = await self.lookup(row["card_name"], fresh=True)
             except ToolError:
                 continue
             if not tracked or not due:

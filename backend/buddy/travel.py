@@ -831,6 +831,7 @@ class Travel:
 
     async def _review_checks(self, offers: list[dict], place: str) -> None:
         """What reviews say about surprise fees, for the top few (Google search through Serper)."""
+        from . import gateway
         from .social import Social
 
         social = Social()
@@ -844,6 +845,8 @@ class Travel:
                     social.google, f'"{o["name"]}" {place} resort fee OR "cleaning fee" OR "hidden fee" OR '
                     f'"parking fee" OR deposit review', False, "US", 5)).get("results", [])
                 log_call(self.memory, "serper", "search", True, time.monotonic() - started, "travel:reviews")
+            except gateway.Resting:
+                return  # Serper keeps failing and is resting: nothing was sent, so nothing to log
             except Exception as e:
                 log_call(self.memory, "serper", "search", False, time.monotonic() - started, "travel:reviews", str(e))
                 return

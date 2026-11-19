@@ -461,6 +461,64 @@ def set_off(memory, name: str, off: bool, why: str = "") -> str:
             f"{entry['title']} is connected again.")
 
 
+# A service that fails call after call (a dead key, a blocked host, a service that is down) rests instead of being
+# asked again on every pass: cost watch found Reddit failing 57 of 57 calls, Serper 91 of 91 and GDELT 39 of 56.
+# After REST_AFTER failures in a row it rests 30 minutes, twice as long each time it trips again (up to 6 hours);
+# one success (or a passing health check, which is always let through) clears it. A 404 is about the one thing
+# asked for, not the service, so it doesn't count. Remembered in memory (across restarts); calls made without
+# memory share an in-process record.
+REST_PREFIX = "connect:rest:"
+REST_AFTER = 5
+REST_FIRST, REST_MAX = 30 * 60, 6 * 3600
+_rest_local: dict[str, dict] = {}
+
+
+class Resting(ConnectError):
+    """Not sent: the service failed again and again and is resting. No call was made, so nothing is logged."""
+
+
+def _rest_state(memory, name: str) -> dict:
+    if memory is None:
+        return dict(_rest_local.get(name) or {})
+    try:
+        return json.loads(memory.get(REST_PREFIX + name) or "{}") or {}
+    except Exception:
+        return {}
+
+
+def _save_rest(memory, name: str, state: dict) -> None:
+    if memory is None:
+        _rest_local[name] = state
+        return
+    try:
+        memory.set(REST_PREFIX + name, json.dumps(state) if state else "")
+    except Exception:
+        pass
+
+
+def resting_for(memory, name: str) -> float:
+    """Seconds this service still rests (0 when it may be called)."""
+    return max(0.0, float(_rest_state(memory, name).get("until") or 0) - time.time())
+
+
+def _failed(memory, name: str, status: int = 0) -> None:
+    if status == 404:
+        return
+    state = _rest_state(memory, name)
+    state["fails"] = int(state.get("fails") or 0) + 1
+    if state["fails"] >= REST_AFTER:
+        state["trips"] = int(state.get("trips") or 0) + 1
+        wait = min(REST_FIRST * 2 ** (state["trips"] - 1), REST_MAX)
+        state.update(fails=0, until=time.time() + wait)
+        log.warning("%s failed %d times in a row: resting %d minutes", name, REST_AFTER, wait // 60)
+    _save_rest(memory, name, state)
+
+
+def _worked(memory, name: str) -> None:
+    if _rest_state(memory, name):
+        _save_rest(memory, name, {})
+
+
 def _rate_ok(name: str) -> bool:
     limit = CATALOG[name].get("per_minute")
     if not limit:
@@ -538,6 +596,9 @@ def call_url(memory, name: str, urls: list[str], *, data: bytes | None = None, h
         from . import maestro  # noqa: PLC0415
         if not maestro.may_see(name, True):
             raise ConnectError(name, f"{entry['title']} may not see personal data: that goes to Claude only.")
+    if purpose != "health" and (wait := resting_for(memory, name)):
+        raise Resting(name, f"{entry['title']} kept failing, so Buddy is resting it for about "
+                            f"{max(1, round(wait / 60))} more minutes (not asked again until then).", 503)
     if not _rate_ok(name):
         raise ConnectError(name, f"{entry['title']}: too many calls this minute; try again shortly.", 429)
     fetch = fetch or _transport
@@ -554,6 +615,7 @@ def call_url(memory, name: str, urls: list[str], *, data: bytes | None = None, h
                     last = e
                     continue
                 _note(memory, name, False, endpoint, time.monotonic() - started, f"HTTP {e.code}: {said}", purpose)
+                _failed(memory, name, e.code)
                 raise ConnectError(name, f"{entry['title']} said HTTP {e.code}" + (f": {said}" if said else ""),
                                    e.code, said) from e
             except (urllib.error.URLError, OSError, TimeoutError) as e:
@@ -563,15 +625,18 @@ def call_url(memory, name: str, urls: list[str], *, data: bytes | None = None, h
                 break  # can't reach this host: the next one, if any
             else:
                 _note(memory, name, True, endpoint, time.monotonic() - started, purpose=purpose)
+                _worked(memory, name)
                 if raw or isinstance(body, (dict, list)):
                     return body
                 try:
                     return json.loads(body or b"null")
                 except ValueError as e:
                     _note(memory, name, False, endpoint, 0, "not JSON", purpose)
+                    _failed(memory, name)
                     raise ConnectError(name, f"{entry['title']} answered with something that isn't data.",
                                        200, reason_of(body)) from e
     _note(memory, name, False, endpoint, time.monotonic() - started, f"unreachable: {last}", purpose)
+    _failed(memory, name)
     raise ConnectError(name, f"{entry['title']} can't be reached right now.", 0, str(last)[:200])
 
 
