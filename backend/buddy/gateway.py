@@ -173,17 +173,20 @@ CATALOG: dict[str, dict] = {
     "newsdata": {"group": "Finance & markets", "title": "NewsData.io (news fact check)",
                  "hosts": ["https://newsdata.io"], "auth": {"type": "param", "secret": "BUDDY_NEWSDATA_KEY"},
                  "cost": 0.0, "per_minute": 5, "privacy": "public", "no_backup": True,
-                 "used_for": "who else reports a story Buddy is unsure of (a company's name only)"},
+                 "used_for": "who else reports a story Buddy is unsure of (a company's name only); asked first of "
+                             "three; not used for everyday news lookups"},
     "perigon": {"group": "Finance & markets", "title": "Perigon (news fact check)",
                 "hosts": ["https://api.goperigon.com", "https://api.perigon.io"],
                 "auth": {"type": "header", "header": "x-api-key", "secret": "BUDDY_PERIGON_KEY"},
                 "cost": 0.0, "per_minute": 5, "privacy": "public",
-                "used_for": "who else reports a story Buddy is unsure of (a company's name only)"},
+                "used_for": "who else reports a story Buddy is unsure of (a company's name only); asked second of "
+                            "three; not used for everyday news lookups"},
     "newscatcher": {"group": "Finance & markets", "title": "NewsCatcher (news fact check)",
                     "hosts": ["https://v3-api.newscatcherapi.com"],
                     "auth": {"type": "header", "header": "x-api-token", "secret": "BUDDY_NEWSCATCHER_KEY"},
                     "cost": 0.0, "per_minute": 5, "privacy": "public", "no_backup": True,
-                    "used_for": "who else reports a story Buddy is unsure of (a company's name only)"},
+                    "used_for": "who else reports a story Buddy is unsure of (a company's name only); asked last of "
+                                "three; not used for everyday news lookups"},
     "tiingo": {"group": "Finance & markets", "title": "Tiingo (price cross-check)", "hosts": ["https://api.tiingo.com"],
                "auth": {"type": "header", "header": "Authorization", "prefix": "Token ", "secret": "BUDDY_TIINGO_KEY"},
                "cost": 0.0, "per_minute": 30, "privacy": "public", "no_backup": True,
@@ -861,7 +864,8 @@ TOOL = {
     "weather, free AI models...), whether it's set up, whether its last call worked and why not, and calls and cost "
     "this month. find: the services that can do a job (query, e.g. 'train delays', 'stock prices', 'flight status') "
     "with their state, and how to attach (set up) one that isn't; use it when a task needs an outside service you "
-    "aren't sure is available, or a tool says a service isn't set up. list: all of them; test: one small real "
+    "aren't sure is available, or a tool says a service isn't set up. It shows the best five in full and names "
+    "every other match with its state: before saying a service is not attached, find it by its own name. list: all of them; test: one small real "
     "request to one service (name); link: the sign-in link for a service each user connects to their own account "
     "(name, e.g. oura): give it to them to open, it's valid 15 minutes.",
     "input_schema": {"type": "object", "properties": {
@@ -889,6 +893,12 @@ def find(query: str, memory=None, env=None) -> list[dict]:
     return [r for _, r in sorted(scored, key=lambda x: -x[0])]
 
 
+def _short_state(row: dict) -> str:
+    if not row.get("set_up"):
+        return "not connected" if row.get("can_link") else "not attached"
+    return "working" if row.get("last_ok") else "failing" if row.get("last_ok") is False else "attached, not used yet"
+
+
 def run_tool(memory, args: dict) -> str:
     if args.get("action") == "find":
         found = find(args.get("query", ""), memory)
@@ -907,6 +917,9 @@ def run_tool(memory, args: dict) -> str:
                 state = "working" if r["last_ok"] else (f"failing: {r['last_error']}" if r["last_ok"] is False
                                                         else "attached, not used yet")
                 lines.append(f"- {r['title']} ({r['used_for']}): {state}")
+        if len(found) > 5:  # never let the cut make an attached service look absent: name every other match
+            rest = "; ".join(f"{r['title']}: {_short_state(r)}" for r in found[5:])
+            lines.append(f"Also matching ({len(found) - 5} more; ask for one by name for its details): {rest}")
         return "Services for that:\n" + "\n".join(lines)
     if args.get("action") == "link":
         name = (args.get("name") or "").strip()

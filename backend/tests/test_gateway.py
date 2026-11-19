@@ -191,6 +191,22 @@ def test_find_a_service_for_a_job_and_how_to_attach_it(tmp_path):
     assert "No service" in gateway.run_tool(m, {"action": "find", "query": "zzzz qqqq"})
 
 
+def test_find_names_every_match_so_an_attached_service_never_looks_absent(tmp_path, monkeypatch):
+    for key in ("BUDDY_NEWSCATCHER_KEY", "BUDDY_NEWSDATA_KEY", "BUDDY_SERPER_KEY", "BUDDY_FINNHUB_KEY"):
+        monkeypatch.setenv(key, "k")
+    monkeypatch.delenv("BUDDY_PERIGON_KEY", raising=False)
+    m = Memory(tmp_path / "b.db")
+    assert len(gateway.find("news", m)) > 5                       # more match "news" than are shown in full
+    said = gateway.run_tool(m, {"action": "find", "query": "news"})
+    full, also = said.split("Also matching")
+    assert full.count("\n- ") == 5 and "NewsCatcher" not in full  # the cut that made Buddy say it was not attached
+    assert "NewsCatcher (news fact check): attached, not used yet" in also
+    assert "Perigon (news fact check): not attached" in also and "NewsData.io (news fact check): attached" in also
+    by_name = gateway.run_tool(m, {"action": "find", "query": "newscatcher"})
+    assert "attached, not used yet" in by_name and "not used for everyday news lookups" in by_name
+    assert "Also matching" not in by_name
+
+
 def test_every_service_has_a_group_and_the_list_is_grouped(tmp_path):
     assert all(gateway.group_of(n) in gateway.GROUPS for n in gateway.CATALOG)
     m = Memory(tmp_path / "b.db")

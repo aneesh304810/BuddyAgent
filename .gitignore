@@ -11,3 +11,4 @@ backend/files/
 *.db-shm
 *.db-wal
 node_modules/
+backend/library/
