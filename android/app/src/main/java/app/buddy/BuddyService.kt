@@ -95,6 +95,8 @@ class BuddyService : Service() {
     private lateinit var prefs: BuddyPrefs
     @Volatile private var screenOff = false
     @Volatile private var whisperOnServer = false
+    @Volatile private var liveOn = false      // the server hears Talk turns as they're spoken (live hearing)
+    @Volatile private var liveEndMs = 3200L   // and the phone ends a turn itself only after this much silence
     private var switchedOnClose = false  // Listen-in because the phone was closed: Talk again when opened
 
     /** Screen off (phone closed or locked) or on: Automatic speech switches ears. */
@@ -168,6 +170,9 @@ class BuddyService : Service() {
             serverEars.active -> serverEars
             phoneEars.active -> phoneEars
             prefs.speechEngine == "server" -> serverEars
+            // Live hearing: your words go to the server as you say them, so it answers sooner and isn't
+            // thrown by a pause. First choice for Talk whenever the server offers it.
+            prefs.speechEngine == "auto" && liveOn && activeMode == Mode.TALK -> serverEars
             // Automatic: Whisper on your server for continuous listening (Talk hands-free, Listen-in,
             // or the phone closed). The phone's recognizer hears one phrase per session, so it restarts
             // every few seconds and beeps each time; it's kept for single tap-to-talk questions.
@@ -241,6 +246,8 @@ class BuddyService : Service() {
             noiseSuppress = { BuddyPrefs(this).noiseSuppress },
             vadFactory = { SileroVad(this) },
             onSent = { voiceSent(server = true) },
+            live = { liveOn && activeMode == Mode.TALK },
+            liveEndMs = { liveEndMs },
         )
         mouth = Mouth(this, onMissingVoice = { name ->
             BuddyState.add(Line("To hear me in $name, add its voice: phone Settings → Text-to-speech → " +
@@ -348,6 +355,7 @@ class BuddyService : Service() {
             }
             if (status == BuddyClient.Status.ONLINE) {
                 checkWhisper(link)
+                liveHello()  // a new connection: ask again whether live hearing can be used
                 PhoneBridge.flush()  // notifications that arrived while offline
                 syncCalendar()
                 LocationShare.maybeSend(this, force = true)
@@ -487,8 +495,37 @@ class BuddyService : Service() {
         if (until > prefs.whisperUntil) prefs.whisperUntil = until
     }
 
+    /** Tell the server how Talk mode will be spoken to, so it can say whether live hearing can be used
+     *  (in Talk), or that it isn't needed (Listen-in: other people's speech never goes there). */
+    private fun liveHello() {
+        if (activeMode == Mode.TALK) {
+            client?.send(JSONObject().put("type", "live").put("op", "hello")
+                .put("lang", prefs.talkLanguage.ifEmpty { Locale.getDefault().toLanguageTag() }))
+        } else {
+            liveOn = false
+            client?.send(JSONObject().put("type", "live").put("op", "bye"))
+        }
+    }
+
+    /** The server says live hearing is on or off. Turned on while the phone's own recognizer is listening in
+     *  Talk: change over to it now. */
+    private fun liveState(event: ServerEvent.LiveState) {
+        val turnedOn = event.on && !liveOn
+        liveOn = event.on
+        liveEndMs = event.endMs.coerceIn(1_000L, 10_000L)
+        if (turnedOn && prefs.speechEngine == "auto" && activeMode == Mode.TALK && phoneEars.active) {
+            startListening(Mode.TALK)
+        }
+    }
+
     private fun voiceHeard(event: ServerEvent.Heard) {
         missWatch.removeCallbacksAndMessages(null)
+        serverEars.turnOver(event.id)  // a live turn: the server has called it finished
+        if (event.engine == "live" && voiceTrace == null && event.text.isNotBlank()) {
+            // Live hearing ended the turn before the phone did: the tick and the timings start here.
+            heardCue()
+            voiceTrace = VoiceTrace(android.os.SystemClock.elapsedRealtime(), maxOf(0L, event.waitMs), server = true)
+        }
         if (event.lang.isNotBlank() && !event.lang.lowercase().startsWith("en")) preferWhisper(3)  // Malayalam & co.
         val t = voiceTrace
         if (t != null && t.heardAt == 0L) {
@@ -571,6 +608,10 @@ class BuddyService : Service() {
             }
             ServerEvent.Thinking -> thinking(true)
             is ServerEvent.Heard -> voiceHeard(event)
+            is ServerEvent.LiveState -> liveState(event)
+            is ServerEvent.LivePartial -> if (activeMode == Mode.TALK && event.text.isNotBlank()) {
+                BuddyState.status(event.text + "…")  // your words as they're heard
+            }
             is ServerEvent.SpeechLimit -> speechLimit(event.seconds)
             is ServerEvent.SpeechHint -> preferWhisper(event.days)
             ServerEvent.Waiting -> BuddyState.status("Go on…")
@@ -704,6 +745,7 @@ class BuddyService : Service() {
         val language = if (mode == Mode.LISTEN_IN) prefs.roomLanguage
             else prefs.talkLanguage.ifEmpty { Locale.getDefault().toLanguageTag() }
         ears.start(language)
+        liveHello()
         if (ears === phoneEars && (prefs.handsFree || mode == Mode.LISTEN_IN) && !whisperNoteShown) {
             whisperNoteShown = true
             BuddyState.add(Line(

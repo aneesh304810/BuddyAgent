@@ -1248,6 +1248,23 @@ def prewarm() -> None:
         log.info("call engine not preloaded", exc_info=True)
 
 
+def flux_hearing(env=None, *, languages=("en",), hints=(), terms=(), eot: float | None = None,
+                 eot_timeout_ms: int | None = None):
+    """Deepgram's Flux, for a call or for Talk mode (liveears.py). This is the only place it is made, so the opt-out
+    from Deepgram's model improvement programme (by default it keeps audio and text to train on) cannot be left
+    out by a caller. One language: the English model; more: the multilingual one, leaning towards `hints`."""
+    from pipecat.services.deepgram.flux.stt import DeepgramFluxSTTService  # noqa: PLC0415
+    from pipecat.transcriptions.language import Language  # noqa: PLC0415
+    many = len(list(languages)) > 1
+    lean = [Language(c) for c in hints] if many else []
+    return DeepgramFluxSTTService(
+        api_key=_env("BUDDY_DEEPGRAM_KEY", env), mip_opt_out=True, should_interrupt=False,
+        settings=DeepgramFluxSTTService.Settings(
+            model=FLUX_MODEL if many else FLUX_MODEL_EN, eot_threshold=FLUX_EOT if eot is None else eot,
+            eot_timeout_ms=FLUX_EOT_TIMEOUT_MS if eot_timeout_ms is None else eot_timeout_ms,
+            **({"keyterm": list(terms)} if terms else {}), **({"language_hints": lean} if lean else {})))
+
+
 def gate_class():
     """Pipecat's pieces are imported only when a call starts (they're installed by deploy/calls.sh)."""
     from pipecat.frames.frames import (  # noqa: PLC0415
@@ -1466,14 +1483,8 @@ async def run_stream(memory: Memory, websocket, call: dict, deliver=None, env=No
     if flux:
         try:
             from pipecat.services.deepgram.flux.stt import DeepgramFluxSTTService  # noqa: PLC0415
-            terms = [w for w in o["name"].split() if len(w) > 2]
-            hints = [Language(c) for c in hint_languages(env)] if many else []
-            stt = DeepgramFluxSTTService(
-                api_key=env_get("BUDDY_DEEPGRAM_KEY"), mip_opt_out=True, should_interrupt=False,
-                settings=DeepgramFluxSTTService.Settings(
-                    model=FLUX_MODEL if many else FLUX_MODEL_EN, eot_threshold=FLUX_EOT,
-                    eot_timeout_ms=FLUX_EOT_TIMEOUT_MS, **({"keyterm": terms} if terms else {}),
-                    **({"language_hints": hints} if hints else {})))
+            stt = flux_hearing(env, languages=languages, hints=hint_languages(env),
+                               terms=[w for w in o["name"].split() if len(w) > 2])
         except Exception:
             log.warning("call %s: Deepgram Flux isn't available here; using %s", call["id"], STT_MODEL, exc_info=True)
             flux = many = False

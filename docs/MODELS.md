@@ -159,7 +159,48 @@ Settings: `BUDDY_WEB_DIGEST=0` turns the free-model digest off (Claude gets trim
 `BUDDY_PAGE_RAW_CHARS` (default 8000) is how much of a page Claude gets without a digest;
 `BUDDY_FETCH_MAX_TOKENS` (default 12000) caps Claude's own web_fetch.
 
-## 4. Hearing you: Groq's Whisper for Talk mode
+## 4. Hearing you
+
+### Live hearing (the call engine), when it can be used
+With a Deepgram key and the call engine installed (`deploy/calls.sh`), Talk mode is heard **as you speak**
+(`liveears.py`). The app sends your speech a tenth of a second at a time; Deepgram's Flux, the same model
+the phone calls use, writes the words as they come and decides that you have finished from what you said,
+not from a silence timer. A complete sentence is answered at once; an unfinished one ("so what I was
+thinking is...") is given up to 2.5 seconds for the rest. The app shows your words while you say them.
+
+| What used to add time | Live hearing |
+|---|---|
+| A fixed pause (0.8 s) before your sentence counted as ended | Flux judges the end from your words |
+| The whole clip sent, then turned into text | Text is ready as you finish |
+| A sentence without a full stop held 3 to 8 seconds in case more came | Not needed: Flux already decided |
+
+- **Languages:** English, Spanish, French, German, Hindi, Russian, Portuguese, Japanese, Italian and Dutch.
+  If your Talk language (app Settings) names one Flux does not have, such as Malayalam or Tamil, Talk mode
+  stays on Groq's Whisper below, which does those well. "The phone's language" set to English uses live hearing.
+- **Your words:** up to fifty names and words from your vocabulary go with each connection so they are
+  heard right.
+- **Voice match** still decides whether it was you; it runs when the turn ends, on the unaltered audio.
+- **If it can't be used** (no key, the engine not installed, Deepgram unreachable, or it stays silent past
+  3.2 seconds), the turn is heard the way described below, from the same audio. Nothing said is lost.
+- **Where your speech goes:** to Deepgram instead of Groq, opted out of its model improvement programme.
+  Listen-in never goes there.
+- **Cost:** about $0.0077 per minute of your speech (Insights → model calls, "deepgram, speech").
+- **Settings:** `BUDDY_TALK_LIVE=off` switches it off. `BUDDY_TALK_EOT_TIMEOUT_MS` (default 2500) is how
+  long an unfinished sentence waits; `BUDDY_TALK_EOT` (default 0.7) is how sure Flux must be.
+- Needs the app version that sends live audio. Not yet tried on a phone: the engine was tested with
+  Deepgram stood in for.
+
+### Noise removal (optional, off by default)
+`BUDDY_NOISE_CANCEL=talk` cleans live Talk audio on your server before it is heard (`denoise.py`): a small
+neural model (GTCRN) takes out the background, such as a fan, traffic or a restaurant. Install it with
+`sudo bash /opt/buddy/deploy/noise.sh`, then set the switch with `set.sh`.
+
+It is off by default on purpose. Deepgram advises sending speech unaltered: cleaning removes parts of the
+speech with the noise, and recognition usually gets worse. Try it in a noisy place and keep it only if Buddy
+hears you better. Voice match and any turn heard as a clip always get the unaltered audio. Phone calls are
+not covered.
+
+### Groq's Whisper, for everything else
 
 With `BUDDY_GROQ_KEY` set (the same free key as the Groq free model), what you say in
 **Talk mode** is turned into text by Groq's hosted Whisper large-v3-turbo: about 0.3 to 0.6

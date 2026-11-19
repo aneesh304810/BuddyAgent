@@ -21,6 +21,13 @@ import kotlin.math.sqrt
  * loudness detector that adapts to the room, and sends it to the server, which
  * sends back the text and the language it heard. The text then goes exactly
  * where the phone recognizer's would (talk, Listen-in, "Hey Buddy").
+ *
+ * Live hearing (Talk mode, when the server offers it): the utterance isn't kept
+ * until you stop. It goes out a tenth of a second at a time while you speak, the
+ * pause after it too, and the server says when the turn is over ([turnOver]):
+ * it judges that from your words, not from a silence timer. Only if it stays
+ * silent past [liveEndMs] does the phone end the turn itself, and the server
+ * then hears it the old way from what it was sent.
  */
 class ServerEars(
     private val earbudMic: () -> Boolean,  // earbud mic chosen: record the voice-call input
@@ -33,6 +40,8 @@ class ServerEars(
     private val noiseSuppress: () -> Boolean = { false },  // Settings: the phone's own noise suppressor
     private val vadFactory: () -> SileroVad? = { null },  // speech detection on the phone
     private val onSent: () -> Unit = {},  // a clip just left for the server: "heard you" feedback
+    private val live: () -> Boolean = { false },  // the server hears Talk turns as they're spoken
+    private val liveEndMs: () -> Long = { 3200L },  // silence after which the phone ends a live turn itself
 ) : Hearing {
     @Volatile private var cleaning: android.media.audiofx.NoiseSuppressor? = null
     @Volatile private var boost: android.media.audiofx.AutomaticGainControl? = null
@@ -72,6 +81,13 @@ class ServerEars(
     }
 
     override fun destroy() = stop()
+
+    @Volatile private var liveOver = ""
+
+    /** The server called live turn [id] finished (or dropped it): stop sending it. */
+    fun turnOver(id: String) {
+        if (id.isNotEmpty()) liveOver = id
+    }
 
     /** The server's answer for one utterance (main thread). */
     fun heard(text: String, lang: String) {
@@ -123,6 +139,11 @@ class ServerEars(
         var speechFrames = 0
         var peak = 0
         var noiseAtStart = 300.0
+        var streaming = false  // this turn is going out as it's spoken
+        var turn = ""          // and this is its id
+        val chunk = ByteArrayOutputStream()
+        var chunkFrames = 0
+        var chunkSpeech = false
         try {
             while (active && mine == generation) {
                 val n = recorder?.read(frame, 0, frame.size) ?: AudioRecord.ERROR_DEAD_OBJECT
@@ -150,7 +171,9 @@ class ServerEars(
                 micErrors = 0
                 if (n == 0) continue
                 if (paused()) {  // drop what we hear while Buddy itself is talking
-                    speaking = false; utterance.reset(); preRoll.clear()
+                    if (speaking && streaming) sendLive("cancel", turn)
+                    speaking = false; streaming = false; utterance.reset(); preRoll.clear()
+                    chunk.reset(); chunkFrames = 0
                     continue
                 }
                 var sum = 0.0
@@ -174,6 +197,13 @@ class ServerEars(
                         preRoll.forEach { utterance.write(it) }
                         preRoll.clear()
                         utterance.write(bytes)
+                        chunk.reset(); chunkFrames = 0; chunkSpeech = false
+                        streaming = !listen && live()
+                        if (streaming) {  // live: what's been heard so far leaves now, the rest as it comes
+                            turn = java.lang.Long.toString(System.nanoTime() and 0xFFFFFFFFFFL, 36)
+                            streaming = sendLive("start", turn, utterance.toByteArray())
+                            if (streaming) utterance.reset()
+                        }
                     } else {
                         noise = noise * 0.95 + rms * 0.05  // follow the room's background level
                         preRoll.addLast(bytes)
@@ -181,11 +211,47 @@ class ServerEars(
                     }
                     continue
                 }
-                utterance.write(bytes)
+                if (streaming) {
+                    chunk.write(bytes); chunkFrames++
+                    if (loud) chunkSpeech = true
+                    if (chunkFrames >= LIVE_CHUNK_FRAMES) {
+                        sendLive("audio", turn, chunk.toByteArray(), chunkSpeech)
+                        chunk.reset(); chunkFrames = 0; chunkSpeech = false
+                    }
+                } else utterance.write(bytes)
                 if (loud) { speechSq += rms * rms; speechFrames++ }
                 for (i in 0 until n) { val a = kotlin.math.abs(frame[i].toInt()); if (a > peak) peak = a }
                 speechMs += FRAME_MS
                 silentMs = if (loud) 0 else silentMs + FRAME_MS
+                if (streaming) {
+                    val over = liveOver == turn  // the server heard the end of this turn
+                    // Live hearing went away mid-turn: the usual pause ends it, and the server hears it as a clip.
+                    val limit = if (live()) max(liveEndMs(), endSilenceMs()) else endSilenceMs()
+                    if (over || silentMs >= limit || speechMs >= LIVE_MAX_MS) {
+                        val mic = if (earbudMic()) "headset" else "phone"
+                        if (chunkFrames > 0 && !over) sendLive("audio", turn, chunk.toByteArray(), chunkSpeech)
+                        if (over || speechMs - silentMs >= MIN_SPEECH_MS) {
+                            val voiceDb = Diag.db(if (speechFrames > 0) sqrt(speechSq / speechFrames) else rms)
+                            val noiseDb = Diag.db(noiseAtStart)
+                            Diag.event("clip", "sent", "mic" to mic, "noise_db" to noiseDb, "speech_db" to voiceDb,
+                                "snr_db" to (voiceDb - noiseDb), "clipped" to (peak >= 32_000),
+                                "speech_ms" to (speechMs - silentMs), "vad" to (vad != null), "mode" to "talk",
+                                "live" to true, "ended_by" to if (over) "server" else "phone")
+                            // The server stayed silent past the limit: it hears the turn the old way from what it has.
+                            if (!over) {
+                                if (sendLive("end", turn)) main.post { onSent() }
+                                else main.post { onProblem("Not connected to your server yet.") }
+                            }
+                        } else {
+                            sendLive("cancel", turn)
+                            Diag.event("clip", "dropped", "reason" to "too_short", "mic" to mic, "speech_ms" to (speechMs - silentMs))
+                        }
+                        chunk.reset(); chunkFrames = 0; chunkSpeech = false
+                        streaming = false
+                        speaking = false
+                    }
+                    continue
+                }
                 if (silentMs >= endSilenceMs() || speechMs >= MAX_UTTERANCE_MS) {
                     val voiceDb = Diag.db(if (speechFrames > 0) sqrt(speechSq / speechFrames) else rms)
                     val noiseDb = Diag.db(noiseAtStart)
@@ -203,6 +269,7 @@ class ServerEars(
                 }
             }
         } finally {
+            if (speaking && streaming) sendLive("cancel", turn)  // stopped mid-turn: nothing to answer
             runCatching { vad?.close() }
             runCatching { recorder?.stop() }
             recorder?.release()
@@ -227,6 +294,15 @@ class ServerEars(
         else main.post { onSent() }
     }
 
+    /** One step of a live turn: its start (with what was heard before it), more audio, its end, or dropping it. */
+    private fun sendLive(op: String, id: String, pcm: ByteArray? = null, speech: Boolean = true): Boolean {
+        val message = JSONObject().put("type", "live").put("op", op).put("id", id)
+        if (pcm != null) message.put("pcm", Base64.encodeToString(pcm, Base64.NO_WRAP)).put("sp", speech)
+        if (op == "start") message.put("lang", language).put("ns", cleaning?.enabled == true)
+            .put("mic", if (earbudMic()) "headset" else "phone")
+        return send(message)
+    }
+
     private fun toBytes(frame: ShortArray, n: Int): ByteArray {
         val buffer = ByteBuffer.allocate(n * 2).order(ByteOrder.LITTLE_ENDIAN)
         buffer.asShortBuffer().put(frame, 0, n)
@@ -240,5 +316,7 @@ class ServerEars(
         const val PRE_ROLL_FRAMES = 10        // 320 ms before the first speech frame
         const val MIN_SPEECH_MS = 300  // a quick "Buddy" is about this long
         const val MAX_UTTERANCE_MS = 15_000
+        const val LIVE_CHUNK_FRAMES = 3    // live hearing: about a tenth of a second goes out at a time
+        const val LIVE_MAX_MS = 45_000     // a live turn can be longer than a clip: nothing waits for its end
     }
 }

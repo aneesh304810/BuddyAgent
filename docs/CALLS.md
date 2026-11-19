@@ -157,6 +157,9 @@ changes back when they do.
   (`en` by default; `en,es`; or `none` to lean nowhere).
 - Not yet tried on a real call in another language: the first few are worth listening in on.
 
+The same engine now hears Talk mode in the app as you speak (docs/MODELS.md, "Live hearing"), so the Deepgram
+key set here is used there too.
+
 ## 8. If something's wrong
 
 | Problem | Fix |

@@ -1,6 +1,6 @@
 # Voice: Talk mode and Listen-in
 
-Hearing you (Whisper on your server or Groq), knowing when you talk to Buddy, your voice match, how you pause, the words it should hear right, and Listen-in's whispers.
+Hearing you (live as you speak through the call engine, or in clips by Whisper on your server or Groq), optional noise removal, knowing when you talk to Buddy, your voice match, how you pause, the words it should hear right, and Listen-in's whispers.
 
 ## Architecture
 
@@ -13,6 +13,8 @@ flowchart LR
     end
     subgraph Modules["Modules"]
         whisper_py["whisper.py<br/>Whisper on the user's own server (faster-whisper), and for Talk mode,…"]
+        liveears_py["liveears.py<br/>Live hearing for Talk mode, on the same engine the phone calls use"]
+        denoise_py["denoise.py<br/>Noise removal for Talk mode's live hearing: on this server, and only…"]
         ambient_py["ambient.py<br/>Buddy hears the people around the user and whispers when it matters"]
         addressee_py["addressee.py<br/>Is the user talking to Buddy, or to someone else in the room?"]
         voiceprint_py["voiceprint.py<br/>in Talk mode, only the user's own voice counts"]
@@ -24,22 +26,24 @@ flowchart LR
     t_voice_match --> voiceprint_py
     you --> t_learn_word
     t_learn_word --> vocabulary_py
+    liveears_py --> denoise_py
+    liveears_py --> whisper_py
     ambient_py --> transcripts_py
     ambient_py --> whisper_py
     voiceprint_py --> whisper_py
     db[("Your database<br/>room_lines, saved_transcripts")]
     transcripts_py --> db
-    o_0["Claude"]
+    o_0["Buddy Connect"]
     whisper_py -. uses .-> o_0
-    o_1["Free AI models"]
+    o_1["Claude"]
     whisper_py -. uses .-> o_1
-    o_2["Making and doing things"]
+    o_2["Free AI models"]
     whisper_py -. uses .-> o_2
-    o_3["Memory"]
+    o_3["Insights and costs"]
     whisper_py -. uses .-> o_3
-    o_4["Money"]
+    o_4["Making and doing things"]
     whisper_py -. uses .-> o_4
-    o_5["Security and privacy"]
+    o_5["Memory"]
     whisper_py -. uses .-> o_5
 ```
 
@@ -73,6 +77,67 @@ accurate but needs about 4 GB and is slower).
 
 - Settings: `BUDDY_GROQ_KEY`, `BUDDY_GROQ_PAID`, `BUDDY_GROQ_WHISPER_MODEL`, `BUDDY_KNOWN_LANGUAGES`, `BUDDY_TALK_DROP_LOGPROB`, `BUDDY_UNSURE_LOGPROB`, `BUDDY_WHISPER_BEAM`, `BUDDY_WHISPER_MODEL`, `BUDDY_WHISPER_TALK`
 - Uses: budgets.py, config.py
+
+### liveears.py
+
+```text
+Live hearing for Talk mode, on the same engine the phone calls use.
+
+Talk mode used to work in clips: the phone waited for a silence, sent the whole clip, the server checked the voice,
+turned it into text, sent the text back, and held any sentence that looked unfinished for three seconds or more
+before answering. Here the phone sends your speech while you are still saying it. Deepgram's Flux (through Pipecat,
+as on calls) writes the words as they come and decides that you have finished from what you said, not from a timer:
+a complete sentence is answered at once, an unfinished one is given time.
+
+  phone  -> {"type": "live", "op": "hello", "lang": "auto"}          Talk mode is on (or its language changed)
+  server -> {"type": "live_state", "on": true, "end_ms": 3200}       live hearing can be used (end_ms: how long the
+                                                                      phone waits in silence before ending a turn
+                                                                      itself)
+  phone  -> {"type": "live", "op": "start", "id": "a1", "pcm": ...}  you started speaking (with the half second before)
+  phone  -> {"type": "live", "op": "audio", "pcm": ..., "sp": true}  more of it, a tenth of a second at a time
+  server -> {"type": "live_partial", "text": "what's the wea"}       the words so far
+  server -> {"type": "heard", "text": ..., "engine": "live", ...}    you finished: the same message a clip gets
+  phone  -> {"type": "live", "op": "end"}                            the phone's own silence limit passed first
+  phone  -> {"type": "live", "op": "bye"}                            Talk mode is off
+
+What goes where: your Talk-mode speech goes to Deepgram, opted out of its model improvement programme (as on calls),
+instead of Groq. Listen-in never comes here: other people's speech stays on this server. The words then take the
+same road as before: voice match, the Privacy Gateway, Claude. Buddy still answers with the phone's own voice.
+
+If live hearing can't be used (no Deepgram key, the call engine not installed, a language Flux doesn't have,
+Deepgram unreachable or silent), the turn is heard the old way from the same audio, so nothing said is lost.
+BUDDY_TALK_LIVE=off switches it off.
+
+Noise removal (denoise.py) is a switch, off unless BUDDY_NOISE_CANCEL=talk: Deepgram advises sending speech
+unaltered. When on, the audio Flux hears is cleaned on this server first; voice match and the clip fallback still
+get what the microphone heard.
+```
+
+- Settings: `BUDDY_CALL_PRICE_LISTEN_MIN`, `BUDDY_DEEPGRAM_KEY`, `BUDDY_NOISE_CANCEL`, `BUDDY_TALK_EOT`, `BUDDY_TALK_EOT_TIMEOUT_MS`, `BUDDY_TALK_LIVE`
+- Uses: calls.py, denoise.py, diagnostics.py, gateway.py, usage.py, whisper.py
+
+### denoise.py
+
+```text
+Noise removal for Talk mode's live hearing: on this server, and only when you switch it on.
+
+A small neural model (GTCRN, half a megabyte, MIT licence) run through sherpa-onnx, the library voice match already
+uses. It takes your speech as it arrives and takes out the background (a fan, traffic, a restaurant's clatter), a
+few hundredths of a second behind. Nothing leaves the server for this.
+
+It is off unless you ask for it, for a reason. Deepgram, whose model does the hearing, advises against cleaning
+audio before recognition: the cleaning takes parts of the speech with the noise, and its model was trained on noisy
+audio, so recognition usually gets worse, not better. So Buddy sends your speech unaltered by default.
+
+  BUDDY_NOISE_CANCEL   off (default) | talk: Talk mode's live turns are cleaned before they are heard
+
+Voice match always gets the unaltered audio (it was taught on your unaltered voice), and a turn that falls back to
+being heard as a clip is heard unaltered too. Phone calls are not covered: a phone line is 8 kHz and already
+processed by the phone network. Install the model with: sudo bash /opt/buddy/deploy/noise.sh
+```
+
+- Settings: `BUDDY_NOISE_CANCEL`, `BUDDY_NOISE_MODEL`
+- Uses: config.py, gateway.py
 
 ### ambient.py
 
@@ -186,6 +251,6 @@ every time you correct a misheard word ("no, I said Barranco"), Claude records i
 
 ## How it connects
 
-- Relies on: Claude: the brain; Free AI models (Groq, Gemini, Mistral, Cerebras, GitHub Models, OpenRouter); Making and doing things; Memory; Money; Security and privacy
+- Relies on: Buddy Connect; Claude: the brain; Free AI models (Groq, Gemini, Mistral, Cerebras, GitHub Models, OpenRouter); Insights and costs; Making and doing things; Memory; Money; Phone calls; Security and privacy
 - Relied on by: Claude: the brain; Insights and costs; Learning: the English and investing tutors; Security and privacy; Speaking up on its own: briefing, reminders and alerts; The server and the app
 

@@ -174,9 +174,11 @@ COMPONENTS = [  # every server module belongs to one feature (tests check none i
      "your taste and daily routine, and connecting what it knows",
      ["memory.py", "convolog.py", "brain.py", "connect.py", "library.py", "lifelog.py", "companydocs.py", "taste.py",
       "routine.py"]),
-    ("Voice: Talk mode and Listen-in", "Hearing you (Whisper on your server or Groq), knowing when you talk to Buddy, "
-     "your voice match, how you pause, the words it should hear right, and Listen-in's whispers",
-     ["whisper.py", "ambient.py", "addressee.py", "voiceprint.py", "pausehabit.py", "transcripts.py", "vocabulary.py"]),
+    ("Voice: Talk mode and Listen-in", "Hearing you (live as you speak through the call engine, or in clips by Whisper "
+     "on your server or Groq), optional noise removal, knowing when you talk to Buddy, your voice match, how you "
+     "pause, the words it should hear right, and Listen-in's whispers",
+     ["whisper.py", "liveears.py", "denoise.py", "ambient.py", "addressee.py", "voiceprint.py", "pausehabit.py",
+      "transcripts.py", "vocabulary.py"]),
     ("Phone calls", "Calls businesses for you after your yes and answers calls: Plivo, Pipecat on your server, "
      "Deepgram, Claude and ElevenLabs; your contacts and meeting proposals",
      ["calls.py", "contacts.py", "scheduling.py"]),

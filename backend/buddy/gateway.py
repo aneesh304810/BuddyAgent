@@ -354,10 +354,11 @@ CATALOG: dict[str, dict] = {
               "cost": 0.0, "per_minute": 60, "privacy": "personal", "no_backup": True,
               "used_for": "phone calls for you (appointments, questions, hold-and-connect); each one after your yes",
               "setup_command": "sudo bash /opt/buddy/deploy/calls.sh", "health": {"custom": "calls.plivo_health"}},
-    "deepgram": {"group": "Calls", "title": "Deepgram (hears calls)", "hosts": ["https://api.deepgram.com"],
+    "deepgram": {"group": "Calls", "title": "Deepgram (hears calls and Talk mode)", "hosts": ["https://api.deepgram.com"],
                  "auth": {"type": "header", "secret": "BUDDY_DEEPGRAM_KEY", "prefix": "Token "},
                  "cost": 0.0, "per_minute": 30, "privacy": "personal", "reports": True,
-                 "used_for": "turns the other side's words into text on Buddy's calls (only while someone talks)",
+                 "used_for": "turns the other side's words into text on Buddy's calls, and yours in Talk mode as you "
+                             "speak (live hearing); only while someone talks, and never kept by Deepgram to train on",
                  "setup_command": "sudo bash /opt/buddy/deploy/calls.sh", "health": {"path": "/v1/projects"}},
     "elevenlabs": {"group": "Calls", "title": "ElevenLabs (Buddy's call voice)", "hosts": ["https://api.elevenlabs.io"],
                    "auth": {"type": "header", "header": "xi-api-key", "secret": "BUDDY_ELEVENLABS_KEY"},

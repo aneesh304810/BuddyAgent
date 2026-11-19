@@ -28,9 +28,15 @@ sealed interface ServerEvent {
     data class Whisper(val kind: String, val text: String) : ServerEvent
     data class Error(val text: String) : ServerEvent
     data class Approval(val question: String) : ServerEvent
-    /** The server's text for one clip. Empty text with [missed] (nothing, unclear, not_you): heard, not taken. */
+    /** The server's text for one clip. Empty text with [missed] (nothing, unclear, not_you): heard, not taken.
+     *  [id]: the live turn it answers; [waitMs]: for a live turn, from your last word to the server calling it done. */
     data class Heard(val text: String, val lang: String, val sttMs: Long = -1, val engine: String = "",
-                     val missed: String = "") : ServerEvent
+                     val missed: String = "", val id: String = "", val waitMs: Long = -1) : ServerEvent
+    /** Live hearing (your words sent as you say them) can be used for Talk mode now, or can't.
+     *  [endMs]: how long to wait in silence before ending a turn here, if the server hasn't. */
+    data class LiveState(val on: Boolean, val endMs: Long) : ServerEvent
+    /** The words heard so far in the turn you're speaking. */
+    data class LivePartial(val text: String) : ServerEvent
     /** The server's fast speech recognition (Groq) is at its free limit for [seconds]. */
     data class SpeechLimit(val seconds: Long) : ServerEvent
     /** The server suggests Whisper for a few days (a misheard word was just corrected). */
@@ -80,7 +86,9 @@ sealed interface ServerEvent {
                 "error" -> Error(msg.getString("text"))
                 "approval" -> Approval(msg.getString("question"))
                 "heard" -> Heard(msg.optString("text"), msg.optString("lang"), msg.optLong("stt_ms", -1),
-                    msg.optString("engine"), msg.optString("missed"))
+                    msg.optString("engine"), msg.optString("missed"), msg.optString("id"), msg.optLong("wait_ms", -1))
+                "live_state" -> LiveState(msg.optBoolean("on"), msg.optLong("end_ms", 3200L))
+                "live_partial" -> LivePartial(msg.optString("text"))
                 "speech_limit" -> SpeechLimit(msg.optLong("seconds", 600L))
                 "speech_hint" -> SpeechHint(msg.optInt("days", 3))
                 "mode" -> SwitchMode(msg.optString("mode"))

@@ -77,7 +77,7 @@ from .bankfeed import BankFeed
 from .builder import AgentBuilder
 from .deals import PriceWatcher
 from .finops import FinOps
-from . import budgets, pausehabit
+from . import budgets, liveears, pausehabit
 from . import lifelog
 from .lifelog import LifeLog
 from .library import Library, report as library_report
@@ -109,8 +109,11 @@ def trace(direction: str, msg: dict) -> None:
     kind = msg.get("type", "?")
     extra = msg.get("via") or msg.get("kind") or msg.get("lang") or ""
     text = msg.get("text") or msg.get("question") or ""
-    if kind == "audio":
-        text = f"{len(msg.get('pcm', '')) * 3 // 4 // 32000:.0f} s of audio"
+    if kind == "live" and msg.get("op") == "audio":
+        return  # ten a second while you speak: the start and the end of a turn say enough
+    if kind in ("audio", "live"):
+        extra = msg.get("op") or extra
+        text = f"{len(msg.get('pcm', '')) * 3 // 4 / 32000:.1f} s of audio"
     elif kind == "location":
         text = "location update"
     trace_log.info("%s %-12s %-8s %s", direction, kind, extra, mask(str(text))[:160])
@@ -670,7 +673,7 @@ def api_file(file_id: str, exp: str = "", sig: str = "", authorization: str | No
 
 @app.get("/health")
 def health() -> dict:
-    return {"ok": True, "whisper": speech_to_text.available()}
+    return {"ok": True, "whisper": speech_to_text.available(), "live": liveears.available()}
 
 
 # How speech recognition mishears "Buddy" ("Budo, Buddy, why…"); only these count on their own.
@@ -2535,6 +2538,36 @@ async def talk(ws: WebSocket) -> None:
         except Exception:
             log.exception("whisper failed")
 
+    async def hear_clip(msg: dict) -> None:
+        """A live turn that live hearing couldn't finish: heard the way a clip is, beside the conversation."""
+        task = asyncio.create_task(hear_audio(msg))
+        audio_tasks.add(task)
+        task.add_done_callback(audio_tasks.discard)
+
+    async def voice_ok(pcm: bytes) -> str:
+        """Talk mode answers only the owner's voice: "you", "not_you", or "off" when voice match isn't in use."""
+        if not voiceprint.on(memory):
+            return "off"
+        try:
+            who, score = await asyncio.to_thread(voiceprint.check, memory, pcm, time.monotonic() - last_exchange["at"])
+        except voiceprint.VoiceMatchUnavailable:
+            return "you"
+        if score is not None:
+            usage.count(memory, "voice:you" if who == "you" else "voice:not_you")
+        if who != "you":
+            trace("·", {"type": "not_you", "text": f"voice {'too short' if score is None else f'{score:.2f}'}"})
+            usage.count(memory, "voice:ignored")
+            return "not_you"
+        return "you"
+
+    async def heard_live(message: dict) -> None:
+        if message.get("type") == "heard" and message.get("text"):
+            last_heard[0] = time.monotonic()  # spoken, not typed
+        await send(message)
+
+    live = liveears.LiveTalk(memory, heard_live, hear_clip, voice_ok,
+                             terms=[w for w in vocabulary.words(memory) if len(w) > 2][:50])
+
     async def answer(text: str, via: str = "user") -> None:
         try:
             agent_asks = set(registry.pending)
@@ -2641,7 +2674,7 @@ async def talk(ws: WebSocket) -> None:
                     await switch_now(switch)
                     continue
                 spoken = time.monotonic() - last_heard[0] < 3  # just heard by Whisper, not typed
-                if via == "user" and spoken and unfinished(text) and len(text) < 400:
+                if via == "user" and spoken and unfinished(text) and len(text) < 400 and not live.just_heard(text):
                     # "Why can't we use..." then a pause to think: wait a moment for the rest.
                     pending["text"] = UNFINISHED.sub("", text).strip().rstrip(".")
                     pending["at"] = time.monotonic()
@@ -2705,6 +2738,8 @@ async def talk(ws: WebSocket) -> None:
                     await send({"type": "diag_off"})
             elif msg.get("type") == "diag_ping":  # the phone times the round trip
                 await send({"type": "diag_pong", "t": msg.get("t")})
+            elif msg.get("type") == "live":  # Talk mode, heard as you speak (liveears.py)
+                await live.handle(msg)
             elif msg.get("type") == "audio" and msg.get("pcm"):
                 msg["_got"] = time.monotonic()
                 # Speech recognition on this server (Whisper) runs beside the conversation, so the
@@ -2748,6 +2783,8 @@ async def talk(ws: WebSocket) -> None:
         diagnostics.server_event(memory, "network", "phone_disconnected",
                                  session_s=round(time.monotonic() - session_started))
         listener.stop()
+        with contextlib.suppress(Exception):
+            await live.close()
         connections.pop(ws, None)
         await stop_current()
         _keep_conversation(convo)
