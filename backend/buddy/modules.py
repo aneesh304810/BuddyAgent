@@ -2,7 +2,8 @@
 
   core      always on: the brain, Maestro, Buddy Connect, memory, security and privacy, costs, the server and app
   module    a part Buddy already has (Voice, Money, Travel...): on or off for this server
-  wearable  the new parts for glasses (Devices, Link, Vision...): listed here, not built, so they cannot be on
+  wearable  the new parts for glasses. Devices and Link are built (glasslink.py). The rest (Vision, Voice on a
+            device, Integrations...) are listed here and cannot be on until they are
 
 THE SWITCH belongs to whoever runs the server, not to the person talking to Buddy: it is the setting BUDDY_MODULES
 in the server's root-only settings (deploy/modules.sh changes it). In a conversation the modules can be listed,
@@ -26,7 +27,9 @@ It is written as things happen, at the places Buddy already logs its work:
   outside_call   a paid outside service was called for the module, with its cost (travel.log_call)
   minute         speech heard (Voice) or time on the line (Phone calls)
   day_on         the module was on that day
-  ...            whatever a module records itself with record(): device_month, image, action, seat_month
+  device_day     a pair of glasses was connected that day, once for each device (mark); a statement counts the
+                 different devices of the month as active_device
+  ...            whatever a module records itself with record(): image, action, seat_month
 
 Lines are kept for three years. A wrong or failing meter never breaks a reply: every hook swallows its errors.
 
@@ -85,10 +88,10 @@ MODULES = (
     Module("selfcare", "Fixing and explaining itself", "module", "Fixing and explaining itself", EVERYDAY,
            owner_only=True),
     # --- for glasses: the plan, not built ----------------------------------------------------------------------
-    Module("devices", "Devices", "wearable", "Wearables (new)", ("device_month",), built=False,
-           note="Connect glasses and read what they can do. Adapters are written, none has run on glasses."),
-    Module("link", "Link", "wearable", "The server and the app", (), needs=("devices",), built=False,
-           note="Joins a device to Buddy's brain. Counted with Devices."),
+    Module("devices", "Devices", "wearable", "Wearables (new)", ("device_day", "active_device"),
+           note="Glasses connect and say what they can do. Not yet run with real glasses."),
+    Module("link", "Link", "wearable", "The server and the app", ("use",), needs=("devices",),
+           note="Joins a device to Buddy's brain: show, ask, choose. Counted with Devices."),
     Module("device_voice", "Voice on a device", "wearable", "Voice", ("minute", "character"),
            needs=("devices", "link"), built=False),
     Module("vision", "Vision", "wearable", "New", ("image",), needs=("devices", "link"), built=False),
@@ -139,6 +142,7 @@ TOOLS = {
     "agents": ("build_agent", "connect_mcp_server", "built_agents"),
     "intelligence": ("intelligence",),
     "selfcare": ("buddy_code", "claude_code_fix", "self_check", "start_task", "code_workspaces"),
+    "link": ("glasses_describe", "glasses_show", "glasses_ask", "glasses_choose"),
 }
 _TOOL_MODULE = {tool: module for module, tools in TOOLS.items() for tool in tools}
 AGENT_MODULE = {"gmail": "email"}  # a specialist agent's tools (gmail__read_mail) belong to its module
@@ -278,6 +282,17 @@ def record(memory, module: str, unit: str, amount: float = 1.0, cost: float = 0.
     memory.db.commit()
 
 
+def mark(memory, module: str, unit: str, who: str, now: datetime | None = None, env=None) -> None:
+    """Count `who` once today for this module and unit, however often it is marked (an active device)."""
+    if memory is None or module not in BY_ID or not unit or not who:
+        return
+    day = _day(now)
+    _mark_day(memory, day, env)
+    memory.db.execute("INSERT OR IGNORE INTO module_usage (day, module, unit, who, amount, cost_usd) "
+                      "VALUES (?, ?, ?, ?, 1, 0)", (day, module, unit, who[:80]))
+    memory.db.commit()
+
+
 def _mark_day(memory, day: str, env=None) -> None:
     """Once a day: a day_on line for every module that is on, and lines past three years dropped."""
     if memory.get(DAY_KEY) == day:
@@ -334,6 +349,10 @@ def statement(memory, month: str = "", env=None) -> dict:
         "WHERE day LIKE ? GROUP BY module, unit", (month + "-%",)).fetchall()
     prices, on = price_list(env), switched_on(env)
     found: dict[str, list[dict]] = {}
+    active = memory.db.execute(  # the different devices of the month: what "a price for each active device" counts
+        "SELECT module, COUNT(DISTINCT who) AS amount, 0.0 AS cost FROM module_usage "
+        "WHERE day LIKE ? AND unit = 'device_day' AND who != '' GROUP BY module", (month + "-%",)).fetchall()
+    rows = list(rows) + [{"module": r["module"], "unit": "active_device", "amount": r["amount"], "cost": 0.0} for r in active]
     for r in rows:
         price = prices.get((r["module"], r["unit"]))
         found.setdefault(r["module"], []).append({

@@ -10,5 +10,6 @@ export { evenHubHost } from "./hosts/evenhub.js";
 export { HALO, HALO_APP, haloHost } from "./hosts/halo.js";
 export { mentraHost, profileFromCapabilities } from "./hosts/mentra.js";
 export { AGENT_TOOLS, agentSession } from "./agent.js";
+export { LINK, connectLink, described } from "./link.js";
 export { check, works } from "./check.js";
 export { KINDS, advice, buildApp, problems, toCode } from "./builder.js";

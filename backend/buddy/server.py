@@ -54,6 +54,7 @@ import re
 import secrets
 import time
 from datetime import datetime, timedelta, timezone
+from pathlib import Path
 
 import anthropic
 from fastapi import Depends, FastAPI, Header, HTTPException, Request, WebSocket, WebSocketDisconnect
@@ -78,7 +79,7 @@ from .bankfeed import BankFeed
 from .builder import AgentBuilder
 from .deals import PriceWatcher
 from .finops import FinOps
-from . import budgets, liveears, modules, pausehabit
+from . import budgets, glasslink, liveears, modules, pausehabit
 from . import lifelog
 from .lifelog import LifeLog
 from .library import Library, report as library_report
@@ -760,6 +761,22 @@ def admin_modules(month: str = "", text: int = 0):
     if text:
         return PlainTextResponse(modules.list_text() + "\n\n" + modules.statement_text(memory, month))
     return {"modules": modules.overview(), "statement": modules.statement(memory, month)}
+
+
+@app.get("/admin/glasses", dependencies=[Depends(require_admin)])
+def admin_glasses() -> dict:
+    """The glasses connected to this server right now."""
+    return {"connected": glasslink.link.status(), "version": glasslink.VERSION}
+
+
+@app.post("/admin/glasses/test", dependencies=[Depends(require_admin)])
+async def admin_glasses_test() -> dict:
+    """Show one line on the connected glasses and say what reached the wearer (the Glasses page's Test button)."""
+    said = await glasslink.run_tool("glasses_show", {"title": "Buddy", "lines": ["Your glasses are connected to Buddy."]})
+    try:
+        return {"ok": True, **json.loads(said)}
+    except ValueError:
+        return {"ok": False, "why": said}
 
 
 @app.post("/admin/connectors/{name}/{action}", dependencies=[Depends(require_admin)])
@@ -2346,6 +2363,43 @@ def authorized(token: str | None) -> bool:
     return token is not None and secrets.compare_digest(token, settings.access_token)
 
 
+@app.websocket("/ws/glasses")
+async def glasses_door(ws: WebSocket) -> None:
+    """Where the glasses runtime on the phone joins (glasslink.py): the same access check as the phone's own
+    connection, then the contract's hello."""
+    ip, user = guard.client(ws.client.host if ws.client else None, ws.headers)
+    if guard.guard.locked(ip):
+        guard.guard.record("ws", ip, user, "WS", "/ws/glasses", 429)
+        await ws.close(code=4429)
+        return
+    if not authorized(ws.query_params.get("token")):
+        guard.guard.record("ws", ip, user, "WS", "/ws/glasses", 401)
+        guard.guard.failed(ip, user, "/ws/glasses")
+        await ws.close(code=4401)
+        return
+    guard.guard.record("ws", ip, user, "WS", "/ws/glasses", 101)
+    await ws.accept()
+    session = None
+    try:
+        hello = await asyncio.wait_for(ws.receive_json(), timeout=15)
+        try:
+            session = glasslink.link.attach(memory, hello, ws.send_json)
+        except glasslink.Refused as e:
+            await ws.send_json({"op": "refused", "why": str(e)})
+            await ws.close(code=4403)
+            return
+        await ws.send_json({"op": "welcome", "version": glasslink.VERSION, "session": session.id})
+        while glasslink.link.heard(session, await ws.receive_json()):
+            pass
+    except (WebSocketDisconnect, asyncio.TimeoutError, ValueError, RuntimeError):
+        pass  # gone, silent, or not speaking JSON: the session ends
+    finally:
+        if session is not None:
+            glasslink.link.detach(session)
+        with contextlib.suppress(Exception):
+            await ws.close()
+
+
 @app.websocket("/ws")
 async def talk(ws: WebSocket) -> None:
     ip, user = guard.client(ws.client.host if ws.client else None, ws.headers)
@@ -2805,4 +2859,9 @@ async def talk(ws: WebSocket) -> None:
 
 
 # The voice client (works in phone browsers today; native apps come later).
+# The glasses framework's own files, for the Glasses page (web/glasses.html) that runs it in the phone's browser.
+_xr = Path(settings.web_dir).resolve().parent / "xr"
+for _part in ("src", "vendor"):
+    if (_xr / _part).is_dir():
+        app.mount(f"/xr/{_part}", StaticFiles(directory=_xr / _part), name=f"xr-{_part}")
 app.mount("/", StaticFiles(directory=settings.web_dir, html=True), name="web")

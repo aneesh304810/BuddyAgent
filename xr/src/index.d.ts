@@ -98,6 +98,16 @@ export interface AgentSession {
 }
 export function agentSession(host: Host, options?: RunOptions & { name?: string; onSay?: (words: string) => void }): AgentSession;
 
+/** The link that joins a pair of glasses to a Buddy server (docs/BWCP.md, version 0.2). Not yet run with real glasses. */
+export const LINK: { protocol: "bwcp"; version: string };
+export interface LinkSocket { readyState?: number; send(text: string): void; close(): void; onopen?: unknown; onmessage?: unknown; onclose?: unknown }
+export interface Link { session: AgentSession; readonly connected: boolean;
+  state(patch: { battery?: number; charging?: boolean; link?: "good" | "weak" | "lost"; worn?: boolean }): void;
+  problem(code: string, about?: string): void; close(why?: string): void }
+export function described(profile: Profile): Partial<Profile> & { name: string };
+export function connectLink(host: Host, socket: LinkSocket, options?: RunOptions & { name?: string;
+  device?: { maker?: string; model?: string; id?: string }; onState?: (what: "connected" | "refused" | "closed", detail?: unknown) => void }): Link;
+
 /** A profile built from what a MentraOS session reports for the wearer's glasses. */
 export function profileFromCapabilities(capabilities: unknown, options?: { cols?: number }): Profile;
 /** A host on top of MentraOS. `session` is the AppSession its AppServer hands to onSession. Not yet run on glasses. */

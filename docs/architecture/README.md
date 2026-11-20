@@ -112,6 +112,6 @@ flowchart LR
 | [Security and privacy](21-security-and-privacy.md) | Who can reach Buddy, lockouts, secrets kept out of logs and prompts, the encrypted database | 7 |
 | [Fixing and explaining itself](22-fixing-and-explaining-itself.md) | Reads its own code and these docs, draws its own architecture, checks its own server, and fixes itself on a branch you review | 10 |
 | [Insights and costs](23-insights-and-costs.md) | What Buddy spends and how well it does, model by model and service by service, and what makes it feel slow; and the modules: which parts are switched on for this server, and the meter that counts what each one is used for | 5 |
-| [The server and the app](24-the-server-and-the-app.md) | The one server the phone talks to: the chat connection, the app's pages and their data | 1 |
+| [The server and the app](24-the-server-and-the-app.md) | The one server the phone talks to: the chat connection, the app's pages and their data, and the door where a pair of smart glasses joins Buddy's brain | 2 |
 
-24 features, 177 server modules. The app (Kotlin) and the deploy scripts are documented by `python -m buddy.codedocs`.
+24 features, 178 server modules. The app (Kotlin) and the deploy scripts are documented by `python -m buddy.codedocs`.

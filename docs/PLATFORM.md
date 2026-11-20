@@ -41,9 +41,9 @@ BUSINESS SYSTEMS
 | Layer | State on 20 November 2026 |
 |---|---|
 | Adapters | Three written, none run on glasses |
-| Contract | Exists in the code. Draft 0.1 written down; its additions are proposals |
+| Contract | Exists in the code. Draft 0.2 written down (`docs/BWCP.md`) |
 | Glasses runtime | Built. Runs in the simulator |
-| The link | Not built |
+| The link | Built on 20 November 2026 between the runtime and the server. The runtime runs in a page on the phone, not yet inside the Buddy app. Not run with real glasses |
 | Server | Built, for one owner |
 | Business adapters | Not built for any business system |
 
@@ -119,8 +119,8 @@ show up as uses.
 
 | Module | Sits with | Needs | Meter | Built? |
 |---|---|---|---|---|
-| Devices: connect glasses, read what they can do | A new Wearables component | Core | **Active devices a month** (the base price) | Adapters written, not run on glasses |
-| Link: join the device to Buddy's brain | The server and the app | Devices | Included with Devices | No |
+| Devices: connect glasses, read what they can do | A new Wearables component | Core | **Active devices a month** (the base price) | The door and the meter are built. Adapters written, not run on glasses |
+| Link: join the device to Buddy's brain | The server and the app | Devices | Included with Devices | Built: show, ask, choose, with what reached the wearer. The wearer's words are not carried to the brain yet |
 | Voice on a device | Voice | Devices, Link | Minutes heard, characters spoken | Hearing exists for the phone; not on glasses |
 | Vision: understand a photo | New | Devices, Link | Images | No |
 | Agent: reasoning and actions for a wearer | The brain, Maestro | Link | Requests | The brain exists; not joined to glasses |
@@ -198,7 +198,13 @@ each module cost this month?".
 1. **The module list, the switches and the ledger**, applied first to the parts Buddy already has.
    **Built on 20 November 2026.** Tested by `backend/tests/test_modules.py`; not yet run on a server. Left for
    later in this step: gating the app's pages and the jobs inside the proactive loop.
-2. **The link** between the glasses runtime on the phone and the server, with the additions to the contract in
+2. **The link** between the glasses runtime on the phone and the server. **Built on 20 November 2026.**
+   The glasses runtime joins the server at `/ws/glasses` and says what the device can do; Buddy's brain has four
+   tools (describe, show, ask, choose) and is told what reached the wearer; the privacy rule is checked on both
+   sides; a connected device is counted once a day. To use it: open `/glasses.html` on the Buddy server in Chrome
+   on the phone, connect a preview lens or a Halo, then ask Buddy to show something on the glasses. Tested on
+   both sides and run end to end with the runtime in a browser. Left for later: the runtime inside the Buddy
+   app, the wearer's words reaching the brain, and speech on glasses. It followed the additions to the contract in
    `docs/BWCP.md` section 4.
 3. **One device, one app, end to end** on real glasses.
 4. **The first business adapter**, chosen by the first customer's system.

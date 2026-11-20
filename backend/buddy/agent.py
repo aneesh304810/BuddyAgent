@@ -33,7 +33,7 @@ from .builder import BUILDER_TOOL_NAMES, BUILDER_TOOLS, AgentBuilder, run_builde
 from .deals import WATCH_TOOL_NAMES, WATCH_TOOLS, PriceWatcher, run_watch_tool
 from .finops import COST_TOOL, FinOps
 from .health import HEALTH_TOOL, run_health_tool
-from . import cards, modules, sandbox
+from . import cards, glasslink, modules, sandbox
 from .codejob import CODE_TOOL_NAMES, CODE_TOOLS, run_code_tool
 from .makers import MAKER_TOOL_NAMES, MAKER_TOOLS, run_maker_tool
 from .merchants import MERCHANTS_TOOL
@@ -865,7 +865,7 @@ class Conversation:
                      RECALL_CONVO_TOOL, CLAUDE_FIX_TOOL, COMMUTE_TOOL, ROUTINE_TOOL, CALENDAR_ADD_TOOL,
                      CONNECTIONS_TOOL, AMAZON_TOOL, MY_HEALTH_TOOL, HEALTH_INFO_TOOL, HEALTH_PLAN_TOOL, RESTAURANTS_TOOL, ENTERTAINMENT_TOOL, SELF_CHECK_TOOL, MARKET_SCHOOL_TOOL, SHOPPING_PROFILE_TOOL, WHEN_TO_BUY_TOOL, DAILY_DEALS_TOOL, PRICE_BOOK_TOOL, DEAL_FORECAST_TOOL, HOTEL_DIRECT_TOOL, SEASONAL_PRICES_TOOL, COMMUNITY_SIGNALS_TOOL, RECOMMENDATIONS_TOOL, INVESTOR_CHECKS_TOOL,
     FUND_HOLDINGS_TOOL, INVESTMENT_JOURNAL_TOOL, PAPER_PORTFOLIO_TOOL, DAY_TRADE_PRACTICE_TOOL, INVESTOR_LIBRARY_TOOL, ALERT_SETTINGS_TOOL, TRAVEL_TIMING_TOOL, MORNING_TUTOR_TOOL, EMAIL_ORGANIZER_TOOL, CANCEL_SUBSCRIPTION_TOOL, LIFE_MEMORY_TOOL, SECURITY_WATCH_TOOL, MODEL_SCOUT_TOOL, TECH_RADAR_TOOL, INTELLIGENCE_TOOL, MAESTRO_TOOL,
-                     THERMOSTAT_TOOL, PHONE_CALL_TOOL, modules.TOOL]
+                     THERMOSTAT_TOOL, PHONE_CALL_TOOL, modules.TOOL] + glasslink.TOOLS
         spending += [BROWSE_TOOL] if self.jobs else []  # listed even when the sandbox is down: it says what to fix
         if self.memory.get("forms:phone") != "1":  # the owner's choice: forms always in Buddy's own browser
             spending = [t for t in spending if t.get("name") != "fill_form"]
@@ -908,6 +908,8 @@ class Conversation:
             return off
         if name == "modules":
             return modules.run_tool(self.memory, args)
+        if name in glasslink.TOOL_NAMES:  # the connected glasses: show, ask, choose, and what reached the wearer
+            return await glasslink.run_tool(name, args)
         if name == "general_task":
             if getattr(self, "_personal_turn", False):  # nothing read from their files, mail or money goes free
                 return ("Not sent: this turn already used the user's own data (their files, email, money or "

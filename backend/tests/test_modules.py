@@ -12,8 +12,8 @@ from buddy.memory import Memory
 def test_unset_means_everything_buddy_has_today_and_nothing_planned():
     on = modules.switched_on({})
     assert on == modules.switched_on({"BUDDY_MODULES": "all"})
-    assert {"core", "voice", "money", "investing", "selfcare"} <= on
-    assert not on & {"devices", "link", "vision", "integrations"}  # for glasses: listed, not built, never on
+    assert {"core", "voice", "money", "investing", "selfcare", "devices", "link"} <= on
+    assert not on & {"vision", "integrations", "governance"}  # for glasses, not built yet: listed, never on
 
 
 def test_the_setting_picks_modules_and_core_is_always_on():
@@ -22,7 +22,11 @@ def test_the_setting_picks_modules_and_core_is_always_on():
     assert modules.switched_on({"BUDDY_MODULES": "-core"}) == {"core"}  # nothing switches core off
     some = modules.switched_on({"BUDDY_MODULES": "all,-investing,-calls"})
     assert "investing" not in some and "calls" not in some and "money" in some
-    assert modules.switched_on({"BUDDY_MODULES": "core,devices,nonsense"}) == {"core"}  # unbuilt or unknown: ignored
+    assert modules.switched_on({"BUDDY_MODULES": "core,vision,nonsense"}) == {"core"}  # unbuilt or unknown: ignored
+    assert modules.switched_on({"BUDDY_MODULES": "core,link"}) == {"core"}  # Link needs Devices: off without it
+    assert modules.new_setting("core", "link", True) == "core,devices,link"  # switching it on brings what it needs
+    with pytest.raises(ValueError, match="Link needs Devices"):
+        modules.new_setting("core,devices,link", "devices", False)
 
 
 def test_switching_writes_the_setting_and_says_why_when_it_cannot():

@@ -237,7 +237,7 @@ COMPONENTS = [  # every server module belongs to one feature (tests check none i
      "makes it feel slow; and the modules: which parts are switched on for this server, and the meter that "
      "counts what each one is used for", ["insights.py", "trace.py", "costwatch.py", "diagnostics.py", "modules.py"]),
     ("The server and the app", "The one server the phone talks to: the chat connection, the app's pages and their "
-     "data", ["server.py"]),
+     "data, and the door where a pair of smart glasses joins Buddy's brain", ["server.py", "glasslink.py"]),
 ]
 
 

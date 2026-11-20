@@ -144,7 +144,8 @@ Modules: every function of Buddy belongs to one, each with a switch and a meter 
 
   core      always on: the brain, Maestro, Buddy Connect, memory, security and privacy, costs, the server and app
   module    a part Buddy already has (Voice, Money, Travel...): on or off for this server
-  wearable  the new parts for glasses (Devices, Link, Vision...): listed here, not built, so they cannot be on
+  wearable  the new parts for glasses. Devices and Link are built (glasslink.py). The rest (Vision, Voice on a
+            device, Integrations...) are listed here and cannot be on until they are
 
 THE SWITCH belongs to whoever runs the server, not to the person talking to Buddy: it is the setting BUDDY_MODULES
 in the server's root-only settings (deploy/modules.sh changes it). In a conversation the modules can be listed,
@@ -168,7 +169,9 @@ It is written as things happen, at the places Buddy already logs its work:
   outside_call   a paid outside service was called for the module, with its cost (travel.log_call)
   minute         speech heard (Voice) or time on the line (Phone calls)
   day_on         the module was on that day
-  ...            whatever a module records itself with record(): device_month, image, action, seat_month
+  device_day     a pair of glasses was connected that day, once for each device (mark); a statement counts the
+                 different devices of the month as active_device
+  ...            whatever a module records itself with record(): image, action, seat_month
 
 Lines are kept for three years. A wrong or failing meter never breaks a reply: every hook swallows its errors.
 

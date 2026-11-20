@@ -1,6 +1,7 @@
-# Buddy Wearable Contract (BWCP): draft 0.1
+# Buddy Wearable Contract (BWCP): draft 0.2
 
 Written 20 November 2026. **A draft, not frozen.** Nothing on this page has run on a real device.
+Version 0.2 adds the link between the glasses runtime and Buddy's server (section 2.9), which is built.
 
 A proposal asked for a formal protocol between wearable devices and Buddy, named BWCP, made of twelve contracts.
 This page does three things:
@@ -115,6 +116,39 @@ back `live_state`, `live_partial` and `heard`. It is not connected to any glasse
 | `mentraHost` | Whatever MentraOS supports | cloud | Written, not run on glasses |
 | `haloHost` | Brilliant Labs Halo over Bluetooth | direct | Written, not run on glasses. No speech, hearing or camera yet |
 
+### 2.9 The link to Buddy's server (version 0.2, built 20 November 2026)
+
+The glasses runtime joins a Buddy server over one WebSocket, `/ws/glasses`, behind the same access check as the
+phone's own connection. The runtime side is `xr/src/link.js`; the server side is `backend/buddy/glasslink.py`.
+Tested on both sides and run end to end with the runtime in a browser. Not yet run with real glasses.
+
+| From the runtime | Meaning |
+|---|---|
+| `{ op: "hello", protocol: "bwcp", version, device: { maker, model, id }, profile }` | The first message: who the device is and what it can do (the profile of 2.1, only its contract fields) |
+| `{ op: "result", id, ok, result }` or `{ ..., ok: false, error }` | What a call did, with what reached the wearer: `{ shown, spoken, withheld }`, and the answer or choice |
+| `{ op: "state", battery?, charging?, link?, worn? }` | Whatever the glasses report. Carried and kept for the session; no adapter reports it yet |
+| `{ op: "said", text }` | The wearer's words that were not a command. Sent; the server does not act on it yet |
+| `{ op: "problem", code, about }` | Something went wrong on the device or in the runtime |
+| `{ op: "bye", why }` | The session is over |
+
+| From the server | Meaning |
+|---|---|
+| `{ op: "welcome", version, session }` | The hello was accepted |
+| `{ op: "refused", why }` | It was not: the wrong contract or version, or the Devices or Link module is off |
+| `{ op: "call", id, tool, args }` | One of the four tools of 2.6, asked for by Buddy's brain |
+| `{ op: "cancel", id }` | Nobody answered in time: take the question off the lens |
+
+A side ignores an `op` it does not know. Nothing is assumed about a device that its hello did not say: a missing
+capability is absent, and a missing or unknown route is treated as the strictest.
+
+**The privacy rule is applied twice.** The runtime applies all of 2.5. The server applies the part that must hold
+even if the runtime were wrong: content that may reach neither the lens nor the ear on the declared route is never
+sent (health anywhere but a direct route; personal through another company's cloud).
+
+**Where the runtime runs today.** In a page of the Buddy server, `/glasses.html`, opened in Chrome on the phone:
+it can drive a preview lens on the screen, or a Halo over Bluetooth with the maker's own library. It is not inside
+the Buddy app yet.
+
 ## 3. The twelve proposed contracts against the code
 
 | Proposed contract | Today | Where |
@@ -123,18 +157,20 @@ back `live_state`, `live_partial` and `heard`. It is not connected to any glasse
 | Display | **Yes** | `show(frame)`; text, lists, alerts, progress, images with a text alternative |
 | Interaction | **Yes** | The six events (2.3) |
 | Command | **Yes** | Three commands (2.2) |
-| Device identity | Partly | A name for each family. Nothing is read from the device: no maker, model or serial |
+| Device identity | Partly | The hello carries maker, model and an id (2.9). No adapter reads a serial number or firmware from the device yet |
 | Vision | Partly | One photo with `capture()`, on the bridge and MentraOS adapters. No video frames |
-| Event | Partly | Input events only. No sensor events. Errors go to an `onProblem` function in each adapter, not into the contract |
-| Security | Partly | Privacy by route (2.5). No sign-in for a device and no per-capability permission from the wearer |
+| Event | Partly | Input events, and `problem` on the link (2.9). No sensor events |
+| Security | Partly | Privacy by route, checked on both sides of the link (2.5, 2.9), and the server's access check at the door. No per-capability permission from the wearer |
 | Audio | No, on glasses | Adapters do not stream audio. The phone-to-server audio in 2.7 exists and could be reused |
 | Context | No | The app has its own state and the profile. No location or session context |
-| State | No | No battery, charge or connection status |
-| Lifecycle | No | Pairing is left to the maker's kit. No reconnecting, no upgrades, no versioning |
+| State | Partly | The link carries `state` (2.9). No adapter reports battery or connection yet |
+| Lifecycle | Partly | Hello with a version, and goodbye (2.9). Pairing is left to the maker's kit. A dropped link starts again with a new hello; a session is not resumed |
 
-Four exist, four are partly there, four are missing.
+Four exist, six are partly there, two are missing (audio on glasses, context).
 
-## 4. Proposed additions (not built)
+## 4. Proposed additions
+
+**Built in version 0.2 (section 2.9):** hello with identity, version and the profile (4.1); state, as a message the link carries (4.2); goodbye (4.3); problems (4.4). **Still proposals:** resuming a session (4.3), audio (4.5), and the wearer's permission for each capability (4.8).
 
 The aim is the smallest set that covers the missing rows, in the style of the bridge messages in 2.4. Rules for
 all of them: a side ignores an `op` it does not know and a field it does not know; nothing is assumed about a
@@ -216,5 +252,5 @@ page:
 Still open:
 
 1. **When this contract becomes 1.0.** Proposed: after one device has run one app end to end. Until then it stays
-   draft 0.1 and section 4 stays a proposal.
+   a draft, and the rest of section 4 stays a proposal.
 2. **Who may see this page.** It is in the repository only. Nothing here is on the website.

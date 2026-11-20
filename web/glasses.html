@@ -1,0 +1,80 @@
+<!doctype html>
+<html lang="en">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width, initial-scale=1">
+<meta name="referrer" content="no-referrer">
+<title>Buddy Glasses</title>
+<style>
+:root { --bg:#0e1222; --card:#171c33; --line:#262d4d; --text:#eef1ff; --muted:#9aa3c7; --accent:#7aa2ff; --onaccent:#0b1020;
+  --good:#3ddc97; --bad:#ff7a7a; --lens:#0a1411; --glow:#7fe3c4; --amber:#ffd08a; color-scheme:dark; }
+* { box-sizing:border-box; }
+body { margin:0; background:var(--bg); color:var(--text); font:15px/1.5 Roboto, "Segoe UI", system-ui, sans-serif; }
+header { padding:14px 16px 10px; border-bottom:1px solid var(--line); }
+h1 { font-size:20px; margin:0; } h2 { font-size:15px; margin:0 0 8px; }
+header p { margin:4px 0 0; color:var(--muted); font-size:14px; }
+main { padding:12px 16px 60px; max-width:720px; margin:0 auto; }
+.card { background:var(--card); border:1px solid var(--line); border-radius:14px; padding:14px; margin:0 0 12px; }
+.row { display:flex; flex-wrap:wrap; gap:8px; align-items:center; }
+button, select, input[type=text] { font:inherit; color:inherit; background:var(--bg); border:1px solid var(--line); border-radius:10px; padding:9px 12px; }
+button { cursor:pointer; } button:disabled { opacity:.5; cursor:default; }
+button.main { background:var(--accent); color:var(--onaccent); border-color:var(--accent); font-weight:600; }
+input[type=text] { flex:1; min-width:120px; }
+.status { font-weight:600; } .status.good { color:var(--good); } .status.bad { color:var(--bad); }
+.hint { color:var(--muted); font-size:13px; margin:8px 0 0; }
+.lens { background:var(--lens); border:1px solid rgba(127,227,196,.3); border-radius:16px; padding:14px; min-height:150px;
+  font-family:ui-monospace, SFMono-Regular, Menlo, Consolas, monospace; font-size:14px; color:var(--glow); }
+.lens .title { color:#fff; font-weight:700; margin-bottom:6px; }
+.lens .line { white-space:pre-wrap; } .lens .line.focus { color:#fff; } .lens .line.alert { color:var(--amber); }
+.lens .empty { color:var(--muted); font-family:Roboto, "Segoe UI", system-ui, sans-serif; }
+.lens .pages { color:var(--muted); font-size:12px; margin-top:8px; }
+.ear { margin:8px 0 0; padding:0; list-style:none; font-size:14px; color:var(--muted); max-height:120px; overflow:auto; }
+.ear li::before { content:"\1F50A  "; }
+[hidden] { display:none !important; }
+</style>
+</head>
+<body>
+<header>
+  <h1>Buddy Glasses</h1>
+  <p>This page joins a pair of smart glasses to Buddy. Keep it open while you wear them.</p>
+</header>
+<main>
+  <section class="card">
+    <h2>1. Choose</h2>
+    <div class="row">
+      <select id="kind" aria-label="Which glasses">
+        <option value="text">Preview: text in the lens</option>
+        <option value="color">Preview: colour display</option>
+        <option value="audio">Preview: sound only</option>
+        <option value="halo">My Halo, over Bluetooth</option>
+      </select>
+      <button class="main" id="connect">Connect</button>
+      <button id="disconnect" hidden>Disconnect</button>
+    </div>
+    <p class="status" id="status" role="status">Not connected.</p>
+    <p class="hint" id="about">A preview is a picture of the lens on this screen. It lets you try the link to Buddy without a pair of glasses.</p>
+  </section>
+
+  <section class="card" id="lensCard" hidden>
+    <h2>2. What the wearer gets</h2>
+    <div class="lens" id="lens" aria-live="polite"><div class="empty">Nothing yet. Ask Buddy to show something on your glasses, or press Test.</div></div>
+    <ul class="ear" id="ear" aria-label="Said in the ear"></ul>
+    <div class="row" id="touch" style="margin-top:10px">
+      <button data-input="tap">Next</button><button data-input="double">Choose</button><button data-input="long">Back</button>
+    </div>
+    <div class="row" style="margin-top:8px">
+      <input type="text" id="words" placeholder="Say something, e.g. yes" aria-label="Say something"><button id="say">Say</button>
+    </div>
+  </section>
+
+  <section class="card" id="testCard" hidden>
+    <h2>3. Try it</h2>
+    <div class="row"><button id="test">Send a test line from Buddy</button></div>
+    <p class="hint" id="testResult">Or ask Buddy in the app: “show my next meeting on my glasses”.</p>
+  </section>
+
+  <p class="hint">Not yet tried with a real pair. Halo needs Chrome on Android or on a computer. Buddy applies its privacy rule on this phone before anything reaches the glasses.</p>
+</main>
+<script type="module" src="glasses.js"></script>
+</body>
+</html>
