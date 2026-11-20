@@ -36,8 +36,6 @@ PAUSE_SECONDS = 60 * 60
 _out_until: dict[str, float] = {}
 OUT_OF_CREDITS = re.compile(r"credit|quota|insufficient|payment|limit exceeded|unauthori[sz]ed|invalid api key", re.I)
 SKIPPED = "said it was out of credits or refused its key within the last hour, so it was skipped"
-GDELT_GAP_SECONDS = 5.5  # GDELT asks for no more than one search every five seconds
-_gdelt_last = 0.0
 
 
 def connected(env=None) -> list[tuple]:
@@ -65,6 +63,9 @@ def note_failure(name: str, error: Exception) -> None:
     status = getattr(error, "status", 0) or 0
     if status in (401, 402, 403, 429) or OUT_OF_CREDITS.search(str(error)):
         _out_until[name] = time.time() + PAUSE_SECONDS
+    if name == "gdelt" and status == 429:  # the intelligence sources ask it too: they leave it alone as well
+        from . import bip_sources  # noqa: PLC0415
+        bip_sources.rest("gdelt")
 
 
 def serper_paused() -> bool:
@@ -76,18 +77,18 @@ def note_serper_failure(error: Exception) -> None:
 
 
 def _gdelt_turn() -> bool:
-    """True when GDELT may be asked now (and counts this as the asking); False within five seconds of the last."""
-    global _gdelt_last
-    if time.time() - _gdelt_last < GDELT_GAP_SECONDS:
-        return False
-    _gdelt_last = time.time()
-    return True
+    """True when GDELT may be asked now (and counts this as the asking); False within five seconds of the last
+    asking by anyone on this server (the intelligence sources ask it too, on the same clock: bip_sources.turn),
+    and while it is resting after saying "too many requests"."""
+    from . import bip_sources  # noqa: PLC0415
+    return bip_sources.turn("gdelt")
 
 
 def reset() -> None:
-    global _gdelt_last
+    from . import bip_sources  # noqa: PLC0415
     _out_until.clear()
-    _gdelt_last = 0.0
+    bip_sources._last.pop("gdelt", None)
+    bip_sources._rest.clear()
 
 
 def _plain(query: str) -> str:

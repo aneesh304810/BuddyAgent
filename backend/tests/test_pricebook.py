@@ -210,7 +210,7 @@ def test_the_product_index_is_removed_and_a_failed_filing_does_not_take_the_page
     c.execute("CREATE INDEX obs_product ON observations (domain, product)")
     c.close()
     names = {r["index_name"] for r in pricebook.run(m, "SELECT index_name FROM duckdb_indexes()")}
-    assert "obs_product" not in names and "obs_item" in names
+    assert names == set()                                                 # no secondary index is kept
 
     pricebook.run(m, "INSERT INTO deals (seen_on, source, title, url, price, store) VALUES (current_date, 'feed', "
                      "'LG 27GP850 Monitor $249', 'https://x.example/1', 249, 'Newegg')")
@@ -224,4 +224,101 @@ def test_the_product_index_is_removed_and_a_failed_filing_does_not_take_the_page
     page = pricebook.deals_page(m, 7)                                     # the page still lists the deal, unfiled
     assert page["counts"]["product"] == 1 and page["deals"][0]["title"].startswith("LG 27GP850")
     assert pricebook.history(m, "LG 27GP850 monitor")                     # and its price history is still readable
+    pricebook.close_all()
+
+
+def _internal(*a, **k):
+    raise RuntimeError("INTERNAL Error: Attempted to dereference shared_ptr that is NULL!")
+
+
+def test_an_internal_error_on_a_statement_reopens_the_price_book_and_asks_again(tmp_path):
+    from buddy.memory import Memory
+    m = Memory(tmp_path / "b.db")
+    pricebook.observe(m, "product", "Monster open ear headphones", 19.49, seller="Amazon")
+    where = pricebook.path_for(m)
+    real = pricebook._open.pop(where)
+    real.close()
+
+    class FailsOnce:  # the engine's internal error on this very statement, not on an earlier one
+        def cursor(self):
+            _internal()
+
+        def close(self):
+            pass
+
+    pricebook._open[where] = FailsOnce()
+    assert pricebook.chart(m, "Monster open ear headphones")["lowest"] == 19.49  # opened again, and answered
+    assert not (tmp_path / "pricebook.duckdb.before-rebuild").exists()            # once was enough: no rebuild
+    pricebook.close_all()
+
+
+def test_the_same_internal_error_twice_rebuilds_the_file_once_and_keeps_the_old_one(tmp_path, monkeypatch):
+    from buddy.memory import Memory
+    m = Memory(tmp_path / "b.db")
+    for day, price in ((3, 24.99), (2, 21.0), (1, 19.49)):
+        pricebook.observe(m, "product", "Monster open ear headphones", price, seller="Amazon",
+                          seen_at=datetime.now(timezone.utc) - timedelta(days=day))
+    pricebook.observe(m, "flight", "MIA-SJU", 129.0, seller="JetBlue")
+    pricebook.run(m, "INSERT INTO deals (seen_on, source, title, url, price, store) VALUES (current_date, 'feed', "
+                     "'Monster Open Ear Headphones $19.49', 'https://x.example/1', 19.49, 'Amazon')")
+    where = pricebook.path_for(m)
+    opened, real_conn = [], pricebook.conn
+
+    def conn(memory):  # the file trips the engine until it has been rebuilt
+        c = real_conn(memory)
+        if (tmp_path / "pricebook.duckdb.before-rebuild").exists():
+            return c
+        opened.append(True)
+
+        class Trips:
+            cursor = staticmethod(_internal)
+        return Trips()
+
+    monkeypatch.setattr(pricebook, "conn", conn)
+    got = pricebook.chart(m, "Monster open ear headphones")
+    assert got["lowest"] == 19.49 and len(got["points"]) == 3                    # answered, after the rebuild
+    assert len(opened) == 2                                                       # asked, opened again, then rebuilt
+    assert (tmp_path / "pricebook.duckdb.before-rebuild").exists() and not (tmp_path / "pricebook.duckdb.export").exists()
+    monkeypatch.setattr(pricebook, "conn", real_conn)
+    assert pricebook.run(m, "SELECT COUNT(*) AS n FROM observations") == [{"n": 4}]
+    assert pricebook.run(m, "SELECT COUNT(*) AS n FROM deals") == [{"n": 1}]
+    pricebook.observe(m, "product", "Monster open ear headphones", 18.0, seller="Amazon")   # numbering carries on
+    ids = [r["id"] for r in pricebook.run(m, "SELECT id FROM observations ORDER BY id")]
+    assert len(set(ids)) == 5 and where in pricebook._rebuilt
+    pricebook.close_all()
+
+
+def test_a_file_that_still_fails_after_the_rebuild_says_so_and_is_not_rebuilt_again(tmp_path, monkeypatch):
+    from buddy.memory import Memory
+    m = Memory(tmp_path / "b.db")
+    pricebook.observe(m, "product", "Sony WH-1000XM6 headphones", 399.0, seller="Best Buy")
+    rebuilds = []
+    real_rebuild = pricebook.rebuild
+    monkeypatch.setattr(pricebook, "rebuild", lambda memory: rebuilds.append(1) or real_rebuild(memory))
+
+    class Trips:
+        cursor = staticmethod(_internal)
+
+        def close(self):
+            pass
+
+    monkeypatch.setattr(pricebook, "conn", lambda memory: Trips())
+    for _ in range(2):
+        with pytest.raises(RuntimeError, match="INTERNAL Error"):
+            pricebook.run(m, "SELECT 1")
+    assert rebuilds == [1]
+    monkeypatch.undo()
+    pricebook.close_all()
+
+
+def test_check_reads_every_table_and_the_pages_statements_and_changes_nothing(tmp_path):
+    from buddy.memory import Memory
+    m = Memory(tmp_path / "b.db")
+    pricebook.observe(m, "product", "Sony WH-1000XM6 headphones", 399.0, seller="Best Buy")
+    got = pricebook.check(m)
+    assert got["ok"] and got["tables"]["observations"] == 1 and got["tables"]["deals"] == 0
+    assert got["queries"]["price history"] == "ok" and got["queries"]["indexes"] == "none"
+    text = pricebook.check_text(m)
+    assert "It can be read." in text and "table observations: 1 rows" in text and "database engine" in text
+    assert not (tmp_path / "pricebook.duckdb.before-rebuild").exists()
     pricebook.close_all()

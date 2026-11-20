@@ -82,6 +82,13 @@ Buddy looked up do show which trips were searched. DuckDB is a columnar file bui
 kept small in memory (256 MB cap, one thread) for Buddy's server. The nightly backup includes it.
 
 Older history from Buddy's personal database (price_seen, deals, buy_predictions, travel_prices) is copied in once.
+
+When the engine fails. DuckDB has twice stopped on this price book with an internal error of its own ("Attempted to
+dereference shared_ptr that is NULL"), and after one it refuses every statement until the file is opened again.
+So run() opens the price book again and asks once more; if the same statement fails the same way, it rebuilds the
+file once (rebuild(): the engine's own export and import, into a new file, the old one kept beside it) and asks a
+last time. check() says what can be read; deploy/pricebook.sh runs both by hand. The tables have no secondary
+index: every internal error so far involved a table that had one, and the price book is small enough without.
 ```
 
 - Tables: `deals`, `launches`, `meta`, `observations`, `pattern_months`, `predictions`

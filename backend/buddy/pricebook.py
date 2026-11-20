@@ -19,6 +19,13 @@ Buddy looked up do show which trips were searched. DuckDB is a columnar file bui
 kept small in memory (256 MB cap, one thread) for Buddy's server. The nightly backup includes it.
 
 Older history from Buddy's personal database (price_seen, deals, buy_predictions, travel_prices) is copied in once.
+
+When the engine fails. DuckDB has twice stopped on this price book with an internal error of its own ("Attempted to
+dereference shared_ptr that is NULL"), and after one it refuses every statement until the file is opened again.
+So run() opens the price book again and asks once more; if the same statement fails the same way, it rebuilds the
+file once (rebuild(): the engine's own export and import, into a new file, the old one kept beside it) and asks a
+last time. check() says what can be read; deploy/pricebook.sh runs both by hand. The tables have no secondary
+index: every internal error so far involved a table that had one, and the price book is small enough without.
 """
 
 import csv
@@ -52,7 +59,6 @@ CREATE TABLE IF NOT EXISTS observations (
     stops INTEGER,
     nights INTEGER
 );
-CREATE INDEX IF NOT EXISTS obs_item ON observations (domain, item, seen_at);
 CREATE SEQUENCE IF NOT EXISTS deal_id;
 CREATE TABLE IF NOT EXISTS deals (
     id BIGINT DEFAULT nextval('deal_id') PRIMARY KEY,
@@ -107,6 +113,9 @@ _lock = threading.RLock()
 _open: dict[str, object] = {}
 _filing_off: set[str] = set()   # price books where filing under products failed in this process: not tried again
 _keep_index: set[str] = set()   # price books where the old index could not be removed in this process
+_rebuilt: set[str] = set()      # price books rebuilt in this process after a repeated internal error: once only
+CONFIG = {"memory_limit": "256MB", "threads": 1}
+OLD_INDEXES = ("obs_product", "obs_item")  # made by earlier versions; removed when the price book is opened
 
 
 def key(text: str) -> str:
@@ -131,8 +140,7 @@ def conn(memory):
     with _lock:
         c = _open.get(where)
         if c is None:
-            c = duckdb.connect(":memory:" if where.startswith(":memory:") else where,
-                               config={"memory_limit": "256MB", "threads": 1})
+            c = duckdb.connect(":memory:" if where.startswith(":memory:") else where, config=CONFIG)
             c.execute(SCHEMA)
             for column in ("domain VARCHAR DEFAULT 'product'", "item VARCHAR DEFAULT ''", "regular_price DOUBLE",
                            "ends VARCHAR DEFAULT ''", "reason VARCHAR DEFAULT ''", "model VARCHAR DEFAULT ''"):  # deals from the deals inbox carry these too
@@ -142,15 +150,16 @@ def conn(memory):
                     c.execute(f"ALTER TABLE {table} ADD COLUMN IF NOT EXISTS {column}")
             for column in ("parts VARCHAR", "travel_date DATE", "nights INTEGER", "factors VARCHAR"):  # what a
                 c.execute(f"ALTER TABLE predictions ADD COLUMN IF NOT EXISTS {column}")     # buy-or-wait call keeps
-            # No index on the product column. Filing prices under their products rewrites that column, and rewriting
-            # an indexed column made the database engine stop with an internal error on a real price book. The
-            # price book is small enough to be read without it.
+            # No secondary index. Filing prices under their products rewrites a column, and rewriting an indexed
+            # column made the database engine stop with an internal error on a real price book; later the history
+            # query stopped it too. The price book is small enough to be read without an index.
             if where not in _keep_index:
                 try:
-                    c.execute("DROP INDEX IF EXISTS obs_product")
+                    for index in OLD_INDEXES:
+                        c.execute(f"DROP INDEX IF EXISTS {index}")
                 except Exception:
                     _keep_index.add(where)
-                    log.warning("price book: the old product index could not be removed", exc_info=True)
+                    log.warning("price book: an old index could not be removed", exc_info=True)
             _open[where] = c
             try:
                 import_old(memory, c)
@@ -160,8 +169,10 @@ def conn(memory):
 
 
 def _stopped(error: Exception) -> bool:
-    """After an internal error the database engine refuses every statement until the database is opened again."""
-    return type(error).__name__ == "FatalException" or "database has been invalidated" in str(error)
+    """The engine's own failure, not a mistake in the statement: its internal error, and the refusal every later
+    statement gets until the database is opened again."""
+    return (type(error).__name__ in ("FatalException", "InternalException")
+            or "database has been invalidated" in str(error) or "INTERNAL Error" in str(error))
 
 
 def _reopen(memory) -> None:
@@ -173,9 +184,10 @@ def _reopen(memory) -> None:
         pass
 
 
-def run(memory, sql: str, params=()) -> list[dict]:
+def run(memory, sql: str, params=(), heal: bool = True) -> list[dict]:
+    """Run one statement and give its rows. heal=False: never rebuild the file for it (check() asks that way)."""
     with _lock:
-        for attempt in (0, 1):
+        for attempt in (0, 1, 2):
             try:
                 cur = conn(memory).cursor()
                 try:
@@ -190,15 +202,134 @@ def run(memory, sql: str, params=()) -> list[dict]:
                     except Exception:
                         pass
             except Exception as e:
-                # The engine stopped earlier, on some other statement: open the price book again and ask once more,
-                # so one internal error does not take every page down until Buddy is restarted.
-                if attempt == 0 and _stopped(e) and not path_for(memory).startswith(":memory:"):
-                    log.error("price book: the database engine had stopped and was opened again: %s",
+                where = path_for(memory)
+                if not _stopped(e) or where.startswith(":memory:"):
+                    raise
+                # The engine stopped, on this statement or an earlier one: open the price book again and ask once
+                # more, so one internal error does not take every page down until Buddy is restarted.
+                if attempt == 0:
+                    log.error("price book: the database engine stopped and was opened again: %s",
                               " ".join(str(e).split())[:300])
                     _reopen(memory)
                     continue
+                # The same failure on a freshly opened file: the file itself trips the engine. Rebuild it once.
+                if attempt == 1 and heal and where not in _rebuilt:
+                    _rebuilt.add(where)
+                    try:
+                        done = rebuild(memory)
+                    except Exception:
+                        log.exception("price book: rebuilding the file failed; it is left as it was")
+                        raise e from None
+                    log.error("price book: the file was rebuilt after a repeated internal error (%s rows; the old "
+                              "file is kept as %s)", sum(done["rows"].values()), done["kept"])
+                    continue
                 raise
         return []
+
+
+def _quoted(path: str) -> str:
+    return "'" + str(path).replace("'", "''") + "'"
+
+
+def _counts(c) -> dict:
+    tables = [r[0] for r in c.execute("SELECT table_name FROM information_schema.tables WHERE table_schema = 'main' "
+                                      "AND table_type = 'BASE TABLE' ORDER BY table_name").fetchall()]
+    return {t: int(c.execute(f'SELECT COUNT(*) FROM "{t}"').fetchone()[0]) for t in tables}
+
+
+def rebuild(memory) -> dict:
+    """Write the price book out and read it into a new file, with the engine's own export and import: everything in
+    it is kept (tables, their numbering, what was learned) and the file is laid out afresh, without the old indexes.
+    For a price book on which the engine keeps stopping. The old file stays beside the new one as
+    pricebook.duckdb.before-rebuild. If the old file cannot be read in full, or the copy does not hold the same
+    number of rows, this raises and nothing is changed. Needs about as much free disk as the file is large."""
+    import duckdb  # noqa: PLC0415
+    import shutil  # noqa: PLC0415
+    where = path_for(memory)
+    if where.startswith(":memory:"):
+        raise ValueError("A price book kept in memory has no file to rebuild.")
+    with _lock:
+        _reopen(memory)
+        folder, fresh, kept = where + ".export", where + ".rebuilt", where + ".before-rebuild"
+        shutil.rmtree(folder, ignore_errors=True)
+        for leftover in (fresh, fresh + ".wal"):
+            if os.path.exists(leftover):
+                os.remove(leftover)
+        old = duckdb.connect(where, config=CONFIG)
+        try:
+            before = _counts(old)
+            old.execute(f"EXPORT DATABASE {_quoted(folder)} (FORMAT PARQUET)")
+        finally:
+            old.close()
+        new = duckdb.connect(fresh, config=CONFIG)
+        try:
+            new.execute(f"IMPORT DATABASE {_quoted(folder)}")
+            for index in OLD_INDEXES:
+                new.execute(f"DROP INDEX IF EXISTS {index}")
+            after = _counts(new)
+            new.execute("CHECKPOINT")
+        finally:
+            new.close()
+        if after != before:
+            os.remove(fresh)
+            raise RuntimeError("The rebuilt price book does not hold the same rows as the old one; nothing was changed.")
+        for suffix in ("", ".wal"):
+            if os.path.exists(where + suffix):
+                os.replace(where + suffix, kept + suffix)
+        os.replace(fresh, where)
+        shutil.rmtree(folder, ignore_errors=True)
+        _filing_off.discard(where)
+        _keep_index.discard(where)
+    return {"rows": after, "kept": kept}
+
+
+def check(memory) -> dict:
+    """Can the price book be read? The engine's version, the file's size, each table's rows, and the statements the
+    Deals page depends on, each tried by itself. Nothing is changed and nothing is rebuilt."""
+    import duckdb  # noqa: PLC0415
+    where = path_for(memory)
+    out = {"engine": duckdb.__version__, "file": where, "tables": {}, "queries": {}, "ok": True}
+    if not where.startswith(":memory:") and os.path.exists(where):
+        out["size_mb"] = round(os.path.getsize(where) / 1e6, 1)
+
+    def tried(sql: str, params=()):
+        try:
+            return run(memory, sql, params, heal=False), ""
+        except Exception as e:
+            out["ok"] = False
+            return None, f"{type(e).__name__}: {' '.join(str(e).split())[:200]}"
+
+    names, error = tried("SELECT table_name AS t FROM information_schema.tables WHERE table_schema = 'main' AND "
+                         "table_type = 'BASE TABLE' ORDER BY 1")
+    if names is None:
+        out["tables"] = {"(the list of tables)": error}
+        return out
+    for row in names:
+        got, error = tried(f'SELECT COUNT(*) AS n FROM "{row["t"]}"')
+        out["tables"][row["t"]] = int(got[0]["n"]) if got else error
+    since = utc(datetime.now(timezone.utc) - timedelta(days=365))
+    for name, sql, params in (
+        ("price history", "SELECT CAST(seen_at AS DATE) AS day, MIN(price) AS price FROM observations WHERE domain = ? AND "
+                          "(item = ? OR product = ? OR product = ?) AND seen_at >= ? GROUP BY day ORDER BY day",
+         ("product", "x", "x", "x", since)),
+        ("prices not yet filed", "SELECT COUNT(*) AS n FROM observations WHERE product IS NULL", ()),
+        ("lowest prices", "SELECT domain, product, MIN(price) AS low FROM observations GROUP BY 1, 2 LIMIT 1", ()),
+        ("recent deals", "SELECT id, title, product FROM deals ORDER BY seen_on DESC, id DESC LIMIT 1", ()),
+        ("indexes", "SELECT index_name FROM duckdb_indexes()", ()),
+    ):
+        got, error = tried(sql, params)
+        out["queries"][name] = error or ("ok" if name != "indexes" else ", ".join(r["index_name"] for r in got) or "none")
+    return out
+
+
+def check_text(memory) -> str:
+    c = check(memory)
+    lines = [f"Price book: {c['file']} ({c.get('size_mb', '?')} MB), database engine {c['engine']}.",
+             "It can be read." if c["ok"] else "PART OF IT CANNOT BE READ: see below. To rebuild the file: "
+                                               "sudo bash /opt/buddy/deploy/pricebook.sh rebuild"]
+    lines += [f"  table {name}: {rows if isinstance(rows, str) else f'{rows} rows'}" for name, rows in c["tables"].items()]
+    lines += [f"  {name}: {result}" for name, result in c["queries"].items()]
+    return "\n".join(lines)
 
 
 def utc(value) -> datetime:
@@ -498,6 +629,7 @@ def close_all() -> None:
         _open.clear()
         _filing_off.clear()
         _keep_index.clear()
+        _rebuilt.clear()
 
 
 TOOL = {

@@ -464,6 +464,14 @@ class FreeModels:
             except _budget_stop() as e:  # Buddy's own budget pause, not the provider failing: no rest, no red mark
                 tried.append(f"{name}: paused by your budget")
                 log.info("free model %s skipped: %s", name, e)
+            except _privacy_stop() as e:
+                # The Privacy Gateway kept this text from the free models. That is Buddy protecting the owner, not
+                # this provider failing: no rest, no red mark, and no other free model is asked (they would get
+                # the same answer). Claude takes it, or the caller is told to.
+                usage.count(self.memory, "free:kept_private")
+                log.info("free models: kept private by the Privacy Gateway (%s)", getattr(e, "kind", "private"))
+                tried.append("kept private: not sent to a free model")
+                break
             except BadAnswer as e:
                 self._learn(name, None)
                 tried.append(f"{name}: {e}")
@@ -562,6 +570,11 @@ class FreeModels:
 def _budget_stop():
     from .budgets import BudgetStop  # noqa: PLC0415
     return BudgetStop
+
+
+def _privacy_stop():
+    from .privacygate import PrivacyBlocked  # noqa: PLC0415
+    return PrivacyBlocked
 
 
 CONNECT_NAMES = {"github": "github_models", "deepseek": "openrouter"}  # this module's names -> Buddy Connect's

@@ -750,11 +750,12 @@ def status(memory, env=None) -> list[dict]:
         pass
     m_usage, m_latest = {}, {}  # Claude and the free models: their calls are in model_calls (own names)
     try:
+        # A request the Privacy Gateway kept from a model was never sent: it is not a call and not a failure.
         for r in memory.db.execute("SELECT provider, COUNT(*) AS n, SUM(1 - ok) AS bad, SUM(cost_usd) AS usd "
-                                   "FROM model_calls WHERE at >= ? GROUP BY provider", (since,)):
+                                   f"FROM model_calls WHERE at >= ? AND {NOT_HELD_BACK} GROUP BY provider", (since,)):
             m_usage[r["provider"]] = (r["n"], r["bad"] or 0, r["usd"] or 0.0)
         for r in memory.db.execute("SELECT provider, at, ok, stop FROM model_calls WHERE id IN "
-                                   "(SELECT MAX(id) FROM model_calls GROUP BY provider)"):
+                                   f"(SELECT MAX(id) FROM model_calls WHERE {NOT_HELD_BACK} GROUP BY provider)"):
             m_latest[r["provider"]] = {"ok": bool(r["ok"]), "at": r["at"], "error": "" if r["ok"] else r["stop"] or ""}
     except Exception:
         pass
@@ -763,6 +764,8 @@ def status(memory, env=None) -> list[dict]:
         try:
             last = json.loads(memory.get(f"connect:last:{name}") or "{}")
         except ValueError:
+            last = {}
+        if "PrivacyBlocked" in str(last.get("error", "")):  # noted by an earlier version as the service's failure
             last = {}
         is_model = bool(entry.get("reports")) or name == "claude"
         aliases = MODEL_NAMES.get(name, (name,)) if is_model else (name,)
@@ -820,6 +823,7 @@ def finish_link(name: str, memory, code: str, state: str, env=None, fetch=None) 
 
 
 # How the Connections screen orders a service: what needs the owner first, then what works, then what's idle.
+NOT_HELD_BACK = "stop NOT LIKE '%PrivacyBlocked%'"  # model_calls rows that were really sent
 STATES = ["failing", "missing_keys", "working", "unused", "not_set_up"]
 ATTENTION = ("failing", "missing_keys")
 

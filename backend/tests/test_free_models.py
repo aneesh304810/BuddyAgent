@@ -217,3 +217,37 @@ def test_an_unsure_free_model_hands_the_turn_to_claude(monkeypatch):
     convo.free.memory = mem
     assert asyncio.run(convo._free_turn("what is a black hole", lambda s: None, "user")) is False
     assert len(convo.free.http.calls) == 1  # handed back at once, not retried elsewhere
+
+
+def test_what_the_privacy_gateway_keeps_back_is_not_a_failing_service():
+    """The Connections page showed Cerebras and Gemini as "Failing: PrivacyBlocked". The gateway had kept a
+    request from them: Buddy's own doing. Nobody failed, no other free model is asked, and Claude answers."""
+    from buddy import gateway, privacygate
+
+    class Refuses(FakeHTTP):
+        def __call__(self, url, body, headers, timeout):
+            super().__call__(url, body, headers, timeout)
+            raise privacygate.PrivacyBlocked(privacygate.BLOCKED_PERSONAL, "personal")
+
+    mem = Memory(":memory:")
+    http = Refuses()
+    f = free(http, memory=mem)
+    result = asyncio.run(f.run("summarize", "a public article about tides"))
+    assert result["answer"] == "answer from claude" and result["free"] is False
+    assert len(http.calls) == 1                                           # the others would be told the same
+    assert result["tried"] == ["kept private: not sent to a free model"]
+    assert f.status()["busy"] == [] or not set(f.status()["busy"]) & {"gemini", "cerebras", "mistral"}  # nobody rests
+    rows = {r["name"]: r for r in gateway.status(mem, env=ENV)}
+    assert all(rows[n]["last_ok"] is not False for n in ("gemini", "cerebras", "mistral"))
+    assert mem.db.execute("SELECT COUNT(*) AS n FROM model_calls WHERE ok = 0").fetchone()["n"] == 0
+
+    # What an earlier version had already noted as the service's failure is not shown as one either.
+    gateway.report(mem, "cerebras", False, "PrivacyBlocked")
+    from buddy import usage
+    usage.log_call(mem, provider="cerebras", model="x", purpose="general:summarize", ok=False, stop="error: PrivacyBlocked")
+    usage.log_call(mem, provider="gemini", model="x", purpose="general:summarize", stop="free")
+    usage.log_call(mem, provider="gemini", model="x", purpose="general:summarize", ok=False, stop="error: PrivacyBlocked")
+    rows = {r["name"]: r for r in gateway.status(mem, env=ENV)}
+    assert rows["cerebras"]["last_ok"] is None and rows["cerebras"]["failed_this_month"] == 0
+    assert rows["gemini"]["last_ok"] is True and (rows["gemini"]["calls_this_month"], rows["gemini"]["failed_this_month"]) == (1, 0)
+    assert gateway.state_of(rows["gemini"]) == "working"

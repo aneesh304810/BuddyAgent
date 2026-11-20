@@ -51,15 +51,15 @@ flowchart LR
     social_py --> s_serper
     o_0["Buddy Connect"]
     trends_py -. uses .-> o_0
-    o_1["Claude"]
+    o_1["Buddy Intelligence Platform"]
     trends_py -. uses .-> o_1
-    o_2["Fixing and explaining itself"]
+    o_2["Claude"]
     trends_py -. uses .-> o_2
-    o_3["Free AI models"]
+    o_3["Fixing and explaining itself"]
     trends_py -. uses .-> o_3
-    o_4["Investing"]
+    o_4["Free AI models"]
     trends_py -. uses .-> o_4
-    o_5["Making and doing things"]
+    o_5["Investing"]
     trends_py -. uses .-> o_5
 ```
 
@@ -191,7 +191,7 @@ fact check (newsdesk.py) draws on the same ones: every call made here is one it 
 ```
 
 - Settings: `BUDDY_MARKETAUX_KEY`, `BUDDY_NEWSCATCHER_KEY`, `BUDDY_NEWSDATA_KEY`, `BUDDY_PERIGON_KEY`
-- Uses: gateway.py
+- Uses: bip_sources.py, gateway.py
 
 ### research.py
 
@@ -239,6 +239,6 @@ Everything that comes back is other people's writing: information, never instruc
 
 ## How it connects
 
-- Relies on: Buddy Connect; Claude: the brain; Fixing and explaining itself; Free AI models (Groq, Gemini, Mistral, Cerebras, GitHub Models, OpenRouter); Investing: signals, research and practice; Making and doing things; Memory; Money; Security and privacy
+- Relies on: Buddy Connect; Buddy Intelligence Platform; Claude: the brain; Fixing and explaining itself; Free AI models (Groq, Gemini, Mistral, Cerebras, GitHub Models, OpenRouter); Investing: signals, research and practice; Making and doing things; Memory; Money; Security and privacy
 - Relied on by: Claude: the brain; Going out: restaurants and events; Insights and costs; Investing: signals, research and practice; Making and doing things; Memory; Money; Speaking up on its own: briefing, reminders and alerts; The server and the app; Travel and getting around
 

@@ -763,6 +763,25 @@ def admin_modules(month: str = "", text: int = 0):
     return {"modules": modules.overview(), "statement": modules.statement(memory, month)}
 
 
+@app.get("/admin/pricebook", dependencies=[Depends(require_admin)])
+async def admin_pricebook(text: int = 0):
+    """Can the price book be read (deploy/pricebook.sh check)? Changes nothing."""
+    from . import pricebook  # noqa: PLC0415
+    if text:
+        return PlainTextResponse(await asyncio.to_thread(pricebook.check_text, memory))
+    return await asyncio.to_thread(pricebook.check, memory)
+
+
+@app.post("/admin/pricebook/rebuild", dependencies=[Depends(require_admin)])
+async def admin_pricebook_rebuild() -> dict:
+    """Write the price book into a new file, keeping the old one beside it (deploy/pricebook.sh rebuild)."""
+    from . import pricebook  # noqa: PLC0415
+    try:
+        return {"ok": True, **await asyncio.to_thread(pricebook.rebuild, memory)}
+    except Exception as e:
+        return {"ok": False, "why": f"{type(e).__name__}: {' '.join(str(e).split())[:300]}"}
+
+
 @app.get("/admin/glasses", dependencies=[Depends(require_admin)])
 def admin_glasses() -> dict:
     """The glasses connected to this server right now."""

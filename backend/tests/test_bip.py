@@ -390,3 +390,37 @@ def test_a_paced_source_is_never_asked_faster_than_it_allows_whoever_asks():
     assert src._wait("gdelt", sleep, lambda: now[0]) == 0 and slept == [3.5]
     assert src._wait("openalex", sleep, lambda: now[0]) == 0  # sources that ask for no pause are not held
     src._last.clear()
+
+
+def test_a_source_that_says_too_many_requests_is_left_alone_and_every_caller_shares_its_clock():
+    from buddy import gateway, newsfeed
+
+    src._last.clear(); src._rest.clear()
+    now = [1000.0]
+    clock = lambda: now[0]  # noqa: E731
+    assert src.turn("gdelt", clock) is True                # free: taken
+    assert src.turn("gdelt", clock) is False               # the news fallback, a moment later: not yet
+    now[0] += 5.6
+    assert src.turn("gdelt", clock) is True
+    src.rest("gdelt", 900, clock)                          # it said "too many requests"
+    now[0] += 60
+    assert src.resting("gdelt", clock) and src.turn("gdelt", clock) is False
+    now[0] += 900
+    assert not src.resting("gdelt", clock) and src.turn("gdelt", clock) is True
+    src._last.clear(); src._rest.clear()
+
+    asked = []
+
+    def too_many(url, data=None, headers=None):
+        import io
+        import urllib.error
+        asked.append(url)
+        raise urllib.error.HTTPError(url, 429, "Too Many Requests", {}, io.BytesIO(b"Please limit requests to one every 5 seconds"))
+
+    mem = Memory(":memory:")
+    for _ in range(3):                                     # one refusal, then it is not asked again for a while
+        with pytest.raises(gateway.ConnectError):
+            src.gdelt(mem, "solid state battery", fetch=too_many)
+    assert len(asked) == 1
+    assert newsfeed._gdelt_turn() is False                 # the news fallback leaves it alone too
+    src._last.clear(); src._rest.clear()

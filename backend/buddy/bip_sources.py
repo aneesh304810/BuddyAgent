@@ -69,7 +69,31 @@ STATUS_PREFIX = "bip:source:"
 
 PACED = True  # the tests switch this off: they never reach a real source, so there is nothing to pace
 _last: dict[str, float] = {}  # when each paced source was last asked, on this server's clock
+_rest: dict[str, float] = {}  # until when a source is left alone, after it said "too many requests"
+REST_SECONDS = 15 * 60
 _pace_lock = threading.Lock()
+
+
+def turn(name: str, clock=time.monotonic) -> bool:
+    """May this source be asked right now? True takes the turn (the asking counts from now); False within the
+    pause it asks for, or while it is resting. For a caller that would rather skip the source than wait
+    (the news fallback): it shares the clock with _wait, so the two can never ask too fast between them."""
+    with _pace_lock:
+        now = clock()
+        if now < _rest.get(name, float("-inf")) or now < _last.get(name, float("-inf")) + PAUSE.get(name, 0.0):
+            return False
+        _last[name] = now
+        return True
+
+
+def rest(name: str, seconds: float = REST_SECONDS, clock=time.monotonic) -> None:
+    """Leave a source alone for a while: it said Buddy asks too often."""
+    with _pace_lock:
+        _rest[name] = clock() + seconds
+
+
+def resting(name: str, clock=time.monotonic) -> bool:
+    return clock() < _rest.get(name, float("-inf"))
 
 
 def _wait(name: str, sleep=time.sleep, clock=time.monotonic) -> float:
@@ -88,10 +112,18 @@ def _wait(name: str, sleep=time.sleep, clock=time.monotonic) -> float:
 
 
 def _get(memory, name: str, url: str, fetch=None, headers=None, data=None, raw=False):
+    if resting(name):  # it asked for fewer requests a moment ago: not asked, so not one more refusal
+        raise gateway.ConnectError(name, f"{gateway.CATALOG[name]['title']} asked for fewer requests; Buddy is "
+                                         "leaving it alone for a few minutes.", 429)
     if fetch is None and PACED:
         _wait(name)
-    return gateway.call_url(memory, name, [url], data=data, headers=headers or {}, raw=raw, fetch=fetch,
-                            purpose="intelligence")
+    try:
+        return gateway.call_url(memory, name, [url], data=data, headers=headers or {}, raw=raw, fetch=fetch,
+                                purpose="intelligence")
+    except gateway.ConnectError as e:
+        if e.status == 429:
+            rest(name)
+        raise
 
 
 def _day(text) -> str:
