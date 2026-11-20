@@ -111,7 +111,7 @@ flowchart LR
 | [Buddy Intelligence Platform](20-buddy-intelligence-platform.md) | A shared layer, like Buddy Connect, that collects public evidence on emerging technologies (papers, clinical studies, company filings, federal awards, code, discussion), finds which are converging across sectors and what stage each is at, and that Buddy's other features read from | 8 |
 | [Security and privacy](21-security-and-privacy.md) | Who can reach Buddy, lockouts, secrets kept out of logs and prompts, the encrypted database | 7 |
 | [Fixing and explaining itself](22-fixing-and-explaining-itself.md) | Reads its own code and these docs, draws its own architecture, checks its own server, and fixes itself on a branch you review | 10 |
-| [Insights and costs](23-insights-and-costs.md) | What Buddy spends and how well it does, model by model and service by service, and what makes it feel slow | 4 |
+| [Insights and costs](23-insights-and-costs.md) | What Buddy spends and how well it does, model by model and service by service, and what makes it feel slow; and the modules: which parts are switched on for this server, and the meter that counts what each one is used for | 5 |
 | [The server and the app](24-the-server-and-the-app.md) | The one server the phone talks to: the chat connection, the app's pages and their data | 1 |
 
-24 features, 176 server modules. The app (Kotlin) and the deploy scripts are documented by `python -m buddy.codedocs`.
+24 features, 177 server modules. The app (Kotlin) and the deploy scripts are documented by `python -m buddy.codedocs`.

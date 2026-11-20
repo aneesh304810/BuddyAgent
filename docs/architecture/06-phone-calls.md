@@ -33,12 +33,14 @@ flowchart LR
     calls_py -. uses .-> o_0
     o_1["Claude"]
     calls_py -. uses .-> o_1
-    o_2["Memory"]
+    o_2["Insights and costs"]
     calls_py -. uses .-> o_2
-    o_3["Speaking up on its own"]
+    o_3["Memory"]
     calls_py -. uses .-> o_3
-    o_4["Travel and getting around"]
+    o_4["Speaking up on its own"]
     calls_py -. uses .-> o_4
+    o_5["Travel and getting around"]
+    calls_py -. uses .-> o_5
 ```
 
 The diagram reads left to right: what you ask, the tools Buddy uses, the modules that do the work, and what they keep or call. Dashed arrows are other features this one relies on.
@@ -88,7 +90,7 @@ every request there carries the call's random token in its path, and Plivo's own
 - Tables: `phone_calls`
 - Outside services: ElevenLabs (Buddy's call voice), Plivo (phone calls)
 - Settings: `BUDDY_CALLS_PER_DAY`, `BUDDY_CALLS_PUBLIC_URL`, `BUDDY_CALL_BRAIN`, `BUDDY_CALL_DEBUG`, `BUDDY_CALL_LANGUAGES`, `BUDDY_CALL_LANGUAGE_HINTS`, `BUDDY_CALL_PRICE_LINE_MIN`, `BUDDY_CALL_PRICE_LISTEN_MIN`, `BUDDY_CALL_PRICE_VOICE_1K`, `BUDDY_CALL_PRICE_VOICE_1K_FULL`, `BUDDY_CALL_SHOW_MY_NUMBER`, `BUDDY_CALL_STT` and 11 more
-- Uses: commute.py, config.py, contacts.py, gateway.py, memory.py, routine.py, scheduling.py, tools.py, travel.py, usage.py
+- Uses: commute.py, config.py, contacts.py, gateway.py, memory.py, modules.py, routine.py, scheduling.py, tools.py, travel.py, usage.py
 
 ### contacts.py
 
@@ -124,6 +126,6 @@ Calendar permission). Buddy never commits the owner's time by itself.
 
 ## How it connects
 
-- Relies on: Buddy Connect; Claude: the brain; Memory; Speaking up on its own: briefing, reminders and alerts; Travel and getting around
+- Relies on: Buddy Connect; Claude: the brain; Insights and costs; Memory; Speaking up on its own: briefing, reminders and alerts; Travel and getting around
 - Relied on by: Claude: the brain; Email, messages and apps; Insights and costs; Money; The server and the app; Voice: Talk mode and Listen-in
 

@@ -83,11 +83,11 @@ flowchart LR
     travel_py -. uses .-> o_1
     o_2["Claude"]
     travel_py -. uses .-> o_2
-    o_3["Investing"]
+    o_3["Insights and costs"]
     travel_py -. uses .-> o_3
-    o_4["Making and doing things"]
+    o_4["Investing"]
     travel_py -. uses .-> o_4
-    o_5["Memory"]
+    o_5["Making and doing things"]
     travel_py -. uses .-> o_5
 ```
 
@@ -141,7 +141,7 @@ Every call to an outside API is logged (api_calls) with its cost, for Insights.
 
 - Tables: `api_calls`, `travel_patterns`, `travel_prices`, `travel_searches`, `travel_watches`
 - Settings: `BUDDY_DUFFEL_COST_PER_SEARCH`, `BUDDY_DUFFEL_TOKEN`, `BUDDY_DUFFEL_VERSION`, `BUDDY_SERPAPI_COST_PER_SEARCH`, `BUDDY_SERPAPI_KEY`, `BUDDY_TRAVELPAYOUTS_TOKEN`
-- Uses: brain.py, cards.py, hoteldirect.py, memory.py, pricebook.py, social.py, tools.py, travel_saved.py
+- Uses: brain.py, cards.py, hoteldirect.py, memory.py, modules.py, pricebook.py, social.py, tools.py, travel_saved.py
 
 ### travelcall.py
 
@@ -395,6 +395,6 @@ Only coordinates (rounded to about 1 km) or a place name go to Open-Meteo, nothi
 
 ## How it connects
 
-- Relies on: Buddy Connect; Buddy Intelligence Platform; Claude: the brain; Investing: signals, research and practice; Making and doing things; Memory; Money; News, trends and research; Shopping and deals; Speaking up on its own: briefing, reminders and alerts; The price book, pattern learning and trained models
+- Relies on: Buddy Connect; Buddy Intelligence Platform; Claude: the brain; Insights and costs; Investing: signals, research and practice; Making and doing things; Memory; Money; News, trends and research; Shopping and deals; Speaking up on its own: briefing, reminders and alerts; The price book, pattern learning and trained models
 - Relied on by: Buddy Connect; Claude: the brain; Email, messages and apps; Going out: restaurants and events; Home and health; Insights and costs; Memory; Money; Phone calls; Shopping and deals; Speaking up on its own: briefing, reminders and alerts; The server and the app
 

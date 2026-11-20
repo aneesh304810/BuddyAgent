@@ -1,6 +1,6 @@
 # Insights and costs
 
-What Buddy spends and how well it does, model by model and service by service, and what makes it feel slow.
+What Buddy spends and how well it does, model by model and service by service, and what makes it feel slow; and the modules: which parts are switched on for this server, and the meter that counts what each one is used for.
 
 ## Architecture
 
@@ -10,17 +10,21 @@ flowchart LR
     subgraph Tools["What Buddy can do"]
         t_rate_answer["rate_answer"]
         t_cost_watch["cost_watch"]
+        t_modules["modules"]
     end
     subgraph Modules["Modules"]
         insights_py["insights.py<br/>every model request Buddy made, what it was for, what it cost and how…"]
         trace_py["trace.py<br/>every model and paid API call Buddy made, in one Excel file to review"]
         costwatch_py["costwatch.py<br/>Buddy's daily look at its own spending, the patterns that waste…"]
         diagnostics_py["diagnostics.py<br/>events and measurements from the phone and this server, to find what…"]
+        modules_py["modules.py<br/>every function of Buddy belongs to one, each with a switch and a…"]
     end
     you --> t_rate_answer
     t_rate_answer --> insights_py
     you --> t_cost_watch
     t_cost_watch --> costwatch_py
+    you --> t_modules
+    t_modules --> modules_py
     insights_py --> diagnostics_py
     trace_py --> insights_py
     costwatch_py --> trace_py
@@ -50,6 +54,7 @@ The diagram reads left to right: what you ask, the tools Buddy uses, the modules
 |---|---|---|---|
 | `rate_answer` | The user judges your previous answer by voice ("that was wrong", "great answer", "that didn't help"): record it as a thumbs up or down for the models that worke | - | insights.py |
 | `cost_watch` | Buddy's own cost analysis: yesterday's spend on AI models and paid APIs against a usual day, and the patterns wasting money (loops, repeated requests, spikes, a | analyse, since_reset, fix_brief, trace | costwatch.py |
+| `modules` | Buddy's modules on this server: which are on, and what each was used for in a month and what that cost to run ("which modules are on?", "what did each module co | list, statement | modules.py |
 
 ## Technical design, module by module
 
@@ -132,8 +137,50 @@ Self-contained on purpose: this file plus one-line hooks, so it's easy to switch
 - Settings: `BUDDY_DIAGNOSTICS`, `BUDDY_GROQ_KEY`
 - Uses: insights.py, memory.py
 
+### modules.py
+
+```text
+Modules: every function of Buddy belongs to one, each with a switch and a meter (docs/PLATFORM.md).
+
+  core      always on: the brain, Maestro, Buddy Connect, memory, security and privacy, costs, the server and app
+  module    a part Buddy already has (Voice, Money, Travel...): on or off for this server
+  wearable  the new parts for glasses (Devices, Link, Vision...): listed here, not built, so they cannot be on
+
+THE SWITCH belongs to whoever runs the server, not to the person talking to Buddy: it is the setting BUDDY_MODULES
+in the server's root-only settings (deploy/modules.sh changes it). In a conversation the modules can be listed,
+never switched.
+
+  unset, or "all"       everything Buddy has today is on: the owner's own server is unchanged
+  "core"                core only: where a new customer's server starts
+  "all,-investing"      everything but one
+  "core,voice,money"    just those
+
+A module that is off does not exist for the conversation: its tools are not offered to Claude (allowed), and a
+call to one is refused (refusal). The background loops that belong to one module (email, price watches, bank
+feeds, the tutors) do not start. Not gated yet: the app's pages, and the jobs inside the loop that speaks up on its
+own (proactive.py).
+
+THE METER is one line a day for each module and unit (the table module_usage): how many, and what it cost to run.
+It is written as things happen, at the places Buddy already logs its work:
+
+  request        a model request made for the module, with its cost            (usage.log_call)
+  use            a tool of the module was run                                   (usage.log_tool)
+  outside_call   a paid outside service was called for the module, with its cost (travel.log_call)
+  minute         speech heard (Voice) or time on the line (Phone calls)
+  day_on         the module was on that day
+  ...            whatever a module records itself with record(): device_month, image, action, seat_month
+
+Lines are kept for three years. A wrong or failing meter never breaks a reply: every hook swallows its errors.
+
+THE PRICE LIST is the operator's table, kept out of the code: a CSV file named by BUDDY_PRICE_LIST with the columns
+module,unit,price_usd. Without it a statement shows counts and running cost and no charge. Charging (an invoice,
+a card) is not built.
+```
+
+- Settings: `BUDDY_MODULES`, `BUDDY_PRICE_LIST`
+
 ## How it connects
 
 - Relies on: Claude: the brain; Fixing and explaining itself; Free AI models (Groq, Gemini, Mistral, Cerebras, GitHub Models, OpenRouter); Making and doing things; Memory; News, trends and research; Phone calls; Travel and getting around; Voice: Talk mode and Listen-in
-- Relied on by: Claude: the brain; Free AI models (Groq, Gemini, Mistral, Cerebras, GitHub Models, OpenRouter); Security and privacy; Speaking up on its own: briefing, reminders and alerts; The server and the app; Voice: Talk mode and Listen-in
+- Relied on by: Claude: the brain; Free AI models (Groq, Gemini, Mistral, Cerebras, GitHub Models, OpenRouter); Phone calls; Security and privacy; Speaking up on its own: briefing, reminders and alerts; The server and the app; Travel and getting around; Voice: Talk mode and Listen-in
 

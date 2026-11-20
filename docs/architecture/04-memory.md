@@ -101,7 +101,7 @@ The diagram reads left to right: what you ask, the tools Buddy uses, the modules
 Long-term memory: facts about the user, reminders, and goals, stored in SQLite.
 ```
 
-- Tables: `audit`, `facts`, `goals`, `health_reports`, `kv`, `model_calls`, `reminders`, `tool_calls`, `turns`, `usage`, `won`
+- Tables: `audit`, `facts`, `goals`, `health_reports`, `kv`, `model_calls`, `module_usage`, `reminders`, `tool_calls`, `turns`, `usage`, `won`
 - Uses: db.py
 
 ### convolog.py

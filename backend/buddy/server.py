@@ -57,6 +57,7 @@ from datetime import datetime, timedelta, timezone
 
 import anthropic
 from fastapi import Depends, FastAPI, Header, HTTPException, Request, WebSocket, WebSocketDisconnect
+from fastapi.responses import PlainTextResponse
 from fastapi.staticfiles import StaticFiles
 
 from . import health as healthcheck
@@ -77,7 +78,7 @@ from .bankfeed import BankFeed
 from .builder import AgentBuilder
 from .deals import PriceWatcher
 from .finops import FinOps
-from . import budgets, liveears, pausehabit
+from . import budgets, liveears, modules, pausehabit
 from . import lifelog
 from .lifelog import LifeLog
 from .library import Library, report as library_report
@@ -512,15 +513,18 @@ async def lifespan(app: FastAPI):
                                if os.getenv("BUDDY_PROACTIVE_LOOP", "1") != "0" else asyncio.sleep(10 ** 9))
     job_loop = asyncio.create_task(jobs.run())
     sync_loop = asyncio.create_task(hub.run())
-    mail_loop = asyncio.create_task(mail.run())
-    watch_loop = asyncio.create_task(watcher.run())
-    bank_loop = asyncio.create_task(bank.run())
-    plaid_loop = asyncio.create_task(plaid.Plaid(memory).run(deliver))
+    def loop_of(module: str, start):  # a module that is off has no background loop (modules.py)
+        return asyncio.create_task(start() if modules.is_on(module) else asyncio.sleep(10 ** 9))
+
+    mail_loop = loop_of("email", mail.run)
+    watch_loop = loop_of("shopping", watcher.run)
+    bank_loop = loop_of("money", bank.run)
+    plaid_loop = loop_of("money", lambda: plaid.Plaid(memory).run(deliver))
     health_loop = asyncio.create_task(healthcheck.run(memory, finops, deliver))
     from . import selfcheck  # noqa: PLC0415  Buddy reads its own log and server state every few hours
     from .connectors.phone import in_quiet_hours  # noqa: PLC0415
     selfcheck_loop = asyncio.create_task(selfcheck.run(memory, deliver, quiet=in_quiet_hours))
-    tutor_loop = asyncio.create_task(tutor.run(memory, jobs))
+    tutor_loop = loop_of("learning", lambda: tutor.run(memory, jobs))
     brain_loop = asyncio.create_task(_index_brain())
     asyncio.create_task(_link_inbound_calls())
     budget_loop = asyncio.create_task(_budget_alerts())
@@ -748,6 +752,14 @@ def admin_agent_switch(name: str, action: str) -> dict:
 @app.get("/admin/connectors", dependencies=[Depends(require_admin)])
 def admin_connectors() -> list[dict]:
     return hub.status()
+
+
+@app.get("/admin/modules", dependencies=[Depends(require_admin)])
+def admin_modules(month: str = "", text: int = 0):
+    """This server's modules and a month's statement. Read-only: the switch is the setting BUDDY_MODULES."""
+    if text:
+        return PlainTextResponse(modules.list_text() + "\n\n" + modules.statement_text(memory, month))
+    return {"modules": modules.overview(), "statement": modules.statement(memory, month)}
 
 
 @app.post("/admin/connectors/{name}/{action}", dependencies=[Depends(require_admin)])
@@ -2504,6 +2516,8 @@ async def talk(ws: WebSocket) -> None:
             if meta.get("engine") == "groq":  # in Insights with Buddy's other model calls (no text kept)
                 usage.log_call(memory, provider="groq", model=speech_to_text.groq_model(), purpose="speech",
                                seconds=meta["seconds"], cost=speech_to_text.groq_cost(meta["audio_seconds"]))
+                with contextlib.suppress(Exception):
+                    modules.record(memory, "voice", "minute", float(meta["audio_seconds"]) / 60)
             mode = "talk" if msg.get("mode") == "talk" else "room"
             verdict = speech_to_text.judge(mode, meta.get("confidence"), len(base64.b64decode(msg["pcm"])) / 32000)
             for group in ["on" if msg.get("ns") else "off"] + (

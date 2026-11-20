@@ -81,28 +81,39 @@ Every function belongs to a module. A module:
 
 ### 4.2 Modules Buddy already has
 
-All of these exist and work today. What is new is the switch and the customer-facing meter. The units below are a
-first proposal and can be changed without changing the design.
+All of these exist and work today, and since 20 November 2026 each has a switch and a meter (built: section 7,
+step 1). Every module is counted in the same five units, so a price can be put on whichever fits it:
 
-| Module | Meter |
+| Unit | What is counted |
 |---|---|
-| Voice: Talk mode and Listen-in | Minutes heard |
-| Phone calls | Call minutes |
-| Briefing, reminders and alerts | Per month while on |
-| Learning | Lessons given |
-| Money | Connected banks a month, requests |
-| Shopping and deals | Searches |
-| Price book and trained models | Per month while on |
-| Investing | Requests, outside data calls |
-| Travel and getting around | Searches |
-| Going out | Searches |
-| News, trends and research | Research jobs, searches |
-| Email, messages and apps | Connected accounts a month, requests |
-| Home and health | Per month while on. Health data still goes to no model |
-| Making and doing things | Things made |
-| Agents and skills | Agent calls |
-| Intelligence Platform | Per month while on, requests |
-| Fixing and explaining itself | The owner's own server only; not offered to customers |
+| request | A model request made for the module, with what it cost |
+| use | One of the module's tools was run |
+| outside call | A paid outside service was called for the module, with what it cost |
+| minute | Speech heard (Voice) and time on the line (Phone calls) |
+| day on | The module was on that day |
+
+| Module | Its id | A unit that fits it |
+|---|---|---|
+| Voice: Talk mode and Listen-in | `voice` | Minutes |
+| Phone calls | `calls` | Minutes |
+| Briefing, reminders and alerts | `briefing` | Days on |
+| Learning | `learning` | Uses |
+| Money | `money` | Days on, requests |
+| Shopping and deals | `shopping` | Uses, outside calls |
+| Price book and trained models | `pricebook` | Days on |
+| Investing | `investing` | Requests, outside calls |
+| Travel and getting around | `travel` | Outside calls |
+| Going out | `goingout` | Uses |
+| News, trends and research | `news` | Uses, outside calls |
+| Email, messages and apps | `email` | Days on, requests |
+| Home and health | `home_health` | Days on. Health data still goes to no model |
+| Making and doing things | `making` | Uses |
+| Agents and skills | `agents` | Uses |
+| Intelligence Platform | `intelligence` | Days on, requests |
+| Fixing and explaining itself | `selfcare` | The owner's own server only; not offered to customers |
+
+Not counted yet: connected banks, connected email accounts, lessons given, things made as their own units. They
+show up as uses.
 
 ### 4.3 Wearable modules (new)
 
@@ -120,40 +131,54 @@ first proposal and can be changed without changing the design.
 
 ### 4.4 How a switch works
 
-- One list in the code names every module, its component, what it needs and its meter.
-- One record on each server says which modules are on. Because each customer has their own server (decision 1),
-  this is a setting on that server, not a shared table of customers.
-- A module that is off does not exist on that server: its tools are not offered to the brain, its pages refuse,
-  and its background jobs do not run. Agents and connectors already behave this way.
-- Switching a module on switches on what it needs, or refuses and says what is missing.
-- **On the owner's own server everything Buddy has today stays on.** Nothing changes for the owner when this is
-  built. A new customer's server starts with core only.
+- One list in the code names every module, its component, what it needs and its meter
+  (`backend/buddy/modules.py`).
+- One setting on each server says which modules are on: `BUDDY_MODULES`, in the server's root-only settings.
+  Because each customer has their own server (decision 1), this is a setting on that server, not a shared table
+  of customers.
+- **The switch belongs to whoever runs the server.** `sudo bash /opt/buddy/deploy/modules.sh` lists the modules;
+  `... off investing` and `... on investing` switch one and restart Buddy. In a conversation Buddy can say which
+  modules are on and what each was used for. It cannot switch one.
+- A module that is off does not exist for the conversation: its tools are not offered to the brain, and a call
+  to one is refused. The background loops that belong to one module (email, price watches, bank feeds, the tutors)
+  do not start.
+- Switching a module on switches on what it needs, or refuses and says what is missing. A module that is not
+  built cannot be switched on.
+- **On the owner's own server everything Buddy has today stays on.** With the setting unset, nothing changes. A new
+  customer's server starts with `BUDDY_MODULES=core`.
+
+Not gated yet: the app's pages, and the jobs inside the loop that speaks up on its own (the morning briefing, the
+deals collector, the market scan and the rest). With their module off they still run.
 
 ## 5. Metering, pricing and charging
 
 Three separate things.
 
-**The meter** counts. One ledger on each server; every billable event writes one line:
+**The meter** counts. One ledger on each server, with one line a day for each module and unit:
 
 | Field | Meaning |
 |---|---|
+| day | The day, in UTC |
 | module | Which module |
-| unit | What is counted: device-month, minute, request, image, action, connected system, seat |
-| amount | How many |
-| who | The device or the person, where there is one |
-| when | The time |
-| our cost | What the event cost to run, where Buddy knows it |
+| unit | What is counted: request, use, outside call, minute, day on. Later: device-month, image, action, seat |
+| who | The device or the person, where there is one. Empty today |
+| amount | How many that day |
+| our cost | What it cost to run, where Buddy knows it |
 
-Buddy already records the cost of every model request and every paid outside call, and sorts each into a component
-(`docs/MAESTRO.md`, `docs/FINOPS.md`). The ledger adds the customer's units beside that cost, so each module shows
-what it earned and what it cost.
+It is written as things happen, at the three places Buddy already logs its work: every model request, every tool
+run and every paid outside call is counted for the module it belongs to. Lines are kept for three years. A meter
+that fails never breaks a reply. Counting started on the day this was installed; earlier use is not in it.
 
-**The price list** is a table: module, unit, price. It is edited without touching code and is not on this page.
-Under decision 2 it has a base price for each active device a month, usage prices for Voice, Vision and Agent, and
-a price for each connected system under Integrations.
+**The price list** is the operator's table: a CSV file with the columns `module,unit,price_usd`, named by the
+setting `BUDDY_PRICE_LIST`. It is edited without touching code and is not on this page. Under decision 2 it has a
+base price for each active device a month, usage prices for Voice, Vision and Agent, and a price for each connected
+system under Integrations. A unit with no price is counted and not charged.
+
+**The statement** for a month shows, for each module, what was counted, what it cost to run and, where there is a
+price list, what it comes to: `sudo bash /opt/buddy/deploy/modules.sh statement 2026-11`, or ask Buddy "what did
+each module cost this month?".
 
 **Charging** (an invoice, a card) needs a payment company, terms and tax handling. It is not built and comes last.
-Until then a server can produce a monthly statement from its ledger.
 
 ## 6. Not decided, or out of scope
 
@@ -170,8 +195,9 @@ Until then a server can produce a monthly statement from its ledger.
 
 ## 7. Proposed build order (each step waits for the owner's go)
 
-1. **The module list, the switches and the ledger**, applied first to the parts Buddy already has. It needs no
-   hardware and can be tested fully.
+1. **The module list, the switches and the ledger**, applied first to the parts Buddy already has.
+   **Built on 20 November 2026.** Tested by `backend/tests/test_modules.py`; not yet run on a server. Left for
+   later in this step: gating the app's pages and the jobs inside the proactive loop.
 2. **The link** between the glasses runtime on the phone and the server, with the additions to the contract in
    `docs/BWCP.md` section 4.
 3. **One device, one app, end to end** on real glasses.

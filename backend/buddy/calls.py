@@ -402,6 +402,10 @@ def add_cost(memory: Memory, call_id: int, provider: str, what: str, usd: float,
     from .travel import log_call  # noqa: PLC0415
     gateway._table(memory)
     log_call(memory, provider, what, True, seconds, "phone call", cost=round(usd, 5))
+    if what == "call minutes":  # the meter: time on the line
+        with contextlib.suppress(Exception):
+            from . import modules  # noqa: PLC0415
+            modules.record(memory, "calls", "minute", seconds / 60)
     memory.db.execute("UPDATE phone_calls SET cost_usd = cost_usd + ? WHERE id = ?", (round(usd, 5), call_id))
     memory.db.commit()
 

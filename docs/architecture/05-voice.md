@@ -114,7 +114,7 @@ get what the microphone heard.
 ```
 
 - Settings: `BUDDY_CALL_PRICE_LISTEN_MIN`, `BUDDY_DEEPGRAM_KEY`, `BUDDY_NOISE_CANCEL`, `BUDDY_TALK_EOT`, `BUDDY_TALK_EOT_TIMEOUT_MS`, `BUDDY_TALK_LIVE`
-- Uses: calls.py, denoise.py, diagnostics.py, gateway.py, usage.py, whisper.py
+- Uses: calls.py, denoise.py, diagnostics.py, gateway.py, modules.py, usage.py, whisper.py
 
 ### denoise.py
 

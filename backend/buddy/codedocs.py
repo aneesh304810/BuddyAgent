@@ -234,7 +234,8 @@ COMPONENTS = [  # every server module belongs to one feature (tests check none i
      ["selfcode.py", "codedocs.py", "codedocs_features.py", "codedocs_qa.py", "codedocs_visual.py", "codejob.py",
       "sandbox.py", "selfdeploy.py", "claudefix.py", "selfcheck.py"]),
     ("Insights and costs", "What Buddy spends and how well it does, model by model and service by service, and what "
-     "makes it feel slow", ["insights.py", "trace.py", "costwatch.py", "diagnostics.py"]),
+     "makes it feel slow; and the modules: which parts are switched on for this server, and the meter that "
+     "counts what each one is used for", ["insights.py", "trace.py", "costwatch.py", "diagnostics.py", "modules.py"]),
     ("The server and the app", "The one server the phone talks to: the chat connection, the app's pages and their "
      "data", ["server.py"]),
 ]

@@ -38,7 +38,7 @@ import logging
 import os
 import time
 
-from . import calls, denoise, gateway
+from . import calls, denoise, gateway, modules
 
 log = logging.getLogger("buddy.liveears")
 
@@ -353,6 +353,7 @@ class LiveTalk:
                 usage.count(self.memory, "speech:live")
                 usage.log_call(self.memory, provider="deepgram", model=calls.FLUX_MODEL, purpose="speech", seconds=seconds,
                                cost=round(seconds / 60 * calls.price("BUDDY_CALL_PRICE_LISTEN_MIN", self.env), 6))
+                modules.record(self.memory, "voice", "minute", seconds / 60)
             who = "off"
             try:
                 who = await self.voice_ok(pcm[:int(VOICE_SECONDS * RATE * 2)])

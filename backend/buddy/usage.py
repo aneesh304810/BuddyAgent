@@ -1,5 +1,6 @@
 """Track Claude token usage and cost, and enforce the monthly budget."""
 
+import contextlib
 import re
 import time
 from contextvars import ContextVar
@@ -92,6 +93,9 @@ def log_call(memory: Memory, *, provider: str, model: str, purpose: str, input_t
     call_id = cursor.lastrowid
     memory.db.execute("DELETE FROM model_calls WHERE at < ?", ((now - timedelta(days=KEEP_CALLS_DAYS)).isoformat(),))
     memory.db.commit()
+    with contextlib.suppress(Exception):  # the meter: a request for the module this purpose belongs to
+        from . import modules  # noqa: PLC0415
+        modules.note_request(memory, purpose or "chat", cost)
     return call_id
 
 
@@ -129,6 +133,9 @@ def log_tool(memory: Memory, tool: str, seconds: float, ok: bool, error: str = "
                        mask(error)[:160]))
     memory.db.execute("DELETE FROM tool_calls WHERE at < ?", ((now - timedelta(days=KEEP_CALLS_DAYS)).isoformat(),))
     memory.db.commit()
+    with contextlib.suppress(Exception):  # the meter: a use of the module this tool belongs to
+        from . import modules  # noqa: PLC0415
+        modules.note_use(memory, tool)
 
 
 def set_verdict(memory: Memory, call_id: int, verdict: str, note: str = "") -> bool:

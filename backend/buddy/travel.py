@@ -165,6 +165,11 @@ def _log(memory, provider, endpoint, ok, seconds, purpose, error, cost) -> None:
     memory.db.execute("DELETE FROM api_calls WHERE at < ?",
                       ((datetime.now(timezone.utc) - timedelta(days=400)).isoformat(),))
     memory.db.commit()
+    try:  # the meter: a paid outside call for the module this purpose belongs to
+        from . import modules  # noqa: PLC0415
+        modules.note_outside(memory, purpose, api_cost(provider) if cost is None else cost)
+    except Exception:  # a wrong meter never breaks a call  # nosec B110
+        pass
 
 
 def _http(method: str, url: str, headers: dict | None = None, body: dict | None = None, timeout: int = 60) -> dict:

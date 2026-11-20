@@ -76,6 +76,15 @@ CREATE TABLE IF NOT EXISTS tool_calls (  -- every tool Buddy ran for a reply: ag
     error TEXT NOT NULL DEFAULT ''      -- masked, short
 );
 CREATE INDEX IF NOT EXISTS tool_calls_at ON tool_calls (at);
+CREATE TABLE IF NOT EXISTS module_usage (  -- the meter: one line a day for each module and unit (modules.py)
+    day TEXT NOT NULL,                  -- YYYY-MM-DD, UTC
+    module TEXT NOT NULL,
+    unit TEXT NOT NULL,                 -- request | use | outside_call | minute | day_on | ...
+    who TEXT NOT NULL DEFAULT '',       -- a device or a person, where there is one
+    amount REAL NOT NULL DEFAULT 0,
+    cost_usd REAL NOT NULL DEFAULT 0,   -- what it cost to run, where Buddy knows it
+    PRIMARY KEY (day, module, unit, who)
+);
 CREATE TABLE IF NOT EXISTS turns (      -- one row per reply: how it felt from your side
     turn TEXT PRIMARY KEY,
     at TEXT NOT NULL,                   -- ISO-8601, UTC
