@@ -16,6 +16,8 @@ from collections import Counter
 from email.message import EmailMessage
 from email.utils import formataddr, getaddresses, make_msgid, parseaddr
 
+from buddy.email_accounts import open_in_gmail
+
 MAX_RESULTS = 50
 MAX_BULK = 500
 MAX_TEXT = 6000
@@ -118,7 +120,7 @@ class Mailbox:
             return []
         _, data = imap.uid(
             "FETCH", b",".join(uids).decode(),
-            "(X-GM-MSGID FLAGS BODY.PEEK[HEADER.FIELDS (FROM TO SUBJECT DATE LIST-UNSUBSCRIBE)])",
+            "(X-GM-MSGID FLAGS BODY.PEEK[HEADER.FIELDS (FROM TO SUBJECT DATE LIST-UNSUBSCRIBE MESSAGE-ID)])",
         )
         out = []
         for part in data:
@@ -135,6 +137,7 @@ class Mailbox:
                 "date": str(headers.get("Date", "")),
                 "unread": "\\Seen" not in meta,
                 "unsubscribe": str(headers.get("List-Unsubscribe", "")),
+                "message_header_id": str(headers.get("Message-ID", "")),  # the email's own id, for a link to it
             })
         return out
 
@@ -148,6 +151,7 @@ class Mailbox:
             self._close(imap)
         for m in messages:
             m.pop("unsubscribe", None)
+            m["open"] = open_in_gmail(self.address, m.pop("message_header_id", ""))  # opens it in Gmail
         return {"query": query, "total_matches": len(uids), "messages": messages}
 
     def read(self, message_id: str) -> dict:
@@ -171,6 +175,7 @@ class Mailbox:
             "date": str(message.get("Date", "")),
             "text": text_of(message)[:MAX_TEXT],
             "attachments": attachments,
+            "open": open_in_gmail(self.address, str(message.get("Message-ID", ""))),
         }
 
     def inbox_summary(self, days: int = 30, reconnects: int = 2) -> dict:

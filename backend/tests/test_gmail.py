@@ -216,6 +216,46 @@ def test_agent_reads_freely_but_asks_before_sending_or_cleaning(gmail, monkeypat
     assert FakeSMTP.sent or fake.mail[2]["trash"] or "\\Inbox" not in fake.mail[2]["labels"]
 
 
+def test_every_email_found_says_how_to_open_it_in_gmail(gmail):
+    _, box = gmail
+    link = "https://mail.google.com/mail/u/?authuser=me@gmail.com#search/rfc822msgid%3Am1001%40x.com"
+    assert box.search("from:chase")["messages"][0]["open"] == link
+    assert box.read("1001")["open"] == link
+
+
+def test_an_email_becomes_a_card_to_open_and_its_link_is_not_given_to_claude(gmail, monkeypatch):
+    """'Give me a link to that email': the email is a card in the chat. The link is built before the masking of
+    long numbers (a Message-ID can look like a card number) and Claude gets the card's id, never the link."""
+    from buddy import cards
+
+    fake, box = gmail
+    fake.mail[1]["raw"] = fake.mail[1]["raw"].replace(b"<m1001@x.com>", b"<4111111111111111.77@mail.chase.com>")
+    monkeypatch.setattr(gmail_server, "_box", lambda account="": box)
+
+    async def body():
+        reg = AgentRegistry(Memory(":memory:"), [AgentSpec(name="gmail", server=gmail_server.server)])
+        await reg.start()
+        try:
+            outside = await reg.call("gmail__search_mail", {"query": "from:chase"}, 1)  # no chat to show it in
+            shown = cards.CardBox()
+            cards.current.set(shown)
+            found = await reg.call("gmail__search_mail", {"query": "from:chase"}, 1)
+            read = await reg.call("gmail__read_mail", {"message_id": "1001"}, 1)
+            return outside, found, read, shown
+        finally:
+            await reg.close()
+
+    outside, found, read, shown = asyncio.run(body())
+    assert "card" not in json.loads(outside)["messages"][0] and "mail.google.com" not in outside
+    assert json.loads(found)["messages"][0]["card"] == "e1" and json.loads(read)["card"] == "e1"  # one card, not two
+    assert "mail.google.com" not in found + read and "open" not in json.loads(read)
+    assert shown.pick([{"id": "e1"}]) == "Showing 1 cards."
+    card = shown.picked[0]
+    assert (card["kind"], card["title"], card["subtitle"]) == ("email", "Payment due", "Chase · Oct 16")
+    assert card["url"].endswith("#search/rfc822msgid%3A4111111111111111.77%40mail.chase.com")
+    assert cards.mail_cards("Error: couldn't reach Gmail (TimeoutError).").startswith("Error:")  # not a result
+
+
 def test_agent_process_gets_only_the_settings_it_is_given(monkeypatch):
     import sys
     from pathlib import Path

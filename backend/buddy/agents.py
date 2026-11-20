@@ -30,6 +30,7 @@ import yaml
 from mcp import Client, StdioServerParameters
 from mcp.client.streamable_http import create_mcp_http_client, streamable_http_client
 
+from . import cards
 from .memory import Memory
 from .privacy import mask
 
@@ -323,6 +324,8 @@ class AgentRegistry:
             text = json.dumps(result.structured_content)
         status = "error" if result.is_error else "ok"
         self.audit(spec.name, tool, args, status)
+        if spec.name == "gmail":  # each email found can be opened in Gmail: a card, made before the masking
+            text = cards.mail_cards(text)
         return mask(text) or "(no output)"
 
     # --- audit -----------------------------------------------------------

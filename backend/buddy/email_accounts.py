@@ -11,6 +11,7 @@ import re
 import os
 from collections.abc import Mapping
 from dataclasses import dataclass
+from urllib.parse import quote
 
 MAX_ACCOUNTS = 9
 GMAIL = ("imap.gmail.com", "smtp.gmail.com", 465)
@@ -58,6 +59,16 @@ def email_accounts(env: Mapping[str, str] | None = None) -> list[EmailAccount]:
             folder=get(prefix + "FOLDER", "INBOX"),
         ))
     return accounts
+
+
+def open_in_gmail(address: str, message_id: str) -> str:
+    """A link that opens one email in Gmail, signed in as `address`. `message_id` is the email's own Message-ID
+    header: Gmail finds the email by it wherever it is filed. "" when either is missing."""
+    message_id = (message_id or "").strip().strip("<>")
+    if not address or not message_id:
+        return ""
+    return (f"https://mail.google.com/mail/u/?authuser={quote(address, safe='@')}"
+            f"#search/rfc822msgid%3A{quote(message_id, safe='')}")
 
 
 def pick_account(accounts: list[EmailAccount], which: str = "") -> EmailAccount:

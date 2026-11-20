@@ -69,7 +69,7 @@ Agents are declared in agents.yaml (see agents.example.yaml).
 
 - Tables: `agent_state`
 - Settings: `BUDDY_DB_KEY`, `BUDDY_DO_TOKEN`, `BUDDY_EMAIL_`, `BUDDY_PLAID_`, `BUDDY_SIMPLEFIN`, `BUDDY_TAILSCALE_`, `BUDDY_TOKEN`
-- Uses: memory.py, privacy.py
+- Uses: cards.py, memory.py, privacy.py
 
 ### builder.py
 

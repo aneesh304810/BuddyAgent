@@ -99,7 +99,7 @@ The diagram reads left to right: what you ask, the tools Buddy uses, the modules
 | `submit` | The form is filled: show the user a screenshot and the answers, and press this button (its number) only after their yes. | - | browse.py |
 | `finish` | Done or stuck: the answer for the user, and the pages used. | - | browse.py |
 | `fill_form` | Fill in a form the user has open on their PHONE's browser right now (Chrome or Samsung Internet), through the phone's form helper (Accessibility) | read, scroll, fill | formfill.py |
-| `show_cards` | Show results as rich cards in the user's chat (photo, rating, map, price, reviews, links they can tap): places, stays, flights, deals, news, money | - | cards.py |
+| `show_cards` | Show results as rich cards in the user's chat (photo, rating, map, price, reviews, links they can tap): places, stays, flights, deals, news, money, an email to  | - | cards.py |
 | `start_research` | Hand a question to the research and analytics agent | quick, deep | jobs.py |
 | `find_deals` | Hand a deal hunt to the research agent: the best flights, hotels, car hire, or the best price on something to buy | travel, shopping, other | jobs.py |
 | `shop_for` | When the owner is deciding WHAT to buy ('I'm thinking of buying new headphones', 'which vacuum should I get?'): hand it to the research agent with their shoppin | electronics, home, travel, clothing, other | jobs.py |

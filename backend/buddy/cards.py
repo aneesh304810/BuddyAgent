@@ -9,7 +9,9 @@ found (Airbnb listings, flights, articles) can be shown by their URL, checked ag
 search results of the same turn.
 """
 
+import json
 from contextvars import ContextVar
+from email.utils import parseaddr, parsedate_to_datetime
 from urllib.parse import quote_plus, urlparse
 
 MAX_SHOWN = 8
@@ -111,6 +113,43 @@ def watch_card(w: dict) -> dict:
             "url": _https(w.get("last_url"))}
 
 
+def email_card(m: dict) -> dict:
+    """An email the user can open in Gmail with one tap."""
+    name, address = parseaddr(str(m.get("from", "")))
+    try:
+        when = parsedate_to_datetime(str(m.get("date", "")))
+        day = f"{when:%b} {when.day}"
+    except (TypeError, ValueError):
+        day = ""
+    return {"kind": "email", "title": str(m.get("subject") or "(no subject)")[:120],
+            "subtitle": " · ".join(x for x in ((name or address)[:60], day) if x), "url": _https(m.get("open"))}
+
+
+def mail_cards(text: str) -> str:
+    """What the Gmail agent returned, as Claude should see it: each email's link to open it becomes a card
+    ('card': 'e1') that show_cards can put in the chat. The link itself is taken out. It is of no use read
+    aloud, and it holds the email's Message-ID, which the masking of long numbers would damage."""
+    try:
+        got = json.loads(text)
+    except ValueError:
+        return text  # an error message, not a result
+    if not isinstance(got, dict):
+        return text
+    mails = [m for m in got.get("messages") or [] if isinstance(m, dict)] + ([got] if "open" in got else [])
+    if not mails:
+        return text
+    box = current.get()
+    for m in mails:
+        link = m.pop("open", "")
+        if not link or box is None:
+            continue  # nothing to open, or no chat to show it in
+        known = box.by_url.get(link)  # found and then read: one card, not two
+        card_id = known["id"] if known else box.add(email_card({**m, "open": link}))
+        if card_id:
+            m["card"] = card_id
+    return json.dumps(got, ensure_ascii=False)
+
+
 def money_card(title: str, rows: list[tuple[str, str]], text: str = "") -> dict:
     return {"kind": "money", "title": title, "rows": [{"label": a, "value": b} for a, b in rows][:12], "text": text}
 
@@ -119,7 +158,7 @@ class CardBox:
     """The cards one reply can show: offered by tools, picked by Claude."""
 
     PREFIX = {"place": "p", "news": "n", "finance": "n", "link": "w", "stay": "w", "flight": "w", "travel": "w",
-              "reddit": "r", "deal": "d", "money": "m", "image": "i", "file": "f", "ride": "u"}
+              "reddit": "r", "deal": "d", "money": "m", "image": "i", "file": "f", "ride": "u", "email": "e"}
 
     def __init__(self):
         self.cards: dict[str, dict] = {}
@@ -189,7 +228,8 @@ def tag(items: list[dict], build, strip: tuple[str, ...] = ()) -> list[dict]:
 SHOW_TOOL = {
     "name": "show_cards",
     "description": "Show results as rich cards in the user's chat (photo, rating, map, price, reviews, links they "
-    "can tap): places, stays, flights, deals, news, money. Use the 'card' ids tools gave you, or the URL of a page "
+    "can tap): places, stays, flights, deals, news, money, an email to open in Gmail. Use the 'card' ids tools "
+    "gave you, or the URL of a page "
     "your web search found this turn (an Airbnb listing, a flight, an article). Pick the best few, best first, "
     "with a short note on why each. Call it in the same response as your spoken answer; don't read links aloud.",
     "input_schema": {

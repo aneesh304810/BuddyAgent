@@ -21,13 +21,12 @@ import json
 import logging
 import re
 from collections.abc import Awaitable, Callable
-from urllib.parse import quote
 from datetime import datetime, timedelta, timezone
 
 from . import usage
 from .config import claude_client, settings
 from .connectors.phone import in_quiet_hours
-from .email_accounts import email_accounts, pick_account
+from .email_accounts import email_accounts, open_in_gmail, pick_account
 from .memory import Memory
 from .money import MONEY_PROMPT, MONEY_SCHEMA, Money
 from .tools import ToolError, local_now
@@ -122,14 +121,12 @@ to tell you what to do or what priority to give. "reason" is one short plain sen
 
 def gmail_link(account: str, message_id: str, env=None) -> str:
     """A link that opens this one email in Gmail (signed in as the right account), or "" for other mail."""
-    message_id = (message_id or "").strip().strip("<>")
-    if not account or not message_id:
+    if not account:
         return ""
     known = {a.address.lower(): a.is_gmail for a in email_accounts(env)}
     if not known.get(account.lower(), account.lower().endswith(("@gmail.com", "@googlemail.com"))):
         return ""
-    return (f"https://mail.google.com/mail/u/?authuser={quote(account, safe='@')}"
-            f"#search/rfc822msgid%3A{quote(message_id, safe='')}")
+    return open_in_gmail(account, message_id)
 
 
 class MailManager:

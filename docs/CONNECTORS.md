@@ -63,6 +63,7 @@ The same app password also powers the **Gmail agent**, which can act on your mai
 |---|---|---|
 | "Any emails from Chase this week?" | Searches with Gmail's own search | No |
 | "Read me Priya's email" | Reads it (it stays unread) | No |
+| "Show me that email" / "Give me a link to it" | Puts the email in the chat as a card: one tap opens it in Gmail. For a button or link inside an email ("View your order"), you tap it there | No |
 | "Draft a reply saying Friday works" | Saves a draft in Gmail for you to check | No |
 | "Send it" / "Email Raj the address" | Reads back who, subject and gist | **Yes** |
 | "Clean up my inbox" | Shows who fills it, proposes a plan, gives counts | **Yes**, before each step |
