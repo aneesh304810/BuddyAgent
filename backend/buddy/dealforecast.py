@@ -209,16 +209,173 @@ def company(memory: Memory, name: str, today: date | None = None) -> dict:
             "note": "Learned from the deals Buddy has seen; more history makes it sharper. Rough, not a promise."}
 
 
+# Days in the season that are not in the buy-or-wait calendar (whentobuy.calendar), because Buddy has no discount
+# numbers for them and does not make any up. They are shown on the Predicted list as dates, and decide nothing.
+def season(year: int) -> list[dict]:
+    from .whentobuy import _nth_weekday  # noqa: PLC0415
+    thanksgiving = _nth_weekday(year, 11, 3, 4)
+    christmas = date(year, 12, 25)
+    saturday = christmas - timedelta(days=(christmas.weekday() - 5) % 7 or 7)  # the last Saturday before the 25th
+    return [
+        {"name": "Travel Tuesday", "day": thanksgiving + timedelta(days=5), "for": "flights, hotels and cruises",
+         "why": "the Tuesday after Thanksgiving: airlines, hotels and cruise lines run one-day sales. How big varies; "
+                "Buddy has no numbers of its own for it yet"},
+        {"name": "Green Monday", "day": _nth_weekday(year, 12, 0, 2), "for": "online stores",
+         "why": "the second Monday of December: online stores run a last round of sales in time for delivery by "
+                "Christmas. Buddy has no numbers of its own for it yet"},
+        {"name": "Super Saturday", "day": saturday, "for": "stores",
+         "why": "the last Saturday before Christmas: stores cut prices for last-minute shopping. Buddy has no "
+                "numbers of its own for it yet"},
+    ]
+
+
+MAX_PRODUCTS, MAX_BRANDS = 40, 20  # how many product and brand predictions the list carries (the surest first)
+
+
+def _next(dates: list, today: date, least_gap: int = 3) -> tuple[int, date] | None:
+    """A rhythm from the days something was on deal: the usual gap between them and the next day it points to.
+    None with fewer than two days, or when they sit closer together than `least_gap` days (one sale seen twice)."""
+    dates = sorted(set(dates))
+    gaps = sorted((b - a).days for a, b in zip(dates, dates[1:]) if (b - a).days >= least_gap)
+    if len(dates) < 2 or not gaps:
+        return None
+    gap = gaps[len(gaps) // 2]
+    nxt = dates[-1] + timedelta(days=gap)
+    while nxt < today:
+        nxt += timedelta(days=gap)
+    return gap, nxt
+
+
+def _product_label(product: str) -> str:
+    """ "sony wh-1000xm5" as people write it: "Sony WH-1000XM5"."""
+    return " ".join(w.upper() if (re.search(r"\d", w) and re.search(r"[a-z]", w)) or len(w) <= 2 else w[:1].upper() + w[1:]
+                    for w in str(product or "").split())
+
+
+def from_book(memory: Memory, today: date, days: int = 45) -> dict:
+    """Deal rhythms worked out here from the deals in the price book, with no sandbox: for each product on deal on
+    two or more days (at least 3 days apart), its next likely deal day and the lowest deal price seen; and the same
+    for a brand within a category ("Dewalt: power tool") when its deals do not come nearly every day. The nightly
+    learning finds the same rhythms and keeps them after the raw deals are a year old; this is what the list shows
+    until then, and whenever the learning has not run.
+
+    Returns {"products": [...], "brands": [...], "steady": [brands with deals most days], "first_day": date|None}."""
+    from . import pricebook  # noqa: PLC0415
+    until = today + timedelta(days=days)
+    pricebook.identify(memory)
+    rows = pricebook.run(memory, "SELECT product, COALESCE(brand, '') AS brand, COALESCE(category, '') AS category, "
+                                 "seen_on, MIN(price) AS price, COUNT(*) AS deals FROM deals WHERE "
+                                 "COALESCE(domain, 'product') = 'product' AND product IS NOT NULL AND product <> '' AND "
+                                 "seen_on >= ? GROUP BY 1, 2, 3, 4 ORDER BY seen_on",
+                         ((today - timedelta(days=365)).isoformat(),))
+    by_product: dict = {}
+    by_brand: dict = {}
+    first = None
+    for r in rows:
+        day = date.fromisoformat(str(r["seen_on"]))
+        first = first or day
+        p = by_product.setdefault(r["product"], {"days": [], "prices": [], "brand": r["brand"], "category": r["category"]})
+        p["days"].append(day)
+        if r["price"]:
+            p["prices"].append(r["price"])
+        if r["brand"]:
+            b = by_brand.setdefault((r["brand"], r["category"]), {"days": set(), "products": set(), "deals": 0})
+            b["days"].add(day)
+            b["products"].add(r["product"])
+            b["deals"] += int(r["deals"])
+    products = []
+    for name, v in by_product.items():
+        rhythm = _next(v["days"], today)
+        if not rhythm or rhythm[1] > until:
+            continue
+        seen = len(set(v["days"]))
+        products.append({"when": rhythm[1].isoformat(), "what": _product_label(name), "type": "product",
+                         "expect_price": min(v["prices"]) if v["prices"] else None,
+                         "why": f"on deal on {seen} days, about every {rhythm[0]} days",
+                         "confidence": "medium" if seen >= 3 else "low", "brand": v["brand"], "category": v["category"],
+                         "_seen": seen})
+    brands, steady = [], []
+    for (brand, category), v in by_brand.items():
+        if len(v["days"]) < 3 or len(v["products"]) < 2:
+            continue
+        rhythm = _next(sorted(v["days"]), today, least_gap=1)
+        name = pricebook.group_label("product", "brand", brand)
+        if not rhythm:
+            continue
+        if rhythm[0] < 5:  # deals most days: nothing to wait for, so it is not a prediction
+            steady.append((len(v["days"]), f"{name} ({category})" if category else name))
+            continue
+        if rhythm[1] <= until:
+            brands.append({"when": rhythm[1].isoformat(), "what": f"{name}: {category}" if category else name,
+                           "type": "brand", "expect_price": None,
+                           "why": f"deals on {len(v['days'])} days across {len(v['products'])} products, about every "
+                                  f"{rhythm[0]} days",
+                           "confidence": "medium" if len(v["days"]) >= 5 else "low", "brand": brand, "category": category,
+                           "_seen": len(v["days"])})
+    for found in (products, brands):
+        found.sort(key=lambda p: -p["_seen"])
+    return {"products": [{k: v for k, v in p.items() if k != "_seen"} for p in products[:MAX_PRODUCTS]],
+            "brands": [{k: v for k, v in p.items() if k != "_seen"} for p in brands[:MAX_BRANDS]],
+            "steady": [name for _, name in sorted(steady, reverse=True)[:12]], "first_day": first}
+
+
+def basis(memory: Memory, today: date | None = None) -> dict:
+    """What the Predicted list rests on, in numbers: how many deals of each kind the price book holds and over how
+    many days, how many products, routes and hotel places were on deal on two or more days, whether the nightly
+    learning has run, and the error when the price book could not be read. So a short list can say why it is short."""
+    from . import patterns, pricebook  # noqa: PLC0415
+    out = {"kinds": {}, "repeat": {}, "steady": [], "learning": "", "learned_on": memory.get(patterns.LEARNED_KEY) or "",
+           "error": ""}
+    try:
+        for r in pricebook.run(memory, "SELECT COALESCE(domain, 'product') AS domain, COUNT(*) AS n, MIN(seen_on) AS "
+                                       "first, MAX(seen_on) AS last, COUNT(DISTINCT seen_on) AS days FROM deals GROUP BY 1"):
+            out["kinds"][r["domain"]] = {"deals": int(r["n"]), "days": int(r["days"]), "first": str(r["first"]),
+                                         "last": str(r["last"])}
+        for r in pricebook.run(memory, "SELECT domain, COUNT(*) AS n FROM (SELECT COALESCE(domain, 'product') AS domain, "
+                                       "CASE WHEN COALESCE(domain, 'product') = 'product' THEN product ELSE item END AS "
+                                       "name FROM deals GROUP BY 1, 2 HAVING COUNT(DISTINCT seen_on) >= 2 AND "
+                                       "name IS NOT NULL AND name <> '') GROUP BY 1"):
+            out["repeat"][r["domain"]] = int(r["n"])
+    except Exception as e:
+        out["error"] = f"The price book could not be read just now ({type(e).__name__}), so only the sales calendar is shown."
+    try:
+        out["learning"] = str((json.loads(memory.get(patterns.STATUS_KEY) or "{}") or {}).get("status", ""))[:200]
+    except ValueError:
+        pass
+    return out
+
+
+def predicted_page(memory: Memory, days: int = 45, today: date | None = None) -> dict:
+    """The Deals page's Predicted tab: the predictions, and what they rest on."""
+    today = today or local_now().date()
+    found = basis(memory, today)
+    try:
+        found["steady"] = from_book(memory, today, days)["steady"]
+    except Exception:
+        pass
+    return {"predictions": predictions(memory, days, today), "basis": found, "days": days}
+
+
 def predictions(memory: Memory, days: int = 45, today: date | None = None) -> list[dict]:
-    """Predicted deals, up front: every product with a deal rhythm (2+ deals seen), every company's next deal
-    day, and the coming sales, soonest first."""
+    """Predicted deals, up front: every product with a deal rhythm (2+ deals seen), every brand's and company's
+    next deal day, and the coming sales, soonest first. The rhythms come from the deals in the price book
+    (from_book) and from what the nightly learning has kept of older ones."""
     from . import patterns, whentobuy  # noqa: PLC0415
     today = today or local_now().date()
     until = today + timedelta(days=days)
     learned = patterns.get(memory)
     out = []
+    try:
+        book = from_book(memory, today, days)
+    except Exception:  # the price book may be new, or not readable just now: the calendar still shows
+        import logging  # noqa: PLC0415
+        logging.getLogger(__name__).info("deal rhythms from the price book failed", exc_info=True)
+        book = {"products": [], "brands": [], "first_day": None}
+    out += book["products"] + book["brands"]
     for model, v in (learned.get("item_deals") or {}).items():
         dates = sorted(date.fromisoformat(d) for d in v.get("dates", []))
+        if book["first_day"] and dates and dates[-1] >= book["first_day"]:
+            continue  # its deals are still in the price book: from_book has it, under its product's name
         gaps = sorted((b - a).days for a, b in zip(dates, dates[1:]) if (b - a).days >= 3)
         if len(dates) < 2 or not gaps:
             continue
@@ -253,12 +410,17 @@ def predictions(memory: Memory, days: int = 45, today: date | None = None) -> li
                 out.append({"when": max(e["start"], today).isoformat(), "what": e["name"], "type": "sale",
                             "expect_price": None, "why": f"usually {e['discount'][0]}–{e['discount'][1]}% off "
                                                          f"({', '.join(sorted(e['for']))})", "confidence": "calendar"})
+    for year in (today.year, today.year + 1):
+        for e in season(year):
+            if today <= e["day"] <= until:
+                out.append({"when": e["day"].isoformat(), "what": f"{e['name']} ({e['for']})", "type": "sale",
+                            "expect_price": None, "why": e["why"], "confidence": "calendar"})
     try:
         out += travel(memory, learned, today, days)
     except Exception:  # the price book may be empty or new: the product predictions still show
         import logging  # noqa: PLC0415
         logging.getLogger(__name__).info("travel predictions failed", exc_info=True)
-    return sorted(out, key=lambda p: p["when"])[:90]
+    return sorted(out, key=lambda p: p["when"])[:150]
 
 
 MONTHS = ("January", "February", "March", "April", "May", "June", "July", "August", "September", "October",

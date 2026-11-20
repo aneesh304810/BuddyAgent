@@ -86,6 +86,33 @@ svg text{fill:var(--muted);font-size:11px}
 .panel{position:absolute;left:0;right:0;bottom:0;top:18%;overflow:auto;background:var(--bg);border-radius:16px 16px 0 0;
   border-top:1px solid var(--line);padding:14px 16px 30px;max-width:900px;margin:0 auto}
 .close{float:right;background:none;border:0;color:var(--text);font-size:22px;cursor:pointer}
+/* the row of views under the tabs, the groups list, and the Sources view */
+.viewbar{display:flex;flex-wrap:wrap;gap:8px;align-items:center;margin:0 0 10px}
+.viewbar .chips{flex:1 1 100%;min-width:0;flex-wrap:wrap;overflow:visible}
+.viewbar select{margin-left:auto;border:1px solid var(--line);background:var(--bg);color:var(--text);border-radius:10px;
+  padding:6px 8px;font:inherit;font-size:13px}
+.groups{padding:2px 14px}
+.grow{display:flex;align-items:center;gap:10px;width:100%;background:none;border:0;border-top:1px solid var(--line);
+  color:var(--text);font:inherit;text-align:left;padding:12px 0;cursor:pointer}
+.grow:first-child{border-top:0}
+.gtext{flex:1;min-width:0}
+.gname{display:block;font-weight:600;overflow-wrap:anywhere}
+.gmeta{display:block;color:var(--muted);font-size:12px;margin-top:2px}
+.chev{color:var(--muted);font-size:18px}
+.crumb{margin:0 0 10px;font-size:14px}
+.link{background:none;border:0;color:var(--accent);font:inherit;cursor:pointer;padding:0;margin-right:10px}
+.pill.hot{background:var(--warn);color:var(--onaccent);font-weight:600}
+.pill{display:inline-block;margin-top:3px}
+h3{font-size:15px;margin:18px 0 8px} h4{font-size:13px;margin:12px 0 6px;color:var(--muted);font-weight:600}
+.src{display:flex;gap:10px;align-items:center;padding:10px 0;border-top:1px solid var(--line)}
+.src .what{flex:1;min-width:0;overflow-wrap:anywhere}
+.src .btn{margin:0;flex:none}
+.addrow{display:flex;flex-wrap:wrap;gap:8px;margin-top:12px;padding-top:12px;border-top:1px solid var(--line)}
+.addrow input,.addrow select{border:1px solid var(--line);background:var(--bg);color:var(--text);border-radius:10px;
+  padding:8px 10px;font:inherit}
+.addrow input{flex:1 1 200px;min-width:0}
+.addrow .btn{margin:0}
+.btn:disabled{opacity:.6;cursor:default}
 </style>
 </head>
 <body>

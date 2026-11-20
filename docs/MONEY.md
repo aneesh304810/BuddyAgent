@@ -159,6 +159,22 @@ decide each differently), and uses it whenever you ask about a purchase.
   pattern learning uses it. See them all on the **Deals page** (☰ → Deals): products, flights and hotels, search,
   "lowest Buddy has seen" marks, % off, and each item's price history chart; tap "Open deal" to open it in your
   browser. Buddy never opens store pages itself. "Read the deals inbox now" runs it on demand.
+  - **Groups.** Products can be listed **by category, by brand or by product**; flights **by route or by
+    airline**; hotels **by place or by chain**. Tap a group for its deals, and sort them newest first, biggest
+    saving first or lowest price first. Buddy files each deal by the words in its headline, so a group can hold
+    a deal that does not belong there; a fare from a deal service is filed under the airline its headline names,
+    or under none.
+  - **Crazy deals.** Each of the three has a "Crazy deals" view. A deal is in it for one of three reasons, shown
+    on the deal: half price or better against the regular price the seller states; 30% or more under the usual
+    price Buddy has seen for the same product, the same route in the same cabin or the same hotel (once it has
+    been seen on three days with five prices); or its source calls it a price mistake ("error fare").
+  - **Sources.** The Sources tab lists every feed with what it said the last morning, and lets you remove one or
+    add one. A new feed is read once before it is added, and one that does not answer with a feed is not added.
+    A feed can be a **travel feed**: only its fares and hotel rates priced in dollars are kept, filed as flights
+    and hotels. Buddy offers a few feeds there (flight-deal sites, a Black Friday search); their addresses were
+    not confirmed when this was written, which is what the test on adding is for. For Black Friday and the
+    holidays the surest source is still the stores', airlines' and hotel chains' own newsletters, sent to the
+    deals inbox.
 
 - **Why deals happen, and an alert when the next one comes:** every deal Buddy reads gets a reason (a holiday
   sale, clearance or end of season, a new model, a flash deal, a coupon, a member sale, the store's weekly sale,
@@ -185,7 +201,15 @@ decide each differently), and uses it whenever you ask about a purchase.
   clearance...), its busiest months and what it discounts. Ask "how does Best Buy do deals?" or "when does Sony
   discount?". "What deals do you predict?" (or the Deals page's 🔮 Predicted tab) lists every predicted deal for
   the next 45 days, soonest first: products with a deal rhythm (seen on deal at least twice), companies' next
-  deal days (seen on at least three days) and the coming sales, each with its reason and confidence.
+  deal days (seen on at least three days) and the coming sales, each with its reason and confidence. On the
+  page they sit under headings: sales coming up, products (by category), brands, flights and hotels. The
+  rhythms are worked out from the deals in the price book itself, so the tab does not wait for the nightly
+  learning; a brand whose deals come most days is listed as such and not predicted. Travel Tuesday, Green Monday
+  and Super Saturday are shown as dates only: Buddy has no discount numbers of its own for them and gives none.
+  At the bottom, **What this list rests on** says how many deals of each kind the price book holds and over how
+  many days, how many products, routes and hotel places were on deal on two or more days, whether the nightly
+  learning has run, and the error when the price book could not be read. A short list is short for one of those
+  reasons.
 
 - **The catalog (followed without asking):** every product seen on deal on two or more days in the last 60 joins
   a catalog (up to 150, `BUDDY_CATALOG_SIZE`); about 40 of them a day (`BUDDY_CATALOG_DAILY`, roughly $1.20 a month

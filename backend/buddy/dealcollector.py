@@ -4,7 +4,10 @@ wants, keeps every price it sees (so real price history builds up), and tells th
   1. Deal feeds (RSS / Atom, published by the sites for readers): Slickdeals front page and popular deals,
      DealNews, and deal subreddits (r/buildapcsales, r/deals, r/frugalmalefashion). The owner can add any other
      deal site's feed ("add the feed https://..."). Each site's robots.txt is checked first and a feed it disallows
-     is skipped (and shown as skipped). Read once a day, politely.
+     is skipped (and shown as skipped). Read once a day, politely. A feed is a product feed or a travel feed:
+     from a travel feed only fares and hotel rates priced in dollars are kept, filed as flights (by route and
+     airline) and hotels (by place and chain). A feed added from the Deals page is read once first, and added
+     only if it answers with a feed (try_feed); SUGGESTED_FEEDS are offered there and never added by themselves.
   2. The owner's wanted things: what they said they're thinking of buying (shopping_profile), their price watches
      and their wish list get a daily price check from official sources: Google Shopping through Serper (every
      store), the Best Buy Products API (free key: the regular price and whether it's on sale) and the eBay Browse
@@ -60,6 +63,23 @@ DEFAULT_FEEDS = [
     {"name": "DealCatcher", "service": "deal_feed", "url": "https://www.dealcatcher.com/rss"},
     {"name": "Woot", "service": "deal_feed", "url": "https://www.woot.com/blog/feed.rss"},
 ]
+# Offered on the Deals page under Sources, never read until the owner adds one. The addresses were not confirmed
+# when this was written (the machine this was built on cannot reach them); the first two are listed in a public
+# directory of feeds. That is why a feed is read once before it is added: an address that does not answer is refused.
+SUGGESTED_FEEDS = [
+    {"name": "The Flight Deal", "kind": "travel", "url": "https://www.theflightdeal.com/feed/",
+     "about": "Fares from big US airports, each with its airline and price."},
+    {"name": "Fly4free", "kind": "travel", "url": "https://www.fly4free.com/feed/",
+     "about": "Flight and hotel deals worldwide. Only those priced in dollars are kept."},
+    {"name": "Secret Flying", "kind": "travel", "url": "https://www.secretflying.com/feed/",
+     "about": "Cheap fares and error fares."},
+    {"name": "Slickdeals: Black Friday", "kind": "product",
+     "url": "https://slickdeals.net/newsearch.php?q=black+friday&searcharea=deals&searchin=first&rss=1",
+     "about": "Slickdeals posts that mention Black Friday."},
+    {"name": "9to5Toys", "kind": "product", "url": "https://9to5toys.com/feed/",
+     "about": "Electronics and home deals through the day."},
+]
+KINDS = ("product", "travel")
 FAIL_DAYS = 3  # a feed that fails this many days running is paused (shown in status; "add" it again to retry)
 RETRY_EVERY = 7  # and tried again by itself every this many days, so a site that was down for a while comes back
 
@@ -92,10 +112,11 @@ def _service_for(url: str) -> str:
     return "deal_feed"
 
 
-def add_feed(memory: Memory, url: str, name: str = "") -> str:
+def add_feed(memory: Memory, url: str, name: str = "", kind: str = "product") -> str:
     url = (url or "").strip()
     if not re.match(r"https://[^\s/]+\.[^\s]+", url):
         raise ToolError("Give the feed's full https address (the site's RSS or Atom link).")
+    kind = kind if kind in KINDS else "product"
     have = feeds(memory)
     if any(f["url"] == url for f in have):
         fails = _failures(memory)
@@ -104,12 +125,61 @@ def add_feed(memory: Memory, url: str, name: str = "") -> str:
                 fails.pop(f["name"], None)
         memory.set("dealfeed:failures", json.dumps(fails))
         return "That feed is already on the list; I'll try it again tomorrow morning."
-    have.append({"name": name or urllib.parse.urlparse(url).netloc, "service": _service_for(url), "url": url})
+    have.append({"name": name or urllib.parse.urlparse(url).netloc, "service": _service_for(url), "url": url,
+                 **({"kind": kind} if kind != "product" else {})})
     memory.set(FEEDS_KEY, json.dumps(have))
     return f"Added {have[-1]['name']}: I'll read it every morning (if its robots rules allow)."
 
 
+def try_feed(memory: Memory, url: str, kind: str = "product", fetch=None) -> dict:
+    """Read a feed once, before it is added: its robots rules, that it answers, that it is a feed, and how many of
+    its items Buddy could keep as deals. Raises ToolError, in words, when it should not be added."""
+    url = (url or "").strip()
+    if not re.match(r"https://[^\s/]+\.[^\s]+", url):
+        raise ToolError("Give the feed's full https address (the site's RSS or Atom link).")
+    service = _service_for(url)
+    try:
+        if not allowed(memory, service, url, fetch):
+            raise ToolError(f"Not added: {robots_said(memory, url)}.")
+        items = parse_feed(_get(memory, service, url, fetch) or b"")
+    except (gateway.ConnectError, ET.ParseError, ValueError) as e:  # ValueError: XML defusedxml refused
+        raise ToolError(f"I could not read that feed ({str(e)[:120]}), so I did not add it.") from e
+    if not items:
+        raise ToolError("That address answered, but not with a feed that has items in it, so I did not add it.")
+    deals = [d for d in (deal_from(it, "test", kind) for it in items) if d]
+    return {"items": len(items), "deals": len(deals), "priced": sum(1 for d in deals if d["price"]),
+            "examples": [d["title"][:120] for d in deals[:3]]}
+
+
+def sources(memory: Memory, env=None) -> dict:
+    """Where deals come from, for the Deals page: every feed with what it said the last morning, the feeds on
+    offer that are not added, and the other ways deals arrive with whether each is set up."""
+    from . import dealmail  # noqa: PLC0415
+    status = page_status(memory)
+    said = {line.partition(": ")[0]: line.partition(": ")[2] for line in status["feeds"]}
+    have = feeds(memory)
+    urls = {f["url"] for f in have}
+    return {"last_run": status["last_run"], "off": status["off"],
+            "feeds": [{"name": f["name"], "url": f["url"], "kind": f.get("kind", "product"),
+                       "said": said.get(f["name"], "")} for f in have],
+            "suggested": [s for s in SUGGESTED_FEEDS if s["url"] not in urls],
+            "other": [
+                {"name": "Deals inbox", "on": dealmail.configured(env),
+                 "about": "Newsletters sent to the address you gave Buddy for deals. Stores, airlines and hotel "
+                          "chains send their Black Friday and holiday offers this way. Read every night."},
+                {"name": "Marketing mail in your email accounts", "on": dealmail.all_mail_on(env),
+                 "about": "Offers already arriving in your own inboxes. Read every night."},
+                {"name": "Best Buy", "on": bool(gateway._secret(env, "BUDDY_BESTBUY_KEY")),
+                 "about": "Daily prices for what you want, with the regular price. Needs a free Best Buy key."},
+                {"name": "eBay", "on": bool(gateway._secret(env, "BUDDY_EBAY_CLIENT_ID") and gateway._secret(env, "BUDDY_EBAY_CLIENT_SECRET")),
+                 "about": "Daily prices for what you want. Needs a free eBay developer account."},
+                {"name": "Google Shopping", "on": bool(gateway._secret(env, "BUDDY_SERPER_KEY")),
+                 "about": "Daily prices for what you want, at every store. Uses your Serper credits."}]}
+
+
 def remove_feed(memory: Memory, which: str) -> str:
+    if not (which or "").strip():  # every feed's name holds the empty word: that would remove them all
+        raise ToolError("Say which feed to remove: its name or its address.")
     have = feeds(memory)
     keep = [f for f in have if which.lower() not in (f["name"] + " " + f["url"]).lower()]
     if len(keep) == len(have):
@@ -133,11 +203,24 @@ def allowed(memory: Memory, service: str, url: str, fetch=None) -> bool:
             rules = (_get(memory, service, f"{parts.scheme}://{parts.netloc}/robots.txt", fetch) or b"").decode(
                 "utf-8", "replace")
         except gateway.ConnectError as e:
-            rules = "" if getattr(e, "status", 0) in (404, 410) else "User-agent: *\nDisallow: /"
+            # No robots.txt: allowed. Any other answer (refused, down): its rules are unknown, so nothing is read.
+            rules = "" if getattr(e, "status", 0) in (404, 410) else UNREAD + "\nUser-agent: *\nDisallow: /"
         memory.set(key, rules)
     rp = urllib.robotparser.RobotFileParser()
     rp.parse(rules.splitlines())
     return rp.can_fetch(AGENT, url)
+
+
+UNREAD = "# robots.txt could not be read"
+
+
+def robots_said(memory: Memory, url: str) -> str:
+    """Why a feed was not read for its site's robots rules: they forbid it, or they could not be read at all (the
+    site refused or did not answer, and Buddy reads nothing it has not been told it may)."""
+    parts = urllib.parse.urlparse(url)
+    rules = memory.get(f"dealfeed:robots:{parts.netloc}:{local_now().date().isoformat()}") or ""
+    return "the site would not show its robots rules, so Buddy did not read it" if rules.startswith(UNREAD) \
+        else "the site's robots rules don't allow it"
 
 
 def _text(el, *names) -> str:
@@ -167,20 +250,60 @@ def parse_feed(raw: bytes) -> list[dict]:
     return [o for o in out if o["title"] and o["url"]]
 
 
-def deal_from(item: dict, source: str) -> dict:
+# A place name as headlines write it: up to four capitalised words, with the small words some names carry
+# ("Rio de Janeiro"). "Cheap flights from Boston to Dublin" gives Boston and Dublin, not "Cheap flights from Boston".
+_PLACE = r"(?:[A-Z][\w.'’]*(?:-[A-Z][\w.'’]*)*(?:\s(?:de|del|da|do|la|el|las|los))?\s?){1,4}"
+FROM_TO = re.compile(rf"({_PLACE})\s+to\s+({_PLACE})")
+DASHED = re.compile(rf"({_PLACE})\s*[–—]\s*({_PLACE})")  # "Delta: New York – Barcelona, Spain. $386"
+
+
+def _travel(title: str, summary: str = "") -> dict | None:
+    """A travel feed's item as a flight or a hotel deal: {"domain", "item", "airline"}, or None when it is neither
+    (a travel site's feed also carries articles). The same words decide as in the deals inbox (dealmail)."""
+    from . import dealmail, productid  # noqa: PLC0415
+    if dealmail.NOT_AN_OFFER.search(title):
+        return None
+    codes = dealmail.ROUTE.search(title)
+    cities = None if codes else FROM_TO.search(title) or DASHED.search(title)
+    if dealmail.FLIGHT.search(f"{title} {summary}") or codes or cities:
+        if not (codes or cities):
+            return None  # it speaks of fares but names no route: nothing to file it under
+        item = f"{codes.group(1)}-{codes.group(2)}" if codes else f"{cities.group(1).strip()}-{cities.group(2).strip()}"
+        return {"domain": "flight", "item": item.lower(), "airline": productid._named(productid.AIRLINES, title)}
+    if dealmail.HOTEL.search(title):
+        place = dealmail.PLACE.search(title)
+        name = re.split(r"\s+(?:for|from|starting at|at|now)\s+(?:only\s+|just\s+)?\$", title)[0]  # without its price
+        return {"domain": "hotel", "item": f"hotels:{place.group(1).strip().lower()}" if place else f"hotels:{name.lower()}"[:200],
+                "airline": ""}
+    return None
+
+
+def deal_from(item: dict, source: str, kind: str = "product") -> dict | None:
+    """A feed item as a deal. From a travel feed (kind "travel") only a fare or a hotel rate priced in dollars is a
+    deal: anything else gives None."""
+    from . import dealmail  # noqa: PLC0415
     from .shopper import kind_of  # noqa: PLC0415
     title = " ".join(item["title"].split())
-    price = PRICE.search(title) or PRICE.search(item.get("summary", ""))
+    summary = item.get("summary", "")
+    price = PRICE.search(title) or PRICE.search(summary)
     store = STORE.search(title) or PAREN_STORE.search(title)
     posted = item.get("posted", "")
     try:
         posted = parsedate_to_datetime(posted).date().isoformat()
     except (TypeError, ValueError, IndexError):
         posted = posted[:10]
-    return {"source": source, "title": title[:300], "url": item["url"][:500],
-            "price": float(price.group(1).replace(",", "")) if price else None,
-            "store": (store.group(1).strip() if store else "")[:60], "kind": kind_of(title),
-            "posted": posted}
+    amount = float(price.group(1).replace(",", "")) if price else None
+    was = dealmail.REGULAR.search(title) or dealmail.REGULAR.search(summary)
+    regular = float(was.group(1).replace(",", "")) if was else None
+    out = {"source": source, "title": title[:300], "url": item["url"][:500], "price": amount,
+           "store": (store.group(1).strip() if store else "")[:60], "kind": kind_of(title), "posted": posted,
+           "domain": "product", "item": "", "regular": regular if regular and amount and regular > amount else None}
+    if kind == "travel":
+        found = _travel(title, summary)
+        if not found or not amount:
+            return None
+        out.update({"domain": found["domain"], "item": found["item"], "store": found["airline"], "kind": "travel"})
+    return out
 
 
 def _failures(memory: Memory) -> dict:
@@ -216,7 +339,7 @@ def read_feeds(memory: Memory, fetch=None) -> tuple[list[dict], list[str]]:
             continue
         try:
             if not allowed(memory, f["service"], f["url"], fetch):
-                status.append(f"{f['name']}: skipped, the site's robots rules don't allow it")
+                status.append(f"{f['name']}: skipped, {robots_said(memory, f['url'])}")
                 continue
             items = parse_feed(_get(memory, f["service"], f["url"], fetch) or b"")
         except (gateway.ConnectError, ET.ParseError, ValueError) as e:  # ValueError: XML defusedxml refused
@@ -226,18 +349,26 @@ def read_feeds(memory: Memory, fetch=None) -> tuple[list[dict], list[str]]:
         from . import pricebook  # noqa: PLC0415
         from . import dealforecast  # noqa: PLC0415
         for it in items:
-            d = deal_from(it, f["name"])
+            d = deal_from(it, f["name"], f.get("kind", "product"))
+            if d is None:  # a travel feed's article, or a fare not priced in dollars: not a deal
+                continue
+            travel = d["domain"] != "product"
             d["reason"] = dealforecast.reason_of(d["title"], it.get("summary", ""), kind=d["kind"])
             got = pricebook.run(memory, "INSERT OR IGNORE INTO deals (seen_on, source, title, url, price, store, kind, "
-                                        "posted, reason, model) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?) RETURNING id",
+                                        "posted, reason, model, domain, item, regular_price) VALUES (?, ?, ?, ?, ?, ?, ?, "
+                                        "?, ?, ?, ?, ?, ?) RETURNING id",
                                 (today, d["source"], d["title"], d["url"], d["price"], d["store"], d["kind"],
-                                 d["posted"], d["reason"], dealforecast.model_key(d["title"])))
+                                 d["posted"], d["reason"], dealforecast.model_key(d["item"] if travel else d["title"]),
+                                 d["domain"], d["item"], d["regular"]))
             if got:
                 added += 1
                 new.append({**d, "id": got[0]["id"]})
                 if d["price"]:  # every deal's price is history too
-                    pricebook.observe(memory, "product", d["title"], d["price"], seller=d["store"], url=d["url"],
-                                      source=f["name"])
+                    # A fare with no airline named is filed under none: the feed's own name is not an airline.
+                    pricebook.observe(memory, d["domain"], d["item"] if travel else d["title"], d["price"],
+                                      seller=d["store"] or ("deal feed" if travel else ""), url=d["url"],
+                                      regular_price=d["regular"], on_sale=True if d["regular"] else None,
+                                      source=f["name"], title=d["title"])
         status.append(f"{f['name']}: {added} new")
     _note_failures(memory, status)
     return new, status

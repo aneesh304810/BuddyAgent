@@ -619,8 +619,8 @@ def _run_inbox(memory: Memory, env=None, connect=None) -> str:
 def tidy(memory: Memory) -> dict:
     """Remove what an earlier reading of the emails got wrong, and nothing else: one email's subject kept many
     times at different prices on the same day, sums such as "$10 trillion" read as a price, a sentence about what
-    flights usually cost kept as a fare, and a product kept as a flight because its name looks like a route
-    ("PAC-MAN"). Safe to run again."""
+    flights usually cost kept as a fare, a product kept as a flight because its name looks like a route
+    ("PAC-MAN"), and a fare filed under its sender as if that were an airline. Safe to run again."""
     from . import pricebook  # noqa: PLC0415
     pricebook.conn(memory)
     out = {}
@@ -643,6 +643,14 @@ def tidy(memory: Memory) -> dict:
         pricebook.run(memory, "DELETE FROM observations WHERE source = 'deal email' AND domain = 'flight' AND item = ? "
                               "AND price = ? AND seller = ?", (r["item"], r["price"], r["store"]))
     out["not_offers"], out["not_flights"] = len(usual), len(wrong)
+    # Fares filed under their sender as if it were an airline ("going", "deal site"): filed under no airline.
+    from . import productid  # noqa: PLC0415
+    out["not_airlines"] = 0
+    for table in ("deals", "observations"):
+        for r in pricebook.run(memory, f"SELECT DISTINCT brand FROM {table} WHERE domain = 'flight' AND brand <> ''"):
+            if not productid.is_airline(r["brand"]):
+                out["not_airlines"] += len(pricebook.run(
+                    memory, f"UPDATE {table} SET brand = '' WHERE domain = 'flight' AND brand = ? RETURNING id", (r["brand"],)))
     return out
 
 

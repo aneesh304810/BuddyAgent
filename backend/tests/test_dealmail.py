@@ -189,10 +189,12 @@ def test_tidy_removes_only_the_misread_rows(memory):
                 "store": "Slickdeals Alerts", "url": "", "ends": "", "subject": title}
     dealmail.keep(memory, [deal("Lavazza coffee for $14.50", p) for p in (5.52, 28.0, 1599.08)] + [deal("Good kettle", 30.0)])
     dealmail.keep(memory, [deal("Debt added over $10 trillion", 10.0)])
-    assert dealmail.tidy(memory) == {"repeated": 3, "sums": 1, "prices": 3, "not_offers": 0, "not_flights": 0}
+    assert dealmail.tidy(memory) == {"repeated": 3, "sums": 1, "prices": 3, "not_offers": 0, "not_flights": 0,
+                                     "not_airlines": 0}
     left = pricebook.run(memory, "SELECT title FROM deals")
     assert [r["title"] for r in left] == ["Good kettle"]
-    assert dealmail.tidy(memory) == {"repeated": 0, "sums": 0, "prices": 0, "not_offers": 0, "not_flights": 0}  # safe to run again
+    assert dealmail.tidy(memory) == {"repeated": 0, "sums": 0, "prices": 0, "not_offers": 0, "not_flights": 0,
+                                     "not_airlines": 0}  # safe to run again
 
 
 GOVEE = "Govee x PAC-MAN Gaming Pixel Light LED Panel for $80 (Reg. $140) + Free Shipping w/ Prime"

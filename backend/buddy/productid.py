@@ -206,7 +206,20 @@ CABINS = (("first", r"\bfirst[- ]class\b|\bin first\b"), ("business", r"\bbusine
           ("premium economy", r"premium[_ ]econom|comfort\+|premium select|economy plus"),
           ("economy", r"\beconomy\b|\bcoach\b|main cabin|\bbasic\b"))
 NOT_AIRLINES = {"best", "google_history", "travelpayouts", "google", "serpapi", "duffel", "amadeus", "kiwi", "deal email",
+                "deal feed",
                 "deal notification", "call follow-up", "price watch"}
+
+
+# A sender that is not on the list of airlines is one only if its name says so ("Azul Airlines", "Korean Air").
+# A deal service, a search site or a newsletter is not: its fares are filed under no airline.
+LIKE_AIRLINE = re.compile(r"\b(?:air|airlines?|airways|jet\w*|aero\w*|avia\w*|wings)\b", re.I)
+NOT_AN_AIRLINE = re.compile(r"deal|fare|cheap|watch|secret|alert|google|flights?\b|travel|trips?\b|vacation|holiday|club|"
+                            r"going|kayak|expedia|hopper|skyscanner|priceline|orbitz|travelzoo|news|team", re.I)
+
+
+def is_airline(name: str) -> bool:
+    low = " ".join(str(name or "").lower().split())
+    return bool(low) and (low in AIRLINES or bool(LIKE_AIRLINE.search(low) and not NOT_AN_AIRLINE.search(low)))
 
 
 def _named(names: tuple, text: str) -> str:
@@ -231,7 +244,8 @@ def travel(domain: str, item: str, seller: str = "", title: str = "", cabin_clas
     who = who.split(":", 1)[1] if ":" in who else ("" if who.lower() in NOT_AIRLINES else who)
     if domain == "flight":
         codes = re.findall(r"[a-z]{3}", name) if re.fullmatch(r"[a-z]{3}\s*[-–>]+\s*[a-z]{3}", name) else []
-        airline = _named(AIRLINES, who) or _named(AIRLINES, title) or " ".join(who.lower().split())[:40]
+        sender = " ".join(who.lower().split())[:40]
+        airline = _named(AIRLINES, who) or _named(AIRLINES, title) or (sender if is_airline(sender) else "")
         return {"product": "-".join(codes) if codes else name, "place": codes[1] if codes else "",
                 "brand": {"american": "american airlines", "alaska": "alaska airlines", "hawaiian": "hawaiian airlines",
                           "turkish": "turkish airlines", "qatar": "qatar airways"}.get(airline, airline),

@@ -2116,14 +2116,59 @@ async def api_cards_action(body: dict) -> dict:
 
 # --- deals (web/deals.html): deals from the feeds and the deals inbox, with each item's price history
 @app.get("/api/deals", dependencies=[Depends(require_admin)])
-async def api_deals(days: int = 7, domain: str = "", q: str = "") -> dict:
+async def api_deals(days: int = 7, domain: str = "", q: str = "", by: str = "", group: str | None = None,
+                    sort: str = "", crazy: bool = False) -> dict:
+    """The deals list. by + group: one group's deals (a category, a brand, a route...); sort: new, saving or
+    price; crazy: only the crazy deals (pricebook.CRAZY_OFF says what that means)."""
     from . import dealcollector, pricebook  # noqa: PLC0415
-    out = await asyncio.to_thread(pricebook.deals_page, memory, days, domain, q)
+    out = await asyncio.to_thread(pricebook.deals_page, memory, days, domain, q, 300, by, group,
+                                  sort if sort in ("saving", "price") else "", crazy)
     try:  # when the feeds and the inbox were last read and what they said: why a list is empty, if it is
         out["collector"] = dealcollector.page_status(memory)
     except Exception:
         log.warning("deals page: the collector's status could not be read", exc_info=True)
     return out
+
+
+@app.get("/api/deals/groups", dependencies=[Depends(require_admin)])
+async def api_deals_groups(domain: str = "product", by: str = "category", days: int = 7, q: str = "") -> dict:
+    """One kind of deal counted by group: products by category, brand or product; flights by route or airline;
+    hotels by place or chain."""
+    from . import pricebook  # noqa: PLC0415
+    try:
+        return await asyncio.to_thread(pricebook.deal_groups, memory, days, domain, by, q)
+    except ValueError as e:
+        raise HTTPException(status_code=400, detail=str(e)) from e
+
+
+@app.get("/api/deals/sources", dependencies=[Depends(require_admin)])
+async def api_deals_sources() -> dict:
+    """Where deals come from: the feeds with what each said last, the feeds on offer, the other ways in."""
+    from . import dealcollector  # noqa: PLC0415
+    return await asyncio.to_thread(dealcollector.sources, memory)
+
+
+@app.post("/api/deals/sources/add", dependencies=[Depends(require_admin)])
+async def api_deals_sources_add(body: dict) -> dict:
+    """Add a deal feed. It is read once first; one that does not answer with a feed is not added."""
+    from . import dealcollector  # noqa: PLC0415
+    url, kind = str(body.get("url", "")).strip(), str(body.get("kind", "product"))
+    try:
+        tried = await asyncio.to_thread(dealcollector.try_feed, memory, url, kind)
+        said = await asyncio.to_thread(dealcollector.add_feed, memory, url, str(body.get("name", ""))[:60], kind)
+    except ToolError as e:
+        raise HTTPException(status_code=400, detail=str(e)) from e
+    return {"added": said, "tried": tried, **await asyncio.to_thread(dealcollector.sources, memory)}
+
+
+@app.post("/api/deals/sources/remove", dependencies=[Depends(require_admin)])
+async def api_deals_sources_remove(body: dict) -> dict:
+    from . import dealcollector  # noqa: PLC0415
+    try:
+        said = await asyncio.to_thread(dealcollector.remove_feed, memory, str(body.get("url", "")))
+    except ToolError as e:
+        raise HTTPException(status_code=400, detail=str(e)) from e
+    return {"removed": said, **await asyncio.to_thread(dealcollector.sources, memory)}
 
 
 @app.get("/api/deals/calls", dependencies=[Depends(require_admin)])
@@ -2136,7 +2181,7 @@ async def api_deals_calls() -> dict:
 @app.get("/api/deals/predicted", dependencies=[Depends(require_admin)])
 async def api_deals_predicted(days: int = 45) -> dict:
     from . import dealforecast  # noqa: PLC0415
-    return {"predictions": await asyncio.to_thread(dealforecast.predictions, memory, max(7, min(days, 120)))}
+    return await asyncio.to_thread(dealforecast.predicted_page, memory, max(7, min(days, 120)))
 
 
 # --- today: the strip on the app's home screen and the number on the bell

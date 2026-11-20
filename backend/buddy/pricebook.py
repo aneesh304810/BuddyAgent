@@ -508,38 +508,109 @@ def snapshot(memory, folder: str) -> str:
 
 
 SEEN_DAYS, USUAL_MIN = 3, 5  # days a product must have been seen to call a price its lowest; deals for a "usual"
+# A "crazy deal", as the Deals page uses the words. One of three, and the page says which:
+#   half price or better against the regular price the seller states;
+#   30% or more under the usual (median) price Buddy has seen for the same product, the same route in the same cabin
+#   or the same hotel, once it has been seen on SEEN_DAYS days with USUAL_MIN prices;
+#   the source itself calls it a price mistake ("error fare").
+# More than 80% under the usual price is not counted: that is far more often another thing filed under the same
+# name (a case under its phone) than a price.
+CRAZY_OFF, CRAZY_UNDER, UNDER_MAX = 0.5, 0.3, 0.8
+MISTAKE = re.compile(r"\b(?:error|mistake|glitch)\s+(?:fares?|rates?|prices?)\b|\bprice\s+(?:error|mistake|glitch)\b|"
+                     r"\bmistake(?:nly)?\s+priced\b", re.I)
+# What each kind of deal can be grouped by on the Deals page, and the column that holds it.
+GROUPS = {"product": {"category": "category", "brand": "brand", "product": "product"},
+          "flight": {"route": "product", "airline": "brand"},
+          "hotel": {"place": "place", "chain": "brand"}}
+POOL = 5000  # how many of the newest deals of a kind are looked through to sort by saving or to find the crazy ones
 
 
-def deals_page(memory, days: int = 7, domain: str = "", query: str = "", limit: int = 300) -> dict:
-    """The Deals page's list: recent deals (feeds and the deals inbox), each filed under its product, brand and
-    category, with the lowest price seen for that product. A deal is called the lowest only when the product has been
-    seen on SEEN_DAYS different days: the first sighting of anything is trivially its lowest. Market data only."""
-    try:
-        identify(memory)
-    except Exception:  # filing deals under their products is a help, not a condition: the page still lists them
-        log.warning("price book: filing deals under their products failed", exc_info=True)
+def group_label(domain: str, by: str, name: str) -> str:
+    """A group's name as the page shows it: "JFK to LIM", "LG", "Earbuds and headphones"."""
+    name = str(name or "")
+    if not name:
+        return "Not filed"
+    if by == "route":
+        ends = name.split("-")
+        if len(ends) == 2 and all(len(e) == 3 and e.isalpha() for e in ends):
+            return f"{ends[0].upper()} to {ends[1].upper()}"
+        return " to ".join(e.strip().title() for e in ends) if len(ends) == 2 else name.title()
+    if by == "category":
+        return name.upper() if len(name) <= 2 else name[:1].upper() + name[1:]   # "TV", "Power tool"
+    if by == "product":
+        return name
+    return name.upper() if len(name) <= 3 else " ".join(w[:1].upper() + w[1:] for w in name.split())
+
+
+def _deal_where(days: int, query: str) -> tuple[list, list]:
     since = (datetime.now(timezone.utc).date() - timedelta(days=max(1, min(days, 90)))).isoformat()
     where, args = ["seen_on >= ?"], [since]
     for w in [w for w in re.findall(r"[a-z0-9]{2,}", (query or "").lower())][:6]:
         where.append("lower(title || ' ' || COALESCE(store, '') || ' ' || COALESCE(item, '')) LIKE ?")
         args.append(f"%{w}%")
+    return where, args
+
+
+def deal_groups(memory, days: int = 7, domain: str = "product", by: str = "category", query: str = "",
+                limit: int = 200) -> dict:
+    """The deals of one kind counted by group, the biggest group first: products by category, brand or product;
+    flights by route or airline; hotels by place or chain. Each group: how many deals, the lowest price among them,
+    the biggest stated saving, and the day of its newest deal."""
+    column = (GROUPS.get(domain) or {}).get(by)
+    if not column:
+        raise ValueError(f"{domain or 'These'} deals can be grouped by: {', '.join(GROUPS.get(domain) or []) or 'nothing'}.")
+    try:
+        identify(memory)
+    except Exception:
+        log.warning("price book: filing deals under their products failed", exc_info=True)
+    where, args = _deal_where(days, query)
+    rows = run(memory, f"SELECT COALESCE(d.{column}, '') AS name, COUNT(*) AS deals, MIN(d.price) AS lowest, "
+                       "MAX(CASE WHEN d.regular_price > d.price AND d.price > 0 THEN 1 - d.price / d.regular_price END) "
+                       "AS best_off, MAX(d.seen_on) AS newest FROM deals d WHERE " + " AND ".join(where)
+               + f" AND COALESCE(d.domain, 'product') = ? GROUP BY 1 ORDER BY deals DESC, name LIMIT {int(limit) + 1}",
+               (*args, domain))
+    groups = [{"name": r["name"], "label": group_label(domain, by, r["name"]), "deals": int(r["deals"]),
+               "lowest": r["lowest"], "best_off": round(r["best_off"], 2) if r["best_off"] else None,
+               "newest": str(r["newest"])} for r in rows[:limit]]
+    return {"domain": domain, "by": by, "groups": groups, "more": len(rows) > limit, "days": days,
+            "deals": sum(g["deals"] for g in groups)}
+
+
+def deals_page(memory, days: int = 7, domain: str = "", query: str = "", limit: int = 300, by: str = "",
+               group: str | None = None, sort: str = "", crazy: bool = False) -> dict:
+    """The Deals page's list: recent deals (feeds and the deals inbox), each filed under its product, brand and
+    category, with the lowest price seen for that product. A deal is called the lowest only when the product has been
+    seen on SEEN_DAYS different days: the first sighting of anything is trivially its lowest. Market data only.
+
+    `by` and `group` keep one group's deals (see GROUPS; an empty group is the deals Buddy could not file). `sort` is
+    "new" (the default), "saving" (the biggest saving first) or "price" (the cheapest first). `crazy` keeps only the
+    crazy deals (see CRAZY_OFF above)."""
+    try:
+        identify(memory)
+    except Exception:  # filing deals under their products is a help, not a condition: the page still lists them
+        log.warning("price book: filing deals under their products failed", exc_info=True)
+    where, args = _deal_where(days, query)
     # Each kind gets its own newest `limit`: a night with thousands of product deals must not push the few
     # flight and hotel deals off the page.
     kinds = (domain,) if domain in ("product", "flight", "hotel") else ("product", "flight", "hotel")
+    column = (GROUPS.get(domain) or {}).get(by) if group is not None else None
+    ranked = crazy or sort in ("saving", "price")  # then the newest `limit` are not enough: look through more
     rows = []
     for kind in kinds:
         rows += run(memory, "SELECT d.id, d.seen_on, d.source, d.title, d.url, d.price, d.store, "
                             "COALESCE(d.domain, 'product') AS domain, COALESCE(NULLIF(d.item, ''), lower(d.title)) AS item, "
                             "d.regular_price, d.ends, d.product, d.brand, d.category, d.place FROM deals d WHERE " + " AND ".join(where)
-                    + " AND COALESCE(d.domain, 'product') = ?"
-                    + f" ORDER BY d.seen_on DESC, d.id DESC LIMIT {int(limit)}", (*args, kind))
+                    + " AND COALESCE(d.domain, 'product') = ?" + (f" AND COALESCE(d.{column}, '') = ?" if column else "")
+                    + f" ORDER BY d.seen_on DESC, d.id DESC LIMIT {POOL if ranked else int(limit)}",
+                    (*args, kind, *([group] if column else [])))
     totals = {r["domain"]: int(r["n"]) for r in run(
         memory, "SELECT COALESCE(domain, 'product') AS domain, COUNT(*) AS n FROM deals d WHERE " + " AND ".join(where)
                 + " GROUP BY 1", tuple(args))}
     # A flight is compared within its cabin only: a business fare is not a bad economy fare.
     lows = {(r["domain"], r["product"], r["cabin"]): r for r in run(
         memory, "SELECT domain, product, CASE WHEN domain = 'flight' THEN category ELSE '' END AS cabin, MIN(price) AS low, "
-                "COUNT(DISTINCT CAST(seen_at AS DATE)) AS days, COUNT(*) AS n FROM observations GROUP BY 1, 2, 3")}
+                "MEDIAN(price) AS mid, COUNT(DISTINCT CAST(seen_at AS DATE)) AS days, COUNT(*) AS n FROM observations "
+                "GROUP BY 1, 2, 3")}
     usual = {(r["brand"], r["category"]): r for r in run(
         memory, "SELECT brand, category, MEDIAN(price) AS mid, COUNT(DISTINCT product) AS products, COUNT(*) AS n FROM "
                 "observations WHERE domain = 'product' AND brand <> '' GROUP BY brand, category HAVING COUNT(*) >= ?",
@@ -548,17 +619,43 @@ def deals_page(memory, days: int = 7, domain: str = "", query: str = "", limit: 
     for r in rows:
         seen = lows.get((r["domain"], r["product"] or key(r["item"]), r["category"] if r["domain"] == "flight" else "")) or {}
         low, days_seen = seen.get("low"), int(seen.get("days") or 0)
-        group = usual.get((r["brand"], r["category"])) if r["domain"] == "product" else None
+        peers = usual.get((r["brand"], r["category"])) if r["domain"] == "product" else None
+        price, mid = r["price"], seen.get("mid")
+        off = round(1 - price / r["regular_price"], 2) if price and r["regular_price"] and r["regular_price"] > price else None
+        # How far under its own usual price, once there is enough of a usual to speak of.
+        under = round(1 - price / mid, 2) if (price and mid and mid > price and days_seen >= SEEN_DAYS
+                                              and int(seen.get("n") or 0) >= USUAL_MIN) else None
+        if under is not None and under > UNDER_MAX:
+            under = None
+        why = []
+        if off is not None and off >= CRAZY_OFF:
+            why.append(f"{off:.0%} off the regular price")
+        if under is not None and under >= CRAZY_UNDER:
+            why.append(f"{under:.0%} under the usual price Buddy has seen")
+        if MISTAKE.search(str(r["title"])):
+            why.append("called a price mistake by the source")
         out.append({**r, "seen_on": str(r["seen_on"]), "lowest_seen": low if days_seen >= 2 else None,
                     "seen_days": days_seen,
-                    "is_lowest": bool(r["price"] and low and days_seen >= SEEN_DAYS and r["price"] <= low * 1.001),
-                    "usual": ({"price": round(group["mid"], 2), "deals": int(group["n"]), "products": int(group["products"])}
-                              if group else None),
-                    "off": round(1 - r["price"] / r["regular_price"], 2) if r["price"] and r["regular_price"] else None,
+                    "is_lowest": bool(price and low and days_seen >= SEEN_DAYS and price <= low * 1.001),
+                    "usual": ({"price": round(peers["mid"], 2), "deals": int(peers["n"]), "products": int(peers["products"])}
+                              if peers else None),
+                    "off": off, "under": under, "usual_price": round(mid, 2) if under is not None else None,
+                    "crazy": bool(why), "crazy_why": why,
                     "url": r["url"] if str(r["url"]).startswith("https://") else ""})
+    if crazy:
+        out = [d for d in out if d["crazy"]]
+    if sort == "saving" or (crazy and sort != "price"):
+        out.sort(key=lambda d: -max(d["off"] or 0.0, d["under"] or 0.0))  # stable: the newest first among equals
+    elif sort == "price":
+        out.sort(key=lambda d: (d["price"] is None, d["price"] or 0.0))
+    found = {d: sum(1 for r in out if r["domain"] == d) for d in ("product", "flight", "hotel")}
+    if ranked:  # the pool is cut to the page's size per kind only after it was sorted
+        kept: dict = {}
+        out = [d for d in out if kept.setdefault(d["domain"], []).append(1) or len(kept[d["domain"]]) <= limit]
     counts = {d: totals.get(d, 0) for d in ("product", "flight", "hotel")}  # all of them, not just those shown
     return {"deals": out, "counts": counts, "shown": {d: sum(1 for r in out if r["domain"] == d) for d in counts},
-            "days": days}
+            "found": found, "days": days, "by": by if column else "", "group": group if column else None,
+            "group_label": group_label(domain, by, group) if column else "", "sort": sort or "new", "crazy": bool(crazy)}
 
 
 LEVEL_MIN = 3  # prices a product needs before its dips count towards its brand's or category's
