@@ -202,17 +202,19 @@ Two gaps are larger than the protocol:
 - **No real device.** Display sizes are mostly defaults, speech on glasses is not written, and no adapter has met
   hardware. A contract frozen before that would be frozen around guesses.
 
-## 6. Decisions for the owner
+## 6. Decisions
 
-1. **Is BWCP the name for Buddy XR's contract, or a separate thing?** The code has one contract. This page treats
-   BWCP as its name.
-2. **One specification or three?** The proposal adds two more (intelligence, enterprise integration). The
-   repository has material for the first only.
-3. **The name Maestro.** Keep it for the model gateway, as the code and the app have it, or move it to workflows
-   and rename the gateway.
-4. **Rings and watches.** They have no display, microphone or speaker to negotiate. They fit as connectors (data
-   sources), which Buddy already has. Their data is health data, and the standing rule sends health information to
-   no AI model.
-5. **Healthcare as a market.** "Retrieve a medical record" is against the same rule as it stands.
-6. **When to freeze 1.0.** Suggested: after one device has run one app end to end.
-7. **Who may see this page.** It is in the repository only. Nothing here is on the website.
+The owner decided the architecture on 20 November 2026. The record is `docs/PLATFORM.md`. What it settles for this
+page:
+
+- BWCP is the name for the contract the glasses framework already has, not a second thing beside Buddy XR.
+- Maestro stays the gateway for AI models.
+- Version 1 is glasses only. Rings and watches stay connectors (data sources); their data is health data, and the
+  standing rule sends health information to no AI model.
+- Healthcare and medical records are out of scope.
+
+Still open:
+
+1. **When this contract becomes 1.0.** Proposed: after one device has run one app end to end. Until then it stays
+   draft 0.1 and section 4 stays a proposal.
+2. **Who may see this page.** It is in the repository only. Nothing here is on the website.
