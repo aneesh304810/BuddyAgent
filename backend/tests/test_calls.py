@@ -15,6 +15,20 @@ from buddy import calls, gateway
 from buddy.memory import Memory
 from buddy.tools import ToolError
 
+
+def stream_over(server, call_id: int, seconds: float = 15.0) -> bool:
+    """Wait, still inside the socket's `with`, until the server's handler for this call's stream has finished.
+
+    The socket closes when the call's pipeline ends, a moment before the handler has done its own last work (the
+    seconds heard, the costs). A test that leaves the `with` at once makes the test client cancel a handler that is
+    still finishing; on a slow machine that surfaced as CancelledError at the end of the `with`. A real caller's
+    line never cancels the handler, so the test waits for it as the server does."""
+    import time
+    end = time.monotonic() + seconds
+    while call_id in server._call_streams and time.monotonic() < end:
+        time.sleep(0.02)
+    return call_id not in server._call_streams
+
 ENV = {"BUDDY_PLIVO_AUTH_ID": "MAID", "BUDDY_PLIVO_AUTH_TOKEN": "ptok", "BUDDY_PLIVO_NUMBER": "+12015550100",
        "BUDDY_DEEPGRAM_KEY": "dg", "BUDDY_ELEVENLABS_KEY": "el", "BUDDY_CALLS_PUBLIC_URL": "https://box.ts.net:8443",
        "BUDDY_OWNER_FULL_NAME": "Sam Rivera", "BUDDY_OWNER_PHONE": "201-555-0199", "BUDDY_OWNER_DOB": "1990-01-02",
@@ -425,6 +439,7 @@ def test_a_whole_call_over_plivos_stream(monkeypatch, env, refuse_first):
                         ws.send_text(json.dumps({"event": "media", "media": {"payload": silence}}))
             except Exception:
                 pass  # Buddy ended the call: the stream closes
+            assert stream_over(server, c["id"])
     assert spoken == ["Hi, this is Sam Rivera's assistant."] and played and played[0]["streamId"] == "st-1"
     assert hung == ["cu-7"]
     assert made[0]["model"] == "eleven_test_turbo" and made[1]["model"] == calls.TTS_MODEL  # the backup voice
@@ -1187,6 +1202,7 @@ def test_a_call_flips_to_the_callers_language_and_the_voice_follows(monkeypatch,
                         ws.send_text(json.dumps({"event": "media", "media": {"payload": silence}}))
             except Exception:
                 pass  # Buddy ended the call: the stream closes
+            assert stream_over(server, c["id"])
     assert heard_settings[0]["model"] == "flux-general-multi" and heard_settings[0]["language_hints"] == [Language.EN]
     assert moves.seen[0][-1]["content"].startswith("[They said, in Spanish] Hola, buenos días")
     assert voice_events == [("language", Language.ES), ("say", spanish)]  # told the language before the words
