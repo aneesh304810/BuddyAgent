@@ -56,6 +56,15 @@ SAVINGS = re.compile(r"(?:sav(?:e|ed|ings of)|extra|additional)\s+(?:up to\s+)?\
 FLIGHT = re.compile(r"\b(fares?|flights?|airfare|round[- ]?trip|one[- ]?way|nonstop|basic economy|"
                     r"economy (?:class|fares?|seats?)|first class)\b", re.I)  # not "the economy": that is news
 BIG = re.compile(r"(?:\.\d+)?\s*(?:trillion|billion|million|bn\b|[kmb]\b)", re.I)  # "$10 trillion" is not a price
+# Who sends fares: an airline, or a service that is about flights or travel. Two three-letter codes in a title
+# ("PAC-MAN", "USB to VGA") are a route only in an email from one of these, or where flights are spoken of.
+TRAVEL_WORDS = (r"air(?:lines?|ways)?|flights?|fly\w*|travel\w*|trips?|vacations?|jet\w*|delta|united|southwest|alaska|"
+                r"spirit|frontier|hawaiian|latam|avianca|copa|volaris|aerom[eé]xico|lufthansa|emirates|qatar|etihad|"
+                r"klm|iberia|qantas|virgin|kayak|skyscanner|expedia|hopper|going|priceline|orbitz")
+TRAVEL = re.compile(rf"\b(?:{TRAVEL_WORDS})\b", re.I)
+# What prices are usually like ("flights to San Juan usually cost between $155-295"): information, not an offer.
+NOT_AN_OFFER = re.compile(r"\b(?:usually|typically|normally) (?:costs?|books?)\b|\bprices? (?:are|is) (?:currently )?"
+                          r"(?:low|typical|high)\b|\bprice insights?\b", re.I)
 HOTEL = re.compile(r"\b(hotels?|resorts?|per night|/\s?night|nightly|suites?|stays?|inn)\b", re.I)
 ROUTE = re.compile(r"\b([A-Z]{3})\s*(?:to|-|–|→|>)\s*([A-Z]{3})\b")
 CITIES = re.compile(r"\b(?:from\s+)?([A-Z][a-zA-Z .]{2,24}?)\s+to\s+([A-Z][a-zA-Z .]{2,24}?)(?:\s+(?:from|for|starting|"
@@ -172,8 +181,8 @@ def deals_in(message) -> list[dict]:
     out, seen, named_by_subject = [], set(), False
     for i, cell in enumerate(cells):
         prices = _prices(cell["text"])
-        if not prices:
-            continue
+        if not prices or NOT_AN_OFFER.search(cell["text"]):
+            continue  # no price, or a sentence about what prices are usually like: not a deal
         before = cells[i - 1] if i else None
         after = cells[i + 1] if i + 1 < len(cells) else None
         if not _link(cell) and before and before["links"] and not PRICE.search(before["text"]):
@@ -199,7 +208,7 @@ def deals_in(message) -> list[dict]:
         if regular is not None and regular <= price:
             regular = None
         where = f"{title} {subject} {context}"
-        domain = "flight" if FLIGHT.search(where) or ROUTE.search(title) else \
+        domain = "flight" if FLIGHT.search(where) or (ROUTE.search(title) and TRAVEL.search(sender)) else \
             "hotel" if HOTEL.search(where) else "product"
         item = title
         if domain == "flight":  # the route in this deal's own words first, the lines around it only if missing
@@ -609,7 +618,9 @@ def _run_inbox(memory: Memory, env=None, connect=None) -> str:
 
 def tidy(memory: Memory) -> dict:
     """Remove what an earlier reading of the emails got wrong, and nothing else: one email's subject kept many
-    times at different prices on the same day, and sums such as "$10 trillion" read as a price. Safe to run again."""
+    times at different prices on the same day, sums such as "$10 trillion" read as a price, a sentence about what
+    flights usually cost kept as a fare, and a product kept as a flight because its name looks like a route
+    ("PAC-MAN"). Safe to run again."""
     from . import pricebook  # noqa: PLC0415
     pricebook.conn(memory)
     out = {}
@@ -621,6 +632,17 @@ def tidy(memory: Memory) -> dict:
     out["prices"] = len(pricebook.run(memory, """DELETE FROM observations WHERE source = 'deal email' AND
         (item, seller, CAST(seen_at AS DATE)) IN (SELECT item, seller, CAST(seen_at AS DATE) FROM observations
          WHERE source = 'deal email' GROUP BY 1, 2, 3 HAVING COUNT(DISTINCT price) > 2) RETURNING id"""))
+    # Not fares at all. The price each one left in the history goes with it, so a route's history holds only fares.
+    usual = pricebook.run(memory, "DELETE FROM deals WHERE source LIKE 'email:%' AND regexp_matches(title, "
+                                  "'(usually|typically|normally) (costs?|books?)', 'i') RETURNING item, price, store")
+    wrong = pricebook.run(memory, "DELETE FROM deals WHERE source LIKE 'email:%' AND domain = 'flight' AND "
+                                  "regexp_matches(item, '^[a-z]{3}-[a-z]{3}$') AND NOT regexp_matches("
+                                  f"title || ' ' || store, '\\b({TRAVEL_WORDS}|fares?|airfare|round[- ]?trip|one[- ]?way|"
+                                  "nonstop|economy)\\b', 'i') RETURNING item, price, store")
+    for r in usual + wrong:
+        pricebook.run(memory, "DELETE FROM observations WHERE source = 'deal email' AND domain = 'flight' AND item = ? "
+                              "AND price = ? AND seller = ?", (r["item"], r["price"], r["store"]))
+    out["not_offers"], out["not_flights"] = len(usual), len(wrong)
     return out
 
 

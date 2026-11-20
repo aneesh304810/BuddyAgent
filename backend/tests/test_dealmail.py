@@ -189,7 +189,47 @@ def test_tidy_removes_only_the_misread_rows(memory):
                 "store": "Slickdeals Alerts", "url": "", "ends": "", "subject": title}
     dealmail.keep(memory, [deal("Lavazza coffee for $14.50", p) for p in (5.52, 28.0, 1599.08)] + [deal("Good kettle", 30.0)])
     dealmail.keep(memory, [deal("Debt added over $10 trillion", 10.0)])
-    assert dealmail.tidy(memory) == {"repeated": 3, "sums": 1, "prices": 3}
+    assert dealmail.tidy(memory) == {"repeated": 3, "sums": 1, "prices": 3, "not_offers": 0, "not_flights": 0}
     left = pricebook.run(memory, "SELECT title FROM deals")
     assert [r["title"] for r in left] == ["Good kettle"]
-    assert dealmail.tidy(memory) == {"repeated": 0, "sums": 0, "prices": 0}  # safe to run again
+    assert dealmail.tidy(memory) == {"repeated": 0, "sums": 0, "prices": 0, "not_offers": 0, "not_flights": 0}  # safe to run again
+
+
+GOVEE = "Govee x PAC-MAN Gaming Pixel Light LED Panel for $80 (Reg. $140) + Free Shipping w/ Prime"
+USUAL = ("The least expensive flights for similar trips to San Juan usually cost between $155–295. "
+         "Travelers usually book at $184.")
+
+
+def test_a_product_whose_name_looks_like_a_route_is_not_a_flight():
+    got = dealmail.deals_in(message("Slickdeals Alerts <alerts@slickdeals.example>", "Deal alert: " + GOVEE,
+                                    text=GOVEE + "\nhttps://slickdeals.example/f/1"))
+    assert [(d["domain"], d["price"], d["regular"]) for d in got] == [("product", 80.0, 140.0)]
+    cable = dealmail.deals_in(message("Monoprice <deals@monoprice.example>", "Cables on sale",
+                                      text="USB to VGA adapter cable $9.99\nhttps://monoprice.example/c/1"))
+    assert cable[0]["domain"] == "product"
+    # A real route still is one: where the email speaks of fares, or comes from an airline.
+    fare = dealmail.deals_in(message("LATAM Airlines <news@latam.example>", "This week from Miami",
+                                     text="MIA-LIM $299\nhttps://latam.example/lim"))
+    assert (fare[0]["domain"], fare[0]["item"]) == ("flight", "MIA-LIM")
+
+
+def test_what_flights_usually_cost_is_not_a_fare_on_offer():
+    got = dealmail.deals_in(message("Google Flights <noreply@google.example>", "Prices for your tracked flight to San Juan",
+                                    text="New York to San Juan round trip from $212\nhttps://flights.example/sju\n" + USUAL))
+    assert [(d["domain"], d["price"]) for d in got] == [("flight", 212.0)]  # the fare, not the $155 of the usual range
+
+
+def test_tidy_takes_out_misread_flights_and_the_prices_they_left(memory):
+    def flight(title, item, price, store, regular=None):
+        return {"title": title, "domain": "flight", "item": item, "price": price, "regular": regular, "store": store,
+                "url": "", "ends": "", "subject": title}
+    dealmail.keep(memory, [flight(GOVEE, "PAC-MAN", 80.0, "Slickdeals Alerts", 140.0),
+                           flight(USUAL, "san juan", 155.0, "Google Flights", 184.0),
+                           flight("JFK to LIM from $398", "JFK-LIM", 398.0, "Delta"),
+                           flight("MIA-SJU nonstop $129", "MIA-SJU", 129.0, "Deal site")])
+    gone = dealmail.tidy(memory)
+    assert (gone["not_offers"], gone["not_flights"]) == (1, 1)
+    assert sorted(r["item"] for r in pricebook.run(memory, "SELECT item FROM deals")) == ["jfk-lim", "mia-sju"]
+    assert sorted(r["item"] for r in pricebook.run(memory, "SELECT item FROM observations")) == ["jfk-lim", "mia-sju"]
+    again = dealmail.tidy(memory)
+    assert (again["not_offers"], again["not_flights"]) == (0, 0)
