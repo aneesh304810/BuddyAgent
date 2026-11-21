@@ -136,6 +136,15 @@ their own folders (Buddy Promotions, Buddy Newsletters, Buddy Notifications; in 
   about X". A taught sender wins over the built-in rules.
 - **Automatic**: after you've organized once by hand, "organize my email automatically" does the last two
   days' mail each night, after the deals reader has taken what it needs from the marketing mail.
+- **Old promotions are archived, when you ask**: a sale's email is of no use once the sale is over. "Archive
+  deal emails older than 10 days" shows what would go (promotions only, from the inbox and from Buddy
+  Promotions; 10 days unless you name another number) and archives them after your yes. They go to the
+  account's own archive: All Mail in Gmail, or the folder your mail service marks as its archive, which is the
+  move a mail app's Archive button makes. Nothing is deleted, a starred message stays, and newsletters and
+  notifications are left alone. "Undo the email archiving" puts the last run back in the inbox. After one run by
+  hand, "do that every night" archives each night the promotions that have turned 10 days old. An account where
+  Buddy can find no archive is left as it is. (The separate deals inbox has its own rule: read newsletters there
+  go to Trash after 2 days.)
 
 It works on every email account Buddy can read (Gmail, Yahoo, iCloud and others). When in doubt a message stays
 in the inbox: it is better to leave a promotion than to hide something real.

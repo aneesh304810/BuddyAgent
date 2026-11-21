@@ -601,6 +601,10 @@ async def run(memory: Memory, deliver: Deliver, connected=None) -> None:
                 if mailorganizer.due(memory):
                     memory.set(mailorganizer.DAY_KEY, local_now().date().isoformat())
                     log.info("email organizer: %s", (await asyncio.to_thread(mailorganizer.nightly, memory))["moved"])
+                if mailorganizer.archive_due(memory):  # promotions whose sales are over, once the owner switched it on
+                    memory.set(mailorganizer.ARCHIVE_DAY_KEY, local_now().date().isoformat())
+                    log.info("email organizer, old promotions: %s",
+                             (await asyncio.to_thread(mailorganizer.archive_nightly, memory))["archived"])
             except Exception:
                 log.exception("deals inbox failed")
             try:  # nightly: patterns learned in the sandbox, raw prices over 90 days (already learned) deleted,

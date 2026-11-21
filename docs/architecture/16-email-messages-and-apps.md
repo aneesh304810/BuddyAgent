@@ -73,7 +73,7 @@ The diagram reads left to right: what you ask, the tools Buddy uses, the modules
 | `important_email` | What's important in the user's email lately, across all accounts, already sorted by priority (urgent first) with a one-line reason, and anything Buddy organised | - | mailbrain.py |
 | `add_email_rule` | Add one of the user's email rules, in their words | - | mailbrain.py |
 | `email_rules` | List the user's email rules (with ids), or remove one with remove_id. | - | mailbrain.py |
-| `email_organizer` | Keeps the inbox for real email by moving marketing, newsletters and app notifications into their own folders (Buddy Promotions, Buddy Newsletters, Buddy Notific | preview, organize, undo, keep, always, forget, auto, status | mailorganizer.py |
+| `email_organizer` | Keeps the inbox for real email by moving marketing, newsletters and app notifications into their own folders (Buddy Promotions, Buddy Newsletters, Buddy Notific | preview, organize, undo, keep, always, forget, auto, status, archive_preview, archive, archive_auto | mailorganizer.py |
 | `life_memory` | What Buddy remembers about the owner's life from their own email: family and the people around them, children's school and daycare, health appointments (logisti | show, teach, ignore, forget, catch_up, attachments, trips, providers, routines | lifemail.py |
 | `messages` | Reply to WhatsApp, Messages, Telegram or Signal from the user's own account, through the phone's notification (free; works for chats with a recent notification) | chats, reply, auto_reply, auto_replies, stop_auto_reply | messaging.py |
 | `packages` | The user's packages: from shipping emails and notifications (Amazon, UPS, FedEx, USPS, DHL), and 17TRACK live status when its key is set | list, track, remove, test | packages.py |
@@ -129,6 +129,14 @@ The owner is always shown a preview first (how many would move, where, with exam
 mail only after their yes. With "organize my email automatically" on, new mail is organized each night after the
 deals reader has taken what it needs from the marketing mail. Works with any account Buddy can read over IMAP
 (Gmail, Yahoo, iCloud and others); in Gmail the folders appear as labels and the mail leaves the inbox.
+
+Old promotions are archived, when the owner asks: a sale's email is of no use once the sale is over. Promotions
+(judged as above) older than a number of days, 10 unless the owner names another, are moved from the inbox and from
+Buddy Promotions to the account's own archive: Gmail's All Mail, or the folder the mail service marks as its
+archive. It is the move a mail app's Archive button makes. Nothing is deleted; a starred message stays; newsletters
+and notifications are left alone. The same rules hold: a preview first, the owner's yes, every move written down
+so "undo" puts a run back in the inbox, and it runs each night only once the owner switches that on. An account
+where no archive can be found is left as it is.
 ```
 
 - Tables: `mail_moves`

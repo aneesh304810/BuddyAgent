@@ -21,6 +21,14 @@ The owner is always shown a preview first (how many would move, where, with exam
 mail only after their yes. With "organize my email automatically" on, new mail is organized each night after the
 deals reader has taken what it needs from the marketing mail. Works with any account Buddy can read over IMAP
 (Gmail, Yahoo, iCloud and others); in Gmail the folders appear as labels and the mail leaves the inbox.
+
+Old promotions are archived, when the owner asks: a sale's email is of no use once the sale is over. Promotions
+(judged as above) older than a number of days, 10 unless the owner names another, are moved from the inbox and from
+Buddy Promotions to the account's own archive: Gmail's All Mail, or the folder the mail service marks as its
+archive. It is the move a mail app's Archive button makes. Nothing is deleted; a starred message stays; newsletters
+and notifications are left alone. The same rules hold: a preview first, the owner's yes, every move written down
+so "undo" puts a run back in the inbox, and it runs each night only once the owner switches that on. An account
+where no archive can be found is left as it is.
 """
 
 import email
@@ -43,6 +51,11 @@ MAX_PER_RUN, BATCH = 2000, 200
 AUTO_KEY, DAY_KEY, KEEP_KEY, PREVIEW_KEY, STATUS_KEY = ("mailorg:auto", "mailorg:day", "mailorg:senders",
                                                         "mailorg:previewed", "mailorg:status")
 HEADERS = "(BODY.PEEK[HEADER.FIELDS (FROM SUBJECT MESSAGE-ID LIST-UNSUBSCRIBE PRECEDENCE DATE)])"
+# Old promotions: after how many days by default, how far back one run by hand looks, how far back a night's run
+# looks (the mail that came of age since the last nights), and how many messages one folder's look judges.
+ARCHIVE_DAYS, ARCHIVE_SPAN, ARCHIVE_NIGHT_SPAN, ARCHIVE_LOOK = 10, 120, 14, 10000
+ARCHIVE_KEY, ARCHIVE_DAY_KEY, ARCHIVE_PREVIEW_KEY, ARCHIVED_ONCE_KEY = (
+    "mailorg:archive_days", "mailorg:archive_day", "mailorg:archive_previewed", "mailorg:archived_once")
 IMPORTANT = re.compile(
     r"\b(security (alert|code|notice|warning|update)|new sign[- ]?in|sign[- ]?in (attempt|alert|code)|log[- ]?in (attempt|alert|code)|password|verif\w+|one[- ]time|\bcode\b|2fa|fraud|suspicious|unusual"
     r"|bill\b|invoice|payment|paid\b|statement|receipt|refund|charge[ds]?\b|past due|overdue|due (today|tomorrow|on)"
@@ -150,6 +163,11 @@ def scan(imap, account, days: int, taught: dict, today: date | None = None) -> l
     since = (today or local_now().date()) - timedelta(days=days)
     _, found = imap.uid("search", None, f"(SINCE {since:%d-%b-%Y})")
     uids = [u.decode() for u in (found[0] or b"").split()][-MAX_PER_RUN:]
+    return _judged(imap, uids, taught)
+
+
+def _judged(imap, uids: list[str], taught: dict) -> list[dict]:
+    """These messages of the selected folder, each judged from its headers."""
     out = []
     for i in range(0, len(uids), BATCH):
         _, parts = imap.uid("fetch", ",".join(uids[i:i + BATCH]), HEADERS)
@@ -292,7 +310,14 @@ def undo(memory: Memory, env=None, run: str = "", connect=None) -> dict:
                     else:
                         missing += 1
                 if uids:
-                    _move(imap, uids, a.folder)
+                    # Out of Gmail's All Mail a message is copied to the inbox, never moved: removing a message
+                    # from All Mail is how Gmail deletes it. Out of any other folder it is moved back.
+                    if folder not in FOLDERS.values() and archive_box(imap) == (folder, "all"):
+                        typ, _ = imap.uid("COPY", ",".join(uids), _quoted(a.folder))
+                        if typ != "OK":
+                            raise ToolError("The mail server wouldn't put the archived mail back in the inbox.")
+                    else:
+                        _move(imap, uids, a.folder)
                     memory.db.executemany("UPDATE mail_moves SET undone = 1 WHERE id = ?", [(i,) for i in done])
                     memory.db.commit()
                     back += len(uids)
@@ -300,6 +325,157 @@ def undo(memory: Memory, env=None, run: str = "", connect=None) -> dict:
             _logout(imap)
     return {"run": run, "put_back_in_the_inbox": back,
             **({"not_found": missing, "why": "they were moved again or deleted since"} if missing else {})}
+
+
+# --- old promotions: archived once their sales are over ---------------------------------------------------------
+def _quoted(box: str) -> str:
+    return '"' + box.replace("\\", "\\\\").replace('"', '\\"') + '"'
+
+
+def archive_box(imap) -> tuple[str, str]:
+    """Where archived mail goes in this account: (mailbox, kind). Gmail's All Mail (kind "all") or the folder the
+    mail service marks as its archive (kind "archive"). Found by the mark the server itself puts on the folder,
+    not by its name, so a translated name is found too. ("", "") when the account has neither."""
+    typ, boxes = imap.list()
+    found = {}
+    for raw in (boxes or []) if typ == "OK" else []:
+        if not isinstance(raw, bytes):
+            continue
+        m = re.match(r'\((?P<flags>[^)]*)\)\s+(?:"[^"]*"|NIL)\s+(?P<name>.+)$', raw.decode("utf-8", "replace").strip())
+        if not m:
+            continue
+        name = m.group("name").strip()
+        if len(name) >= 2 and name[0] == name[-1] == '"':
+            name = name[1:-1].replace('\\"', '"').replace("\\\\", "\\")
+        flags = m.group("flags").lower().split()
+        for kind, flag in (("all", "\\all"), ("archive", "\\archive")):
+            if flag in flags:
+                found.setdefault(kind, name)
+        if name.lower() == "archive":  # a folder simply called Archive, on a server that marks none
+            found.setdefault("named", name)
+    for kind in ("all", "archive", "named"):
+        if kind in found:
+            return found[kind], "all" if kind == "all" else "archive"
+    return "", ""
+
+
+def old_promotions(imap, account, days: int, taught: dict, span: int = ARCHIVE_SPAN, today: date | None = None) -> dict:
+    """Promotions older than `days` days and not starred, by the folder they sit in (the inbox, Buddy Promotions):
+    {folder: [rows]}. Looks back `span` days beyond that. Only bulk mail is asked for, and each is judged as ever."""
+    before = (today or local_now().date()) - timedelta(days=days)
+    since = before - timedelta(days=span)
+    when = f"SINCE {since:%d-%b-%Y} BEFORE {before:%d-%b-%Y} UNFLAGGED"
+    out = {}
+    for folder in dict.fromkeys((account.folder, FOLDERS["promotions"])):
+        try:
+            typ, _ = imap.select(_quoted(folder), readonly=True)
+        except imaplib.IMAP4.error:
+            continue
+        if typ != "OK":
+            continue  # no such folder here: the organizer never moved anything in this account
+        typ, found = imap.uid("search", None, f'({when} HEADER List-Unsubscribe "")')
+        if typ != "OK":  # a server that cannot search by header: every message of those days is judged
+            typ, found = imap.uid("search", None, f"({when})")
+        uids = [u.decode() for u in ((found[0] if found else b"") or b"").split()][-ARCHIVE_LOOK:]
+        rows = [r for r in _judged(imap, uids, taught) if r["where"] == "promotions"]
+        if rows:
+            out[folder] = rows
+    return out
+
+
+def archive_preview(memory: Memory, env=None, which: str = "", days: int = ARCHIVE_DAYS, span: int = ARCHIVE_SPAN,
+                    connect=None) -> dict:
+    """What archiving old promotions would do, per account. Changes nothing."""
+    taught, out = senders(memory), {}
+    for a in _accounts(env, which):
+        imap = (connect or _connect)(a)
+        try:
+            box, _ = archive_box(imap)
+            found = old_promotions(imap, a, days, taught, span)
+            rows = [r for mine in found.values() for r in mine]
+            by: dict[str, int] = {}
+            for r in rows:
+                by[r["name"]] = by.get(r["name"], 0) + 1
+            out[a.address] = {"would_archive": len(rows) if box else 0,
+                              "found_in": {folder: len(mine) for folder, mine in found.items()},
+                              "to": box or "no archive was found in this account: nothing would be moved here",
+                              "top_senders": [f"{n} ({c})" for n, c in sorted(by.items(), key=lambda kv: -kv[1])[:6]],
+                              "examples": [f"{r['name']}: {r['subject']}" for r in rows[:3]]}
+        except (imaplib.IMAP4.error, OSError) as e:
+            out[a.address] = f"couldn't be read: {str(e)[:80]}"
+        finally:
+            _logout(imap)
+    memory.set(ARCHIVE_PREVIEW_KEY, json.dumps({"at": datetime.now(timezone.utc).isoformat(), "which": which,
+                                                "days": days}))
+    return {"older_than_days": days, "looked_back_days": span, "accounts": out,
+            "note": "Nothing was changed. Only promotions (sales, offers, coupons, deals) are archived: not "
+                    "newsletters, notifications, anything from a person, or a starred message. Archived mail is "
+                    "not deleted (in Gmail it stays in All Mail), and 'undo' puts it back in the inbox."}
+
+
+def archive_old(memory: Memory, env=None, which: str = "", days: int = ARCHIVE_DAYS, span: int = ARCHIVE_SPAN,
+                connect=None, run: str = "") -> dict:
+    """Move promotions older than `days` days from the inbox and Buddy Promotions to each account's archive."""
+    _ready(memory)
+    run = run or "archive-" + datetime.now(timezone.utc).strftime("%Y%m%dT%H%M%S")
+    taught, out = senders(memory), {}
+    for a in _accounts(env, which):
+        imap = (connect or _connect)(a)
+        try:
+            box, _ = archive_box(imap)
+            if not box:
+                out[a.address] = "no archive was found in this account, so nothing was moved"
+                continue
+            moved = {}
+            for folder, rows in old_promotions(imap, a, days, taught, span).items():
+                rows = rows[:max(0, MAX_PER_RUN - sum(moved.values()))]
+                if not rows:
+                    continue
+                imap.select(_quoted(folder), readonly=False)
+                for i in range(0, len(rows), BATCH):
+                    some = rows[i:i + BATCH]
+                    # MOVE only: where the server cannot move, nothing is copied and removed in its place.
+                    typ, _ = imap.uid("MOVE", ",".join(r["uid"] for r in some), _quoted(box))
+                    if typ != "OK":
+                        raise ToolError("The mail server would not move mail to its archive. Nothing was deleted.")
+                    now = datetime.now(timezone.utc).isoformat(timespec="seconds")
+                    memory.db.executemany(
+                        "INSERT INTO mail_moves (run, at, account, message_id, sender, subject, folder) VALUES (?, ?, "
+                        "?, ?, ?, ?, ?)", [(run, now, a.address, r["message_id"], r["sender"], r["subject"], box)
+                                           for r in some])
+                    memory.db.commit()
+                    moved[folder] = moved.get(folder, 0) + len(some)
+            out[a.address] = {"archived": sum(moved.values()), "from": moved, "to": box} if moved else "nothing to archive"
+        except ToolError as e:
+            out[a.address] = str(e)
+        except (imaplib.IMAP4.error, OSError) as e:
+            out[a.address] = f"couldn't be archived: {str(e)[:80]}"
+        finally:
+            _logout(imap)
+    memory.set(ARCHIVED_ONCE_KEY, "1")
+    result = {"run": run, "older_than_days": days, "archived": out,
+              "note": "Nothing was deleted or marked read. Say 'undo the email archiving' to put this run back in "
+                      "the inbox."}
+    memory.set(STATUS_KEY, json.dumps({"at": local_now().isoformat(timespec="minutes"), **result}))
+    return result
+
+
+def archive_days(memory: Memory) -> int:
+    """After how many days promotions are archived each night (0: not switched on)."""
+    try:
+        return max(0, int(memory.get(ARCHIVE_KEY) or 0))
+    except ValueError:
+        return 0
+
+
+def archive_due(memory: Memory, now: datetime | None = None) -> bool:
+    now = now or local_now()
+    return archive_days(memory) > 0 and 1 <= now.hour < 6 and memory.get(ARCHIVE_DAY_KEY) != now.date().isoformat()
+
+
+def archive_nightly(memory: Memory, env=None, connect=None) -> dict:
+    """The promotions that came of age, archived (run only when the owner switched the nightly archiving on)."""
+    return archive_old(memory, env, days=archive_days(memory), span=ARCHIVE_NIGHT_SPAN, connect=connect)
 
 
 # --- every night, once it's switched on -----------------------------------------------------------------------
@@ -321,7 +497,8 @@ def status(memory: Memory) -> dict:
     _ready(memory)
     counts = {r["folder"]: r["n"] for r in memory.db.execute(
         "SELECT folder, COUNT(*) AS n FROM mail_moves WHERE undone = 0 GROUP BY folder")}
-    return {"automatic": auto(memory), "moved_so_far": counts, "what_you_taught_me": senders(memory),
+    return {"automatic": auto(memory), "archives_promotions_older_than_days": archive_days(memory) or "off",
+            "moved_so_far": counts, "what_you_taught_me": senders(memory),
             "last_run": json.loads(memory.get(STATUS_KEY) or "null"), "folders": list(FOLDERS.values())}
 
 
@@ -337,10 +514,17 @@ TOOL = {
         "account?): move them, after the owner's yes to the preview. undo: put the last run back in the inbox. "
         "keep (sender): this address or domain always stays in the inbox. always (sender, folder: promotions, "
         "newsletters or notifications): where a sender always goes. forget (sender). auto (on): organize new "
-        "mail every night. status. Use it for 'organize my email', 'clean my inbox', 'too many promotions'."),
+        "mail every night. status. Use it for 'organize my email', 'clean my inbox', 'too many promotions'. "
+        "Old promotions (deal emails whose sale is over): archive_preview (days?, 10 unless the owner names "
+        "another; account?): the promotions older than that, in the inbox and in Buddy Promotions, that would go "
+        "to the account's archive (Gmail: All Mail); changes nothing. ALWAYS archive_preview first and read the "
+        "owner the counts. archive (days?, account?): archive them after the owner's yes; nothing is deleted, "
+        "starred mail stays, newsletters and notifications are left alone. archive_auto (on, days?): do it every "
+        "night. undo puts the last run back, an archiving run too. Use these for 'archive deal emails after 10 "
+        "days', 'old sale emails pile up'."),
     "input_schema": {"type": "object", "properties": {
         "action": {"type": "string", "enum": ["preview", "organize", "undo", "keep", "always", "forget", "auto",
-                                              "status"]},
+                                              "status", "archive_preview", "archive", "archive_auto"]},
         "days": {"type": "integer"}, "account": {"type": "string"}, "sender": {"type": "string"},
         "folder": {"type": "string", "enum": list(FOLDERS)}, "on": {"type": "boolean"}},
         "required": ["action"], "additionalProperties": False},
@@ -381,6 +565,34 @@ async def run_tool(memory: Memory, args: dict, thrift=None) -> str:
         return await go()
     if a == "undo":
         return json.dumps(await asyncio.to_thread(undo, memory))
+    old = max(1, min(int(args.get("days") or ARCHIVE_DAYS), 365))
+    if a == "archive_preview":
+        return json.dumps(await asyncio.to_thread(archive_preview, memory, None, which, old))
+    if a == "archive":
+        try:
+            seen = datetime.fromisoformat(json.loads(memory.get(ARCHIVE_PREVIEW_KEY) or "{}").get("at", ""))
+        except ValueError:
+            seen = None
+        if seen is None or datetime.now(timezone.utc) - seen > timedelta(minutes=30):  # checked in code
+            raise ToolError("archive_preview first: show the owner what would be archived, then archive after "
+                            "their yes.")
+
+        async def put_away() -> str:
+            return json.dumps(await asyncio.to_thread(archive_old, memory, None, which, old))
+        if thrift is not None:
+            return thrift.ask_action(f"Shall I archive the promotions older than {old} days, from your inbox and "
+                                     "from Buddy Promotions? Nothing is deleted, and you can undo it.", put_away,
+                                     group="email_organizer", item=f"promotions older than {old} days",
+                                     plural="email archivings")
+        return await put_away()
+    if a == "archive_auto":
+        on = bool(args.get("on"))
+        if on and memory.get(ARCHIVED_ONCE_KEY) != "1":
+            raise ToolError("Archive once by hand first (archive_preview, then archive), so the owner has seen "
+                            "what goes before it runs by itself.")
+        memory.set(ARCHIVE_KEY, str(old) if on else "0")
+        return (f"Promotions older than {old} days will be archived every night." if on
+                else "I'll only archive old promotions when you ask.")
     if a == "auto":
         on = bool(args.get("on"))
         _ready(memory)
@@ -389,4 +601,5 @@ async def run_tool(memory: Memory, args: dict, thrift=None) -> str:
                             "sorts their mail before it runs by itself.")
         memory.set(AUTO_KEY, "1" if on else "0")
         return ("New email will be organized every night." if on else "I'll only organize your email when you ask.")
-    raise ToolError("Use preview, organize, undo, keep, always, forget, auto or status.")
+    raise ToolError("Use preview, organize, undo, keep, always, forget, auto, status, archive_preview, archive "
+                    "or archive_auto.")

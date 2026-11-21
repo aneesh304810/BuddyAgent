@@ -186,3 +186,150 @@ def test_the_owner_is_asked_before_anything_moves(memory, monkeypatch):
     out = asyncio.run(mo.run_tool(memory, {"action": "organize", "days": 14}, Thrift()))
     assert out == "APPROVAL NEEDED" and "last 14 days" in asked["q"] and "Nothing is deleted" in asked["q"]
     assert re.search(r"undo", asked["q"])
+
+
+# --- old promotions are archived ----------------------------------------------------------------------------------
+from datetime import date, datetime, timedelta, timezone  # noqa: E402
+from email.utils import format_datetime  # noqa: E402
+
+TODAY = date(2026, 11, 21)
+
+
+def dated(sender, subject, days_old, bulk=True):
+    m = mail(sender, subject, bulk=bulk)
+    m["Date"] = format_datetime(datetime(2026, 11, 21, 12, tzinfo=timezone.utc) - timedelta(days=days_old))
+    return m
+
+
+class Dated(Server):
+    """The same account with dates, stars and an archive: Gmail's All Mail, or a folder the server marks."""
+
+    def __init__(self, inbox, boxes=(b'(\\HasNoChildren) "/" "INBOX"', b'(\\All \\HasNoChildren) "/" "[Gmail]/All Mail"'),
+                 starred=(), header_search=True):
+        super().__init__(inbox)
+        self.boxes, self.starred, self.header_search, self.asked = list(boxes), set(starred), header_search, []
+        for raw in boxes:
+            name = raw.decode().rsplit('" ', 1)[-1].strip('"')
+            self.folders.setdefault(name, {})
+
+    def list(self):
+        return "OK", self.boxes
+
+    def select(self, folder, readonly=False):
+        if folder.strip('"') not in self.folders:
+            return "NO", [b"no such folder"]
+        return super().select(folder, readonly)
+
+    def uid(self, cmd, *args):
+        if cmd == "search" and "HEADER" not in args:
+            said = args[1]
+            self.asked.append(said)
+            if "HEADER" in said and not self.header_search:
+                return "BAD", [b"cannot search headers"]
+            when = {k: datetime.strptime(v, "%d-%b-%Y").date() for k, v in re.findall(r"(SINCE|BEFORE) (\S+)", said)}
+            got = []
+            for u, m in self.folders[self.at].items():
+                day = datetime.strptime(str(m["Date"])[5:16], "%d %b %Y").date()
+                if when.get("SINCE", date.min) <= day < when.get("BEFORE", date.max) and not (
+                        "UNFLAGGED" in said and str(m["Subject"]) in self.starred) and not (
+                        "HEADER List-Unsubscribe" in said and not m["List-Unsubscribe"]):
+                    got.append(u.encode())
+            return "OK", [b" ".join(got)]
+        return super().uid(cmd, *args)
+
+
+OLD = [
+    dated("Best Buy <deals@bestbuy.example>", "Black Friday: 40% off TVs", 15),               # an old promotion: goes
+    dated("Costco <costco@online.costco.example>", "Member-only savings: $300 off", 12),      # goes
+    dated("Target <offers@target.example>", "Starred sale: 20% off toys", 20),                # starred: stays
+    dated("Kohl's <kohls@email.kohls.example>", "Today only: 30% off", 3),                    # 3 days old: stays
+    dated("Mom <mom@family.example>", "50% off at the sale! Come Sunday", 30, bulk=False),    # a person: stays
+    dated("The Verge <newsletter@verge.example>", "Weekly digest: top stories", 30),          # a newsletter: stays
+    dated("Chase <alerts@chase.example>", "Your statement is ready", 30),                     # matters: stays
+    dated("Amazon <ship@amazon.example>", "Your order of $50 has shipped", 30),               # an order: stays
+]
+
+
+@pytest.fixture
+def clock(monkeypatch):
+    monkeypatch.setattr(mo, "local_now", lambda: datetime(2026, 11, 21, 3, 0, tzinfo=timezone.utc))
+
+
+def test_old_promotions_are_previewed_then_archived_and_undo_puts_them_back(memory, clock):
+    server = Dated(OLD, starred={"Starred sale: 20% off toys"})
+    seen = mo.archive_preview(memory, ENV, days=10, connect=lambda a: server)
+    acct = seen["accounts"]["me@gmail.com"]
+    assert acct["would_archive"] == 2 and acct["found_in"] == {"INBOX": 2} and acct["to"] == "[Gmail]/All Mail"
+    assert len(server.folders["INBOX"]) == 8 and server.readonly                 # a preview changes nothing
+    assert all("UNFLAGGED" in q and "BEFORE 11-Nov-2026" in q for q in server.asked)
+    got = mo.archive_old(memory, ENV, days=10, connect=lambda a: server, run="a1")
+    assert got["archived"]["me@gmail.com"] == {"archived": 2, "from": {"INBOX": 2}, "to": "[Gmail]/All Mail"}
+    assert server.subjects("[Gmail]/All Mail") == ["Black Friday: 40% off TVs", "Member-only savings: $300 off"]
+    left = server.subjects("INBOX")
+    assert len(left) == 6 and "Starred sale: 20% off toys" in left and "Today only: 30% off" in left
+    assert "Weekly digest: top stories" in left and "Your order of $50 has shipped" in left
+    assert not server.body_fetched and not hasattr(server, "deleted")            # headers only; nothing ever deleted
+    assert mo.archive_old(memory, ENV, days=10, connect=lambda a: server)["archived"]["me@gmail.com"] == "nothing to archive"
+    back = mo.undo(memory, ENV, connect=lambda a: server)
+    assert back == {"run": "a1", "put_back_in_the_inbox": 2} and len(server.folders["INBOX"]) == 8
+    assert len(server.folders["[Gmail]/All Mail"]) == 2                          # copied out of All Mail, never removed
+
+
+def test_promotions_the_organizer_filed_are_archived_from_their_folder_too(memory, clock):
+    server = Dated(OLD, boxes=(b'(\\HasNoChildren) "/" INBOX', b'(\\HasNoChildren \\Archive) "/" Archive'),
+                   header_search=False)
+    server.folders["Buddy Promotions"] = {"90": dated("Old Navy <oldnavy@email.oldnavy.example>", "Clearance: 60% off", 40),
+                                          "91": dated("Old Navy <oldnavy@email.oldnavy.example>", "New sale: 20% off", 2)}
+    got = mo.archive_old(memory, ENV, days=10, connect=lambda a: server, run="a2")
+    assert got["archived"]["me@gmail.com"] == {"archived": 4, "from": {"INBOX": 3, "Buddy Promotions": 1}, "to": "Archive"}
+    assert server.subjects("Buddy Promotions") == ["New sale: 20% off"]          # a young one stays where it is
+    assert mo.undo(memory, ENV, connect=lambda a: server)["put_back_in_the_inbox"] == 4
+    assert server.folders["Archive"] == {}                                       # out of a real folder it is moved back
+    teach = mo.teach(memory, "bestbuy.example", "keep")
+    assert "inbox" in teach.lower() or "keep" in teach.lower()
+    again = mo.archive_old(memory, ENV, days=10, connect=lambda a: server)["archived"]["me@gmail.com"]
+    assert again["archived"] == 3 and "Black Friday: 40% off TVs" in server.subjects("INBOX")   # a kept sender stays
+
+
+def test_an_account_with_no_archive_is_left_alone_and_a_refused_move_deletes_nothing(memory, clock):
+    bare = Dated(OLD, boxes=(b'(\\HasNoChildren) "/" "INBOX"',))
+    assert mo.archive_preview(memory, ENV, connect=lambda a: bare)["accounts"]["me@gmail.com"]["would_archive"] == 0
+    said = mo.archive_old(memory, ENV, connect=lambda a: bare)["archived"]["me@gmail.com"]
+    assert said == "no archive was found in this account, so nothing was moved" and len(bare.folders["INBOX"]) == 8
+    stuck = Dated(OLD)
+    stuck.move_ok = False
+    said = mo.archive_old(memory, ENV, connect=lambda a: stuck)["archived"]["me@gmail.com"]
+    assert "would not move" in said and len(stuck.folders["INBOX"]) == 8 and not hasattr(stuck, "deleted")
+    named = Dated(OLD, boxes=(b'(\\HasNoChildren) "/" "INBOX"', b'(\\HasNoChildren) "/" "Archive"'))
+    assert mo.archive_box(named) == ("Archive", "archive")                       # a folder simply called Archive
+
+
+def test_archiving_needs_a_preview_a_yes_and_one_run_by_hand_before_the_nightly_one(memory, clock, monkeypatch):
+    server = Dated(OLD)
+    monkeypatch.setattr(mo, "_connect", lambda a: server)
+    from buddy.email_accounts import email_accounts
+    mine = email_accounts(ENV)
+    monkeypatch.setattr(mo, "_accounts", lambda env=None, which="": mine)
+
+    def tool(**args):
+        return asyncio.run(mo.run_tool(memory, args))
+    with pytest.raises(Exception, match="archive_preview first"):
+        tool(action="archive")
+    with pytest.raises(Exception, match="Archive once by hand first"):
+        tool(action="archive_auto", on=True)
+    assert not mo.archive_due(memory)
+    assert json.loads(tool(action="archive_preview"))["older_than_days"] == 10    # ten days unless the owner says
+    asked = []
+
+    class Thrift:
+        def ask_action(self, question, go, **more):
+            asked.append(question)
+            return "asked"
+    assert asyncio.run(mo.run_tool(memory, {"action": "archive"}, Thrift())) == "asked"
+    assert "older than 10 days" in asked[0] and len(server.folders["INBOX"]) == 8   # asked first: nothing moved yet
+    assert json.loads(tool(action="archive"))["archived"]["me@gmail.com"]["archived"] == 3   # nothing is starred here
+    assert tool(action="archive_auto", on=True, days=10) == "Promotions older than 10 days will be archived every night."
+    assert mo.archive_days(memory) == 10 and mo.archive_due(memory) and mo.status(memory)["archives_promotions_older_than_days"] == 10
+    assert mo.archive_nightly(memory, ENV, connect=lambda a: server)["older_than_days"] == 10
+    assert tool(action="archive_auto", on=False) == "I'll only archive old promotions when you ask."
+    assert not mo.archive_due(memory)
