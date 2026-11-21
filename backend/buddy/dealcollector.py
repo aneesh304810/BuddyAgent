@@ -4,7 +4,10 @@ wants, keeps every price it sees (so real price history builds up), and tells th
   1. Deal feeds (RSS / Atom, published by the sites for readers): Slickdeals front page and popular deals,
      DealNews, and deal subreddits (r/buildapcsales, r/deals, r/frugalmalefashion). The owner can add any other
      deal site's feed ("add the feed https://..."). Each site's robots.txt is checked first and a feed it disallows
-     is skipped (and shown as skipped). Read once a day, politely. A feed is a product feed or a travel feed:
+     is skipped (and shown as skipped). Read in the morning run and again every few hours through the day
+     (READ_EVERY_HOURS): a feed holds only its newest items, and in a sale week those turn over many times a day,
+     so one read a day sees a small part of them. The later reads only keep the deals and their prices; the price
+     checks below stay once a day. A feed is a product feed or a travel feed:
      from a travel feed only fares and hotel rates priced in dollars are kept, filed as flights (by route and
      airline) and hotels (by place and chain). A feed added from the Deals page is read once first, and added
      only if it answers with a feed (try_feed); SUGGESTED_FEEDS are offered there and never added by themselves.
@@ -37,8 +40,19 @@ from .tools import ToolError, local_now
 
 log = logging.getLogger(__name__)
 
-AGENT = "Buddy personal deal reader (one visit a day)"
+AGENT = "Buddy personal deal reader (a few visits a day)"
 START_HOUR = 9
+# Between the morning runs the feeds are read again this often, between these hours of the owner's day. 0, or 24
+# and more, means the morning read only (BUDDY_DEAL_FEEDS_EVERY_HOURS).
+READ_FROM_HOUR, READ_UNTIL_HOUR = 7, 23
+LAST_READ_KEY = "dealfeed:last_read"
+
+
+def read_every_hours(env=None) -> float:
+    try:
+        return float((os.environ if env is None else env).get("BUDDY_DEAL_FEEDS_EVERY_HOURS", "3") or 0)
+    except ValueError:
+        return 3.0
 MAX_ALERTS = 3
 DONE_KEY, OFF_KEY, FEEDS_KEY, STATUS_KEY = "dealfeed:done", "dealfeed:off", "dealfeed:feeds", "dealfeed:status"
 
@@ -73,9 +87,16 @@ SUGGESTED_FEEDS = [
      "about": "Flight and hotel deals worldwide. Only those priced in dollars are kept."},
     {"name": "Secret Flying", "kind": "travel", "url": "https://www.secretflying.com/feed/",
      "about": "Cheap fares and error fares."},
-    {"name": "Slickdeals: Black Friday", "kind": "product",
-     "url": "https://slickdeals.net/newsearch.php?q=black+friday&searcharea=deals&searchin=first&rss=1",
-     "about": "Slickdeals posts that mention Black Friday."},
+    {"name": "Slickdeals: Hot Deals forum", "kind": "product",
+     "url": "https://slickdeals.net/newsearch.php?searchin=first&forumchoice%5B%5D=9&rss=1",
+     "about": "Every deal the Slickdeals community posts, before it is voted onto the front page: many more deals, "
+              "and more that are not worth it."},
+    {"name": "DealNews: Black Friday", "kind": "product", "url": "https://www.dealnews.com/f1676/Black-Friday/?rss=1",
+     "about": "DealNews' Black Friday section."},
+    {"name": "DealNews: Electronics", "kind": "product", "url": "https://www.dealnews.com/c142/Electronics/?rss=1",
+     "about": "DealNews' electronics deals: more of them than its main feed has room for."},
+    {"name": "DealNews: Computers", "kind": "product", "url": "https://www.dealnews.com/c39/Computers/?rss=1",
+     "about": "DealNews' computer deals."},
     {"name": "9to5Toys", "kind": "product", "url": "https://9to5toys.com/feed/",
      "about": "Electronics and home deals through the day."},
 ]
@@ -159,7 +180,8 @@ def sources(memory: Memory, env=None) -> dict:
     said = {line.partition(": ")[0]: line.partition(": ")[2] for line in status["feeds"]}
     have = feeds(memory)
     urls = {f["url"] for f in have}
-    return {"last_run": status["last_run"], "off": status["off"],
+    return {"last_run": status["last_run"], "off": status["off"], "reads": status["reads"],
+            "last_read": status["last_read"], "every_hours": status["every_hours"],
             "feeds": [{"name": f["name"], "url": f["url"], "kind": f.get("kind", "product"),
                        "said": said.get(f["name"], "")} for f in have],
             "suggested": [s for s in SUGGESTED_FEEDS if s["url"] not in urls],
@@ -325,9 +347,11 @@ def _note_failures(memory: Memory, status: list[str]) -> None:
     memory.set("dealfeed:failures", json.dumps(fails))
 
 
-def read_feeds(memory: Memory, fetch=None) -> tuple[list[dict], list[str]]:
-    """Today's new deals from every feed, and a status line per feed."""
+def read_feeds(memory: Memory, fetch=None, later: bool = False) -> tuple[list[dict], list[str]]:
+    """The new deals from every feed since it was last read, and a status line per feed. later: one of the day's
+    reads after the morning run; it does not count towards pausing a feed (FAIL_DAYS counts mornings)."""
     _ready(memory)
+    memory.set(LAST_READ_KEY, local_now().isoformat(timespec="seconds"))
     today = local_now().date().isoformat()
     new, status = [], []
     fails = _failures(memory)
@@ -370,8 +394,63 @@ def read_feeds(memory: Memory, fetch=None) -> tuple[list[dict], list[str]]:
                                       regular_price=d["regular"], on_sale=True if d["regular"] else None,
                                       source=f["name"], title=d["title"])
         status.append(f"{f['name']}: {added} new")
-    _note_failures(memory, status)
+    if not later:
+        _note_failures(memory, status)
     return new, status
+
+
+def _day_status(memory: Memory, status: list[str], added: int) -> dict:
+    """The day's status with one more read folded in: each feed's count is the day's total, not the last read's."""
+    try:
+        kept = json.loads(memory.get(STATUS_KEY) or "{}") or {}
+    except ValueError:
+        kept = {}
+    now = local_now()
+    if kept.get("day") != now.date().isoformat():
+        kept = {}
+    before = {}
+    for line in kept.get("feeds") or []:
+        name, _, said = str(line).partition(": ")
+        m = re.fullmatch(r"(\d+) new", said)
+        if m:
+            before[name] = int(m.group(1))
+    lines = []
+    for line in status:
+        name, _, said = line.partition(": ")
+        m = re.fullmatch(r"(\d+) new", said)
+        lines.append(f"{name}: {before.get(name, 0) + int(m.group(1))} new" if m else
+                     f"{name}: {before[name]} new" if name in before else line)  # it answered earlier today
+    return {**kept, "day": now.date().isoformat(), "feeds": lines, "new_deals": int(kept.get("new_deals") or 0) + added,
+            "reads": int(kept.get("reads") or 0) + 1, "last_read": now.strftime("%H:%M")}
+
+
+def later_due(memory: Memory, now: datetime | None = None, env=None) -> bool:
+    """Is it time to read the feeds again, between the morning runs?"""
+    now = now or local_now()
+    every = read_every_hours(env)
+    if memory.get(OFF_KEY) == "1" or not 0 < every < 24 or not READ_FROM_HOUR <= now.hour < READ_UNTIL_HOUR:
+        return False
+    if due(memory, now):
+        return False  # the morning run is due, and it reads the feeds itself
+    try:
+        last = datetime.fromisoformat(memory.get(LAST_READ_KEY) or "")
+    except ValueError:
+        return True
+    return (now - last).total_seconds() >= every * 3600
+
+
+def read_later(memory: Memory, fetch=None) -> dict:
+    """One of the day's later reads: the feeds only. New deals and their prices are kept, and deals the owner asked
+    Buddy to watch for are noted for the morning. No price checks (they use paid credits and stay once a day) and
+    nothing is told."""
+    new, status = read_feeds(memory, fetch, later=True)
+    try:
+        from . import dealforecast  # noqa: PLC0415
+        dealforecast.check(memory, new)
+    except Exception:
+        log.warning("watched deals could not be checked after a later read", exc_info=True)
+    memory.set(STATUS_KEY, json.dumps(_day_status(memory, status, len(new))))
+    return {"new": len(new), "status": status}
 
 
 def page_status(memory: Memory) -> dict:
@@ -386,6 +465,8 @@ def page_status(memory: Memory) -> dict:
     return {"off": memory.get(OFF_KEY) == "1", "last_run": feeds_run.get("day") or "",
             "feeds": [str(line)[:200] for line in feeds_run.get("feeds") or []],
             "new_deals": feeds_run.get("new_deals"), "starts_at_hour": START_HOUR,
+            "reads": int(feeds_run.get("reads") or 0), "last_read": str(feeds_run.get("last_read") or ""),
+            "every_hours": read_every_hours(),
             "inbox": json.dumps(inbox)[:300] if inbox else ""}
 
 
@@ -651,8 +732,8 @@ def run(memory: Memory, env=None, fetch=None) -> dict:
                                        "store": n["store"], "url": n["url"], "source": "daily price check",
                                        "reason": n["why"]} for n in price_news])
     picks = for_you(memory, [d for d in new if d not in hits])
-    memory.set(STATUS_KEY, json.dumps({"day": local_now().date().isoformat(), "feeds": status,
-                                       "new_deals": len(new), "matches": len(hits), "price_news": len(price_news),
+    memory.set(STATUS_KEY, json.dumps({**_day_status(memory, status, len(new)),  # with any read before the morning's
+                                       "matches": len(hits), "price_news": len(price_news),
                                        "catalog": {"products_followed": len(catalog(memory)), "checked_today": tracked,
                                                    "flight_routes_followed": routes}}))
     return {"matches": hits, "price_news": price_news, "for_you": picks, "status": status, "new": len(new)}

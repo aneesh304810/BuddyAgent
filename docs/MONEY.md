@@ -122,7 +122,12 @@ decide each differently), and uses it whenever you ask about a purchase.
 
 - **Daily deals collector:** every morning from 9 Buddy reads deal sites' public feeds (Slickdeals front page and
   popular, DealNews, r/buildapcsales, r/deals, r/frugalmalefashion; add any other: "add the deal feed
-  https://..."), checking each site's robots rules first and skipping what they disallow. It also checks today's
+  https://..."), checking each site's robots rules first and skipping what they disallow. The feeds are then read
+  again every 3 hours from 7 AM to 11 PM: a feed holds only its newest items, and in a sale week those turn over
+  many times a day, so one read a day sees a small part of them. The later reads only keep the deals and their
+  prices; nothing is told, and the price checks below stay once a day.
+  `sudo bash /opt/buddy/deploy/set.sh BUDDY_DEAL_FEEDS_EVERY_HOURS` changes the hours (24 means mornings only).
+  In the morning run it also checks today's
   price for everything you want (things you're thinking of buying, price watches, your wish list) at Google
   Shopping, Best Buy and eBay, and keeps every price, so real history builds up for buy-or-wait. A deal that
   names something you want, a new low (5% under the best seen) or a real sale is told that morning (up to three);
@@ -171,8 +176,9 @@ decide each differently), and uses it whenever you ask about a purchase.
   - **Sources.** The Sources tab lists every feed with what it said the last morning, and lets you remove one or
     add one. A new feed is read once before it is added, and one that does not answer with a feed is not added.
     A feed can be a **travel feed**: only its fares and hotel rates priced in dollars are kept, filed as flights
-    and hotels. Buddy offers a few feeds there (flight-deal sites, a Black Friday search); their addresses were
-    not confirmed when this was written, which is what the test on adding is for. For Black Friday and the
+    and hotels. Buddy offers more feeds there (flight-deal sites, the Slickdeals Hot Deals forum, DealNews'
+    Black Friday, electronics and computer sections); their addresses were not confirmed when this was
+    written, which is what the test on adding is for. For Black Friday and the
     holidays the surest source is still the stores', airlines' and hotel chains' own newsletters, sent to the
     deals inbox.
 

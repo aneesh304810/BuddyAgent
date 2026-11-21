@@ -1,6 +1,6 @@
 # Buddy Privacy and Data Retention Policy
 
-Source: https://claude.ai/artifact/MJVGZ7pWQvi26tg1MS914P, revision 121
+Source: https://claude.ai/artifact/MJVGZ7pWQvi26tg1MS914P, revision 122
 
 Nov 1, 2026 · @Aneesh
 
@@ -116,7 +116,7 @@ Buddy uses a few service providers to work. Each sees only what its job needs, u
 | Oura (API v2) | Reading the owner's own ring data | Requests for the data Oura already holds for the owner; read only; the sign-in tokens stay on Buddy's server |
 | Google (Places API) | Finding restaurants for the owner | The search words and a neighbourhood or city (for example "Italian in Chelsea, New York"); never the owner's exact location |
 | Ticketmaster (Discovery API) | Finding concerts, sports and shows for the owner | The search words and a city; never the owner's exact location. Tickets are bought by the owner on Ticketmaster's own page or app |
-| Deal feeds (Slickdeals, DealNews, deal subreddits on Reddit, and any deal site's feed the owner adds); Best Buy Products API; eBay Browse API | Reading public deal feeds once a day (only after each site's robots rules allow it), and today's prices for the things the owner wants, kept in Buddy's price history | Feed addresses, and product names for price checks; never the owner's profile, purchases or anything personal. Store pages are never scraped |
+| Deal feeds (Slickdeals, DealNews, deal subreddits on Reddit, and any deal site's feed the owner adds); Best Buy Products API; eBay Browse API | Reading public deal feeds a few times a day (only after each site's robots rules allow it), and today's prices for the things the owner wants, kept in Buddy's price history | Feed addresses, and product names for price checks; never the owner's profile, purchases or anything personal. Store pages are never scraped |
 | Plivo | Placing the phone calls the owner approved, ringing the owner in on hold-and-connect calls, and answering calls the owner's phone forwards when they don't pick up | The numbers called and the call's audio while it lasts, which includes the facts the owner allowed for that call; Buddy doesn't turn on Plivo's call recording |
 | Deepgram | Turning the other side's speech into text during a call, in any of ten languages. Also, when live hearing is in use, turning what the owner says to Buddy in Talk mode into text as it is spoken (never Listen-in: other people's speech around the owner stays on Buddy's server) | The call's audio, only while someone is talking; in Talk mode, the owner's speech from the moment they start a sentence until it ends, with a short list of names and words from the owner's vocabulary so they are heard right; Buddy opts out of Deepgram's model improvement program on every connection, in one place in the code |
 | ElevenLabs | Buddy's spoken voice on calls | The words Buddy says on the call, which can include the facts the owner allowed for that call |

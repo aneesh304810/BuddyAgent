@@ -153,8 +153,9 @@ async function renderSources(mine, fresh) {
         <small class="muted">${esc(o.about)}</small></div></div>`;
     $("main").innerHTML = (sourceNote ? `<section class="card">${sourceNote}</section>` : "") + `
       <section class="card"><b>Feeds Buddy reads every morning</b><br>
-        <small class="muted">${s.off ? "The morning collector is switched off." : s.last_run ? "Last read on " + esc(s.last_run) + "." : "Not read yet."}
-          A feed that fails 3 days running is paused and tried again each week.</small>
+        <small class="muted">${s.off ? "The deals collector is switched off." : s.last_run ? "Last read on " + esc(s.last_run) + (s.last_read ? " at " + esc(s.last_read) : "") + (s.reads > 1 ? ", " + s.reads + " times that day" : "") + "." : "Not read yet."}
+          ${s.every_hours > 0 && s.every_hours < 24 ? `Read every ${Number(s.every_hours)} hours from 7 AM to 11 PM; each feed's count is the day's total.` : "Read once each morning."}
+          A feed that fails 3 mornings running is paused and tried again each week.</small>
         ${s.feeds.map(feed).join("") || `<p class="muted">No feeds.</p>`}</section>
       <section class="card"><b>More feeds you can add</b><br>
         <small class="muted">Buddy reads a feed once before adding it, and says what it found. A feed that does not answer is not added.</small>

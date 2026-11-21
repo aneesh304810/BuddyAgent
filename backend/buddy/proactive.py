@@ -638,6 +638,10 @@ async def run(memory: Memory, deliver: Deliver, connected=None) -> None:
                     dealcollector.prune(memory)
                     for text, links in dealcollector.messages(result):
                         await deliver("money", text, cards=links, topic="deals:daily")
+                elif DAILY_DEALS and dealcollector.later_due(memory):
+                    # the feeds again, every few hours: a feed holds only its newest deals. Quiet: nothing is told.
+                    got = await asyncio.to_thread(dealcollector.read_later, memory)
+                    log.info("deal feeds read again: %s new", got["new"])
                 from . import modeltrain  # noqa: PLC0415  weekly: train a model for any domain with enough data
                 if modeltrain.due(memory):
                     y, wk, _ = local_now().isocalendar()

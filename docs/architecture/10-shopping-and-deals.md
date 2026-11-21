@@ -180,7 +180,10 @@ wants, keeps every price it sees (so real price history builds up), and tells th
   1. Deal feeds (RSS / Atom, published by the sites for readers): Slickdeals front page and popular deals,
      DealNews, and deal subreddits (r/buildapcsales, r/deals, r/frugalmalefashion). The owner can add any other
      deal site's feed ("add the feed https://..."). Each site's robots.txt is checked first and a feed it disallows
-     is skipped (and shown as skipped). Read once a day, politely. A feed is a product feed or a travel feed:
+     is skipped (and shown as skipped). Read in the morning run and again every few hours through the day
+     (READ_EVERY_HOURS): a feed holds only its newest items, and in a sale week those turn over many times a day,
+     so one read a day sees a small part of them. The later reads only keep the deals and their prices; the price
+     checks below stay once a day. A feed is a product feed or a travel feed:
      from a travel feed only fares and hotel rates priced in dollars are kept, filed as flights (by route and
      airline) and hotels (by place and chain). A feed added from the Deals page is read once first, and added
      only if it answers with a feed (try_feed); SUGGESTED_FEEDS are offered there and never added by themselves.
@@ -198,7 +201,7 @@ Only feed addresses and product names go out; the owner's profile never does. Bu
 ```
 
 - Outside services: Best Buy Products API, eBay Browse API, Google Shopping (via Serper)
-- Settings: `BUDDY_BESTBUY_KEY`, `BUDDY_CATALOG_DAILY`, `BUDDY_CATALOG_SIZE`, `BUDDY_EBAY_CLIENT_ID`, `BUDDY_EBAY_CLIENT_SECRET`, `BUDDY_SERPER_KEY`
+- Settings: `BUDDY_BESTBUY_KEY`, `BUDDY_CATALOG_DAILY`, `BUDDY_CATALOG_SIZE`, `BUDDY_DEAL_FEEDS_EVERY_HOURS`, `BUDDY_EBAY_CLIENT_ID`, `BUDDY_EBAY_CLIENT_SECRET`, `BUDDY_SERPER_KEY`
 - Uses: budgets.py, dealforecast.py, dealmail.py, finance.py, gateway.py, jobs.py, memory.py, pricebook.py, prices.py, productid.py, shopper.py, tools.py, travel.py, whentobuy.py
 
 ### dealmail.py

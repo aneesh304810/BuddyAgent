@@ -221,17 +221,17 @@ CATALOG: dict[str, dict] = {
                   "used_for": "forecasts", "moved": True, "no_backup": True,
                   "health": {"path": "/v1/forecast?latitude=40.7&longitude=-74.0&current=temperature_2m"}},
     # Shopping: Amazon prices without scraping Amazon (amazon.py).
-    # Daily deals collector (dealcollector.py): public deal feeds read once a day after their robots rules, and
+    # Daily deals collector (dealcollector.py): public deal feeds read a few times a day after their robots rules, and
     # official store APIs for the prices of what the owner wants; only feed addresses and product names go out.
     "slickdeals": {"group": "Shopping", "title": "Slickdeals (deal feeds)", "hosts": ["https://slickdeals.net"],
                    "auth": {"type": "none"}, "cost": 0.0, "per_minute": 10, "privacy": "public", "no_backup": True,
-                   "used_for": "the front page and popular deals, read once a day", "moved": True},
+                   "used_for": "the front page and popular deals, read a few times a day", "moved": True},
     "dealnews": {"group": "Shopping", "title": "DealNews (deal feed)", "hosts": ["https://www.dealnews.com"],
                  "auth": {"type": "none"}, "cost": 0.0, "per_minute": 10, "privacy": "public", "no_backup": True,
-                 "used_for": "editor-checked deals, read once a day", "moved": True},
+                 "used_for": "editor-checked deals, read a few times a day", "moved": True},
     "deal_feed": {"group": "Shopping", "title": "Other deal feeds you added", "hosts": [], "auth": {"type": "none"},
                   "cost": 0.0, "per_minute": 10, "privacy": "public", "no_backup": True,
-                  "used_for": "deal sites' RSS feeds you added, read once a day", "moved": True},
+                  "used_for": "deal sites' RSS feeds you added, read a few times a day", "moved": True},
     "deals_inbox": {"group": "Shopping", "title": "Deals inbox (deal emails and newsletters)", "hosts": [],
                     "auth": {"type": "basic", "fields": {"user": "BUDDY_DEALS_EMAIL_ADDRESS",
                                                          "password": "BUDDY_DEALS_EMAIL_APP_PASSWORD"}},

@@ -1,6 +1,8 @@
 """The daily deals collector: feeds (RSS and Atom), robots rules, matches, price checks and the report."""
 
+import io
 import json
+import urllib.error
 
 import pytest
 
@@ -161,3 +163,58 @@ def test_a_paused_feed_is_tried_again_and_the_page_can_say_why_it_is_empty(memor
     assert page["last_run"] and page["off"] is False and any(s.startswith(name) for s in page["feeds"])
     memory.set(dc.OFF_KEY, "1")
     assert dc.page_status(memory)["off"] is True
+
+
+def test_the_feeds_are_read_again_every_few_hours_and_the_days_counts_add_up(memory, monkeypatch):
+    from datetime import datetime, timedelta
+    from buddy.tools import user_tz
+    day = datetime(2026, 11, 27, 9, 30, tzinfo=user_tz())
+    monkeypatch.setattr(dc, "local_now", lambda: day)
+    assert dc.read_every_hours({}) == 3.0 and dc.read_every_hours({"BUDDY_DEAL_FEEDS_EVERY_HOURS": "6"}) == 6.0
+    assert not dc.later_due(memory, day)                       # the morning run is due: it reads the feeds itself
+    result = dc.run(memory, fetch=fetch_for([]))
+    memory.set(dc.DONE_KEY, day.date().isoformat())
+    assert result["new"] == 4
+    first = json.loads(memory.get(dc.STATUS_KEY))
+    assert first["reads"] == 1 and first["new_deals"] == 4 and "Slickdeals front page: 3 new" in first["feeds"]
+    assert not dc.later_due(memory, day + timedelta(hours=2))  # too soon
+    assert dc.later_due(memory, day + timedelta(hours=3))
+    assert not dc.later_due(memory, day.replace(hour=23, minute=30))                 # not at night
+    assert not dc.later_due(memory, day + timedelta(hours=3), env={"BUDDY_DEAL_FEEDS_EVERY_HOURS": "24"})  # mornings only
+    memory.set(dc.OFF_KEY, "1")
+    assert not dc.later_due(memory, day + timedelta(hours=3))  # switched off is off
+    memory.set(dc.OFF_KEY, "")
+
+    more = RSS.replace(b"https://slickdeals.net/f/1", b"https://slickdeals.net/f/11").replace(b"WH-1000XM6", b"WH-1000XM5")
+
+    def afternoon(url, data=None, headers=None, *rest):       # one feed has a new deal, another stops answering
+        if "slickdeals.net/rss" in url:
+            return more
+        if "reddit.com" in url and not url.endswith("/robots.txt"):
+            raise urllib.error.HTTPError(url, 503, "Unavailable", {}, io.BytesIO(b""))
+        return fetch_for([])(url, data, headers)
+    monkeypatch.setattr(dc, "local_now", lambda: day + timedelta(hours=3))
+    got = dc.read_later(memory, afternoon)
+    assert got["new"] == 1
+    status = json.loads(memory.get(dc.STATUS_KEY))
+    assert status["reads"] == 2 and status["new_deals"] == 5 and status["last_read"] == "12:30"
+    assert "Slickdeals front page: 4 new" in status["feeds"]   # the day's total, not the last read's
+    assert "r/buildapcsales: 1 new" in status["feeds"]         # it answered this morning: one bad afternoon is not news
+    assert status["matches"] == first["matches"] and "catalog" in status          # the morning's own numbers are kept
+    assert dc._failures(memory).get("r/buildapcsales", 0) == 0                     # a later read never pauses a feed
+    page = dc.page_status(memory)
+    assert page["reads"] == 2 and page["last_read"] == "12:30" and page["every_hours"] == 3.0
+    assert not dc.later_due(memory, day + timedelta(hours=4)) and dc.later_due(memory, day + timedelta(hours=6))
+
+
+def test_a_read_before_the_morning_run_is_counted_in_the_days_status(memory, monkeypatch):
+    from datetime import datetime
+    from buddy.tools import user_tz
+    early = datetime(2026, 11, 27, 7, 5, tzinfo=user_tz())
+    monkeypatch.setattr(dc, "local_now", lambda: early)
+    assert dc.later_due(memory, early)                         # before the morning run, and never read: read now
+    assert dc.read_later(memory, fetch_for([]))["new"] == 4
+    monkeypatch.setattr(dc, "local_now", lambda: early.replace(hour=9, minute=10))
+    dc.run(memory, fetch=fetch_for([]))                        # nothing new by then
+    status = json.loads(memory.get(dc.STATUS_KEY))
+    assert status["reads"] == 2 and status["new_deals"] == 4 and "Slickdeals front page: 3 new" in status["feeds"]
