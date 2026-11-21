@@ -262,7 +262,7 @@ def from_book(memory: Memory, today: date, days: int = 45) -> dict:
     Returns {"products": [...], "brands": [...], "steady": [brands with deals most days], "first_day": date|None}."""
     from . import pricebook  # noqa: PLC0415
     until = today + timedelta(days=days)
-    pricebook.identify(memory)
+    pricebook.identify(memory, pricebook.FILE_ON_READ)
     rows = pricebook.run(memory, "SELECT product, COALESCE(brand, '') AS brand, COALESCE(category, '') AS category, "
                                  "seen_on, MIN(price) AS price, COUNT(*) AS deals FROM deals WHERE "
                                  "COALESCE(domain, 'product') = 'product' AND product IS NOT NULL AND product <> '' AND "

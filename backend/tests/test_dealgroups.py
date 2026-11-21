@@ -288,3 +288,53 @@ def test_the_deals_endpoints(monkeypatch):
         gone = client.post("/api/deals/sources/remove", headers=headers, json={"url": "https://fares.example/feed/"}).json()
         assert gone["removed"] == "Removed 1 feed." and all(f["name"] != "Fare site" for f in gone["feeds"])
         assert client.post("/api/deals/sources/remove", headers=headers, json={"url": ""}).status_code == 400
+
+
+def counting(monkeypatch):
+    """Every statement the price book is asked to run, in order."""
+    asked, real = [], pricebook.run
+
+    def run(memory, sql, params=(), heal=True):
+        asked.append(" ".join(sql.split()))
+        return real(memory, sql, params, heal)
+    monkeypatch.setattr(pricebook, "run", run)
+    return asked
+
+
+def test_a_batch_of_new_deals_is_filed_by_one_statement_not_one_each(memory, monkeypatch):
+    pricebook.deals_page(memory)                                                  # the tables exist
+    for n in range(60):
+        put(memory, "2026-11-20", f"Sony WH-1000XM{n} Wireless Headphones ${100 + n}", 100 + n, n)
+    pricebook.run(memory, "INSERT INTO deals (seen_on, source, title, url, price, store, domain, item) VALUES "
+                          "('2026-11-20', 'feed', 'JFK to LIM from $398 on LATAM', 'https://d.example/f', 398, NULL, 'flight', 'jfk-lim')")
+    pricebook.run(memory, "INSERT INTO observations (seen_at, domain, item, price, seller, source) VALUES "
+                          "(TIMESTAMP '2026-11-20 10:00:00', 'flight', 'jfk-lim', 398, NULL, NULL)")   # no seller, no source
+    asked = counting(monkeypatch)
+    assert pricebook.identify(memory) == 62                                       # 61 deals and 1 price
+    assert sum(1 for s in asked if s.startswith("UPDATE deals")) == 1
+    assert sum(1 for s in asked if s.startswith("UPDATE observations")) == 1
+    filed = pricebook.run(memory, "SELECT COUNT(*) AS n, COUNT(product) AS filed, COUNT(DISTINCT product) AS products FROM deals")[0]
+    assert (filed["n"], filed["filed"], filed["products"]) == (61, 61, 61)
+    fare = pricebook.run(memory, "SELECT product, brand, place FROM deals WHERE domain = 'flight'")[0]
+    assert fare == {"product": "jfk-lim", "brand": "latam", "place": "lim"}
+    assert pricebook.run(memory, "SELECT product, place FROM observations")[0] == {"product": "jfk-lim", "place": "lim"}
+    del asked[:]
+    assert pricebook.identify(memory) == 0 and not any(s.startswith("UPDATE") for s in asked)   # nothing left to file
+
+
+def test_what_adds_deals_files_them_so_a_page_does_not_have_to(memory, monkeypatch):
+    memory.set(dc.FEEDS_KEY, json.dumps([{"name": "Fare site", "service": "deal_feed", "url": "https://fares.example/feed/",
+                                          "kind": "travel"}]))
+    dc.read_feeds(memory, fetch)
+    dealmail.keep(memory, [deal("Sony WH-1000XM5 Wireless Headphones $248", 248.0, 399.0)])
+    unfiled = pricebook.run(memory, "SELECT COUNT(*) AS n FROM deals WHERE product IS NULL")[0]["n"]
+    assert unfiled == 0                                                           # before any page was opened
+    asked = counting(monkeypatch)
+    page = pricebook.deals_page(memory, 7)
+    assert page["counts"] == {"product": 1, "flight": 2, "hotel": 1}
+    assert not any(s.startswith("UPDATE") for s in asked)                         # the page only reads
+    del asked[:]
+    again, status = dc.read_feeds(memory, fetch)                                  # the same feed, nothing new in it
+    assert again == [] and status == ["Fare site: 0 new"]
+    assert not any(s.startswith("INSERT") for s in asked)                         # asked once which items it has
+    assert sum(1 for s in asked if s.startswith("SELECT url FROM deals")) == 1

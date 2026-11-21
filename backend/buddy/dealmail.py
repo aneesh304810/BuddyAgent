@@ -565,6 +565,8 @@ def keep(memory: Memory, deals: list[dict], when: datetime | None = None, source
                               regular_price=d["regular"], on_sale=bool(d["regular"]),
                               source="deal notification" if source.startswith("app:") else "deal email",
                               seen_at=when, title=d["title"])
+    if added:  # filed under their products here and now, so that no page has to do it before it can answer
+        pricebook.identify(memory)
     return added
 
 

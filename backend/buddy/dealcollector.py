@@ -372,7 +372,12 @@ def read_feeds(memory: Memory, fetch=None, later: bool = False) -> tuple[list[di
         added = 0
         from . import pricebook  # noqa: PLC0415
         from . import dealforecast  # noqa: PLC0415
+        # Most of a feed's items were kept on an earlier read: ask once which, not once for each of them.
+        have = {r["url"] for r in pricebook.run(memory, "SELECT url FROM deals WHERE url IN (SELECT UNNEST(CAST(? AS "
+                                                        "VARCHAR[])))", ([it["url"][:500] for it in items],))} if items else set()
         for it in items:
+            if it["url"][:500] in have:
+                continue
             d = deal_from(it, f["name"], f.get("kind", "product"))
             if d is None:  # a travel feed's article, or a fare not priced in dollars: not a deal
                 continue
@@ -396,6 +401,9 @@ def read_feeds(memory: Memory, fetch=None, later: bool = False) -> tuple[list[di
         status.append(f"{f['name']}: {added} new")
     if not later:
         _note_failures(memory, status)
+    if new:  # filed under their products here and now, so that no page has to do it before it can answer
+        from . import pricebook  # noqa: PLC0415
+        pricebook.identify(memory)
     return new, status
 
 

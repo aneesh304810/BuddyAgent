@@ -386,23 +386,50 @@ def identify(memory, limit: int = 20000) -> int:
         return 0
 
 
+FILE_AT_ONCE = 2000  # names filed by one statement
+# What a reader (a page, a buy-or-wait call) files before it answers, at most. What adds prices and deals files them
+# as they arrive, and the server files any backlog once when it starts, so a reader normally finds nothing to file;
+# this keeps a reader from waiting on a backlog all the same. What is left shows under its own name until filed.
+FILE_ON_READ = 2000
+
+
+def _filed(rows: list[dict], found: list[dict], *keys: str) -> tuple:
+    """The lists one filing statement takes: each key's values, then the product, brand, category and place."""
+    return (*[[r[k] for r in rows] for k in keys],
+            [g["product"] or key(r["t"]) for r, g in zip(rows, found)], [g["brand"] for g in found],
+            [g["category"] for g in found], [g.get("place", "") for g in found])
+
+
+def _lists(names: tuple) -> str:
+    return ", ".join(f"UNNEST(CAST(? AS VARCHAR[])) AS {n}" for n in names)
+
+
 def _file_all(memory, limit: int) -> int:
+    """File what is unfiled, a batch by one statement. (It was one statement for each name, each reading the whole
+    table and saved on its own: the first page opened after a night of deal emails waited minutes for it, and so
+    did a trip search, since every reader of the price book files first.)"""
     done = 0
     todo = run(memory, "SELECT DISTINCT item AS t, domain AS d, COALESCE(NULLIF(seller, ''), source) AS who FROM observations "
                        f"WHERE product IS NULL LIMIT {int(limit)}")
-    for r in todo:
-        got = _identity(r["d"], r["t"], r["who"] or "")
-        run(memory, "UPDATE observations SET product = ?, brand = ?, category = ?, place = ? WHERE product IS NULL AND "
-                    "item = ? AND domain = ? AND COALESCE(NULLIF(seller, ''), source) IS NOT DISTINCT FROM ?",
-            (got["product"] or key(r["t"]), got["brand"], got["category"], got.get("place", ""), r["t"], r["d"], r["who"]))
+    for at in range(0, len(todo), FILE_AT_ONCE):
+        rows = todo[at:at + FILE_AT_ONCE]
+        found = [_identity(r["d"], r["t"], r["who"] or "") for r in rows]
+        run(memory, "UPDATE observations SET product = f.product, brand = f.brand, category = f.category, place = f.place "
+                    f"FROM (SELECT {_lists(('t', 'd', 'who', 'product', 'brand', 'category', 'place'))}) f "
+                    "WHERE observations.product IS NULL AND observations.item = f.t AND observations.domain = f.d AND "
+                    "COALESCE(NULLIF(observations.seller, ''), observations.source) IS NOT DISTINCT FROM f.who",
+            _filed(rows, found, "t", "d", "who"))
     done += len(todo)
     todo = run(memory, "SELECT DISTINCT title AS t, COALESCE(domain, 'product') AS d, COALESCE(item, '') AS i, "
                        f"COALESCE(store, '') AS who FROM deals WHERE product IS NULL LIMIT {int(limit)}")
-    for r in todo:
-        got = _identity(r["d"], r["t"] if r["d"] == "product" else (r["i"] or r["t"]), r["who"], r["t"])
-        run(memory, "UPDATE deals SET product = ?, brand = ?, category = ?, place = ? WHERE product IS NULL AND title = ? "
-                    "AND COALESCE(domain, 'product') = ? AND COALESCE(item, '') = ? AND COALESCE(store, '') = ?",
-            (got["product"] or key(r["t"]), got["brand"], got["category"], got.get("place", ""), r["t"], r["d"], r["i"], r["who"]))
+    for at in range(0, len(todo), FILE_AT_ONCE):
+        rows = todo[at:at + FILE_AT_ONCE]
+        found = [_identity(r["d"], r["t"] if r["d"] == "product" else (r["i"] or r["t"]), r["who"], r["t"]) for r in rows]
+        run(memory, "UPDATE deals SET product = f.product, brand = f.brand, category = f.category, place = f.place "
+                    f"FROM (SELECT {_lists(('t', 'd', 'i', 'who', 'product', 'brand', 'category', 'place'))}) f "
+                    "WHERE deals.product IS NULL AND deals.title = f.t AND COALESCE(deals.domain, 'product') = f.d AND "
+                    "COALESCE(deals.item, '') = f.i AND COALESCE(deals.store, '') = f.who",
+            _filed(rows, found, "t", "d", "i", "who"))
     done += len(todo)
     return done
 
@@ -417,7 +444,7 @@ def _names(item: str, domain: str) -> tuple[str, str]:
 
 def history(memory, item: str, domain: str = "product", days: int = 365) -> list[dict]:
     since = utc(datetime.now(timezone.utc) - timedelta(days=days))
-    identify(memory)
+    identify(memory, FILE_ON_READ)
     rows = run(memory, "SELECT seen_at, price, currency, seller, source FROM observations WHERE domain = ? AND (item = ? "
                        "OR product = ? OR product = ?) AND seen_at >= ? ORDER BY seen_at",
                (domain, key(item), *_names(item, domain), since))
@@ -430,7 +457,7 @@ def history(memory, item: str, domain: str = "product", days: int = 365) -> list
 
 
 def lowest(memory, item: str, domain: str = "product") -> float | None:
-    identify(memory)
+    identify(memory, FILE_ON_READ)
     got = run(memory, "SELECT MIN(price) AS low FROM observations WHERE domain = ? AND (item = ? OR product = ? OR "
                       "product = ?)", (domain, key(item), *_names(item, domain)))
     return got[0]["low"] if got and got[0]["low"] is not None else None
@@ -560,7 +587,7 @@ def deal_groups(memory, days: int = 7, domain: str = "product", by: str = "categ
     if not column:
         raise ValueError(f"{domain or 'These'} deals can be grouped by: {', '.join(GROUPS.get(domain) or []) or 'nothing'}.")
     try:
-        identify(memory)
+        identify(memory, FILE_ON_READ)
     except Exception:
         log.warning("price book: filing deals under their products failed", exc_info=True)
     where, args = _deal_where(days, query)
@@ -586,7 +613,7 @@ def deals_page(memory, days: int = 7, domain: str = "", query: str = "", limit: 
     "new" (the default), "saving" (the biggest saving first) or "price" (the cheapest first). `crazy` keeps only the
     crazy deals (see CRAZY_OFF above)."""
     try:
-        identify(memory)
+        identify(memory, FILE_ON_READ)
     except Exception:  # filing deals under their products is a help, not a condition: the page still lists them
         log.warning("price book: filing deals under their products failed", exc_info=True)
     where, args = _deal_where(days, query)
@@ -606,15 +633,18 @@ def deals_page(memory, days: int = 7, domain: str = "", query: str = "", limit: 
     totals = {r["domain"]: int(r["n"]) for r in run(
         memory, "SELECT COALESCE(domain, 'product') AS domain, COUNT(*) AS n FROM deals d WHERE " + " AND ".join(where)
                 + " GROUP BY 1", tuple(args))}
+    # The price history of the products on this page only: the whole book is not read to show 300 deals.
+    wanted = sorted({r["product"] or key(r["item"]) for r in rows})
+    makers = sorted({r["brand"] for r in rows if r["domain"] == "product" and r["brand"]})
     # A flight is compared within its cabin only: a business fare is not a bad economy fare.
     lows = {(r["domain"], r["product"], r["cabin"]): r for r in run(
         memory, "SELECT domain, product, CASE WHEN domain = 'flight' THEN category ELSE '' END AS cabin, MIN(price) AS low, "
                 "MEDIAN(price) AS mid, COUNT(DISTINCT CAST(seen_at AS DATE)) AS days, COUNT(*) AS n FROM observations "
-                "GROUP BY 1, 2, 3")}
+                "WHERE product IN (SELECT UNNEST(CAST(? AS VARCHAR[]))) GROUP BY 1, 2, 3", (wanted,))} if wanted else {}
     usual = {(r["brand"], r["category"]): r for r in run(
         memory, "SELECT brand, category, MEDIAN(price) AS mid, COUNT(DISTINCT product) AS products, COUNT(*) AS n FROM "
-                "observations WHERE domain = 'product' AND brand <> '' GROUP BY brand, category HAVING COUNT(*) >= ?",
-        (USUAL_MIN,))}
+                "observations WHERE domain = 'product' AND brand IN (SELECT UNNEST(CAST(? AS VARCHAR[]))) "
+                "GROUP BY brand, category HAVING COUNT(*) >= ?", (makers, USUAL_MIN))} if makers else {}
     out = []
     for r in rows:
         seen = lows.get((r["domain"], r["product"] or key(r["item"]), r["category"] if r["domain"] == "flight" else "")) or {}
@@ -682,7 +712,7 @@ def levels(memory, domain: str, item: str, seller: str = "", title: str = "", ca
              same place)
 
     A product Buddy has never seen can still be judged by how far its peers usually fall."""
-    identify(memory)
+    identify(memory, FILE_ON_READ)
     got = _identity(domain, item, seller, title, cabin)
     since = utc(datetime.now(timezone.utc) - timedelta(days=days))
     flight = domain == "flight"
@@ -708,7 +738,7 @@ def levels(memory, domain: str, item: str, seller: str = "", title: str = "", ca
 
 def chart(memory, item: str, domain: str = "product", days: int = 365) -> dict:
     """One item's price history for the Deals page's chart: the day's lowest price, per day."""
-    identify(memory)
+    identify(memory, FILE_ON_READ)
     rows = run(memory, "SELECT CAST(seen_at AS DATE) AS day, MIN(price) AS price FROM observations WHERE domain = ? "
                        "AND (item = ? OR product = ? OR product = ?) AND seen_at >= ? GROUP BY day ORDER BY day",
                (domain, key(item), *_names(item, domain), utc(datetime.now(timezone.utc) - timedelta(days=days))))

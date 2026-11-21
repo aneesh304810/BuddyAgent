@@ -557,6 +557,17 @@ async def lifespan(app: FastAPI):
             except Exception:
                 log.exception("company documents sync failed")
         asyncio.create_task(_company_docs())
+
+    async def _file_prices() -> None:
+        """File any backlog of prices and deals under their products once, here, so that no page waits on it."""
+        try:
+            from . import pricebook  # noqa: PLC0415
+            for _ in range(50):
+                if not await asyncio.to_thread(pricebook.identify, memory):
+                    break
+        except Exception:
+            log.exception("filing the price book's backlog failed")
+    asyncio.create_task(_file_prices())
     try:
         yield
     finally:
