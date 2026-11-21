@@ -70,8 +70,9 @@ flowchart LR
     deals_py --> amazon_py
     deals_py --> prices_py
     amazon_py --> prices_py
-    db[("Your database<br/>card_offers, deal_alerts, price_seen, price_watches, seasons, shop_considering, shop_profile, shop_purchases and more")]
+    db[("Your database<br/>card_offers, deal_alerts, deal_news, price_seen, price_watches, seasons, shop_considering, shop_profile and more")]
     shopper_py --> db
+    dealcollector_py --> db
     dealmail_py --> db
     dealforecast_py --> db
     deals_py --> db
@@ -187,6 +188,9 @@ wants, keeps every price it sees (so real price history builds up), and tells th
      from a travel feed only fares and hotel rates priced in dollars are kept, filed as flights (by route and
      airline) and hotels (by place and chain). A feed added from the Deals page is read once first, and added
      only if it answers with a feed (try_feed); SUGGESTED_FEEDS are offered there and never added by themselves.
+     A third kind is a news feed (which stores' ads are out, when a sale starts): its headlines are kept apart in
+     Buddy's own database and shown as sale news. No price is taken from a headline ("the best TVs under $500" is
+     not a price), and nothing from it goes into the price book.
   2. The owner's wanted things: what they said they're thinking of buying (shopping_profile), their price watches
      and their wish list get a daily price check from official sources: Google Shopping through Serper (every
      store), the Best Buy Products API (free key: the regular price and whether it's on sale) and the eBay Browse
@@ -200,6 +204,7 @@ Store pages themselves are never scraped (Amazon, Walmart, Target, Costco and Be
 Only feed addresses and product names go out; the owner's profile never does. Buddy never buys.
 ```
 
+- Tables: `deal_news`
 - Outside services: Best Buy Products API, eBay Browse API, Google Shopping (via Serper)
 - Settings: `BUDDY_BESTBUY_KEY`, `BUDDY_CATALOG_DAILY`, `BUDDY_CATALOG_SIZE`, `BUDDY_DEAL_FEEDS_EVERY_HOURS`, `BUDDY_EBAY_CLIENT_ID`, `BUDDY_EBAY_CLIENT_SECRET`, `BUDDY_SERPER_KEY`
 - Uses: budgets.py, dealforecast.py, dealmail.py, finance.py, gateway.py, jobs.py, memory.py, pricebook.py, prices.py, productid.py, shopper.py, tools.py, travel.py, whentobuy.py

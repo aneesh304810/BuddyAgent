@@ -173,8 +173,17 @@ decide each differently), and uses it whenever you ask about a purchase.
     on the deal: half price or better against the regular price the seller states; 30% or more under the usual
     price Buddy has seen for the same product, the same route in the same cabin or the same hotel (once it has
     been seen on three days with five prices); or its source calls it a price mistake ("error fare").
+  - **A "regular" price is checked.** Once Buddy has its own history of a thing (three days, five prices), a
+    regular price the seller states is compared with it. When Buddy has usually seen the thing at 25% or more
+    under that "regular" price, the deal says so ("Regular $499, but Buddy has usually seen it at $232") and is
+    not called a crazy deal on the seller's word. Buddy's history comes mostly from deal posts and price checks,
+    so "usually seen at" means what it has sold for when Buddy looked, not a list price. With no history of the
+    thing, the stated regular price is all there is, and it is shown as stated.
   - **Sources.** The Sources tab lists every feed with what it said the last morning, and lets you remove one or
     add one. A new feed is read once before it is added, and one that does not answer with a feed is not added.
+    A feed can be a **sale news feed** (which stores' ads are out, when a sale starts): its headlines show as
+    Sale news at the top of the Predicted tab, and no price is taken from them ("the best TVs under $500" is not
+    a price), so nothing from it reaches the price book.
     A feed can be a **travel feed**: only its fares and hotel rates priced in dollars are kept, filed as flights
     and hotels. Buddy offers more feeds there (flight-deal sites, the Slickdeals Hot Deals forum, DealNews'
     Black Friday, electronics and computer sections); their addresses were not confirmed when this was

@@ -2191,8 +2191,14 @@ async def api_deals_calls() -> dict:
 
 @app.get("/api/deals/predicted", dependencies=[Depends(require_admin)])
 async def api_deals_predicted(days: int = 45) -> dict:
-    from . import dealforecast  # noqa: PLC0415
-    return await asyncio.to_thread(dealforecast.predicted_page, memory, max(7, min(days, 120)))
+    from . import dealcollector, dealforecast  # noqa: PLC0415
+    out = await asyncio.to_thread(dealforecast.predicted_page, memory, max(7, min(days, 120)))
+    try:  # sale news from the news feeds the owner added (which ads are out, when a sale starts)
+        out["news"] = await asyncio.to_thread(dealcollector.news, memory)
+    except Exception:
+        log.warning("deals page: the sale news could not be read", exc_info=True)
+        out["news"] = []
+    return out
 
 
 # --- today: the strip on the app's home screen and the number on the bell

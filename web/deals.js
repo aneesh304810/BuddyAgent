@@ -28,7 +28,7 @@ const VIEWS = {
 };
 const MANY = { category: "categories", brand: "brands", product: "products", route: "routes", airline: "airlines", place: "places", chain: "chains" };
 const UNFILED = { brand: "Brand not recognised", airline: "Airline not named", chain: "No chain named", place: "Place not named" };
-const CRAZY_NOTE = "A crazy deal is one of three: half price or better against the regular price the seller states; 30% or more under the usual price Buddy has seen for the same thing; or called a price mistake by its source. The biggest saving comes first.";
+const CRAZY_NOTE = "A crazy deal is one of three: half price or better against the regular price the seller states (not counted when Buddy's own history shows that price is inflated); 30% or more under the usual price Buddy has seen for the same thing; or called a price mistake by its source. The biggest saving comes first.";
 const state = {};
 for (const kind of Object.keys(VIEWS)) {
   const kept = storageGet("dealsView:" + kind);
@@ -130,7 +130,11 @@ async function renderPredicted(mine) {
       }
       return `<h3>${title} · ${mineOf.length}</h3>${body}`;
     };
-    $("main").innerHTML = SECTIONS.map(section).join("") + restsOn(predicted.basis) +
+    const news = predicted.news || [];
+    const newsCard = news.length ? `<h3>📰 Sale news · ${news.length}</h3><section class="card">` + news.map((n) => `
+        <div class="src"><div class="what">${safe(n.url) ? `<a class="link" style="margin:0" href="${esc(safe(n.url))}" target="_blank" rel="noopener noreferrer">${esc(n.title)}</a>` : `<b>${esc(n.title)}</b>`}<br>
+          <small class="muted">${esc(n.source)} · ${esc(n.day)}</small></div></div>`).join("") + `</section>` : "";
+    $("main").innerHTML = newsCard + SECTIONS.map(section).join("") + restsOn(predicted.basis) +
       `<p class="muted">Rough, not promises. Say "watch for it" to Buddy to get an alert when a deal comes.</p>`;
   } catch (e) { if (mine === seq) $("main").innerHTML = `<p class="err">${esc(e.message)}</p>`; }
 }
@@ -143,7 +147,7 @@ async function renderSources(mine, fresh) {
     sources = fresh || sources || await api("/api/deals/sources");
     if (mine !== seq) return;
     const s = sources;
-    const kind = (k) => k === "travel" ? `<span class="pill">flights and hotels</span>` : "";
+    const kind = (k) => k === "travel" ? `<span class="pill">flights and hotels</span>` : k === "news" ? `<span class="pill">sale news</span>` : "";
     const feed = (f, i) => `<div class="src"><div class="what"><b>${esc(f.name)}</b> ${kind(f.kind)}<br>
         <small class="muted">${esc(f.said || (s.last_run ? "not read on the last morning" : "not read yet"))}</small></div>
         <button class="btn" data-remove="${i}">Remove</button></div>`;
@@ -161,7 +165,7 @@ async function renderSources(mine, fresh) {
         <small class="muted">Buddy reads a feed once before adding it, and says what it found. A feed that does not answer is not added.</small>
         ${s.suggested.map(more).join("") || `<p class="muted">You have added all the feeds Buddy knows of.</p>`}
         <div class="addrow"><input id="feedurl" type="url" placeholder="https://… (a site's RSS or Atom feed)" aria-label="Feed address">
-          <select id="feedkind" aria-label="What the feed carries"><option value="product">Products</option><option value="travel">Flights and hotels</option></select>
+          <select id="feedkind" aria-label="What the feed carries"><option value="product">Products</option><option value="travel">Flights and hotels</option><option value="news">Sale news (no prices)</option></select>
           <button class="btn" id="feedadd">Add and test</button></div></section>
       <section class="card"><b>Other ways deals arrive</b>${s.other.map(other).join("")}</section>
       <p class="muted">Buddy reads only what sites publish for readers (feeds) and what is sent to you (email). It never scrapes store pages. For Black Friday and the holidays, the surest source is the stores', airlines' and hotel chains' own newsletters, sent to your deals inbox.</p>`;
@@ -170,7 +174,7 @@ async function renderSources(mine, fresh) {
       try {
         const got = await api("/api/deals/sources/add", { url, name, kind: kindOf });
         const t = got.tried || {};
-        sourceNote = `<b>Added.</b> <span class="muted">Read ${plural(t.items || 0, "item")} just now; ${t.deals || 0} would be kept as deals${(t.examples || []).length ? ", such as “" + esc(t.examples[0]) + "”" : ""}. It is read every morning from tomorrow.</span>`;
+        sourceNote = `<b>Added.</b> <span class="muted">Read ${plural(t.items || 0, "item")} just now; ${t.news ? "they will show as sale news on the Predicted tab" : (t.deals || 0) + " would be kept as deals"}${(t.examples || []).length ? ", such as “" + esc(t.examples[0]) + "”" : ""}. It is read with the other feeds from the next read on.</span>`;
         if (seq === mine) renderSources(mine, got);
       } catch (e) {
         sourceNote = `<span class="err" style="padding:0">${esc(e.message)}</span>`;
@@ -265,7 +269,8 @@ function dealCard(d, i) {
         ${d.is_lowest ? `<span class="pill low">Lowest in ${esc(d.seen_days)} days Buddy has seen it</span>` : d.lowest_seen ? `<span class="pill">Lowest seen ${money(d.lowest_seen)}</span>` : d.seen_days <= 1 ? `<span class="pill">First time Buddy has seen this</span>` : ""}
         ${d.under && !d.crazy ? `<span class="pill">${pct(d.under)} under its usual ${money(d.usual_price)}</span>` : ""}
         ${d.usual && d.price ? `<span class="pill">Usual for ${esc(d.brand)} ${esc(d.category)} deals: ${money(d.usual.price)}</span>` : ""}
-        ${d.off && !(d.crazy && d.off >= 0.5) ? `<span class="pill">${pct(d.off)} off</span>` : ""}
+        ${d.regular_doubt ? `<span class="pill doubt">“Regular” ${money(d.regular_price)}, but Buddy has usually seen it at ${money(d.usual_price)}</span>`
+          : d.off && !(d.crazy && d.off >= 0.5) ? `<span class="pill">${pct(d.off)} off</span>` : ""}
         <div>${safe(d.url) ? `<a class="btn" href="${esc(safe(d.url))}" target="_blank" rel="noopener noreferrer">Open deal</a>` : `<small class="muted">No link came with this one</small>`}
           <button class="btn" data-i="${i}">Price history</button></div>
       </div>

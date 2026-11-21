@@ -338,3 +338,49 @@ def test_what_adds_deals_files_them_so_a_page_does_not_have_to(memory, monkeypat
     assert again == [] and status == ["Fare site: 0 new"]
     assert not any(s.startswith("INSERT") for s in asked)                         # asked once which items it has
     assert sum(1 for s in asked if s.startswith("SELECT url FROM deals")) == 1
+
+
+NEWS = b"""<?xml version="1.0"?><rss version="2.0"><channel>
+<item><title>Walmart's Black Friday ad is out: deals start November 22</title><link>https://news.example/1</link>
+<pubDate>Fri, 20 Nov 2026 10:00:00 GMT</pubDate></item>
+<item><title>The best Black Friday TV deals under $500</title><link>https://news.example/2</link>
+<pubDate>Thu, 19 Nov 2026 10:00:00 GMT</pubDate></item>
+</channel></rss>"""
+
+
+def news_fetch(url, data=None, headers=None, *rest):
+    return NEWS if "news.example" in url else fetch(url, data, headers)
+
+
+def test_a_news_feed_is_shown_as_sale_news_and_never_reaches_the_price_book(memory):
+    tried = dc.try_feed(memory, "https://news.example/feed", "news", news_fetch)
+    assert tried["news"] == 2 and tried["deals"] == 0 and tried["examples"][0].startswith("Walmart's Black Friday ad")
+    assert "Added" in dc.add_feed(memory, "https://news.example/feed", "Sale news site", "news")
+    memory.set(dc.FEEDS_KEY, json.dumps([f for f in dc.feeds(memory) if f["name"] == "Sale news site"]))
+    new, status = dc.read_feeds(memory, news_fetch)
+    assert new == [] and status == ["Sale news site: 2 new"]
+    assert pricebook.run(memory, "SELECT COUNT(*) AS n FROM deals")[0]["n"] == 0            # "under $500" is no price
+    assert pricebook.run(memory, "SELECT COUNT(*) AS n FROM observations")[0]["n"] == 0
+    got = dc.news(memory)
+    assert [n["title"][:9] for n in got] == ["Walmart's", "The best "] and got[0]["day"] == "2026-11-20"
+    assert got[0]["url"] == "https://news.example/1" and got[0]["source"] == "Sale news site"
+    assert dc.read_feeds(memory, news_fetch)[1] == ["Sale news site: 0 new"]                # each headline once
+    assert dc.sources(memory, env={})["feeds"][0]["kind"] == "news"
+    assert {f["kind"] for f in dc.SUGGESTED_FEEDS} == set(dc.KINDS)
+
+
+def test_a_stated_regular_price_is_checked_against_what_buddy_has_seen(memory):
+    for back in range(2, 8):                                                                 # seen at about $290 for a week
+        pricebook.observe(memory, "product", "Sony WH-1000XM5 Wireless Headphones", 290.0 + back, seller="Amazon",
+                          source="price watch", seen_at=datetime.now(timezone.utc) - timedelta(days=back))
+    dealmail.keep(memory, [deal("Sony WH-1000XM5 Wireless Headphones $280 (was $600)", 280.0, 600.0),
+                           deal("LG C4 65-inch OLED TV $1,196", 1196.0, 2499.0)])            # no history of this one
+    page = {d["brand"]: d for d in pricebook.deals_page(memory, 7, "product")["deals"]}
+    sony = page["sony"]
+    assert sony["off"] == 0.53 and sony["regular_doubt"] and sony["usual_price"] == 294.0  # "53% off", by the seller
+    assert not sony["crazy"] and sony["crazy_why"] == []                                    # it is its usual price
+    assert page["lg"]["crazy"] and not page["lg"]["regular_doubt"]                          # nothing to check it against
+    crazy = pricebook.deals_page(memory, 7, "product", crazy=True)["deals"]
+    assert [d["brand"] for d in crazy] == ["lg"]
+    saving = pricebook.deals_page(memory, 7, "product", sort="saving")["deals"]
+    assert [d["brand"] for d in saving] == ["lg", "sony"]                                   # a doubted saving does not lead

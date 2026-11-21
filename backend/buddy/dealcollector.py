@@ -11,6 +11,9 @@ wants, keeps every price it sees (so real price history builds up), and tells th
      from a travel feed only fares and hotel rates priced in dollars are kept, filed as flights (by route and
      airline) and hotels (by place and chain). A feed added from the Deals page is read once first, and added
      only if it answers with a feed (try_feed); SUGGESTED_FEEDS are offered there and never added by themselves.
+     A third kind is a news feed (which stores' ads are out, when a sale starts): its headlines are kept apart in
+     Buddy's own database and shown as sale news. No price is taken from a headline ("the best TVs under $500" is
+     not a price), and nothing from it goes into the price book.
   2. The owner's wanted things: what they said they're thinking of buying (shopping_profile), their price watches
      and their wish list get a daily price check from official sources: Google Shopping through Serper (every
      store), the Best Buy Products API (free key: the regular price and whether it's on sale) and the eBay Browse
@@ -99,8 +102,44 @@ SUGGESTED_FEEDS = [
      "about": "DealNews' computer deals."},
     {"name": "9to5Toys", "kind": "product", "url": "https://9to5toys.com/feed/",
      "about": "Electronics and home deals through the day."},
+    {"name": "Slickdeals: Black Friday news", "kind": "news", "url": "https://blackfriday.slickdeals.net/feed",
+     "about": "Which stores' Black Friday ads are out and when their sales start. Shown as sale news; no prices are "
+              "taken from it."},
+    {"name": "BlackFriday.com news", "kind": "news", "url": "https://blackfriday.com/news/feed",
+     "about": "Black Friday ad alerts and sale dates. Shown as sale news; no prices are taken from it."},
 ]
-KINDS = ("product", "travel")
+KINDS = ("product", "travel", "news")
+NEWS_SQL = """CREATE TABLE IF NOT EXISTS deal_news (
+    url TEXT PRIMARY KEY, day TEXT NOT NULL, source TEXT NOT NULL, title TEXT NOT NULL, posted TEXT NOT NULL DEFAULT '')"""
+NEWS_DAYS = 45  # how long a headline is kept
+
+
+def keep_news(memory: Memory, items: list[dict], source: str) -> int:
+    """A news feed's headlines into Buddy's own database (never the price book). Returns how many are new."""
+    memory.db.execute(NEWS_SQL)
+    today, added = local_now().date(), 0
+    for it in items:
+        posted = it.get("posted", "")
+        try:
+            posted = parsedate_to_datetime(posted).date().isoformat()
+        except (TypeError, ValueError, IndexError):
+            posted = posted[:10]
+        added += memory.db.execute("INSERT OR IGNORE INTO deal_news (url, day, source, title, posted) VALUES (?, ?, ?, ?, ?)",
+                                   (it["url"][:500], today.isoformat(), source, " ".join(it["title"].split())[:300],
+                                    posted)).rowcount
+    memory.db.execute("DELETE FROM deal_news WHERE day < ?", ((today - timedelta(days=NEWS_DAYS)).isoformat(),))
+    memory.db.commit()
+    return added
+
+
+def news(memory: Memory, days: int = 21, limit: int = 25) -> list[dict]:
+    """The newest sale news headlines, for the Deals page."""
+    memory.db.execute(NEWS_SQL)
+    since = (local_now().date() - timedelta(days=days)).isoformat()
+    return [{"title": r["title"], "url": r["url"] if str(r["url"]).startswith("https://") else "", "source": r["source"],
+             "day": r["posted"] or r["day"]}
+            for r in memory.db.execute("SELECT * FROM deal_news WHERE day >= ? ORDER BY COALESCE(NULLIF(posted, ''), day) DESC, "
+                                       "day DESC, rowid LIMIT ?", (since, int(limit)))]
 FAIL_DAYS = 3  # a feed that fails this many days running is paused (shown in status; "add" it again to retry)
 RETRY_EVERY = 7  # and tried again by itself every this many days, so a site that was down for a while comes back
 
@@ -167,6 +206,9 @@ def try_feed(memory: Memory, url: str, kind: str = "product", fetch=None) -> dic
         raise ToolError(f"I could not read that feed ({str(e)[:120]}), so I did not add it.") from e
     if not items:
         raise ToolError("That address answered, but not with a feed that has items in it, so I did not add it.")
+    if kind == "news":  # headlines, shown as they are: none of them is a deal with a price
+        return {"items": len(items), "deals": 0, "priced": 0, "news": len(items),
+                "examples": [" ".join(it["title"].split())[:120] for it in items[:3]]}
     deals = [d for d in (deal_from(it, "test", kind) for it in items) if d]
     return {"items": len(items), "deals": len(deals), "priced": sum(1 for d in deals if d["price"]),
             "examples": [d["title"][:120] for d in deals[:3]]}
@@ -368,6 +410,9 @@ def read_feeds(memory: Memory, fetch=None, later: bool = False) -> tuple[list[di
             items = parse_feed(_get(memory, f["service"], f["url"], fetch) or b"")
         except (gateway.ConnectError, ET.ParseError, ValueError) as e:  # ValueError: XML defusedxml refused
             status.append(f"{f['name']}: couldn't read it ({str(e)[:80]})")
+            continue
+        if f.get("kind") == "news":  # sale news: kept apart, never in the price book
+            status.append(f"{f['name']}: {keep_news(memory, items, f['name'])} new")
             continue
         added = 0
         from . import pricebook  # noqa: PLC0415

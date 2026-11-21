@@ -542,7 +542,10 @@ SEEN_DAYS, USUAL_MIN = 3, 5  # days a product must have been seen to call a pric
 #   the source itself calls it a price mistake ("error fare").
 # More than 80% under the usual price is not counted: that is far more often another thing filed under the same
 # name (a case under its phone) than a price.
-CRAZY_OFF, CRAZY_UNDER, UNDER_MAX = 0.5, 0.3, 0.8
+# A stated regular price is not taken on trust once Buddy has its own history of the thing: when Buddy has usually
+# seen it at 25% or more under the "regular" price, the deal says so and is judged by Buddy's own usual price only
+# (a "was $600" on something that has sold for about $290 for weeks is not half price).
+CRAZY_OFF, CRAZY_UNDER, UNDER_MAX, REGULAR_DOUBT = 0.5, 0.3, 0.8, 0.25
 MISTAKE = re.compile(r"\b(?:error|mistake|glitch)\s+(?:fares?|rates?|prices?)\b|\bprice\s+(?:error|mistake|glitch)\b|"
                      r"\bmistake(?:nly)?\s+priced\b", re.I)
 # What each kind of deal can be grouped by on the Deals page, and the column that holds it.
@@ -657,8 +660,10 @@ def deals_page(memory, days: int = 7, domain: str = "", query: str = "", limit: 
                                               and int(seen.get("n") or 0) >= USUAL_MIN) else None
         if under is not None and under > UNDER_MAX:
             under = None
+        known = mid if (mid and days_seen >= SEEN_DAYS and int(seen.get("n") or 0) >= USUAL_MIN) else None
+        doubt = bool(off is not None and known and known <= r["regular_price"] * (1 - REGULAR_DOUBT))
         why = []
-        if off is not None and off >= CRAZY_OFF:
+        if off is not None and off >= CRAZY_OFF and not doubt:
             why.append(f"{off:.0%} off the regular price")
         if under is not None and under >= CRAZY_UNDER:
             why.append(f"{under:.0%} under the usual price Buddy has seen")
@@ -669,13 +674,14 @@ def deals_page(memory, days: int = 7, domain: str = "", query: str = "", limit: 
                     "is_lowest": bool(price and low and days_seen >= SEEN_DAYS and price <= low * 1.001),
                     "usual": ({"price": round(peers["mid"], 2), "deals": int(peers["n"]), "products": int(peers["products"])}
                               if peers else None),
-                    "off": off, "under": under, "usual_price": round(mid, 2) if under is not None else None,
-                    "crazy": bool(why), "crazy_why": why,
+                    "off": off, "under": under, "usual_price": round(mid, 2) if under is not None or doubt else None,
+                    "regular_doubt": doubt, "crazy": bool(why), "crazy_why": why,
                     "url": r["url"] if str(r["url"]).startswith("https://") else ""})
     if crazy:
         out = [d for d in out if d["crazy"]]
     if sort == "saving" or (crazy and sort != "price"):
-        out.sort(key=lambda d: -max(d["off"] or 0.0, d["under"] or 0.0))  # stable: the newest first among equals
+        # stable: the newest first among equals. A doubted regular price does not count as a saving.
+        out.sort(key=lambda d: -max(0.0 if d["regular_doubt"] else d["off"] or 0.0, d["under"] or 0.0))
     elif sort == "price":
         out.sort(key=lambda d: (d["price"] is None, d["price"] or 0.0))
     found = {d: sum(1 for r in out if r["domain"] == d) for d in ("product", "flight", "hotel")}
