@@ -247,7 +247,11 @@ start_task: the task agent can write one and save it for next time (buddy_tools 
 for them on your own: "what subscriptions do I pay" -> subscriptions; "what bills are due" or "any \
 deadlines" -> bills-due or deadlines on emails; "when am I free" or "a time to call Amma" -> free-slots; \
 "check my trip" -> itinerary-check; "is this a good price" -> price-history. When you find a price for \
-something {user} is shopping for, note_price it so the history grows.
+something {user} is shopping for, note_price it so the history grows. When {user} tells you a price they saw in \
+a store ("Costco has the Dyson V8 for 249, normally 349, until the 30th"), note_price it with where, \
+regular_price and ends: it goes on the Deals page as a sale. Costco, Sam's Club and other stores publish no feed \
+and forbid reading their pages by program, so you never look their prices up on their sites; what {user} saw, \
+their emails in the deals inbox and the deal feeds are how those prices reach you.
 Rides: "get me an Uber/Lyft to...", "a ride home" -> get_ride open. You can't \
 book: the app opens with the trip filled in and {user} taps Confirm. "Compare Uber and Lyft", "which \
 is cheaper", "how much is a ride to..." -> get_ride compare: the phone reads both apps' prices and \

@@ -384,3 +384,41 @@ def test_a_stated_regular_price_is_checked_against_what_buddy_has_seen(memory):
     assert [d["brand"] for d in crazy] == ["lg"]
     saving = pricebook.deals_page(memory, 7, "product", sort="saving")["deals"]
     assert [d["brand"] for d in saving] == ["lg", "sony"]                                   # a doubted saving does not lead
+
+
+def test_a_sale_the_owner_saw_in_a_store_goes_on_the_deals_page(memory):
+    from buddy import prices
+    said = prices.run_note_price(memory, {"item": "Dyson V8 cordless vacuum", "price": 249.99, "where": "Costco",
+                                          "regular_price": 349.99, "ends": "Nov 30"})
+    assert said == "Noted 249.99 for Dyson V8 cordless vacuum. It is on the Deals page as a sale at Costco."
+    page = pricebook.deals_page(memory, 7, "product")
+    d = page["deals"][0]
+    assert (d["store"], d["source"], d["price"], d["regular_price"], d["off"], d["ends"]) == (
+        "Costco", "you told Buddy", 249.99, 349.99, 0.29, "Nov 30")
+    assert (d["brand"], d["category"]) == ("dyson", "vacuum") and d["url"] == ""     # filed; no link came with it
+    assert pricebook.run(memory, "SELECT source, seller, regular_price, on_sale FROM observations")[0] == {
+        "source": "owner saw it", "seller": "Costco", "regular_price": 349.99, "on_sale": True}
+    prices.run_note_price(memory, {"item": "Dyson V8 cordless vacuum", "price": 249.99, "where": "Costco",
+                                   "regular_price": 349.99})
+    assert pricebook.deals_page(memory, 7)["counts"]["product"] == 1                 # told twice in a day: one deal
+    # A price with no regular price is history only, as before: Buddy notes many prices while it searches.
+    assert prices.run_note_price(memory, {"item": "LG C4 65 OLED", "price": 1199, "where": "Costco"}) == "Noted 1199 for LG C4 65 OLED."
+    assert pricebook.deals_page(memory, 7)["counts"]["product"] == 1
+    assert "It is on the Deals page" not in prices.run_note_price(memory, {"item": "Kettle", "price": 30, "regular_price": 25})
+
+
+def message(sender, subject, text):
+    from email.message import EmailMessage
+    m = EmailMessage()
+    m["From"], m["Subject"] = sender, subject
+    m.set_content(text)
+    return m
+
+
+def test_a_price_after_a_saving_keeps_its_regular_price():
+    got = dealmail.deals_in(message("Costco Wholesale <costco@online.costco.example>", "Member-only savings",
+                                    text="LG 65\" Class C4 OLED 4K TV $1,299.99 After $300 OFF\nhttps://costco.example/lg\n"
+                                         "Dyson V8 $249.99 after $100 manufacturer's savings\nhttps://costco.example/dyson"))
+    assert [(d["price"], d["regular"]) for d in got] == [(1299.99, 1599.99), (249.99, 349.99)]
+    plain = dealmail.deals_in(message("Shop <a@shop.example>", "Sale", text="Kettle $25 (Reg. $40) $5 off\nhttps://shop.example/k"))
+    assert (plain[0]["price"], plain[0]["regular"]) == (25.0, 40.0)                  # a stated regular price wins

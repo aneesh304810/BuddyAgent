@@ -107,6 +107,9 @@ SUGGESTED_FEEDS = [
               "taken from it."},
     {"name": "BlackFriday.com news", "kind": "news", "url": "https://blackfriday.com/news/feed",
      "about": "Black Friday ad alerts and sale dates. Shown as sale news; no prices are taken from it."},
+    {"name": "Frugal Hotspot (Costco)", "kind": "news", "url": "https://www.frugalhotspot.com/feed/",
+     "about": "A fan site, not Costco: which Costco coupon books, hot buys and sale ads are out. Shown as sale "
+              "news; no prices are taken from it."},
 ]
 KINDS = ("product", "travel", "news")
 NEWS_SQL = """CREATE TABLE IF NOT EXISTS deal_news (

@@ -69,6 +69,8 @@ flowchart LR
     dealforecast_py --> whentobuy_py
     deals_py --> amazon_py
     deals_py --> prices_py
+    prices_py --> dealforecast_py
+    prices_py --> shopper_py
     amazon_py --> prices_py
     db[("Your database<br/>card_offers, deal_alerts, deal_news, price_seen, price_watches, seasons, shop_considering, shop_profile and more")]
     shopper_py --> db
@@ -310,12 +312,16 @@ their days run out. Creating one asks first, with the monthly cost in words.
 Price history: every price Buddy sees for something, so "is this a good price?" has data behind it.
 
 Rows come from price watches (each check) and from the note_price tool (a price found while
-searching or read off a page). The price-history data tool turns them into lowest, typical,
-trend and a buy-or-wait signal.
+searching or read off a page, or one the owner saw in a store and told Buddy). The price-history data tool turns
+them into lowest, typical, trend and a buy-or-wait signal.
+
+A sale the owner tells Buddy about (a shelf tag at a warehouse club, a markdown no site lists) also goes onto the
+Deals page, beside the feeds' deals: stores such as Costco publish no feed and forbid reading their pages by
+program, so what the owner saw is the one way those prices reach Buddy.
 ```
 
 - Tables: `price_seen`
-- Uses: memory.py, pricebook.py
+- Uses: dealforecast.py, memory.py, pricebook.py, shopper.py
 
 ### amazon.py
 

@@ -184,6 +184,12 @@ decide each differently), and uses it whenever you ask about a purchase.
     A feed can be a **sale news feed** (which stores' ads are out, when a sale starts): its headlines show as
     Sale news at the top of the Predicted tab, and no price is taken from them ("the best TVs under $500" is not
     a price), so nothing from it reaches the price book.
+    **Costco, Sam's Club and stores like them** publish no feed and forbid reading their pages by program, so
+    Buddy never reads their sites and never signs in for you. Their prices reach Buddy three ways: their own
+    emails to your deals inbox (a price written "$1,299.99 After $300 OFF" keeps its regular price); the deal
+    feeds, which carry many of their deals (search "Costco" on the Deals page); and what you saw yourself: say
+    "Costco has the Dyson V8 for 249, normally 349, until the 30th" and it goes on the Deals page as a sale at
+    Costco and into the price history. A fan site's feed (Frugal Hotspot) is offered as sale news.
     A feed can be a **travel feed**: only its fares and hotel rates priced in dollars are kept, filed as flights
     and hotels. Buddy offers more feeds there (flight-deal sites, the Slickdeals Hot Deals forum, DealNews'
     Black Friday, electronics and computer sections); their addresses were not confirmed when this was

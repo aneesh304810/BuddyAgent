@@ -48,6 +48,9 @@ HOUR = 1  # 01:00, before the pattern learning at 02:30
 PRICE = re.compile(r"(?<![\w.])\$\s?(\d{1,3}(?:,\d{3})*(?:\.\d{2})?|\d+(?:\.\d{2})?)(?!\d)")
 REGULAR = re.compile(r"(?:reg(?:ular)?\.?|was|list(?:\s+price)?|orig(?:inal)?\.?|compare(?:\s+at)?|msrp)\s*:?\s*"
                      r"\$\s?(\d[\d,]*(?:\.\d{2})?)", re.I)
+# "$1,299.99 After $300 OFF" (a warehouse club's way of writing a sale): the price is the one after the saving, so
+# the regular price is the two added up.
+AFTER_OFF = re.compile(r"\bafter\s+\$\s?(\d[\d,]*(?:\.\d{2})?)\s+(?:off|(?:instant\s+|manufacturer'?s?\s+)?savings)\b", re.I)
 ENDS = re.compile(r"(?:ends|expires|through|thru|until|valid through|book by)\s*:?\s*"
                   r"((?:jan|feb|mar|apr|may|jun|jul|aug|sep|oct|nov|dec)[a-z]*\.?\s+\d{1,2}(?:,\s*\d{4})?|"
                   r"\d{1,2}/\d{1,2}(?:/\d{2,4})?)", re.I)
@@ -148,7 +151,7 @@ def _cells(message) -> list[dict]:
 
 def _prices(text: str) -> list[float]:
     """The prices in a line: dollar amounts that are not savings ("$20 off") and not sums ("$10 trillion")."""
-    text = SAVINGS.sub(" ", text)
+    text = SAVINGS.sub(" ", AFTER_OFF.sub(" ", text))  # "after $100 manufacturer's savings" is a saving too
     return [n for n in (_num(m.group(1)) for m in PRICE.finditer(text) if not BIG.match(text, m.end()))
             if 0 < n < 100000]
 
@@ -204,7 +207,9 @@ def deals_in(message) -> list[dict]:
                 title = prev[:160]
         reg = REGULAR.search(cell["text"])
         price = min(prices)
-        regular = _num(reg.group(1)) if reg else (max(prices) if len(prices) > 1 else None)
+        less = None if reg else AFTER_OFF.search(cell["text"])
+        regular = _num(reg.group(1)) if reg else round(price + _num(less.group(1)), 2) if less else \
+            (max(prices) if len(prices) > 1 else None)
         if regular is not None and regular <= price:
             regular = None
         where = f"{title} {subject} {context}"
