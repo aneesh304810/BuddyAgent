@@ -71,18 +71,24 @@ fails. Run on the server: sudo bash /opt/buddy/deploy/keys.sh  (never prints a k
   Claude          lists models (free)
   Serper          one search (one credit)
   NJ Transit      signs in to the train API and the bus/light rail API (free; the token is never shown)
-  free models     one 5-word chat with the model Buddy is set to use (Groq, GitHub Models, Gemini, Mistral,
-                  Cerebras, OpenRouter, DeepSeek through OpenRouter)
+  free models     one 5-word chat with the model Buddy really uses there (Gemini, Mistral, Cerebras, NVIDIA,
+                  OpenRouter, DeepSeek through OpenRouter). One that fails also shows what Buddy's own log says of
+                  it. Groq is kept for speech only: its key is tested by reading its model list. GitHub Models is
+                  not used any more and is not tested.
   everything else every other service in Buddy Connect's catalogue that needs a key: the same small test the
                   Connections page runs for it (services), then the mailboxes and the keys outside the catalogue
                   (extras). A key whose every request is charged is not tested; it says so.
 
 report() puts it together and ends with the count: working, not working, no key, not tested. Run by Buddy itself
 (keys.sh asks the running server, so sign-ins Buddy holds are used), or on its own when Buddy is not running.
+
+A request that Buddy's own budget stopped says HOLD: the key was not tried, so it is neither working nor failing.
+The owner's test counts as the owner's own request, so the pause on background work does not stop it; a budget
+that is reached does. Either way the report ends by saying that paid work is paused and how the owner lifts it.
 ```
 
 - Settings: `BUDDY_17TRACK_KEY`, `BUDDY_AEROAPI_KEY`, `BUDDY_ALPACA_SECRET`, `BUDDY_ANTHROPIC_ADMIN_KEY`, `BUDDY_DB_KEY`, `BUDDY_DO_TOKEN`, `BUDDY_DUFFEL_TOKEN`, `BUDDY_DUFFEL_VERSION`, `BUDDY_EMAIL_2_ADDRESS`, `BUDDY_EMAIL_2_APP_PASSWORD`, `BUDDY_EMAIL_ADDRESS`, `BUDDY_EMAIL_APP_PASSWORD` and 17 more
-- Uses: email_accounts.py, free_models.py, gateway.py, openrouter_catalog.py, transit.py
+- Uses: budgets.py, email_accounts.py, free_models.py, gateway.py, maestro_usage.py, modelscout.py, openrouter_catalog.py, transit.py
 
 ## How it connects
 

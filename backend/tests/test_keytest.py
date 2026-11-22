@@ -71,7 +71,9 @@ def test_every_service_with_a_key_is_tested_or_says_why_not():
     assert fail.startswith("  FAIL  ") and "HTTP 401" in fail and "Invalid API key" in fail
     assert "fix: the key is wrong or expired: make a new one and save it with set.sh" in fail
     assert "  --    Perigon (news search and fact check)" in text and "no key (BUDDY_PERIGON_KEY)" in text
-    assert "  ??    Plaid" in text and "no test" in text                              # set, and nothing to test it with
+    assert "Plaid" not in text                                  # set and not tested: said once, with why, further down
+    assert "  ??    Plaid (banks)" in "\n".join(keytest.extras(env, connect=lambda a: None))
+    assert "  --    Plaid (banks)" in "\n".join(keytest.services({}, None, fetch))   # without a key it is still listed
     assert "Claude" not in text and "Serper (Google search" not in text              # those are tested directly, above
     assert "SECRET-12345" not in text and "plaid-id-12345" not in text               # names of settings, never values
     keyed = [n for n, e in gateway.CATALOG.items() if keytest._keys_of(e.get("auth") or {})
@@ -99,7 +101,7 @@ def test_the_report_counts_what_works_and_never_shows_a_key():
     text = "\n".join(rows)
     assert "SECRET-12345" not in text and "mail-app-password" not in text and "aero-secret" not in text
     assert "bad key [hidden]" in text                                                 # hidden even when quoted back
-    assert "  OK    Mailbox ow...@gmail.com" in text
+    assert "  OK    Mailbox 1: ow...@gmail.com" in text
     assert "  ??    FlightAware" in text and "every request is charged" in text      # never tested with money
     last = [r for r in rows if "working" in r][0]
     assert last.startswith("2 working, 1 NOT working, ") and "1 set but not tested" in last
@@ -111,7 +113,7 @@ def test_the_report_counts_what_works_and_never_shows_a_key():
     def refused(account):
         raise OSError(b"[AUTHENTICATIONFAILED] Invalid credentials (Failure)")
     bad = "\n".join(keytest.extras(env, connect=refused))
-    assert "  FAIL  Mailbox ow...@gmail.com" in bad and "AUTHENTICATIONFAILED" in bad and "app password" in bad
+    assert "  FAIL  Mailbox 1: ow...@gmail.com" in bad and "AUTHENTICATIONFAILED" in bad and "app password" in bad
 
 
 def test_an_answer_sent_zipped_is_read(monkeypatch):
@@ -135,8 +137,109 @@ def test_the_server_gives_the_report_as_text_to_the_owner_only(monkeypatch):
 
     from buddy import keytest, server
     monkeypatch.setattr(server, "authorized", lambda t: t == "s3cret")
-    monkeypatch.setattr(keytest, "report", lambda env, memory=None: ["  OK    Tiingo", "", "1 working, 0 NOT working."])
+    asked_as = []
+
+    def report(env, memory=None):
+        asked_as.append(usage.current_turn.get())
+        return ["  OK    Tiingo", "", "1 working, 0 NOT working."]
+    from buddy import usage
+    monkeypatch.setattr(keytest, "report", report)
     with TestClient(server.app) as client:
         assert client.get("/admin/keys").status_code == 401
         got = client.get("/admin/keys", headers={"Authorization": "Bearer s3cret"})
         assert got.status_code == 200 and got.text == "  OK    Tiingo\n\n1 working, 0 NOT working.\n"
+    assert asked_as == ["owner:key test"]  # the owner's own request: the pause on background work does not stop it
+
+
+# --- what the first run on the owner's server showed ----------------------------------------------------------------
+def test_a_request_the_budget_stopped_is_not_called_a_bad_key(tmp_path, monkeypatch):
+    """Seen live: Serper, Groq, Duffel and SerpApi all said FAIL, "can't reach it". Buddy's own budget pause had
+    refused the requests; the keys were never tried."""
+    from buddy import budgets, keytest
+    from buddy.memory import Memory
+    memory = Memory(str(tmp_path / "b.db"))
+    env = {"BUDDY_SERPER_KEY": "serper-secret-1", "BUDDY_DUFFEL_TOKEN": "duffel-secret-1", "BUDDY_SERPAPI_KEY": "serpapi-secret-1"}
+
+    def stopped(req, timeout=25, limit=20000):
+        return 0, "BudgetStop: google.serper.dev: paid services are stopped, this month's $50 budget is reached."
+    monkeypatch.setattr(keytest, "_send", stopped)
+
+    def fetch(url, data=None, headers=None, *rest):
+        raise budgets.BudgetStop("serpapi.com: paid services are stopped, this month's $50 budget is reached.")
+    memory.set(budgets.HOLD_KEY, budgets.local_now().strftime("%Y-%m"))
+    rows = keytest.report(env, memory, fetch, connect=lambda a: None)
+    text = "\n".join(rows)
+    for name in ("serper", "SerpApi (Google Trends)", "Duffel (flight fares)"):
+        held = next(r for r in rows if name in r)
+        assert held.startswith("  HOLD  ") and "the key was not tried" in held, held
+    assert "FAIL" not in text and "can't reach it" not in text
+    assert "0 NOT working" in text and "3 stopped by Buddy's own budget." in text
+    note = next(r for r in rows if r.startswith("NOTE  "))
+    assert "Background paid work is paused" in note and '"approve the pace"' in note and "Insights" in note
+    assert "has no answer yet" in note
+    memory.set(budgets.SAVER_KEY, budgets.local_now().strftime("%Y-%m"))
+    assert "because you chose saver" in budgets.pause_said(memory)
+    memory.set(budgets.HOLD_KEY, "")
+    assert budgets.pause_said(memory) == "" and not [r for r in keytest.report({}, memory, fetch, connect=lambda a: None)
+                                                      if r.startswith("NOTE")]
+
+
+def test_the_connections_test_button_is_the_owners_own_request(monkeypatch):
+    from fastapi.testclient import TestClient
+
+    from buddy import budgets, gateway, server, usage
+    monkeypatch.setattr(server, "authorized", lambda t: t == "s3cret")
+    seen = []
+
+    def health(name, memory=None, *rest):
+        seen.append(usage.current_turn.get())
+        if name == "serpapi":
+            raise budgets.BudgetStop("serpapi.com: paid services are stopped, this month's $50 budget is reached.")
+        return True, "ok"
+    monkeypatch.setattr(gateway, "health", health)
+    with TestClient(server.app) as client:
+        ok = {"Authorization": "Bearer s3cret"}
+        assert client.post("/admin/connections/test", json={"name": "serper"}, headers=ok).json()["ok"] is True
+        got = client.post("/admin/connections/test", json={"name": "serpapi"}, headers=ok).json()
+    assert seen == ["owner:connection test"] * 2
+    assert got["ok"] is False and "Buddy's own budget stopped this request" in got["said"]
+
+
+def test_free_models_are_tested_as_buddy_uses_them(tmp_path, monkeypatch):
+    """Seen live: Groq (kept for speech only) and GitHub Models (not used any more) were sent a chat and marked
+    FAIL, and Gemini timed out with nothing to say why."""
+    from buddy import keytest
+    from buddy.memory import Memory
+    memory = Memory(str(tmp_path / "b.db"))
+    memory.set("free:model:gemini", json.dumps({"model": "gemini-next-flash", "replaced": "gemini-flash-latest"}))
+    for stop in ("error: TimeoutError", "error: TimeoutError", "at its free limit", "error: PrivacyBlocked"):
+        memory.db.execute(
+            "INSERT INTO model_calls (at, provider, model, purpose, input_tokens, output_tokens, cost_usd, seconds, ok, "
+            "stop, request) VALUES (datetime('now'), 'gemini', 'm', 'chat', 0, 0, 0, 0.1, 0, ?, '')", (stop,))
+    memory.db.execute(
+        "INSERT INTO model_calls (at, provider, model, purpose, input_tokens, output_tokens, cost_usd, seconds, ok, "
+        "stop, request) VALUES (datetime('now'), 'gemini', 'm', 'chat', 0, 0, 0, 0.1, 1, 'free', '')")
+    memory.db.commit()
+    env = {"BUDDY_FREE_MODELS": "1", "BUDDY_GROQ_KEY": "groq-secret-1", "BUDDY_GITHUB_MODELS_KEY": "github-secret-1",
+           "BUDDY_GEMINI_KEY": "gemini-secret-1"}
+    asked = []
+
+    def send(req, timeout=25, limit=20000):
+        asked.append((req.get_method(), req.full_url, req.data))
+        if req.full_url.endswith("/models"):
+            return 200, '{"data": []}'
+        return 0, "TimeoutError: The read operation timed out"
+    monkeypatch.setattr(keytest, "_send", send)
+    rows = keytest.run(env, memory)
+    text = "\n".join(rows)
+    groq = next(r for r in rows if " groq " in r)
+    assert groq.startswith("  OK    groq") and "speech to text only" in groq
+    assert not [a for a in asked if "groq.com" in a[1] and a[0] == "POST"]          # no text is sent to Groq
+    assert not [a for a in asked if "github" in a[1]] and "(github: a key is set, but Buddy does not use" in text
+    chat = next(a for a in asked if "generativelanguage" in a[1] and a[0] == "POST")
+    assert b"gemini-next-flash" in chat[2]                                         # the model Buddy switched to
+    gemini = next(r for r in rows if " gemini " in r)
+    assert gemini.startswith("  FAIL  gemini") and "no answer in 25 seconds" in gemini and "can't reach" not in gemini
+    assert "the key is accepted (the provider's model list came back)" in text
+    assert "Buddy's own log, last 30 days: 3 of 5 requests failed. Commonest: TimeoutError (2); at its free limit (1)" in text
+    assert "secret-1" not in "\n".join(keytest._hidden(rows, env))

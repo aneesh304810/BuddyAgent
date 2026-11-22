@@ -4,14 +4,20 @@ fails. Run on the server: sudo bash /opt/buddy/deploy/keys.sh  (never prints a k
   Claude          lists models (free)
   Serper          one search (one credit)
   NJ Transit      signs in to the train API and the bus/light rail API (free; the token is never shown)
-  free models     one 5-word chat with the model Buddy is set to use (Groq, GitHub Models, Gemini, Mistral,
-                  Cerebras, OpenRouter, DeepSeek through OpenRouter)
+  free models     one 5-word chat with the model Buddy really uses there (Gemini, Mistral, Cerebras, NVIDIA,
+                  OpenRouter, DeepSeek through OpenRouter). One that fails also shows what Buddy's own log says of
+                  it. Groq is kept for speech only: its key is tested by reading its model list. GitHub Models is
+                  not used any more and is not tested.
   everything else every other service in Buddy Connect's catalogue that needs a key: the same small test the
                   Connections page runs for it (services), then the mailboxes and the keys outside the catalogue
                   (extras). A key whose every request is charged is not tested; it says so.
 
 report() puts it together and ends with the count: working, not working, no key, not tested. Run by Buddy itself
 (keys.sh asks the running server, so sign-ins Buddy holds are used), or on its own when Buddy is not running.
+
+A request that Buddy's own budget stopped says HOLD: the key was not tried, so it is neither working nor failing.
+The owner's test counts as the owner's own request, so the pause on background work does not stop it; a budget
+that is reached does. Either way the report ends by saying that paid work is paused and how the owner lifts it.
 """
 
 import json
@@ -52,9 +58,17 @@ def _send(req, timeout, limit: int = 20000) -> tuple[int, str]:
         return 0, f"{type(e).__name__}: {e}"
 
 
+HELD = "not tested: Buddy's own budget stopped this request before it was sent (the key was not tried)"
+
+
 def line(ok: bool, name: str, what: str, seconds: float, code: int, said: str, setting: str = "") -> str:
     if ok:
         return f"  OK    {name:<11} {what:<40} {seconds:.1f}s"
+    if "BudgetStop" in said:
+        return f"  HOLD  {name:<11} {what:<40} {HELD}"
+    if code == 0 and "timed out" in said.lower():
+        return (f"  FAIL  {name:<11} {what:<40} no answer in 25 seconds\n"
+                "        fix: the service was reached but did not answer in time; the lines below say more")
     if "credit" in said.lower():
         hint = "out of credit: buy more on the provider's site, or remove the key"
     elif code in (500, 502, 503, 529):
@@ -67,8 +81,63 @@ def line(ok: bool, name: str, what: str, seconds: float, code: int, said: str, s
             f"        fix: {hint.format(setting=setting)}")
 
 
-def run(env=os.environ) -> list[str]:
+def _model_in_use(name: str, env, memory) -> str:
+    """The model Buddy really calls at this provider: the one set by hand, else the default, else the one the daily
+    model check switched to when the default stopped answering."""
     from .free_models import PROVIDERS
+    p = PROVIDERS[name]
+    configured = (env.get(p["model_setting"]) or "").strip() or p["model"]
+    if memory is not None:
+        try:
+            swap = json.loads(memory.get(f"free:model:{name}") or "null")
+        except ValueError:
+            swap = None
+        if swap and swap.get("replaced") == configured and swap.get("model"):
+            return swap["model"]
+    return configured
+
+
+def _log_says(memory, name: str, days: int = 30) -> str:
+    """What Buddy's own log holds on a provider's requests: how many failed, and the commonest reasons."""
+    if memory is None:
+        return ""
+    from datetime import datetime, timedelta, timezone
+    from .maestro_usage import why_failed
+    since = (datetime.now(timezone.utc) - timedelta(days=days)).isoformat()
+    try:
+        rows = memory.db.execute("SELECT ok, stop FROM model_calls WHERE provider = ? AND at >= ?", (name, since)).fetchall()
+    except Exception:
+        return ""
+    bad = [r["stop"] for r in rows if not r["ok"] and "PrivacyBlocked" not in str(r["stop"] or "")]
+    if not rows or not bad:
+        return ""
+    counts: dict[str, int] = {}
+    for stop in bad:
+        counts[why_failed(stop)] = counts.get(why_failed(stop), 0) + 1
+    top = "; ".join(f"{w} ({c})" for w, c in sorted(counts.items(), key=lambda kv: (-kv[1], kv[0]))[:3])
+    return f"        Buddy's own log, last {days} days: {len(bad)} of {len(rows)} requests failed. Commonest: {top}"
+
+
+def _scout_says(memory, name: str) -> str:
+    """What the daily model check last found for a provider."""
+    if memory is None:
+        return ""
+    try:
+        from . import modelscout
+        last = modelscout.status(memory)
+        found = next((p for p in last["providers"] if p.get("provider") == name), None)
+    except Exception:
+        return ""
+    if not found:
+        return ""
+    said = " ".join(str(x) for x in (found.get("state"), found.get("detail")) if x)
+    moved = f"; switched from {found['switched_from']}" if found.get("switched_from") else ""
+    return (f"        Buddy's daily model check ({str(last.get('last_checked'))[:10] or 'date not kept'}): "
+            f"{found.get('model', '')} {said}{moved}")[:300]
+
+
+def run(env=os.environ, memory=None) -> list[str]:
+    from .free_models import PROVIDERS, TEXT_OFF
     out = []
     key = (env.get("ANTHROPIC_API_KEY") or "").strip()
     if key:
@@ -91,10 +160,19 @@ def run(env=os.environ) -> list[str]:
         out.append("        (free models are switched off: set.sh BUDDY_FREE_MODELS and type 1)")
     for name, p in PROVIDERS.items():
         k = (env.get(p["key"]) or "").strip()
+        if name == "groq" and k:  # kept for turning speech into text only: the key is tested, no text is sent
+            t = time.monotonic()
+            code, said = _get(f"{p['base']}/models", {"Authorization": f"Bearer {k}"})
+            out.append(line(code == 200, name, "its model list (speech to text only)", time.monotonic() - t, code, said))
+            continue
+        if name in TEXT_OFF:
+            if k:
+                out.append(f"        ({name}: a key is set, but Buddy does not use this provider any more; not tested)")
+            continue
         if not k:
             out.append(f"  --    {name:<11} no key ({p['key']})")
             continue
-        model = (env.get(p["model_setting"]) or "").strip() or p["model"]
+        model = _model_in_use(name, env, memory)
         if name in ("deepseek", "openrouter") and not (env.get(p["model_setting"]) or "").strip():
             model = _openrouter_pick(name) or model  # Buddy picks today's free model from OpenRouter's list
         t = time.monotonic()
@@ -103,6 +181,14 @@ def run(env=os.environ) -> list[str]:
                            {"Authorization": f"Bearer {k}", **p.get("headers", {})})
         ok = code == 200 and '"choices"' in said
         out.append(line(ok, name, model[:40], time.monotonic() - t, code, said, p["model_setting"]))
+        if not ok and "BudgetStop" not in said:
+            if code == 0:  # no answer: is the key accepted at all? The model list is small and quick
+                lc, _ = _get(f"{p['base']}/models", {"Authorization": f"Bearer {k}"}, timeout=15, limit=2000)
+                out.append("        the key is accepted (the provider's model list came back): it is this model that "
+                           "does not answer" if lc == 200 else
+                           f"        its model list did not come back either (HTTP {lc or '-'}): the key or the "
+                           "connection, not only this model")
+            out += [said_ for said_ in (_log_says(memory, name), _scout_says(memory, name)) if said_]
         if not ok and code in (400, 404):  # what Buddy will switch to by itself
             from .free_models import pick_model
             lc, listing = _get(f"{p['base']}/models", {"Authorization": f"Bearer {k}"}, limit=2_000_000)
@@ -276,6 +362,8 @@ def _result(ok: bool, title: str, seconds: float, said: str) -> str:
     title = title[:36]
     if ok:
         return f"  OK    {title:<36} {seconds:.1f}s"
+    if "BudgetStop" in str(said):
+        return f"  HOLD  {title:<36} {HELD}"
     said = " ".join(str(said).split())[:220]
     found = re.search(r"\bHTTP (\d{3})\b", said)
     code = int(found.group(1)) if found else 0
@@ -313,6 +401,8 @@ def services(env, memory=None, fetch=None) -> list[str]:
         lacking = [k for k in keys if not (env.get(k) or "").strip()]
         if lacking:
             out.append(f"  --    {title[:36]:<36} no key ({', '.join(lacking)})")
+        elif set(keys) & set(UNTESTED):  # set, and not tested: said once, with the reason (extras)
+            continue
         elif not entry.get("health"):
             out.append(f"  ??    {title[:36]:<36} set, but Buddy has no test for it")
         else:
@@ -320,7 +410,8 @@ def services(env, memory=None, fetch=None) -> list[str]:
             try:
                 ok, said = gateway.health(name, memory, env, fetch)
             except Exception as e:  # a test that needs a sign-in Buddy holds, run while Buddy is not running
-                ok, said = False, f"could not be tested here ({type(e).__name__}): run it with Buddy running"
+                ok, said = False, "BudgetStop" if type(e).__name__ == "BudgetStop" else \
+                    f"could not be tested here ({type(e).__name__}): run it with Buddy running"
             out.append(_result(ok, title, time.monotonic() - started, said))
     return out
 
@@ -358,9 +449,9 @@ def extras(env, connect=None) -> list[str]:
     import imaplib
     from .email_accounts import email_accounts
     out = []
-    for account in email_accounts(env):
+    for n, account in enumerate(email_accounts(env), 1):
         name, _, domain = account.address.partition("@")
-        title = f"Mailbox {name[:2]}...@{domain}"
+        title = f"Mailbox {n}: {name[:2]}...@{domain}"
         started = time.monotonic()
         try:
             imap = connect(account) if connect else imaplib.IMAP4_SSL(account.imap_host, timeout=25)
@@ -403,18 +494,26 @@ def _hidden(lines: list[str], env) -> list[str]:
 
 def report(env, memory=None, fetch=None, connect=None) -> list[str]:
     """Every key, tested, and the count at the end. Keys are never shown."""
-    rows = run(env) + services(env, memory, fetch) + extras(env, connect)
-    kinds = {"OK": 0, "FAIL": 0, "--": 0, "??": 0}
+    rows = run(env, memory) + services(env, memory, fetch) + extras(env, connect)
+    kinds = {"OK": 0, "FAIL": 0, "--": 0, "??": 0, "HOLD": 0}
     for r in rows:
         mark = r[2:6].strip()
         if mark in kinds:
             kinds[mark] += 1
     rows.append("")
     rows.append(f"{kinds['OK']} working, {kinds['FAIL']} NOT working, {kinds['--']} with no key, "
-                f"{kinds['??']} set but not tested.")
+                f"{kinds['??']} set but not tested" + (f", {kinds['HOLD']} stopped by Buddy's own budget"
+                                                       if kinds["HOLD"] else "") + ".")
     if kinds["FAIL"]:
         rows.append("For each FAIL, the line under it says what to do. To save a new key: "
                     "sudo bash /opt/buddy/deploy/set.sh NAME (typed hidden).")
+    paused = ""
+    if memory is not None:
+        from . import budgets
+        paused = budgets.pause_said(memory)
+    if paused:
+        rows += ["", "NOTE  " + paused, "      This is Buddy's own budget, not a key. A key marked OK above is "
+                                         "accepted, but Buddy is not using it for background work while this lasts."]
     return _hidden(rows, env)
 
 

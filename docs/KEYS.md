@@ -25,9 +25,21 @@ minute or two. Each line is one of:
 | `FAIL` | It did not. The line shows the service's own answer, and the line under it says what to do |
 | `--` | No key is set for it |
 | `??` | A key is set, but there is no free test for it (FlightAware charges for every request, for example) |
+| `HOLD` | Buddy's own budget stopped the request before it was sent. The key was not tried |
 
 The last line is the count. Keys are never printed. A test is one request: it shows that the key is accepted
 now, not that every feature built on it works. Serper's test spends one search credit; the others are free.
+
+- **A `NOTE` at the end** means Buddy's own budget is stopping paid work: background work is paused waiting
+  for your answer on this month's pace, or a monthly budget is reached. That is not a key problem. A key
+  marked `OK` is accepted, but Buddy is not using it for background work until you answer: say "approve the
+  pace" in chat or tap Approve in Insights ("stay in saver" keeps it paused).
+- **The test is your own request**, so the pause on background work does not stop it. A budget that is
+  reached does, and those lines say `HOLD`.
+- **Free AI models** are tested with the model Buddy really uses there. One that fails also shows what
+  Buddy's own log says: how many of its requests failed in 30 days, and the commonest reasons.
+- **Groq** is kept for turning speech into text only, so its key is tested by reading its model list; no
+  text is sent. **GitHub Models** is not used any more and is not tested.
 
 - `sudo bash /opt/buddy/deploy/keys.sh list` shows every key the code reads, as set or missing, without
   calling anything.

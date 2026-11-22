@@ -226,6 +226,31 @@ def held(memory: Memory | None = None) -> bool:
         return False
 
 
+def pause_said(memory: Memory | None = None) -> str:
+    """In plain words, whether Buddy's own budget is stopping paid work right now, and how the owner lifts it.
+    '' when nothing is stopped."""
+    memory = memory or _memory
+    if memory is None:
+        return ""
+    try:
+        if all_in_stopped(memory):
+            return (f"Buddy has stopped every paid service until the 1st: this month's ${all_in_budget(memory):.0f} "
+                    "budget is reached. To carry on sooner, tell Buddy in chat to raise the budget.")
+        if claude_stopped(memory):
+            return (f"Buddy has stopped Claude until the 1st: this month's ${claude_cap(memory):.0f} Claude cutoff is "
+                    "reached. To carry on sooner, tell Buddy in chat to raise the Claude budget.")
+        if not held(memory):
+            return ""
+        chose = (memory.get(SAVER_KEY) or "") == local_now().strftime("%Y-%m")
+        return ("Background paid work is paused" + (" because you chose saver for this month" if chose else
+                                                    ": Buddy asked whether to keep spending at this month's pace and has no answer yet")
+                + ". While it is paused, Buddy's own searches, deal and fare checks, briefings and research do not "
+                "run; your chat still works. To resume: say \"approve the pace\" in chat, or tap Approve in Insights. "
+                "To keep it paused: \"stay in saver\".")
+    except Exception:
+        return ""
+
+
 def check_claude() -> None:
     """Called before every Claude request (config.claude_client)."""
     if claude_stopped():

@@ -170,10 +170,11 @@ def test_the_key_test_reports_the_providers_own_reason_and_the_fix(monkeypatch):
     from buddy import keytest
     monkeypatch.setattr(keytest, "_post", lambda url, body, headers, timeout=25:
                         (404, '{"error":{"message":"The model llama-3.3-70b-versatile has been decommissioned"}}')
-                        if "groq" in url else (200, '{"choices":[{"message":{"content":"hi"}}]}'))
-    rows = keytest.run({"BUDDY_FREE_MODELS": "1", "BUDDY_GROQ_KEY": "k", "BUDDY_GEMINI_KEY": "k"})
+                        if "cerebras" in url else (200, '{"choices":[{"message":{"content":"hi"}}]}'))
+    monkeypatch.setattr(keytest, "_get", lambda url, headers, timeout=25, limit=20000: (0, "offline"))
+    rows = keytest.run({"BUDDY_FREE_MODELS": "1", "BUDDY_CEREBRAS_KEY": "k", "BUDDY_GEMINI_KEY": "k"})
     text = "\n".join(rows)
-    assert "FAIL  groq" in text and "decommissioned" in text and "set.sh BUDDY_GROQ_MODEL" in text
+    assert "FAIL  cerebras" in text and "decommissioned" in text and "set.sh BUDDY_CEREBRAS_MODEL" in text
     assert "OK    gemini" in text and "k" not in [w for r in rows for w in r.split()]
 
 

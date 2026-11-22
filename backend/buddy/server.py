@@ -1035,7 +1035,11 @@ async def admin_keys() -> PlainTextResponse:
     """Every key tested with one small real request, as text, for deploy/keys.sh. Run here, inside Buddy, so the
     sign-ins Buddy holds (Oura, Nest) are used. Keys are never shown."""
     from . import keytest  # noqa: PLC0415
-    rows = await asyncio.to_thread(keytest.report, dict(os.environ), memory)
+    mark = usage.current_turn.set("owner:key test")  # the owner asked for this: the pace hold is for background work
+    try:
+        rows = await asyncio.to_thread(keytest.report, dict(os.environ), memory)
+    finally:
+        usage.current_turn.reset(mark)
     return PlainTextResponse("\n".join(rows) + "\n")
 
 
@@ -1046,7 +1050,13 @@ async def admin_connection_test(body: dict) -> dict:
     name = str(body.get("name") or "")
     if name not in gateway.CATALOG:
         raise HTTPException(404, "unknown service")
-    ok, said = await asyncio.to_thread(gateway.health, name, memory)
+    mark = usage.current_turn.set("owner:connection test")  # the owner tapped Test: not background work
+    try:
+        ok, said = await asyncio.to_thread(gateway.health, name, memory)
+    except budgets.BudgetStop as e:  # a budget that is reached stops the owner's requests too
+        ok, said = False, f"Not tested: Buddy's own budget stopped this request ({e})"
+    finally:
+        usage.current_turn.reset(mark)
     return {"name": name, "ok": ok, "said": said}
 
 
