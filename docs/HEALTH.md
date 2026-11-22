@@ -94,7 +94,9 @@ Habits Buddy tracks by itself: **steps**, **sleep hours**, **bedtime** (lights o
 
 ## 4. Privacy
 
-- Oura data and Health Connect data: 90 days on your server, then deleted. Only Claude sees them, never a free model.
+- Oura data and Health Connect data: 90 days on your server, then deleted. No AI model is given them, Claude
+  included. If you switch on health ranges on the server, Claude, and only Claude, is told how a measure compares
+  with your usual ("sleep: below usual"), never the value (`docs/PRIVACY-GATEWAY.md`).
 - The plan stays until you change it; the habit log and meals 90 days.
 - **"Forget my health plan"** deletes the plan, habit log and meals.
 - To stop Oura syncing: remove Buddy in your Oura account (Connected apps). To turn Oura off for the whole server,
