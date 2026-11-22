@@ -6,10 +6,17 @@ fails. Run on the server: sudo bash /opt/buddy/deploy/keys.sh  (never prints a k
   NJ Transit      signs in to the train API and the bus/light rail API (free; the token is never shown)
   free models     one 5-word chat with the model Buddy is set to use (Groq, GitHub Models, Gemini, Mistral,
                   Cerebras, OpenRouter, DeepSeek through OpenRouter)
+  everything else every other service in Buddy Connect's catalogue that needs a key: the same small test the
+                  Connections page runs for it (services), then the mailboxes and the keys outside the catalogue
+                  (extras). A key whose every request is charged is not tested; it says so.
+
+report() puts it together and ends with the count: working, not working, no key, not tested. Run by Buddy itself
+(keys.sh asks the running server, so sign-ins Buddy holds are used), or on its own when Buddy is not running.
 """
 
 import json
 import os
+import re
 import sys
 import time
 import urllib.error
@@ -69,6 +76,8 @@ def run(env=os.environ) -> list[str]:
         code, said = _get("https://api.anthropic.com/v1/models?limit=1",
                           {"x-api-key": key, "anthropic-version": "2023-06-01"})
         out.append(line(code == 200, "claude", "list models", time.monotonic() - t, code, said))
+    else:
+        out.append("  --    claude      no key (ANTHROPIC_API_KEY): required, Buddy cannot answer without it")
     serper = (env.get("BUDDY_SERPER_KEY") or "").strip()
     if serper:
         t = time.monotonic()
@@ -79,7 +88,7 @@ def run(env=os.environ) -> list[str]:
         out.append("  --    serper      no key set (google_search falls back to Claude's web search)")
     out += _njt(env)
     if (env.get("BUDDY_FREE_MODELS") or "").strip() != "1":
-        out.append("  --    free models are switched off: set.sh BUDDY_FREE_MODELS and type 1")
+        out.append("        (free models are switched off: set.sh BUDDY_FREE_MODELS and type 1)")
     for name, p in PROVIDERS.items():
         k = (env.get(p["key"]) or "").strip()
         if not k:
@@ -239,7 +248,8 @@ def inventory(env) -> list[str]:
     from . import gateway
     rows = [(e.get("group") or "Other", e["title"], _keys_of(e.get("auth") or {}), e.get("used_for") or "",
              (e.get("auth") or {}).get("type") or "none") for e in gateway.CATALOG.values()]
-    rows += [(g, title, keys, what, "key") for g, title, keys, what in EXTRA]
+    listed = {k for r in rows for k in r[2]}  # a key the catalogue already lists is not listed (and counted) twice
+    rows += [(g, title, keys, what, "key") for g, title, keys, what in EXTRA if not set(keys) <= listed]
     out, counts = [], {"set": 0, "missing": 0, "no key": 0}
     for group in sorted({r[0] for r in rows}):
         out.append(f"\n{group}")
@@ -260,6 +270,152 @@ def inventory(env) -> list[str]:
     if not (env.get("BUDDY_SEC_CONTACT") or "").strip():
         out.append("BUDDY_SEC_CONTACT is not a key but an email address the SEC asks for; company filings need it.")
     return out
+
+
+def _result(ok: bool, title: str, seconds: float, said: str) -> str:
+    title = title[:36]
+    if ok:
+        return f"  OK    {title:<36} {seconds:.1f}s"
+    said = " ".join(str(said).split())[:220]
+    found = re.search(r"\bHTTP (\d{3})\b", said)
+    code = int(found.group(1)) if found else 0
+    if "credit" in said.lower() or code == 402:
+        hint = "out of credit: top it up on the provider's site"
+    elif code in (500, 502, 503, 529):
+        hint = "busy or down on the provider's side right now: usually fine again later"
+    elif code in (401, 403):
+        hint = FIX[code].split(" (GitHub")[0]
+    elif code == 429:
+        hint = FIX[429]
+    elif "can't be reached" in said:
+        hint = "can't reach it (network or the service is down)"
+    else:
+        hint = "see the message"
+    return f"  FAIL  {title:<36} {said}\n        fix: {hint}"
+
+
+def _tested_directly() -> set[str]:
+    from .free_models import PROVIDERS
+    return {"ANTHROPIC_API_KEY", "BUDDY_SERPER_KEY", "BUDDY_NJT_USERNAME", "BUDDY_NJT_PASSWORD"} | {
+        p["key"] for p in PROVIDERS.values()}
+
+
+def services(env, memory=None, fetch=None) -> list[str]:
+    """Every other service in Buddy Connect's catalogue that needs a key: its own small test (the one behind the
+    Test button on the Connections page), or that it has no key, or that there is no test for it."""
+    from . import gateway
+    direct, out = _tested_directly(), []
+    for name, entry in sorted(gateway.CATALOG.items(), key=lambda kv: kv[1]["title"].lower()):
+        keys = _keys_of(entry.get("auth") or {})
+        if not keys or set(keys) <= direct:
+            continue
+        title = entry["title"]
+        lacking = [k for k in keys if not (env.get(k) or "").strip()]
+        if lacking:
+            out.append(f"  --    {title[:36]:<36} no key ({', '.join(lacking)})")
+        elif not entry.get("health"):
+            out.append(f"  ??    {title[:36]:<36} set, but Buddy has no test for it")
+        else:
+            started = time.monotonic()
+            try:
+                ok, said = gateway.health(name, memory, env, fetch)
+            except Exception as e:  # a test that needs a sign-in Buddy holds, run while Buddy is not running
+                ok, said = False, f"could not be tested here ({type(e).__name__}): run it with Buddy running"
+            out.append(_result(ok, title, time.monotonic() - started, said))
+    return out
+
+
+# Keys outside the catalogue that can be tested with one free request: (name, the setting, the request).
+def _extra_tests(env) -> list[tuple]:
+    get = lambda k: (env.get(k) or "").strip()  # noqa: E731
+    return [
+        ("Duffel (flight fares)", "BUDDY_DUFFEL_TOKEN", lambda: _get(
+            "https://api.duffel.com/air/airlines?limit=1",
+            {"Authorization": f"Bearer {get('BUDDY_DUFFEL_TOKEN')}", "Accept": "application/json",
+             "Duffel-Version": get("BUDDY_DUFFEL_VERSION") or "v2"})),
+        ("Travelpayouts (fare history)", "BUDDY_TRAVELPAYOUTS_TOKEN", lambda: _get(
+            "https://api.travelpayouts.com/aviasales/v3/prices_for_dates?" + urllib.parse.urlencode(
+                {"origin": "NYC", "destination": "MIA", "limit": 1, "token": get("BUDDY_TRAVELPAYOUTS_TOKEN")}), {})),
+        ("DigitalOcean (read-only)", "BUDDY_DO_TOKEN", lambda: _get(
+            "https://api.digitalocean.com/v2/account", {"Authorization": f"Bearer {get('BUDDY_DO_TOKEN')}"})),
+    ]
+
+
+# Keys that are set but not tested here, and why.
+UNTESTED = {
+    "BUDDY_AEROAPI_KEY": ("FlightAware", "every request is charged; ask Buddy to 'test my flight sources'"),
+    "BUDDY_17TRACK_KEY": ("17TRACK", "no free test; it is used when a package is tracked"),
+    "BUDDY_REDDIT_CLIENT_ID": ("Your Reddit app", "no test here"),
+    "BUDDY_TAILSCALE_API_KEY": ("Tailscale", "no test here"),
+    "BUDDY_ANTHROPIC_ADMIN_KEY": ("Anthropic admin key", "no test here"),
+    "BUDDY_PLAID_CLIENT_ID": ("Plaid (banks)", "tested when a bank is linked: sudo bash /opt/buddy/deploy/bank.sh"),
+}
+
+
+def extras(env, connect=None) -> list[str]:
+    """The mailboxes (a sign-in each), the keys outside the catalogue that have a free test, and the ones that are
+    set but cannot be tested here. `connect`: how a mailbox is signed in to (the tests pass their own)."""
+    import imaplib
+    from .email_accounts import email_accounts
+    out = []
+    for account in email_accounts(env):
+        name, _, domain = account.address.partition("@")
+        title = f"Mailbox {name[:2]}...@{domain}"
+        started = time.monotonic()
+        try:
+            imap = connect(account) if connect else imaplib.IMAP4_SSL(account.imap_host, timeout=25)
+            if not connect:
+                imap.login(account.address, account.password)
+            try:
+                imap.logout()
+            except Exception:
+                pass
+            out.append(_result(True, title, time.monotonic() - started, ""))
+        except Exception as e:
+            said = e.args[0].decode("utf-8", "replace") if e.args and isinstance(e.args[0], bytes) else str(e)
+            out.append(f"  FAIL  {title[:36]:<36} {' '.join(said.split())[:200]}\n"
+                       "        fix: the app password is wrong or was withdrawn: make a new one and save it with set.sh")
+    for title, key, ask in _extra_tests(env):
+        if not (env.get(key) or "").strip():
+            out.append(f"  --    {title[:36]:<36} no key ({key})")
+            continue
+        started = time.monotonic()
+        code, said = ask()
+        out.append(_result(code == 200, title, time.monotonic() - started,
+                           "" if code == 200 else f"HTTP {code or '-'}: {said}" if code else said))
+    for key, (title, why) in UNTESTED.items():
+        if (env.get(key) or "").strip():
+            out.append(f"  ??    {title[:36]:<36} set, not tested: {why}")
+    return out
+
+
+def _hidden(lines: list[str], env) -> list[str]:
+    """No key's value in what is printed, whatever a provider's answer quoted back."""
+    values = sorted({v.strip() for k, v in env.items() if len((v or "").strip()) >= 8 and re.search(
+        r"KEY|TOKEN|SECRET|PASSWORD|AUTH", k)}, key=len, reverse=True)
+    out = []
+    for text in lines:
+        for v in values:
+            text = text.replace(v, "[hidden]")
+        out.append(text)
+    return out
+
+
+def report(env, memory=None, fetch=None, connect=None) -> list[str]:
+    """Every key, tested, and the count at the end. Keys are never shown."""
+    rows = run(env) + services(env, memory, fetch) + extras(env, connect)
+    kinds = {"OK": 0, "FAIL": 0, "--": 0, "??": 0}
+    for r in rows:
+        mark = r[2:6].strip()
+        if mark in kinds:
+            kinds[mark] += 1
+    rows.append("")
+    rows.append(f"{kinds['OK']} working, {kinds['FAIL']} NOT working, {kinds['--']} with no key, "
+                f"{kinds['??']} set but not tested.")
+    if kinds["FAIL"]:
+        rows.append("For each FAIL, the line under it says what to do. To save a new key: "
+                    "sudo bash /opt/buddy/deploy/set.sh NAME (typed hidden).")
+    return _hidden(rows, env)
 
 
 def read_env(path: str) -> dict:
@@ -286,5 +442,5 @@ if __name__ == "__main__":
             print(row)
         sys.exit(0)
     print("Testing Buddy's keys (one tiny request each; keys are never shown):")
-    for row in run(env):
+    for row in report(env):
         print(row)

@@ -1030,6 +1030,15 @@ async def admin_connections() -> dict:
     return {"services": services, "sections": gateway.arrange(services)}
 
 
+@app.get("/admin/keys", dependencies=[Depends(require_admin)])
+async def admin_keys() -> PlainTextResponse:
+    """Every key tested with one small real request, as text, for deploy/keys.sh. Run here, inside Buddy, so the
+    sign-ins Buddy holds (Oura, Nest) are used. Keys are never shown."""
+    from . import keytest  # noqa: PLC0415
+    rows = await asyncio.to_thread(keytest.report, dict(os.environ), memory)
+    return PlainTextResponse("\n".join(rows) + "\n")
+
+
 @app.post("/admin/connections/test", dependencies=[Depends(require_admin)])
 async def admin_connection_test(body: dict) -> dict:
     """One small real request to one service, for the app's Test button."""

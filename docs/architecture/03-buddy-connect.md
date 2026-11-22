@@ -19,12 +19,14 @@ flowchart LR
     keytest_py --> gateway_py
     o_0["Claude"]
     gateway_py -. uses .-> o_0
-    o_1["Free AI models"]
+    o_1["Email, messages and apps"]
     gateway_py -. uses .-> o_1
-    o_2["Investing"]
+    o_2["Free AI models"]
     gateway_py -. uses .-> o_2
-    o_3["Travel and getting around"]
+    o_3["Investing"]
     gateway_py -. uses .-> o_3
+    o_4["Travel and getting around"]
+    gateway_py -. uses .-> o_4
 ```
 
 The diagram reads left to right: what you ask, the tools Buddy uses, the modules that do the work, and what they keep or call. Dashed arrows are other features this one relies on.
@@ -71,13 +73,19 @@ fails. Run on the server: sudo bash /opt/buddy/deploy/keys.sh  (never prints a k
   NJ Transit      signs in to the train API and the bus/light rail API (free; the token is never shown)
   free models     one 5-word chat with the model Buddy is set to use (Groq, GitHub Models, Gemini, Mistral,
                   Cerebras, OpenRouter, DeepSeek through OpenRouter)
+  everything else every other service in Buddy Connect's catalogue that needs a key: the same small test the
+                  Connections page runs for it (services), then the mailboxes and the keys outside the catalogue
+                  (extras). A key whose every request is charged is not tested; it says so.
+
+report() puts it together and ends with the count: working, not working, no key, not tested. Run by Buddy itself
+(keys.sh asks the running server, so sign-ins Buddy holds are used), or on its own when Buddy is not running.
 ```
 
-- Settings: `BUDDY_17TRACK_KEY`, `BUDDY_AEROAPI_KEY`, `BUDDY_ALPACA_SECRET`, `BUDDY_ANTHROPIC_ADMIN_KEY`, `BUDDY_DB_KEY`, `BUDDY_DO_TOKEN`, `BUDDY_DUFFEL_TOKEN`, `BUDDY_EMAIL_2_ADDRESS`, `BUDDY_EMAIL_2_APP_PASSWORD`, `BUDDY_EMAIL_ADDRESS`, `BUDDY_EMAIL_APP_PASSWORD`, `BUDDY_FREE_MODELS` and 15 more
-- Uses: free_models.py, gateway.py, openrouter_catalog.py, transit.py
+- Settings: `BUDDY_17TRACK_KEY`, `BUDDY_AEROAPI_KEY`, `BUDDY_ALPACA_SECRET`, `BUDDY_ANTHROPIC_ADMIN_KEY`, `BUDDY_DB_KEY`, `BUDDY_DO_TOKEN`, `BUDDY_DUFFEL_TOKEN`, `BUDDY_DUFFEL_VERSION`, `BUDDY_EMAIL_2_ADDRESS`, `BUDDY_EMAIL_2_APP_PASSWORD`, `BUDDY_EMAIL_ADDRESS`, `BUDDY_EMAIL_APP_PASSWORD` and 17 more
+- Uses: email_accounts.py, free_models.py, gateway.py, openrouter_catalog.py, transit.py
 
 ## How it connects
 
-- Relies on: Claude: the brain; Free AI models (Groq, Gemini, Mistral, Cerebras, GitHub Models, OpenRouter); Investing: signals, research and practice; Travel and getting around
+- Relies on: Claude: the brain; Email, messages and apps; Free AI models (Groq, Gemini, Mistral, Cerebras, GitHub Models, OpenRouter); Investing: signals, research and practice; Travel and getting around
 - Relied on by: Buddy Intelligence Platform; Claude: the brain; Fixing and explaining itself; Free AI models (Groq, Gemini, Mistral, Cerebras, GitHub Models, OpenRouter); Going out: restaurants and events; Home and health; Investing: signals, research and practice; Learning: the English and investing tutors; Money; News, trends and research; Phone calls; Security and privacy; Shopping and deals; The price book, pattern learning and trained models; The server and the app; Travel and getting around; Voice: Talk mode and Listen-in
 

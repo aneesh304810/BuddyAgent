@@ -166,15 +166,18 @@ CATALOG: dict[str, dict] = {
                       "used_for": "what an index fund holds, as a dated list of stocks (off until you switch it on)"},
     "alphavantage": {"group": "Finance & markets", "title": "Alpha Vantage (news sentiment)",
                      "hosts": ["https://www.alphavantage.co"], "auth": {"type": "param", "secret": "BUDDY_ALPHAVANTAGE_KEY"},
+                "health": {"path": "/query?function=GLOBAL_QUOTE&symbol=IBM", "key_param": "apikey", "expect": "Global Quote"},
                      "cost": 0.0, "per_minute": 5, "privacy": "public", "no_backup": True,
                      "used_for": "how the news on a company reads, as a score (ticker symbols only)"},
     "marketaux": {"group": "Finance & markets", "title": "Marketaux (news sentiment and news search)",
                   "hosts": ["https://api.marketaux.com"], "auth": {"type": "param", "secret": "BUDDY_MARKETAUX_KEY"},
+                "health": {"path": "/v1/news/all?limit=1&language=en", "key_param": "api_token", "expect": "data"},
                   "cost": 0.0, "per_minute": 10, "privacy": "public", "no_backup": True,
                   "used_for": "how the news on a company reads, as a score (ticker symbols only); also news on a "
                               "topic when Google News (Serper) cannot answer (the search words only), asked fourth"},
     "newsdata": {"group": "Finance & markets", "title": "NewsData.io (news search and fact check)",
                  "hosts": ["https://newsdata.io"], "auth": {"type": "param", "secret": "BUDDY_NEWSDATA_KEY"},
+                "health": {"path": "/api/1/latest?q=news&language=en", "key_param": "apikey", "expect": "results"},
                  "cost": 0.0, "per_minute": 5, "privacy": "public", "no_backup": True,
                  "used_for": "news on a topic when Google News (Serper) cannot answer (the search words only), "
                              "asked second; and who else reports a story Buddy is unsure of (a company's name "
@@ -182,6 +185,7 @@ CATALOG: dict[str, dict] = {
     "perigon": {"group": "Finance & markets", "title": "Perigon (news search and fact check)",
                 "hosts": ["https://api.goperigon.com", "https://api.perigon.io"],
                 "auth": {"type": "header", "header": "x-api-key", "secret": "BUDDY_PERIGON_KEY"},
+                "health": {"path": "/v1/all?q=news&size=1"},
                 "cost": 0.0, "per_minute": 5, "privacy": "public",
                 "used_for": "news on a topic when Google News (Serper) cannot answer (the search words only), "
                             "asked third; and who else reports a story Buddy is unsure of (a company's name and "
@@ -189,12 +193,14 @@ CATALOG: dict[str, dict] = {
     "newscatcher": {"group": "Finance & markets", "title": "NewsCatcher (news search and fact check)",
                     "hosts": ["https://v3-api.newscatcherapi.com"],
                     "auth": {"type": "header", "header": "x-api-token", "secret": "BUDDY_NEWSCATCHER_KEY"},
+                    "health": {"path": "/api/search?q=news&lang=en&page_size=1"},
                     "cost": 0.0, "per_minute": 5, "privacy": "public", "no_backup": True,
                     "used_for": "news on a topic when Google News (Serper) cannot answer (the search words only), "
                                 "asked first; and who else reports a story Buddy is unsure of (a company's name "
                                 "and a few headline words), asked last of three"},
     "tiingo": {"group": "Finance & markets", "title": "Tiingo (price cross-check)", "hosts": ["https://api.tiingo.com"],
                "auth": {"type": "header", "header": "Authorization", "prefix": "Token ", "secret": "BUDDY_TIINGO_KEY"},
+               "health": {"path": "/api/test"},
                "cost": 0.0, "per_minute": 30, "privacy": "public", "no_backup": True,
                "used_for": "a second source to check the kept daily prices against (ticker symbols and dates only)"},
     "stooq": {"group": "Finance & markets", "title": "Stooq", "hosts": ["https://stooq.com"], "auth": {"type": "none"}, "cost": 0.0,
@@ -210,10 +216,12 @@ CATALOG: dict[str, dict] = {
     "arxiv": {"group": "News & trends", "title": "arXiv (papers)", "hosts": ["https://export.arxiv.org"], "auth": {"type": "none"},
               "cost": 0.0, "per_minute": 40, "privacy": "public", "used_for": "new research papers", "moved": True},
     "serpapi": {"group": "News & trends", "title": "SerpApi (Google Trends)", "hosts": ["https://serpapi.com"],
-                "auth": {"type": "param", "secret": "BUDDY_SERPAPI_KEY"}, "cost": 0.01, "per_minute": 30,
+                "auth": {"type": "param", "secret": "BUDDY_SERPAPI_KEY"},
+                "health": {"path": "/account.json", "key_param": "api_key", "refused": "error"}, "cost": 0.01, "per_minute": 30,
                 "privacy": "public", "used_for": "rising searches", "moved": True},
     "airlabs": {"group": "Travel & transit", "title": "AirLabs (flights)", "hosts": ["https://airlabs.co"],
-                "auth": {"type": "param", "secret": "BUDDY_AIRLABS_KEY"}, "cost": 0.0, "per_minute": 30,
+                "auth": {"type": "param", "secret": "BUDDY_AIRLABS_KEY"},
+                "health": {"path": "/api/v9/ping", "key_param": "api_key", "refused": "error"}, "cost": 0.0, "per_minute": 30,
                 "privacy": "public", "used_for": "flight status", "moved": True},
     "openmeteo": {"group": "Weather", "title": "Open-Meteo (weather)",
                   "hosts": ["https://api.open-meteo.com", "https://geocoding-api.open-meteo.com"],
@@ -256,7 +264,8 @@ CATALOG: dict[str, dict] = {
                         "used_for": "Amazon and store prices for price watches",
                         "health": {"path": "/shopping", "json": {"q": "usb c cable", "num": 1}}, "moved": True},
     "keepa": {"group": "Shopping", "title": "Keepa (Amazon price history)", "hosts": ["https://api.keepa.com"],
-              "auth": {"type": "param", "secret": "BUDDY_KEEPA_KEY"}, "cost": 0.0, "per_minute": 20,
+              "auth": {"type": "param", "secret": "BUDDY_KEEPA_KEY"},
+                "health": {"path": "/token", "key_param": "key", "expect": "tokensLeft"}, "cost": 0.0, "per_minute": 20,
               "privacy": "public", "used_for": "Amazon's exact price and 90-day average (optional, paid plan)",
               "moved": True},
     # Health (health_data.py): the phone's own data stays on this server; the public ones get only a drug,
@@ -320,7 +329,8 @@ CATALOG: dict[str, dict] = {
     # The free AI models keep their own failover (rests, model swaps) and report each result here.
     "openai": {"group": "AI models", "title": "OpenAI (paid AI, Intelligence Platform only)",
                "hosts": ["https://api.openai.com"],
-               "auth": {"type": "header", "secret": "BUDDY_OPENAI_KEY", "prefix": "Bearer "}, "per_minute": 60,
+               "auth": {"type": "header", "secret": "BUDDY_OPENAI_KEY", "prefix": "Bearer "},
+               "health": {"path": "/v1/models"}, "per_minute": 60,
                "privacy": "public", "no_backup": True,
                "used_for": "optional: public records only (headlines, titles), for the Intelligence Platform's jobs "
                            "the owner assigns to it; never anything about the owner", "moved": True},
@@ -393,7 +403,11 @@ def _transport(url: str, data: bytes | None = None, headers: dict | None = None,
     req = urllib.request.Request(require_https(url), data=data, headers={"User-Agent": UA, **(headers or {})},
                                  method=method or None)
     with urllib.request.urlopen(req, timeout=timeout) as r:  # https only  # nosec B310
-        return r.read(20_000_000)
+        body = r.read(20_000_000)
+    if body[:2] == b"\x1f\x8b":  # sent zipped though nobody asked (Keepa does): read as what it is
+        import gzip  # noqa: PLC0415
+        body = gzip.decompress(body)
+    return body
 
 
 def multipart(fields: dict) -> tuple[bytes, str]:
@@ -587,9 +601,9 @@ def call_url(memory, name: str, urls: list[str], *, data: bytes | None = None, h
 
 def _redact(path: str) -> str:
     """What the logs keep of a path: Plivo's account id (it's in every path) and any key passed in the address
-    (apikey=, api_key=, key=, token=) are left out."""
+    (apikey=, api_key=, api_token=, key=, token=) are left out."""
     path = re.sub(r"/Account/[^/]+", "/Account/~", path)
-    return re.sub(r"(?i)\b(api_?key|key|token|access_token)=[^&]+", r"\1=~", path)
+    return re.sub(r"(?i)\b(api_?key|api_?token|key|token|access_token)=[^&]+", r"\1=~", path)
 
 
 def call(memory, name: str, path: str = "", *, data: bytes | None = None, json_body=None, headers: dict | None = None,
@@ -722,8 +736,19 @@ def health(name: str, memory=None, env=None, fetch=None) -> tuple[bool, str]:
                 call_url(memory, name, [entry["hosts"][0] + check["path"]], headers=extra, fetch=fetch,
                          purpose="health")
             else:
-                call(memory, name, check["path"], json_body=check.get("json"), env=env, fetch=fetch,
-                     purpose="health", raw=bool(check.get("raw")))
+                path = check["path"]
+                if check.get("key_param"):  # a service that takes its key in the address
+                    path += ("&" if "?" in path else "?") + urllib.parse.urlencode(
+                        {check["key_param"]: _secret(env, entry["auth"]["secret"])})
+                got = call(memory, name, path, json_body=check.get("json"), env=env, fetch=fetch,
+                           purpose="health", raw=bool(check.get("raw")))
+                # Some services answer a wrong key with "200 OK" and put the refusal in the answer itself.
+                if isinstance(got, dict) and check.get("refused") and got.get(check["refused"]):
+                    raise ConnectError(name, f"{entry['title']} refused the key: {reason_of(got[check['refused']])}",
+                                       401)
+                if isinstance(got, dict) and check.get("expect") and check["expect"] not in got:
+                    raise ConnectError(name, f"{entry['title']} answered, but not with what a working key gets: "
+                                             f"{reason_of(got)}", 200)
         return True, "ok"
     except ConnectError as e:
         return False, str(e)

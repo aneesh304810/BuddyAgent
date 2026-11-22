@@ -166,7 +166,7 @@ function dayChart(daysList) {
     <line x1="${L}" x2="${W}" y1="${T + plotH}" y2="${T + plotH}" stroke="var(--line)"/>${bars}</svg><div class="tip" id="spendtip"></div></div>`;
 }
 const barRow = (label, sub, g, attr) => `<button class="rowbtn" ${attr || "disabled"}><span class="rl"><b>${esc(label)}</b>${sub ? `<small>${esc(sub)}</small>` : ""}</span>
-    <span class="rv">${dollars(g.usd)}<small>${share(g.share)} · ${esc(g.requests)} requests${g.failed ? ` · ${esc(g.failed)} failed` : ""}</small></span>
+    <span class="rv">${dollars(g.usd)}<small>${share(g.share)} · ${esc(g.requests)} requests${g.failed ? ` · ${esc(g.failed)} failed` : ""}${g.kept_private ? ` · ${esc(g.kept_private)} kept private` : ""}</small></span>
     <span class="rb"><i style="width:${Math.max(1, Math.round((g.share || 0) * 100))}%"></i></span></button>`;
 function spending() {
   if (!spend) { loadSpend(); return `<p class="muted">Loading…</p>`; }
@@ -192,7 +192,8 @@ function spending() {
   const parts = spend.components ? card("Which part of Buddy spends it", spend.components.length ? spend.components.map((c) => barRow(c.title, c.covers, c, `data-component="${esc(c.id)}"`)).join("") : `<p class="muted">No requests in this period yet.</p>`, "Tap a part to see what inside it spends.")
     : card(`Inside ${esc(componentTitle(sc.component))}`, (spend.purposes || []).map((p) => barRow(p.name, p.purpose, p, `data-purpose="${esc(p.purpose)}"`)).join("") || `<p class="muted">Nothing here in this period.</p>`, "Tap a line to see its models and latest requests. Shares are of this part.");
   const models_ = card("By model", `<div style="overflow-x:auto"><table class="grid"><tr><th>Model</th><th>Cost</th><th>Share</th><th>Requests</th><th>Average</th></tr>${spend.by_model.map((g) => `<tr><td>${esc(g.name)}</td><td>${dollars(g.usd)}</td><td>${share(g.share)}</td><td>${esc(g.requests)}</td><td>${dollars(g.per_request, 4)}</td></tr>`).join("")}</table></div>`)
-    + card("By provider", spend.by_provider.map((g) => barRow(g.name, "", g)).join("") || `<p class="muted">Nothing in this period.</p>`);
+    + card("By provider", spend.by_provider.map((g) => barRow(g.name, (g.failed_why || []).length ? "Failed: " + g.failed_why.map((w) => `${w.why} (${w.count})`).join("; ") : "", g)).join("") || `<p class="muted">Nothing in this period.</p>`,
+      spend.by_provider.some((g) => g.failed || g.kept_private) ? `"Failed" is a request the provider did not answer, with the commonest reasons written under its name. "Kept private" is a request Buddy did not send, because of the Privacy Gateway. To test every key: sudo bash /opt/buddy/deploy/keys.sh` : "");
   const reqs = spend.requests ? card(`Latest requests (${spend.requests.length})`, `<div style="overflow-x:auto"><table class="grid"><tr><th>When</th><th>Model</th><th>Cost</th><th>Time</th><th>Tokens</th></tr>${spend.requests.map((r) => `<tr><td>${esc(new Date(r.at).toLocaleString(undefined, { month: "short", day: "numeric", hour: "numeric", minute: "2-digit" }))}${r.ok ? "" : `<br><small style="color:var(--sev-high)">✗ ${esc(r.stop || "failed")}</small>`}${r.preview ? `<br><small class="muted">${esc(r.preview)}</small>` : ""}</td><td>${esc(r.model)}</td><td>${dollars(r.usd, 4)}</td><td>${r.seconds == null ? "–" : esc(Number(r.seconds).toFixed(1)) + "s"}</td><td>${esc(r.tokens_in)} in<br>${esc(r.tokens_out)} out</td></tr>`).join("")}</table></div>`, "Previews are short and have personal details masked. The log keeps 90 days.") : "";
   return summary + scopeCard + parts + reqs + models_;
 }

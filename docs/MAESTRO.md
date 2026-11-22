@@ -97,6 +97,11 @@ or "what does email cost me".
   other periods still show everything, and your budget limits are not changed. "Clear the reset" removes
   the mark. If you started the budgets fresh more recently, that moment is used instead. In chat: "reset
   the AI spending view" and "what have I spent on AI since the reset".
+- **Failed and kept private.** "Failed" counts requests a provider did not answer. Under a provider's name the
+  page writes the commonest reasons from Buddy's log, counted: "at its free limit", "key rejected (HTTP 401)",
+  "model not available". "Kept private" counts requests Buddy did not send because of the Privacy Gateway;
+  those are not failures. To test every key with one small real request: `sudo bash /opt/buddy/deploy/keys.sh`
+  (`docs/KEYS.md`).
 - **Spending per day**, as a chart. Tap a bar for that day's cost and requests.
 - **Which part of Buddy spends it.** Every request belongs to one component:
 

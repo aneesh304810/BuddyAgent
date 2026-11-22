@@ -87,11 +87,29 @@ def _name(purpose: str) -> str:
     return purpose_name(purpose)
 
 
+def why_failed(stop: str) -> str:
+    """What the log wrote for a failed request, without the provider's long answer: 'at its free limit',
+    'key rejected (HTTP 401)', 'rejected: declined'."""
+    said = " ".join(str(stop or "").split())
+    if said.startswith("error: "):
+        said = said[7:].split(": ", 1)[0]
+    return said[:80] or "no reason was written down"
+
+
 def _sum(rows: list[dict]) -> dict:
     n = len(rows)
     usd = sum(r["cost_usd"] for r in rows)
     times = sorted(r["seconds"] for r in rows if r["seconds"] is not None and r["ok"])
-    return {"usd": round(usd, 4), "requests": n, "failed": sum(1 for r in rows if not r["ok"]),
+    # A request the Privacy Gateway kept from a model was never sent: that is Buddy protecting the owner, and it is
+    # counted apart from the requests a provider failed.
+    held = sum(1 for r in rows if not r["ok"] and "PrivacyBlocked" in str(r.get("stop") or ""))
+    reasons: dict[str, int] = {}
+    for r in rows:
+        if not r["ok"] and "PrivacyBlocked" not in str(r.get("stop") or ""):
+            reasons[why_failed(r.get("stop"))] = reasons.get(why_failed(r.get("stop")), 0) + 1
+    return {"usd": round(usd, 4), "requests": n, "failed": sum(1 for r in rows if not r["ok"]) - held,
+            "kept_private": held,
+            "failed_why": [{"why": w, "count": c} for w, c in sorted(reasons.items(), key=lambda kv: (-kv[1], kv[0]))[:3]],
             "per_request": round(usd / n, 5) if n else 0.0,
             "tokens_in": sum(r["input_tokens"] + r["cache_read_tokens"] + r["cache_write_tokens"] for r in rows),
             "tokens_out": sum(r["output_tokens"] for r in rows),

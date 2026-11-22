@@ -12,6 +12,28 @@ Paste the key at the hidden prompt and press Enter. Buddy restarts by itself.
 See what's set (names only): `sudo bash /opt/buddy/deploy/set.sh`. Get updates first:
 `sudo bash /opt/buddy/deploy/update.sh`.
 
+**Which keys work, and which do not:**
+```
+sudo bash /opt/buddy/deploy/keys.sh
+```
+Buddy makes one small real request to every service that has a key, and signs in to each mailbox. It takes a
+minute or two. Each line is one of:
+
+| Mark | Meaning |
+|---|---|
+| `OK` | The service answered with this key |
+| `FAIL` | It did not. The line shows the service's own answer, and the line under it says what to do |
+| `--` | No key is set for it |
+| `??` | A key is set, but there is no free test for it (FlightAware charges for every request, for example) |
+
+The last line is the count. Keys are never printed. A test is one request: it shows that the key is accepted
+now, not that every feature built on it works. Serper's test spends one search credit; the others are free.
+
+- `sudo bash /opt/buddy/deploy/keys.sh list` shows every key the code reads, as set or missing, without
+  calling anything.
+- `sudo bash /opt/buddy/deploy/keys.sh gemini` (or `groq`, `mistral`, ...) shows every step of one request to
+  one free model, to see why it fails.
+
 | # | What | Unlocks | Cost | Time |
 |---|---|---|---|---|
 | 1 | Email app passwords | Email manager, Gmail agent, money from bank emails | Free | 3 min per account |

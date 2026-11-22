@@ -136,3 +136,27 @@ def test_reset_through_the_endpoint_and_chat(memory, monkeypatch):
     assert client.post("/api/maestro/usage", json={}, headers=ok).status_code == 400
     assert client.post("/api/maestro/usage", json={"clear": True}, headers=ok).json()["reset_at"] == ""
     assert "Since reset" in asyncio.run(maestro.run_tool(memory, {"action": "reset_spending"}))
+
+
+def test_a_request_buddy_kept_private_is_not_counted_as_a_failed_one(memory):
+    """A request the Privacy Gateway never sent is not the provider failing, and the page says why the others
+    failed (seen live: "gemini 719 requests, 714 failed", with no reason anywhere on the page)."""
+    for _ in range(3):
+        memory.db.execute(
+            "INSERT INTO model_calls (at, provider, model, purpose, input_tokens, output_tokens, cost_usd, seconds, ok, "
+            "stop, request) VALUES (?, 'gemini', 'gemini-flash-latest', 'chat', 0, 0, 0, 0.1, 0, ?, '')",
+            ((NOW - timedelta(days=1)).isoformat(), "error: PrivacyBlocked"))
+    for stop in ("at its free limit", "at its free limit",
+                 'error: key rejected (HTTP 401): {"error": {"message": "API key not valid"}}'):
+        memory.db.execute(
+            "INSERT INTO model_calls (at, provider, model, purpose, input_tokens, output_tokens, cost_usd, seconds, ok, "
+            "stop, request) VALUES (?, 'gemini', 'gemini-flash-latest', 'chat', 0, 0, 0, 0.1, 0, ?, '')",
+            ((NOW - timedelta(days=1)).isoformat(), stop))
+    call(memory, "chat", 0.0, provider="gemini", model="gemini-flash-latest")
+    got = mu.view(memory, 30, now=NOW)
+    gemini = next(g for g in got["by_provider"] if g["name"] == "gemini")
+    assert (gemini["requests"], gemini["failed"], gemini["kept_private"]) == (7, 3, 3)
+    assert gemini["failed_why"] == [{"why": "at its free limit", "count": 2}, {"why": "key rejected (HTTP 401)", "count": 1}]
+    assert got["totals"]["failed"] == 3 and got["totals"]["kept_private"] == 3
+    assert "API key not valid" not in str(got["by_provider"])
+    assert mu.why_failed("") == "no reason was written down" and mu.why_failed("rejected: declined") == "rejected: declined"
