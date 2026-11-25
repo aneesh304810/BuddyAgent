@@ -1,6 +1,6 @@
 # Investing: signals, research and practice
 
-Chart setups and trade ideas, Reddit and news signals, buy and sell signals with a track record, live triggers, investor checklists, fund holdings, the committee and journal, a paper portfolio, Buddy's own practice book and day-trade practice; never trades.
+Chart setups and trade ideas, Reddit and news signals, buy and sell signals with a track record, live triggers, investor checklists, fund holdings, the committee and journal, a paper portfolio, Buddy's own practice book and day-trade practice, who holds the futures (CFTC) and short selling in the watchlist (FINRA); never trades.
 
 ## Architecture
 
@@ -17,6 +17,7 @@ flowchart LR
         t_investment_journal["investment_journal"]
         t_paper_portfolio["paper_portfolio"]
         t_investor_library["investor_library"]
+        t_futures_positioning["futures_positioning"]
     end
     subgraph Modules["Modules"]
         recommend_py["recommend.py<br/>Buy and sell signals by category, each with its reasons and Buddy's…"]
@@ -43,6 +44,8 @@ flowchart LR
         investors_py["investors.py<br/>principles from the classic investors and books, each tagged with the…"]
         finnhub_py["finnhub.py<br/>company and market headlines, the earnings calendar, insider buying…"]
         invest_py["invest.py<br/>trade strategy, market trends, the Plaid investment accounts and the…"]
+        cftc_py["cftc.py<br/>the CFTC's weekly Commitments of Traders report, for 17 markets"]
+        finra_py["finra.py<br/>Short selling in the watchlist's US stocks, from FINRA"]
     end
     you --> t_recommendations
     t_recommendations --> recommend_py
@@ -62,6 +65,8 @@ flowchart LR
     t_paper_portfolio --> paper_py
     you --> t_investor_library
     t_investor_library --> investors_py
+    you --> t_futures_positioning
+    t_futures_positioning --> cftc_py
     recommend_py --> finnhub_py
     recommend_py --> investors_py
     recommend_py --> lenses_py
@@ -109,7 +114,7 @@ flowchart LR
     paper_py --> finnhub_py
     paper_py --> markets_py
     invest_py --> markets_py
-    db[("Your database<br/>api_calls, day_trades, factor_returns, fund_filings, fund_holdings, fundamentals, inv_journal, lab_rules and more")]
+    db[("Your database<br/>api_calls, cot_weekly, day_trades, factor_returns, finra_short_interest, finra_short_volume, fund_filings, fund_holdings and more")]
     recommend_py --> db
     signals_py --> db
     simbook_py --> db
@@ -127,23 +132,24 @@ flowchart LR
     funds_py --> db
     journal_py --> db
     paper_py --> db
+    cftc_py --> db
+    finra_py --> db
     s_alphavantage["Alpha Vantage (news sentiment)<br/>(public data only)"]
     newssent_py --> s_alphavantage
     s_arxiv["arXiv (papers)<br/>(public data only)"]
     researchdesk_py --> s_arxiv
+    s_cftc["CFTC (who holds the futures)<br/>(public data only)"]
+    cftc_py --> s_cftc
     s_finnhub["Finnhub (news, earnings, insiders)<br/>(public data only)"]
     finnhub_py --> s_finnhub
+    s_finra["FINRA (short selling)<br/>(public data only)"]
+    finra_py --> s_finra
     s_french_data["Kenneth French data library (factor returns)<br/>(public data only)"]
     benchmarks_py --> s_french_data
     s_fund_holdings["Fund holdings files (stock lists)<br/>(public data only)"]
     benchmarks_py --> s_fund_holdings
     s_github["GitHub (trending projects)<br/>(public data only)"]
     researchdesk_py --> s_github
-    s_marketaux["Marketaux (news sentiment and news search)<br/>(public data only)"]
-    newssent_py --> s_marketaux
-    s_reddit["Reddit<br/>(public data only)"]
-    signals_py --> s_reddit
-    markets_py --> s_reddit
     o_0["Buddy Connect"]
     recommend_py -. uses .-> o_0
     o_1["Buddy Intelligence Platform"]
@@ -173,6 +179,7 @@ The diagram reads left to right: what you ask, the tools Buddy uses, the modules
 | `investment_journal` | The owner's investment journal and research committee | committee, thesis, note, review, list | journal.py |
 | `paper_portfolio` | A pretend portfolio for testing ideas with no real money: $100,000 of paper cash, real prices | buy, sell, show, trades, reset | paper.py |
 | `investor_library` | Principles from the classic investors and books (Graham, Buffett, Munger, Fisher, Lynch, Klarman, Marks, Greenblatt, Dalio, Soros, Taleb, Malkiel, Lefèvre, Thor | search, list | investors.py |
+| `futures_positioning` | Who holds the futures, from the CFTC's weekly Commitments of Traders report, for gold, silver, copper, crude oil, natural gas, the S&P 500 and Nasdaq 100 future | show, refresh | cftc.py |
 
 ## Technical design, module by module
 
@@ -793,6 +800,68 @@ and retirement balances Plaid reports, plus the money moved into them. Buddy nev
 ```
 
 - Uses: markets.py, memory.py, plaid.py, trends.py
+
+### cftc.py
+
+```text
+Who holds the futures: the CFTC's weekly Commitments of Traders report, for 17 markets.
+
+Every Friday the US Commodity Futures Trading Commission publishes, for each futures market, how many contracts
+three kinds of trader held on the Tuesday before:
+
+  large speculators   funds and other big traders who trade for profit ("non-commercial" in the report)
+  hedgers             producers, users and dealers protecting a business ("commercial")
+  small traders       everyone too small to report ("non-reportable")
+
+Buddy reads the futures-only report for the markets below (metals, energy, stock indexes, Treasuries, currencies,
+bitcoin, volatility and crops), keeps five years of it in the price book, and works out for each market: the
+large speculators' net position (long minus short), its share of all open contracts, the change from the week
+before, and how that position ranks against the last three years of weeks. A position higher than in 90% of
+those weeks is "near a 3-year high" (as long as speculators get: crowded); lower than in 90%, "near a 3-year low".
+Crowded positions have sometimes come before turns in price, but not reliably: this is background for learning,
+never a call to buy or sell.
+
+For stock index, Treasury and currency futures the "commercial" group includes banks and asset managers, so the
+speculator/hedger split says less there than it does for commodities; the page says so.
+
+Only the market codes and a date go to the CFTC (publicreporting.cftc.gov, no key). The report is a US government
+work, in the public domain; the CFTC asks to be credited, and the page does. Market data only, nothing personal.
+```
+
+- Tables: `cot_weekly`
+- Outside services: CFTC (who holds the futures)
+- Uses: gateway.py, memory.py, pricebook.py, tools.py
+
+### finra.py
+
+```text
+Short selling in the watchlist's US stocks, from FINRA. For the owner's personal, non-commercial use only.
+
+Two kinds of public data from FINRA, the US brokers' regulator:
+
+  short sale volume   each trading day, for every stock traded away from the exchanges (dark pools, wholesalers),
+                      how many of the shares sold were sold short. One file a day (cdn.finra.org); Buddy downloads
+                      it, keeps only the watchlist's stocks, and works out the short share of the day's volume
+                      against the stock's own average over the last 20 trading days. Nothing is sent but the date.
+  short interest      twice a month, how many shares were held short at the settlement date, the change from the
+                      time before, and "days to cover" (short shares divided by average daily volume). Asked of
+                      FINRA's API for the watchlist's ticker symbols, from about 8 business days after each
+                      settlement date (mid-month and month-end), when FINRA publishes it: once a day from 23 days
+                      after the latest settlement date held until the next one arrives.
+
+How to read it. About half of off-exchange volume is usually marked short, because market makers sell short to
+fill buyers' orders: that is not a bet against the stock. What says something is a change against the stock's
+own usual level, and short interest that is rising or takes many days to cover.
+
+FINRA's terms. FINRA's data is for personal, non-commercial use (its Equity Data terms; redistribution to others
+and commercial use need a FINRA licence). So Buddy keeps only the watchlist's stocks, shows the numbers on the
+Investments page by code, and does not give them to an AI model or use them in its learning or paper trading.
+The service can be switched off on the Security page like any other.
+```
+
+- Tables: `finra_short_interest`, `finra_short_volume`
+- Outside services: FINRA (short selling)
+- Uses: gateway.py, memory.py, pricebook.py, tools.py
 
 ## How it connects
 

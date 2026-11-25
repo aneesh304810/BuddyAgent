@@ -664,6 +664,14 @@ async def run(memory: Memory, deliver: Deliver, connected=None) -> None:
                     note = await asyncio.to_thread(funds.weekly, memory)
                     if note:
                         await deliver("money", note, topic="investing:funds")
+                try:  # public market data, by code, said to no one: the CFTC's weekly report, FINRA's daily file
+                    from . import cftc, finra  # noqa: PLC0415
+                    if cftc.due(memory):
+                        log.info("CFTC positioning: %s", await asyncio.to_thread(cftc.pull, memory))
+                    if (said := await asyncio.to_thread(finra.nightly, memory)):
+                        log.info(said)
+                except Exception as e:  # a service down: tried again tomorrow
+                    log.info("CFTC/FINRA: %s", e)
                 from . import recommend  # noqa: PLC0415  investing signals, weekday mornings
                 if recommend.due(memory) and not in_quiet_hours():
                     memory.set(recommend.DAY_KEY, local_now().date().isoformat())

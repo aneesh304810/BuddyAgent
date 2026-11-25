@@ -84,6 +84,21 @@ CATALOG: dict[str, dict] = {
                 "used_for": "headlines, earnings dates, insider buying and selling, analyst ratings and live "
                             "quotes for buy and sell signals (ticker symbols only)",
                 "health": {"custom": "finnhub.check"}, "moved": True},
+    "cftc": {"group": "Finance & markets", "title": "CFTC (who holds the futures)",
+             "hosts": ["https://publicreporting.cftc.gov"], "auth": {"type": "none"}, "cost": 0.0, "per_minute": 30,
+             "privacy": "public", "no_backup": True,
+             "used_for": "the weekly Commitments of Traders report for 17 futures markets: how many contracts large "
+                         "speculators, hedgers and small traders hold (market codes and a date only; public domain, "
+                         "credited to the CFTC)",
+             "health": {"custom": "cftc.check"}, "moved": True},
+    "finra": {"group": "Finance & markets", "title": "FINRA (short selling)",
+              "hosts": ["https://api.finra.org", "https://cdn.finra.org"], "auth": {"type": "none"}, "cost": 0.0,
+              "per_minute": 30, "privacy": "public", "no_backup": True,
+              "used_for": "short selling in your watchlist's US stocks: the daily short sale volume file (nothing "
+                          "is sent but the date) and short interest twice a month (the watchlist's ticker symbols). "
+                          "FINRA's terms: for your personal, non-commercial use only, so it is shown on the "
+                          "Investments page by code and not given to an AI model or used in Buddy's learning",
+              "health": {"custom": "finra.check"}, "moved": True},
     "bls": {"group": "Finance & markets", "title": "BLS (government price indexes)", "hosts": ["https://api.bls.gov"],
             "auth": {"type": "none"}, "cost": 0.0, "per_minute": 5, "privacy": "public", "no_backup": True,
             "used_for": "monthly consumer price indexes by category, for seasonal price patterns (no key needed)",

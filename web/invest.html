@@ -93,6 +93,12 @@ table.grid{width:100%;border-collapse:collapse;font-size:14px} table.grid th,tab
 .group{font-size:13px;font-weight:600;color:var(--muted);text-transform:uppercase;letter-spacing:.04em;margin:14px 0 2px}
 .group:first-of-type{margin-top:4px}
 .note{font-size:13px;color:var(--muted);margin:8px 0 0}
+.pos{padding:8px 0;border-top:1px solid var(--line)} .pos p{margin:4px 0 0;font-size:13px}
+.posrow{display:flex;align-items:baseline;gap:8px;flex-wrap:wrap} .posrow .name{flex:1;min-width:0}
+.rank{position:relative;height:8px;border-radius:4px;margin:6px 0 2px;
+  background:linear-gradient(90deg,var(--tagbg) 0 10%,var(--track) 10% 90%,var(--tagbg) 90% 100%)}
+.rank i{position:absolute;top:-3px;width:4px;height:14px;margin-left:-2px;border-radius:2px;background:var(--accent)}
+.pos details summary{cursor:pointer;font-size:13px;color:var(--accent)}
 .notice{position:fixed;left:16px;right:16px;bottom:16px;background:var(--text);color:var(--bg);padding:10px 14px;border-radius:12px;font-size:14px;display:none;z-index:20}
 </style>
 </head>

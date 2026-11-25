@@ -129,6 +129,7 @@ TOOLS = {
                  "seasonal_prices", "watch_price", "price_watches", "find_deals", "shop_for"),
     "pricebook": ("price_book",),
     "investing": ("markets", "community_signals", "recommendations", "investor_checks", "fund_holdings",
+                  "futures_positioning",
                   "investment_journal", "paper_portfolio", "day_trade_practice", "investor_library"),
     "travel": ("get_ride", "pick_seat", "travel", "transit", "flight_status", "buddy_maps", "weather", "hotel_direct",
                "travel_timing", "commute"),

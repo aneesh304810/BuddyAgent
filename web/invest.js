@@ -19,6 +19,7 @@ const TABS = [["strategy", "Overview"], ["practice", "Trading"], ["themes", "The
 let setupData = null, setupBusy = false, deskData = null, deskBusy = false, labNow = {};
 let picksData = null, picksBusy = false, researchData = null, researchBusy = false, ideasData = null, ideasBusy = false;
 let themesData = null, themesBusy = false, practiceData = null, practiceBusy = false, signalsData = null, signalsBusy = false;
+let posData = null, posBusy = false;
 let data = null, tab = TABS.some(([k]) => k === storageGet("investTab")) ? storageGet("investTab") : "strategy", busy = false;
 
 const px = (v, m) => v == null ? "–" : (m === "india" ? "₹" : "$") +
@@ -190,7 +191,7 @@ function watchTab() {
       <button class="btn small" data-unwatch="${esc(w.symbol)}" aria-label="Remove ${esc(w.symbol)}">✕</button></div>`, "");
   return card("Watchlist", `<div class="add"><input id="newsym" placeholder="Add a symbol: NVDA, ETH, TCS…" maxlength="20" aria-label="Symbol to watch">
       <button class="btn solid" id="watchbtn">Add</button></div>` + (rows || `<p class="muted">Nothing on your watchlist yet.</p>`),
-    "Every symbol here is in the daily scan, on top of the usual list for each market.") + picksCards();
+    "Every symbol here is in the daily scan, on top of the usual list for each market.") + shortCard() + picksCards();
 }
 
 // --- Practice: Buddy's paper trades (what was bought and sold, and why), the day across markets, crypto links
@@ -381,11 +382,61 @@ function linksCard(m) {
   return card("How crypto and the markets move together", body, m.note);
 }
 
+// --- Who holds the futures (CFTC, weekly) and short selling in the watchlist (FINRA, personal use only)
+async function loadPositioning() {
+  if (posBusy) return;
+  posBusy = true;
+  try { posData = await api("/api/invest/positioning"); } catch (e) { posData = { failed: e.message }; }
+  posBusy = false;
+  if (tab === "practice" || tab === "watch") render();
+  if (posData && posData.reading) setTimeout(() => { posData = null; loadPositioning(); }, 5000);
+}
+async function readPositioning() {
+  try { await api("/api/invest/positioning/read", {}); notice("Reading the CFTC report and FINRA's files: about a minute."); }
+  catch (e) { notice(e.message); return; }
+  posData = null; render();
+}
+const contracts = (n) => `${Math.abs(Math.round(n)).toLocaleString()} contracts`;
+function readButton(failed) {
+  if (posData && posData.reading) return `<p class="muted">Reading now…</p>`;
+  return `<p>${failed ? `<span class="err" style="padding:0">${esc(failed)}</span> ` : ""}<button class="btn small" id="positioning-read">Read now</button></p>`;
+}
+function futuresCard() {
+  if (!posData) { loadPositioning(); return card("Who holds the futures", `<p class="muted">Loading…</p>`); }
+  if (posData.failed) return card("Who holds the futures", `<p class="err">${esc(posData.failed)}</p>`);
+  const c = posData.cftc || {}, failed = ((posData.status || {}).cftc || {}).failed;
+  if (!(c.groups || []).length) return card("Who holds the futures", `<p class="muted">${esc(c.empty || "Nothing read yet.")}</p>` + readButton(failed), esc(c.source));
+  const row = (m) => `<div class="pos"><div class="posrow"><span class="name"><b>${esc(m.name)}</b>
+      <small class="muted">${m.net ? `net ${m.net > 0 ? "long" : "short"} ${contracts(m.net)}` : "flat"}${m.net_pct != null ? ` · ${esc(m.net_pct)}% of open contracts` : ""}${m.week_change ? ` · ${m.week_change > 0 ? "+" : "−"}${Math.abs(Math.round(m.week_change)).toLocaleString()} this week` : ""}</small></span>
+      ${m.standing ? `<span class="pill${m.standing.startsWith("near") ? " hot" : ""}">${esc(m.standing)}</span>` : ""}</div>
+    ${m.rank != null ? `<div class="rank" role="img" aria-label="Rank ${esc(m.rank)} of 100 against the last ${esc(m.weeks)} weeks"><i style="left:${Math.max(0, Math.min(100, m.rank))}%"></i></div>` : ""}
+    <details><summary>What it says</summary><p class="muted">${esc(m.reading)}</p></details></div>`;
+  const near = (s) => (c.crowded || []).filter((x) => x.standing === s).map((x) => esc(x.name)).join(", ");
+  const body = [["near a 3-year high", "Large speculators near their most long in 3 years"], ["near a 3-year low", "Near their least long in 3 years"]]
+    .filter(([s]) => near(s)).map(([s, label]) => `<p><b>${label}:</b> ${near(s)}</p>`).join("");
+  const groups = c.groups.map((g) => `<h3 class="group">${esc(g.title)}</h3>` + g.rows.map(row).join("") + (g.note ? `<p class="note">${esc(g.note)}</p>` : "")).join("");
+  return card("Who holds the futures", body + groups + readButton(failed),
+    `Positions on ${esc(c.as_of)}, published the Friday after. Each bar is where the large speculators' position ranks against the last 3 years: left is their least long, right their most long, and the shaded ends are crowded. ${esc(c.note)} Source: ${esc(c.source)}`);
+}
+function shortCard() {
+  if (!posData) { loadPositioning(); return card("Short selling in your watchlist", `<p class="muted">Loading…</p>`); }
+  if (posData.failed) return card("Short selling in your watchlist", `<p class="err">${esc(posData.failed)}</p>`);
+  const f = posData.finra || {}, st = (posData.status || {}).finra || {};
+  const failed = st.failed || ((st.volume || {}).failed) || "";
+  const rows = (f.stocks || []).map((s) => `<div class="pos"><div class="posrow"><span class="name"><b>${esc(s.symbol)}</b>
+      <small class="muted">${s.short_share != null ? `${(s.short_share * 100).toFixed(0)}% short${s.usual_share != null ? ` · usually ${(s.usual_share * 100).toFixed(0)}%` : ""}` : ""}${s.days_to_cover != null ? ` · ${Number(s.days_to_cover).toFixed(1)} days to cover` : ""}</small></span>
+      ${(s.flags || []).map((x) => `<span class="pill hot">${esc(x)}</span>`).join(" ")}</div>
+    <p class="muted">${esc(s.reading)}</p></div>`).join("");
+  const waiting = (f.waiting || []).length ? `<p class="note">Not read yet for ${esc(f.waiting.join(", "))}: from the next files.</p>` : "";
+  return card("Short selling in your watchlist", (rows || `<p class="muted">${esc(f.empty || "Nothing read yet.")}</p>`) + waiting + readButton(failed),
+    `${esc(f.note)} ${esc(f.terms)}`);
+}
+
 function practiceTab() {
   if (!practiceData) { loadPractice(); return `<p class="muted">Loading the paper trades…</p>`; }
   if (practiceData.failed) return `<p class="err">${esc(practiceData.failed)}</p><button class="btn" id="practice-refresh">Try again</button>`;
   const p = practiceData.practice || {}, m = practiceData.markets;
-  if (p.error) return card("Practice book", `<p class="muted">${esc(p.error)}</p>`) + marketsCard(m) + linksCard(m);
+  if (p.error) return card("Practice book", `<p class="muted">${esc(p.error)}</p>`) + marketsCard(m) + linksCard(m) + futuresCard();
   const mo = p.money || {}, o = p.overall;
   // All paper trading together first, then each book on its own line.
   const all = p.all || { books: [] };
@@ -423,7 +474,7 @@ function practiceTab() {
     ((p.skipped || []).length ? card("Signals not traded", list(p.skipped, "")) : "") +
     card("Day by day", log || `<p class="muted">No activity yet.</p>`) +
     deskCard() + setupCard() + strategiesCards(p) + labCards(p) +
-    (p.strategies ? "" : learned(p)) + marketsCard(m) + linksCard(m) +
+    (p.strategies ? "" : learned(p)) + marketsCard(m) + linksCard(m) + futuresCard() +
     `<p class="note">${esc(p.limits || "")} Theme baskets are listed under Themes.</p><p><button class="btn" id="practice-refresh">Refresh</button></p>`;
 }
 
@@ -563,6 +614,7 @@ function render() {
   document.querySelectorAll("[data-sigcat]").forEach((b) => b.onclick = () => switchSignal(b.dataset.sigcat));
   if ($("themes-refresh")) $("themes-refresh").onclick = () => { themesData = null; render(); };
   if ($("practice-refresh")) $("practice-refresh").onclick = () => { practiceData = null; render(); loadPractice(true); };
+  if ($("positioning-read")) $("positioning-read").onclick = readPositioning;
   document.querySelectorAll("[data-sold]").forEach((b) => b.onclick = () => sold(b.dataset.sold));
   document.querySelectorAll("[data-unwatch]").forEach((b) => b.onclick = () => watch("remove", b.dataset.unwatch));
   document.querySelectorAll("[data-pick]").forEach((b) => b.onclick = () => loadPicks({ action: b.dataset.pick, symbol: b.dataset.sym }));
@@ -635,7 +687,7 @@ async function analyze() {
 async function watch(action, symbol) {
   if (busy || !String(symbol || "").trim()) return;
   busy = true;
-  try { const out = await api("/api/invest/watch", { action, symbol }); data.watchlist = out.watchlist; render(); notice(out.text); }
+  try { const out = await api("/api/invest/watch", { action, symbol }); data.watchlist = out.watchlist; posData = null; render(); notice(out.text); }
   catch (e) { notice(e.message); }
   busy = false;
 }

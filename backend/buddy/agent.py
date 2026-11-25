@@ -86,6 +86,7 @@ from .modelscout import TOOL as MODEL_SCOUT_TOOL
 from .techradar import TOOL as TECH_RADAR_TOOL
 from .bip import TOOL as INTELLIGENCE_TOOL
 from .maestro import TOOL as MAESTRO_TOOL
+from .cftc import TOOL as FUTURES_POSITIONING_TOOL
 from .nest import TOOL as THERMOSTAT_TOOL
 from .calls import TOOL as PHONE_CALL_TOOL
 from .convolog import TOOL as RECALL_CONVO_TOOL
@@ -864,7 +865,7 @@ class Conversation:
                      WEATHER_TOOL, PACKAGES_TOOL, MESSAGE_TOOL, BUDGET_TOOL, COSTWATCH_TOOL, ADVICE_TOOL, EDIT_TOOL,
                      RECALL_CONVO_TOOL, CLAUDE_FIX_TOOL, COMMUTE_TOOL, ROUTINE_TOOL, CALENDAR_ADD_TOOL,
                      CONNECTIONS_TOOL, AMAZON_TOOL, MY_HEALTH_TOOL, HEALTH_INFO_TOOL, HEALTH_PLAN_TOOL, RESTAURANTS_TOOL, ENTERTAINMENT_TOOL, SELF_CHECK_TOOL, MARKET_SCHOOL_TOOL, SHOPPING_PROFILE_TOOL, WHEN_TO_BUY_TOOL, DAILY_DEALS_TOOL, PRICE_BOOK_TOOL, DEAL_FORECAST_TOOL, HOTEL_DIRECT_TOOL, SEASONAL_PRICES_TOOL, COMMUNITY_SIGNALS_TOOL, RECOMMENDATIONS_TOOL, INVESTOR_CHECKS_TOOL,
-    FUND_HOLDINGS_TOOL, INVESTMENT_JOURNAL_TOOL, PAPER_PORTFOLIO_TOOL, DAY_TRADE_PRACTICE_TOOL, INVESTOR_LIBRARY_TOOL, ALERT_SETTINGS_TOOL, TRAVEL_TIMING_TOOL, MORNING_TUTOR_TOOL, EMAIL_ORGANIZER_TOOL, CANCEL_SUBSCRIPTION_TOOL, LIFE_MEMORY_TOOL, SECURITY_WATCH_TOOL, MODEL_SCOUT_TOOL, TECH_RADAR_TOOL, INTELLIGENCE_TOOL, MAESTRO_TOOL,
+    FUND_HOLDINGS_TOOL, FUTURES_POSITIONING_TOOL, INVESTMENT_JOURNAL_TOOL, PAPER_PORTFOLIO_TOOL, DAY_TRADE_PRACTICE_TOOL, INVESTOR_LIBRARY_TOOL, ALERT_SETTINGS_TOOL, TRAVEL_TIMING_TOOL, MORNING_TUTOR_TOOL, EMAIL_ORGANIZER_TOOL, CANCEL_SUBSCRIPTION_TOOL, LIFE_MEMORY_TOOL, SECURITY_WATCH_TOOL, MODEL_SCOUT_TOOL, TECH_RADAR_TOOL, INTELLIGENCE_TOOL, MAESTRO_TOOL,
                      THERMOSTAT_TOOL, PHONE_CALL_TOOL, modules.TOOL] + glasslink.TOOLS
         spending += [BROWSE_TOOL] if self.jobs else []  # listed even when the sandbox is down: it says what to fix
         if self.memory.get("forms:phone") != "1":  # the owner's choice: forms always in Buddy's own browser
@@ -1083,6 +1084,9 @@ class Conversation:
             mod = {"fund_holdings": funds, "investment_journal": journal, "paper_portfolio": paper,
                    "investor_library": investors}[name]
             return await asyncio.to_thread(mod.run_tool, self.memory, args)
+        if name == "futures_positioning":  # the CFTC's weekly report: who holds the futures (FINRA's data: page only)
+            from . import cftc  # noqa: PLC0415
+            return await asyncio.to_thread(cftc.run_tool, self.memory, args)
         if name == "investor_checks":  # Graham, quality, Lynch, Greenblatt and Marks checklists from SEC filings
             from . import lenses  # noqa: PLC0415
             return await asyncio.to_thread(lenses.run_tool, self.memory, args)

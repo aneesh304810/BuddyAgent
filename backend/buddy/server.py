@@ -1891,6 +1891,44 @@ async def api_invest_themes() -> dict:
     return await asyncio.to_thread(themes.page, memory)
 
 
+_positioning_read: asyncio.Task | None = None
+POSITIONING_KEY = "positioning:read_status"
+
+
+@app.get("/api/invest/positioning", dependencies=[Depends(require_admin)])
+async def api_invest_positioning() -> dict:
+    """Who holds the futures (CFTC, weekly) and short selling in the watchlist (FINRA, personal use only)."""
+    from . import cftc, finra  # noqa: PLC0415
+
+    def both() -> dict:
+        return {"cftc": cftc.page(memory), "finra": finra.page(memory),
+                "reading": bool(_positioning_read and not _positioning_read.done()),
+                "status": json.loads(memory.get(POSITIONING_KEY) or "{}")}
+    return await asyncio.to_thread(both)
+
+
+@app.post("/api/invest/positioning/read", dependencies=[Depends(require_admin)])
+async def api_invest_positioning_read() -> dict:
+    """Read both now, in the background (FINRA's first read is a month of daily files, about a minute)."""
+    global _positioning_read
+    from . import cftc, finra  # noqa: PLC0415
+    if _positioning_read and not _positioning_read.done():
+        return {"reading": True}
+
+    def read() -> None:
+        said = {"at": datetime.now(timezone.utc).isoformat()}
+        for name, job in (("cftc", lambda: cftc.pull(memory)),
+                          ("finra", lambda: {"volume": finra.pull_volume(memory),
+                                             "interest": finra.pull_interest(memory)})):
+            try:
+                said[name] = job()
+            except Exception as e:  # one service down: the other is still read, and the page says which
+                said[name] = {"failed": str(e)[:200]}
+        memory.set(POSITIONING_KEY, json.dumps(said))
+    _positioning_read = asyncio.create_task(asyncio.to_thread(read))
+    return {"reading": True}
+
+
 @app.get("/api/invest/practice", dependencies=[Depends(require_admin)])
 async def api_invest_practice(fresh: int = 0) -> dict:
     """Buddy's paper trades with their reasons, the day's moves across markets, and how crypto moves with them."""

@@ -407,6 +407,25 @@ decide each differently), and uses it whenever you ask about a purchase.
   gold, oil and long bonds over 30 and 90 trading days, including whether one side's move tended to show up in
   the other the next day. That is correlation: what moved together, not what caused what. Paper trades are US
   stocks and funds only; crypto is in the market view, not in the trades.
+- **Who holds the futures (Trading tab).** Each week the CFTC (the US futures regulator) publishes how many
+  contracts large speculators (funds), hedgers (producers, users, dealers) and small traders held on the Tuesday
+  before. Buddy reads it for 17 markets: the S&P 500, Nasdaq 100 and VIX futures, 2-year and 10-year Treasury
+  notes and Treasury bonds, the euro and the yen, gold, silver, copper, crude oil, natural gas, bitcoin (CME),
+  corn, soybeans and wheat. For each: the speculators' net position (long minus short), its share of all open
+  contracts, the week's change, and a bar showing how it ranks against the last three years. Near a 3-year
+  high or low (90 or more, 10 or less) is crowded; crowded positions have sometimes come before turns, not
+  reliably. For stock index, Treasury and currency futures the hedgers include banks and asset managers, so the
+  split says less there. You can ask in chat ("what are funds doing in gold?"). Only market codes and a date are
+  sent; the report is public domain, credited to the CFTC. Read on Friday evenings, or press Read now.
+- **Short selling in your watchlist (Watchlist tab).** From FINRA (the brokers' regulator), for the US stocks on
+  your watchlist: each trading day, the share of off-exchange volume that was short sales, against the stock's
+  own average over the 20 trading days before (about half is usually short, because market makers sell short to
+  fill orders, so only a change against the stock's own level says something); and twice a month, short
+  interest (shares held short, the change, days to cover). The daily file is downloaded whole with only the date
+  in the request, and only your watchlist's rows are kept; short interest is asked for with your watchlist's
+  ticker symbols. **FINRA's data is for personal, non-commercial use** under its terms, so Buddy shows it on this
+  page by code and does not give it to an AI model or use it in its learning or paper trading. It can be
+  switched off on the Security page. Read each evening, or press Read now.
 - **Hotel calls are followed too.** An open hotel call has its rate looked up again every three days (Google
   Hotels through SerpApi, three searches a day at most): the named hotel's rate when the call names one, else
   the area's cheapest. So hotel calls get an outcome and can teach, like flight and shopping calls.
