@@ -26,7 +26,7 @@ from datetime import datetime, timedelta, timezone
 from .memory import Memory
 
 KEEP_ROWS, KEEP_DAYS = 50, 365
-KINDS = ("initial", "incremental", "phone", "manual")
+KINDS = ("initial", "incremental", "phone", "manual", "upload")
 EXPIRED_PREFIX = "connect:expired:"
 SOURCES = {  # connector -> the module that brings its data in, and what it can do
     "oura": {"module": "oura", "group": "Health", "sync": True, "disconnect": True,
@@ -34,7 +34,11 @@ SOURCES = {  # connector -> the module that brings its data in, and what it can 
                      "authorized apps."},
     "health_connect": {"module": "health_data", "group": "Health", "sync": False, "disconnect": False,
                        "stop": "The phone sends this. To stop it, turn off health data in the Buddy app's settings, "
-                               "or remove Buddy's access in Health Connect's own settings."},
+                               "or remove Buddy's access in Health Connect's own settings.",
+                       "fetch": "The phone sends this: open the Buddy app to send the latest."},
+    "lab_upload": {"module": "labs", "group": "Health", "sync": False, "disconnect": False,
+                   "stop": "Nothing comes in unless you upload a report.",
+                   "fetch": "Upload a report on the Health page's Labs tab."},
 }
 SCHEMA = """
 CREATE TABLE IF NOT EXISTS connect_syncs (       -- each sync of a source of the owner's data: counts, never values
@@ -127,7 +131,7 @@ def sync_now(memory: Memory, connector: str) -> str:
     """The owner asked: sync this source now (only those Buddy reads itself; the phone sends its own)."""
     _known(connector)
     if not SOURCES[connector]["sync"]:
-        return SOURCES[connector]["stop"].split(". ")[0] + ": open the Buddy app to send the latest."
+        return SOURCES[connector]["fetch"]
     return _module(connector).sync_now(memory)
 
 

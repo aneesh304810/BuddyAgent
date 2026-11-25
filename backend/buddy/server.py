@@ -1716,6 +1716,57 @@ async def api_health_act(body: dict) -> dict:
         raise HTTPException(status_code=502, detail="That could not be done just now. Try again in a minute.") from e
 
 
+@app.get("/api/health/labs", dependencies=[Depends(require_admin)])
+async def api_health_labs() -> dict:
+    """The lab results the owner kept, by test, and the reports they came from. Shown to the owner only."""
+    from . import labs  # noqa: PLC0415
+
+    def view() -> dict:
+        return {"results": labs.results(memory), "reports": labs.reports(memory), "ranges_on": labs.on(),
+                "ranges_how": f"sudo bash /opt/buddy/deploy/set.sh {labs.SETTING}"}
+    return await asyncio.to_thread(view)
+
+
+@app.post("/api/health/labs", dependencies=[Depends(require_admin)])
+async def api_health_labs_act(body: dict) -> dict:
+    """read (a PDF, base64): what code read from it, for the owner to check; save: keep what they ticked; cancel;
+    delete (a report, confirm: true)."""
+    from . import labs  # noqa: PLC0415
+    action = str(body.get("action") or "")
+    try:
+        if action == "read":
+            import base64 as b64  # noqa: PLC0415
+            try:
+                data = b64.b64decode(str(body.get("data") or ""), validate=True)
+            except ValueError:
+                raise ToolError("The file didn't arrive whole: try again.") from None
+            return {"draft": await labs.read_report(memory, str(body.get("name") or ""), data)}
+        if action == "save":
+            text = await asyncio.to_thread(labs.save, memory, str(body.get("draft") or ""), body.get("results") or [],
+                                           str(body.get("collected") or ""))
+            return {"text": text}
+        if action == "cancel":
+            return {"text": labs.cancel(memory, str(body.get("draft") or ""))}
+        if action == "delete" and body.get("confirm") is True:
+            return {"text": await asyncio.to_thread(labs.delete_report, memory, int(body.get("report") or 0))}
+    except ToolError as e:
+        raise HTTPException(400, str(e)) from None
+    raise HTTPException(400, "unknown action")
+
+
+@app.get("/api/health/labs/report/{report_id}", dependencies=[Depends(require_admin)])
+async def api_health_lab_file(report_id: int):
+    """The report as it was uploaded (kept encrypted in Buddy's database)."""
+    from fastapi.responses import Response  # noqa: PLC0415
+
+    from . import labs  # noqa: PLC0415
+    got = await asyncio.to_thread(labs.report_file, memory, report_id)
+    if not got:
+        raise HTTPException(404, "not found")
+    return Response(got[1], media_type="application/pdf",
+                    headers={"Content-Disposition": "inline; filename=report.pdf", "Cache-Control": "no-store"})
+
+
 @app.get("/api/health/sources", dependencies=[Depends(require_admin)])
 async def api_health_sources() -> dict:
     """Where the owner's health data comes from: each source's state, syncs, what it sends and how it's obtained."""

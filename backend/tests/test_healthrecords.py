@@ -50,13 +50,13 @@ def test_a_corrected_day_replaces_the_value_and_counts_as_not_new(tmp_path):
     assert [h["new_records"] for h in connecthub.history(m, "health_connect")] == [0, 1]
 
 
-def test_the_first_oura_sync_reads_ninety_days_and_keeps_scores_as_estimates(tmp_path):
+def test_the_first_oura_sync_reads_a_year_and_keeps_scores_as_estimates(tmp_path):
     m = Memory(tmp_path / "b.db")
     net = Oura(DATA, refuse={"daily_resilience", "daily_spo2"})
     _connect(m, net)
     oura.sync(m, env=ENV, fetch=net)
     first = [u for u in net.calls if "daily_readiness" in u][0]
-    assert f"start_date={(local_now().date() - timedelta(days=oura.KEEP_DAYS - 1)).isoformat()}" in first
+    assert f"start_date={(local_now().date() - timedelta(days=oura.FIRST_DAYS - 1)).isoformat()}" in first
     got = rows(m, "oura")
     assert got["readiness"]["value"] == 64 and got["readiness"]["quality"] == "estimated"
     assert got["readiness"]["unit"] == "{score}" and got["calories"]["value"] == 2300  # Oura's total calories
@@ -93,7 +93,7 @@ def test_old_records_follow_their_source_out(tmp_path):
     m = Memory(tmp_path / "b.db")
     health_data.ingest(m, {"days": [{"day": _day(0), "steps": 1}, {"day": _day(80), "steps": 2}]})
     healthrecords._ready(m)
-    m.db.execute("UPDATE health_records SET at = ? WHERE value = 2", (_day(120),))
+    m.db.execute("UPDATE health_records SET at = ? WHERE value = 2", (_day(800),))  # past the two years
     m.db.commit()
     assert healthrecords.prune(m, "health_connect") == 1
 
@@ -103,8 +103,15 @@ def test_the_sources_view_has_counts_and_dates_but_no_values(tmp_path):
     health_data.ingest(m, {"days": [{"day": TODAY, "steps": 8123, "resting_hr": 58}]})
     view = {s["connector"]: s for s in healthrecords.sources(m, ENV)}
     phone = view["health_connect"]
-    assert phone["records"] == 2 and phone["newest"] == TODAY and phone["keep_days"] == 90
+    assert phone["records"] == 2 and phone["newest"] == TODAY and phone["keep_days"] == 730
     assert phone["last"]["ok"] == 1 and not phone["can_sync"] and "Health Connect" in phone["stop"]
     assert {x["measure"]: x["days"] for x in phone["measures"]}["steps"] == 1
     assert "8123" not in str(phone) and "58.0" not in str(phone)
     assert view["oura"]["state"] == "not_set_up" and view["oura"]["records"] == 0
+
+
+def test_how_long_readings_are_kept_is_one_setting():
+    assert healthrecords.keep_days({}) == 730  # two years when unset
+    assert healthrecords.keep_days({"BUDDY_HEALTH_KEEP_DAYS": "365"}) == 365
+    assert healthrecords.keep_days({"BUDDY_HEALTH_KEEP_DAYS": "5"}) == 30 and healthrecords.keep_days(
+        {"BUDDY_HEALTH_KEEP_DAYS": "lots"}) == 730

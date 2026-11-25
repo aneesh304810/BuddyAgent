@@ -13,7 +13,7 @@ if (params.get("token") && storageGet("buddyToken") === token) history.replaceSt
 
 const $ = (id) => document.getElementById(id);
 const esc = (s) => String(s ?? "").replace(/[&<>"']/g, (c) => ({ "&": "&amp;", "<": "&lt;", ">": "&gt;", '"': "&quot;", "'": "&#39;" }[c]));
-const TABS = [["today", "Today"], ["trends", "Trends"], ["habits", "Habits"], ["food", "Food"], ["plan", "Plan"], ["sources", "Sources"]];
+const TABS = [["today", "Today"], ["trends", "Trends"], ["habits", "Habits"], ["food", "Food"], ["plan", "Plan"], ["labs", "Labs"], ["sources", "Sources"]];
 let srcData = null, srcAsk = "";  // the Sources tab, and the delete or disconnect waiting for a second tap
 let data = null, tab = TABS.some(([k]) => k === storageGet("healthTab")) ? storageGet("healthTab") : "today";
 let span = ["14", "30", "90"].includes(storageGet("healthDays")) ? storageGet("healthDays") : "30", sure = false;
@@ -113,6 +113,94 @@ function renderSources() {
     sourceAct(action, conn, true);
   });
   $("main").querySelectorAll("[data-src-cancel]").forEach((b) => b.onclick = () => { srcAsk = ""; render(); });
+}
+
+// --- Labs: a report is read by code on your server (never an AI), you check every result, then it is kept
+let labData = null, labDraft = null, labAsk = 0, labBusy = false;
+async function loadLabs() {
+  try { labData = await api("/api/health/labs"); } catch (e) { labData = { failed: e.message }; }
+  if (tab === "labs") render();
+}
+const range = (r) => r.ref_text || (r.ref_low != null && r.ref_high != null ? `${r.ref_low}-${r.ref_high}` : r.ref_low != null ? `≥ ${r.ref_low}` : r.ref_high != null ? `≤ ${r.ref_high}` : "no range");
+const bandPill = (b) => `<span class="pill${/above|below|flagged/.test(b) ? " warn" : / within/.test(b) ? " good" : ""}">${esc(b)}</span>`;
+function draftCard() {
+  const d = labDraft;
+  const rows = d.results.map((r, i) => `<div class="line" style="align-items:flex-start">
+      <input type="checkbox" data-lab-tick="${i}" checked aria-label="Keep ${esc(r.label)}" style="margin-top:4px">
+      <div class="what">${esc(r.label)}<small>On the report: ${esc(r.line)}</small>
+        <div style="display:flex;gap:6px;flex-wrap:wrap;margin-top:6px">
+          <input data-lab-value="${i}" value="${esc(r.value_text)}" aria-label="${esc(r.label)} result" style="width:78px">
+          <input data-lab-unit="${i}" value="${esc(r.unit)}" placeholder="unit" aria-label="${esc(r.label)} unit" style="width:84px">
+          <span class="muted" style="align-self:center">range ${esc(range(r))}${r.flag ? " · flag " + esc(r.flag) : ""}</span></div></div>
+      ${bandPill(r.band)}</div>`).join("");
+  return card("Check what was read",
+    `<p class="muted">Code on your server read ${esc(d.results.length)} results from ${esc(d.file_name)}${d.lab ? ` (${esc(d.lab)})` : ""}. Untick anything wrong, correct a number or unit, then keep. Tests Buddy doesn't know are not read.</p>
+     <label class="muted">Sample taken on <input type="date" id="lab-collected" value="${esc(d.collected)}"></label>
+     ${rows || `<p class="muted">No test Buddy knows was found on this report.</p>`}
+     <p style="margin:10px 0 0">${d.results.length ? `<button class="btn solid" id="lab-save">Keep the ticked results</button> ` : ""}<button class="btn" id="lab-cancel">Don't keep anything</button></p>`);
+}
+function renderLabs() {
+  if (!labData) { $("main").innerHTML = `<p class="muted">Loading…</p>`; loadLabs(); return; }
+  if (labData.failed) { $("main").innerHTML = `<p class="err">${esc(labData.failed)}</p>`; return; }
+  const upload = card("Add a lab report",
+    `<p class="muted">Download the report as a PDF from Quest, Labcorp or your portal (MyChart), then add it here. It is read by code on your server, never by an AI, and nothing is kept until you check it. The report itself goes into your vault, encrypted.</p>
+     <p><input type="file" id="lab-file" accept="application/pdf,.pdf" aria-label="Lab report PDF"></p>
+     <p><button class="btn solid" id="lab-read"${labBusy ? " disabled" : ""}>${labBusy ? "Reading…" : "Read the report"}</button></p>`);
+  const results = (labData.results || []).map((t) => `<div class="line"><div class="what">${esc(t.label)}
+      <small>${esc(t.latest.value_text)} ${esc(t.latest.unit)} · range ${esc(range(t.latest))} · ${esc(when(t.latest.collected))}${t.latest.lab ? " · " + esc(t.latest.lab) : ""} · ${esc(t.direction)}</small>
+      ${t.earlier.length ? `<small>Before: ${t.earlier.slice(0, 4).map((e) => `${esc(e.value_text)} ${esc(e.unit)} (${esc(when(e.collected))})`).join(", ")}</small>` : ""}</div>
+      ${bandPill(t.latest.band)}</div>`).join("");
+  const reports = (labData.reports || []).map((r) => `<div class="line"><div class="what">${esc(when(r.collected))}${r.lab ? " · " + esc(r.lab) : ""}
+      <small>${esc(r.file_name)} · ${esc(r.results)} results</small></div>
+      ${r.has_file ? `<button class="btn" data-lab-open="${esc(r.id)}">Open</button>` : ""}
+      ${labAsk === r.id ? `<button class="btn danger solid" data-lab-delete="${esc(r.id)}" data-sure="1">Yes, delete</button>` : `<button class="btn danger" data-lab-delete="${esc(r.id)}">Delete</button>`}</div>`).join("");
+  $("main").innerHTML = (labDraft ? draftCard() : upload) +
+    card("Your results", results || `<p class="muted">No results kept yet.</p>`,
+      "Below, within or above is against the lab's own reference range printed on the report. When a report prints no range, Buddy uses a typical adult range for that test (marked “typical”); labs set their own, so the lab's always wins. Not medical advice: talk to your doctor about any result.") +
+    (reports ? card("Reports", reports) : "") +
+    `<p class="note">Lab ranges for Claude are ${labData.ranges_on ? "on: Claude may be told whether each test is below, within or above the lab's range, never a value" : "off: no AI model is told anything about your lab results"}. Changed only on the server: ${esc(labData.ranges_how)}.</p>`;
+  wireLabs();
+}
+function wireLabs() {
+  if ($("lab-read")) $("lab-read").onclick = () => {
+    const file = $("lab-file").files[0];
+    if (!file) { notice("Choose the report's PDF first."); return; }
+    if (file.size > 15000000) { notice("That file is over 15 MB."); return; }
+    const reader = new FileReader();
+    reader.onload = async () => {
+      labBusy = true; render();
+      try { labDraft = (await api("/api/health/labs", { action: "read", name: file.name, data: String(reader.result).split(",")[1] || "" })).draft; }
+      catch (e) { notice(e.message); }
+      labBusy = false; render();
+    };
+    reader.onerror = () => notice("That file could not be read.");
+    reader.readAsDataURL(file);
+  };
+  if ($("lab-cancel")) $("lab-cancel").onclick = async () => {
+    try { notice((await api("/api/health/labs", { action: "cancel", draft: labDraft.id })).text); } catch (e) { notice(e.message); }
+    labDraft = null; render();
+  };
+  if ($("lab-save")) $("lab-save").onclick = async () => {
+    const rows = labDraft.results.map((r, i) => ({ ...r, value_text: $("main").querySelector(`[data-lab-value="${i}"]`).value.trim(),
+      unit: $("main").querySelector(`[data-lab-unit="${i}"]`).value.trim(), keep: $("main").querySelector(`[data-lab-tick="${i}"]`).checked }))
+      .filter((r) => r.keep);
+    try { const out = await api("/api/health/labs", { action: "save", draft: labDraft.id, results: rows, collected: $("lab-collected").value });
+      labDraft = null; labData = null; srcData = null; notice(out.text); render(); }
+    catch (e) { notice(e.message); }
+  };
+  $("main").querySelectorAll("[data-lab-delete]").forEach((b) => b.onclick = async () => {
+    const id = Number(b.dataset.labDelete);
+    if (!b.dataset.sure) { labAsk = id; render(); return; }
+    try { notice((await api("/api/health/labs", { action: "delete", report: id, confirm: true })).text); } catch (e) { notice(e.message); }
+    labAsk = 0; labData = null; srcData = null; render();
+  });
+  $("main").querySelectorAll("[data-lab-open]").forEach((b) => b.onclick = async () => {
+    try {
+      const res = await fetch(`/api/health/labs/report/${Number(b.dataset.labOpen)}`, { headers: { Authorization: `Bearer ${token}` } });
+      if (!res.ok) throw new Error("The report could not be opened.");
+      window.open(URL.createObjectURL(await res.blob()), "_blank", "noopener");
+    } catch (e) { notice(e.message); }
+  });
 }
 
 function habitLine(h) {
@@ -243,7 +331,7 @@ function wire() {
 
 function render() {
   tabs();
-  ({ today: renderToday, trends: renderTrends, habits: renderHabits, food: renderFood, plan: renderPlan, sources: renderSources })[tab]();
+  ({ today: renderToday, trends: renderTrends, habits: renderHabits, food: renderFood, plan: renderPlan, labs: renderLabs, sources: renderSources })[tab]();
 }
 
 async function load() {

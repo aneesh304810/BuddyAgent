@@ -109,9 +109,12 @@ The rules (the owner's decision, 17 November 2026):
            model after a refusal.
   Public   anything else may go to any model the owner has set up.
   Unsure   if this check fails or cannot decide, the request is refused (fail closed).
-  Ranges   the one thing the owner can change, and only on the server (healthranges.py): when they switch it on,
-           Claude, and only Claude, may be given health as ranges against the owner's own usual ("sleep duration:
-           latest below usual"), never a value. Only lines of that exact form pass; everything above still holds.
+  Ranges   the things the owner can change, and only on the server: when they switch health ranges on
+           (healthranges.py), Claude, and only Claude, may be given health as ranges against the owner's own usual
+           ("sleep duration: latest below usual"), never a value; when they switch lab ranges on (labs.py, its own
+           switch), Claude, and only Claude, may be given each lab test against the lab's own range ("LDL
+           cholesterol: above the lab's range; up since the last test"), never a value. Only lines of those exact
+           forms pass; everything above still holds.
 
 Where it is enforced (the only doors to a model):
   Claude       config.claude_client(): every request, streamed or not, passes sanitize_request just before it
@@ -141,7 +144,7 @@ information found, what was decided and why, and a reference number. Never the c
 ```
 
 - Tables: `privacy_events`
-- Uses: free_models.py, healthranges.py
+- Uses: free_models.py, healthranges.py, labs.py
 
 ### healthranges.py
 

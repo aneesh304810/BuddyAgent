@@ -10,9 +10,12 @@ The rules (the owner's decision, 17 November 2026):
            model after a refusal.
   Public   anything else may go to any model the owner has set up.
   Unsure   if this check fails or cannot decide, the request is refused (fail closed).
-  Ranges   the one thing the owner can change, and only on the server (healthranges.py): when they switch it on,
-           Claude, and only Claude, may be given health as ranges against the owner's own usual ("sleep duration:
-           latest below usual"), never a value. Only lines of that exact form pass; everything above still holds.
+  Ranges   the things the owner can change, and only on the server: when they switch health ranges on
+           (healthranges.py), Claude, and only Claude, may be given health as ranges against the owner's own usual
+           ("sleep duration: latest below usual"), never a value; when they switch lab ranges on (labs.py, its own
+           switch), Claude, and only Claude, may be given each lab test against the lab's own range ("LDL
+           cholesterol: above the lab's range; up since the last test"), never a value. Only lines of those exact
+           forms pass; everything above still holds.
 
 Where it is enforced (the only doors to a model):
   Claude       config.claude_client(): every request, streamed or not, passes sanitize_request just before it
@@ -110,20 +113,25 @@ NOT_HEALTH = re.compile(r"\b(?:my|the) (?:code|app|server|build|test|tests|lapto
                         r"portfolio|order|flight|trip)\b", re.I)
 
 
-def health(text: str, owner_name: str = "", ranges: bool = False) -> list[str]:
+def health(text: str, owner_name: str = "", ranges: bool = False, lab_ranges: bool = False) -> list[str]:
     """Why a text is the owner's health information ([] when it is not). The reasons name the kind of thing found,
-    never the thing itself. ranges: the request is bound for Claude and the owner has switched health ranges on, so
-    a line that is exactly a range line (healthranges.allowed) is let through; any other marked line is not."""
-    from . import healthranges  # noqa: PLC0415
+    never the thing itself. ranges / lab_ranges: the request is bound for Claude and the owner has switched health
+    ranges / lab ranges on, so a line that is exactly such a range line (healthranges.allowed, labs.allowed) is let
+    through; any other marked line is not."""
+    from . import healthranges, labs  # noqa: PLC0415
     text = str(text or "")
     found = []
-    if healthranges.MARK in text:
+    if healthranges.MARK in text or labs.MARK in text:
         kept = []
         for line in text.split("\n"):
-            if healthranges.MARK not in line:
+            if healthranges.MARK in line:
+                if not (ranges and healthranges.allowed(line)):
+                    found.append("health ranges, which go to Claude only, and only when the owner has switched them on")
+            elif labs.MARK in line:
+                if not (lab_ranges and labs.allowed(line)):
+                    found.append("lab ranges, which go to Claude only, and only when the owner has switched them on")
+            else:
                 kept.append(line)
-            elif not (ranges and healthranges.allowed(line)):
-                found.append("health ranges, which go to Claude only, and only when the owner has switched them on")
         text = "\n".join(kept)
     if FIELD.search(text) or STORED.search(text):
         found.append("fields from the health records")
@@ -293,10 +301,10 @@ def _clean(text: str, owner_name: str) -> tuple[str, int]:
     """A text with every line that is the owner's health information replaced by the marker. (text, lines cut)"""
     if not isinstance(text, str) or not text:
         return text, 0
-    from . import healthranges  # noqa: PLC0415
-    out, cut, ranges = [], 0, healthranges.on()
+    from . import healthranges, labs  # noqa: PLC0415
+    out, cut, ranges, lab_ranges = [], 0, healthranges.on(), labs.on()
     for line in text.split("\n"):
-        if health(line, owner_name, ranges):
+        if health(line, owner_name, ranges, lab_ranges):
             cut += 1
             if not out or out[-1] != REMOVED:
                 out.append(REMOVED)
@@ -370,17 +378,24 @@ def withhold(tool: str, result: str, memory=None) -> tuple[str, bool]:
     """What a tool's result becomes before a model may see it: a health tool's result is withheld whole (by source,
     whatever it looks like). Returns (what the model gets, whether it was withheld). When the owner has switched
     health ranges on, the health-data tool gives the model the ranges instead of nothing; never the values."""
-    from . import healthranges  # noqa: PLC0415
-    if tool == "my_health" and memory is not None and healthranges.on():
-        try:
-            brief = healthranges.brief(memory)
-        except Exception:
-            log.warning("privacy: the health ranges could not be worked out; the result is withheld", exc_info=True)
-            brief = ""
-        if brief:
-            record(f"tool: {tool}", CLAUDE, {"level": RESTRICTED, "kinds": ["health"]}, "generalised",
-                   "ranges against the owner's own usual were given to Claude; the values stayed on the server")
-            return brief, True
+    from . import healthranges, labs  # noqa: PLC0415
+    if tool == "my_health" and memory is not None and (healthranges.on() or labs.on()):
+        parts = []
+        for switched, make, what in ((healthranges.on(), healthranges.brief, "ranges against the owner's own usual"),
+                                     (labs.on(), labs.brief, "lab results against each lab's own range")):
+            if not switched:
+                continue
+            try:
+                got = make(memory)
+            except Exception:
+                log.warning("privacy: the %s could not be worked out; left out", what, exc_info=True)
+                continue
+            if got:
+                parts.append(got)
+                record(f"tool: {tool}", CLAUDE, {"level": RESTRICTED, "kinds": ["health"]}, "generalised",
+                       f"{what} were given to Claude; the values stayed on the server")
+        if parts:
+            return "\n".join(parts), True
     if tool in HEALTH_TOOLS:
         record(f"tool: {tool}", "any model", {"level": RESTRICTED, "kinds": ["health"]}, "withheld",
                "a health tool's result is shown to the owner and kept from every model")
@@ -411,8 +426,14 @@ def status(memory=None, limit: int = 50) -> dict:
         log.info("privacy: no record to read", exc_info=True)
     for e in events:
         e["level_name"] = LEVELS.get(e["level"], "Restricted")
-    from . import healthranges  # noqa: PLC0415
+    from . import healthranges, labs  # noqa: PLC0415
     return {"enabled": True, "can_be_switched_off": False, "policy": POLICY, "health_tools": list(HEALTH_TOOLS),
+            "lab_ranges": {"on": labs.on(),
+                           "what": "Claude may be given each lab test as below, within or above the lab's own range "
+                                   "and which way it moved since the last test, never a value, a unit, a date or "
+                                   "your identity. No other model gets them.",
+                           "how": f"Changed only on the server: sudo bash /opt/buddy/deploy/set.sh {labs.SETTING}, "
+                                  "then type on (or off)."},
             "health_ranges": {"on": healthranges.on(), "generalised": totals.get("generalised", 0),
                               "what": "Claude may be given your health as ranges against your own usual (below, about "
                                       "or above), never a value, a date or your identity. No other model gets them.",

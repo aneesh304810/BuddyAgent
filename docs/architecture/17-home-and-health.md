@@ -20,6 +20,7 @@ flowchart LR
         coach_py["coach.py<br/>goals, a few daily habits, food targets, tracking and timely nudges"]
         healthpage_py["healthpage.py<br/>the owner's own numbers, shown to the owner, worked out by rules"]
         healthrecords_py["healthrecords.py<br/>The owner's health values in one form, each with where it came from:…"]
+        labs_py["labs.py<br/>reports the owner uploads (Quest, Labcorp, a hospital portal's PDF),…"]
     end
     you --> t_thermostat
     t_thermostat --> nest_py
@@ -33,15 +34,20 @@ flowchart LR
     health_data_py --> oura_py
     oura_py --> healthrecords_py
     coach_py --> health_data_py
+    coach_py --> healthrecords_py
     coach_py --> oura_py
     healthpage_py --> coach_py
     healthpage_py --> health_data_py
     healthpage_py --> oura_py
-    db[("Your database<br/>coach_log, coach_meals, health_daily, health_records, oura_daily")]
+    healthrecords_py --> labs_py
+    labs_py --> healthrecords_py
+    labs_py --> oura_py
+    db[("Your database<br/>coach_log, coach_meals, health_daily, health_records, lab_reports, lab_results, oura_daily")]
     health_data_py --> db
     oura_py --> db
     coach_py --> db
     healthrecords_py --> db
+    labs_py --> db
     s_medlineplus["MedlinePlus (NIH health topics)<br/>(public data only)"]
     health_data_py --> s_medlineplus
     s_nest["Google Nest (thermostat)<br/>(may see personal data)"]
@@ -56,13 +62,13 @@ flowchart LR
     nest_py -. uses .-> o_0
     o_1["Claude"]
     nest_py -. uses .-> o_1
-    o_2["Memory"]
+    o_2["Investing"]
     nest_py -. uses .-> o_2
-    o_3["Security and privacy"]
+    o_3["Memory"]
     nest_py -. uses .-> o_3
-    o_4["Speaking up on its own"]
+    o_4["Security and privacy"]
     nest_py -. uses .-> o_4
-    o_5["Travel and getting around"]
+    o_5["Speaking up on its own"]
     nest_py -. uses .-> o_5
 ```
 
@@ -160,7 +166,7 @@ Personal: kept on this server (90 days of logs), seen only by Claude. "Forget my
 ```
 
 - Tables: `coach_log`, `coach_meals`
-- Uses: health_data.py, location.py, memory.py, oura.py, tools.py
+- Uses: health_data.py, healthrecords.py, location.py, memory.py, oura.py, tools.py
 
 ### healthpage.py
 
@@ -201,16 +207,61 @@ Each record keeps:
   source_ref                 the source's own row it came from (its table and day): kept beside it, unchanged
   imported_at, sync_id       when, and in which sync (connecthub's sync history)
 
-Readers (the health plan, the Health page) still read the sources' own tables; this is the shared form lab
-results will be read in. Wearable records follow their source: 90 days. Everything stays on the owner's server
-and no AI model is given it (the Privacy Gateway's health rule).
+Readers (the health plan, the Health page) still read the sources' own tables; lab results (labs.py) are read in
+this form too, as measure "lab:<test>". How long readings are kept is one setting, BUDDY_HEALTH_KEEP_DAYS (two
+years when unset; the owner chose longer than 90 days, 25 November 2026, so a personal model has history to
+learn from); lab results are kept until the owner deletes the report. Everything stays on the owner's server and
+no AI model is given it (the Privacy Gateway's health rule).
 ```
 
 - Tables: `health_records`
-- Uses: connecthub.py, gateway.py, memory.py, tools.py
+- Settings: `BUDDY_HEALTH_KEEP_DAYS`
+- Uses: connecthub.py, gateway.py, labs.py, memory.py, tools.py
+
+### labs.py
+
+```text
+Lab results: reports the owner uploads (Quest, Labcorp, a hospital portal's PDF), read by code, never by an AI
+model, and kept only after the owner has checked what was read.
+
+How a report is read.
+  1. The PDF's text is taken out in the sandbox (docread: a throwaway container with no network), not in Buddy.
+  2. Code picks out the lines that name a test Buddy knows (TESTS: about 45 common blood tests, matched by the
+     names Quest, Labcorp and hospital portals print), and on each line the result, the lab's flag (H, L), the
+     reference range ("70-99", "<200", "> OR = 40") and the unit. Lines with other tests are not read.
+  3. The owner sees what was read beside the report's own words and ticks, corrects or removes each result, and
+     sets the date the sample was taken (read from the report when it says "Collected"). Only then is anything kept.
+
+When a report prints no range for a test (and no flag), Buddy fills in a typical adult range (TYPICAL), only when
+the report's unit is the table's unit, and for tests whose range differs for men and women only when the owner's
+sex is known (from the Oura profile). It is always called "the typical range", never "the lab's range": labs set
+their own ranges, and the lab's printed range wins whenever there is one.
+
+What is kept: the report itself in the vault (library.py: encrypted on disk with a key derived from the database
+key, covered by the backup; marked as a health document, so Buddy's library tool never lists, opens or unlocks it
+for an AI model, and it has no searchable text) and each confirmed result: the test, the name printed on the
+report, the value, the unit, the range (the lab's, or the typical one) and the lab's flag, whether it is below,
+within or above that range, the date, and that the owner confirmed it. Each result is also a health record
+(healthrecords: quality "lab"). Kept until the owner deletes the report. A test's LOINC code is not guessed from
+a printed name (the same name can be different tests); results that arrive from a portal with their code keep it.
+
+Lab ranges for Claude (a separate switch, off until the owner turns it on, on the server:
+sudo bash /opt/buddy/deploy/set.sh BUDDY_LAB_RANGES). When on, and only for Claude, the health tool's result may
+carry one line a test, of exactly this form and nothing else:
+
+    [lab range] LDL cholesterol: above the lab's range; up since the last test
+
+No value, unit, date, lab or identity is in it. The Privacy Gateway lets a line through only if it matches that
+form exactly (allowed); everything else about lab results stays on the server, as all health information does.
+It does reveal which tests the owner has had and whether each is in range: that is the trade-off of the switch.
+```
+
+- Tables: `lab_reports`, `lab_results`
+- Settings: `BUDDY_LAB_RANGES`
+- Uses: connecthub.py, docread.py, healthrecords.py, library.py, memory.py, oura.py, tools.py
 
 ## How it connects
 
-- Relies on: Buddy Connect; Claude: the brain; Memory; Security and privacy; Speaking up on its own: briefing, reminders and alerts; Travel and getting around
+- Relies on: Buddy Connect; Claude: the brain; Investing: signals, research and practice; Memory; Security and privacy; Speaking up on its own: briefing, reminders and alerts; Travel and getting around
 - Relied on by: Buddy Connect; Claude: the brain; Security and privacy; Speaking up on its own: briefing, reminders and alerts; The server and the app
 

@@ -220,7 +220,7 @@ COMPONENTS = [  # every server module belongs to one feature (tests check none i
       "messaging.py", "packages.py"]),
     ("Home and health", "Your Nest thermostat, your phone's health data and Oura Ring, and your health plan with "
      "public medical sources", ["nest.py", "health_data.py", "oura.py", "coach.py", "healthpage.py",
-                                "healthrecords.py"]),
+                                "healthrecords.py", "labs.py"]),
     ("Making and doing things", "Diagrams, charts, images, Word, PowerPoint, PDF and Excel; data crunching in the "
      "sandbox; a real browser Buddy drives; filling forms; rich cards in the chat; background jobs",
      ["makers.py", "docedit.py", "datatools.py", "browse.py", "formfill.py", "cards.py", "jobs.py"]),

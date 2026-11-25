@@ -32,7 +32,25 @@ your server. No AI model is given any of it.
   meal; calories and protein are counted only if you type them, because nothing estimates them any more.
 - **Plan:** goals, up to eight habits (tracked from the ring or phone with a target, or ticked off by you), and
   food targets. This form replaces the set-up conversation in section 2. "Forget my health plan" (pressed twice)
-  deletes the plan, the habit log and the meals; the readings stay until their 90 days are up.
+  deletes the plan, the habit log and the meals; the readings stay until their time is up (two years).
+- **Labs:** add a lab report's PDF (Quest, Labcorp, or one downloaded from your portal, such as MyChart). The PDF's
+  text is taken out in the sandbox and code picks out the tests it knows (about 45 common blood tests: lipids,
+  glucose and A1c, thyroid, vitamins, iron, kidney and liver, blood count, electrolytes, hormones, PSA): each
+  result, the lab's flag, its reference range and unit. No AI model reads the report. You then see every result
+  beside the report's own line, untick anything wrong, correct a number or unit, set the date the sample was taken,
+  and keep the rest; nothing is kept before that. Kept results show by test: the latest, below, within or above the
+  lab's own range, and the earlier ones with which way it moved. The report is kept (encrypted) so you can open it
+  again, until you delete it. Photos and scans can't be read: download the lab's own PDF.
+  - **The report goes into your vault** (the library's encrypted store, covered by the backup). It is marked a
+    health document: Buddy's library tool never lists, opens or unlocks it for an AI model, and none of its text
+    is taken into the library, so it can't be searched or summarised. You open it from Labs → Reports (and see it
+    in the Library screen). Deleting the report deletes the vault copy too.
+  - **When a report prints no range** (and no flag) for a test, Buddy fills in a typical adult range, marked
+    "typical": guideline cut-offs where there is one (fasting glucose and A1c: ADA; cholesterol: NCEP; hs-CRP:
+    AHA/CDC), otherwise the usual adult range MedlinePlus gives. Only when the report's unit is the table's unit,
+    and for tests whose range differs for men and women (ferritin, creatinine, hemoglobin, hematocrit, red cells,
+    HDL, PSA) only when your sex is known from the Oura profile. No typical range is guessed for tests where labs
+    disagree too much (TSH, free T4, ALT, insulin, cortisol, testosterone). The lab's printed range always wins.
 
 - **Sources:** where your health data comes from. For each source (the phone's Health Connect, the Oura Ring):
   whether it works, when it last synced and what kind of sync that was (the first one, an update, sent by the
@@ -106,10 +124,17 @@ Habits Buddy tracks by itself: **steps**, **sleep hours**, **bedtime** (lights o
 
 ## 4. Privacy
 
-- Oura data and Health Connect data: 90 days on your server, then deleted. No AI model is given them, Claude
-  included. If you switch on health ranges on the server, Claude, and only Claude, is told how a measure compares
+- Oura data and Health Connect data: two years on your server, then deleted (you chose longer than 90 days so a
+  personal model has history to learn from; change it with `sudo bash /opt/buddy/deploy/set.sh
+  BUDDY_HEALTH_KEEP_DAYS`, 30 to 3650 days). Oura's first sync reads the last year. No AI model is given them,
+  Claude included. If you switch on health ranges on the server, Claude, and only Claude, is told how a measure compares
   with your usual ("sleep: below usual"), never the value (`docs/PRIVACY-GATEWAY.md`).
-- The plan stays until you change it; the habit log and meals 90 days.
+- The plan stays until you change it; the habit log and meals as long as the readings (two years).
+- Lab reports and results: until you delete the report (Health → Labs → Delete). No AI model reads a report or is
+  given a result. **Lab ranges** are their own switch, off unless you turn it on, on the server:
+  `sudo bash /opt/buddy/deploy/set.sh BUDDY_LAB_RANGES`, then type `on`. When on, Claude and only Claude may be
+  given one line a test, "LDL cholesterol: above the lab's range; up since the last test", never the value, unit,
+  date or lab. It does tell Claude which tests you have had and whether each is in range.
 - **"Forget my health plan"** deletes the plan, habit log and meals.
 - To stop Oura syncing: Health → Sources → Oura Ring → **Disconnect** (Buddy forgets its sign-in and deletes
   what the ring gave it), and remove Buddy in your Oura account (Connected apps). To turn Oura off for the whole
@@ -117,6 +142,6 @@ Habits Buddy tracks by itself: **steps**, **sleep hours**, **bedtime** (lights o
 - **Delete its data** (Health → Sources) deletes one source's readings, their health records and its sync
   history, and leaves the other source's alone.
 - Each reading is also kept once in a common form with its source (`health_records`: the value in a standard
-  unit, the source's own value and unit, how it was obtained, the sync it came in), for 90 days like its source.
+  unit, the source's own value and unit, how it was obtained, the sync it came in), for as long as its source.
   This is the form lab results will be read in. The sync history keeps counts, dates and errors, never a value:
   the last 50 syncs per source, a year at most.

@@ -393,7 +393,8 @@ def forget(memory: Memory) -> None:
 
 def prune(memory: Memory) -> None:
     _ready(memory)
-    cutoff = (local_now().date() - timedelta(days=KEEP_DAYS)).isoformat()
+    from .healthrecords import keep_days  # noqa: PLC0415  habits and meals are kept as long as the readings
+    cutoff = (local_now().date() - timedelta(days=keep_days())).isoformat()
     memory.db.execute("DELETE FROM coach_log WHERE day < ?", (cutoff,))
     memory.db.execute("DELETE FROM coach_meals WHERE day < ?", (cutoff,))
     memory.db.commit()

@@ -36,6 +36,20 @@ What ranges still reveal: that the owner tracks these measures and which way eac
 out under the owner's own account, so the provider can tell it all comes from one person. Asking the provider for
 zero data retention, or running a model on the owner's own hardware, are the ways to reduce that; neither is built.
 
+## Lab ranges (a second setting)
+
+Off unless the owner switches it on, on the server: `sudo bash /opt/buddy/deploy/set.sh BUDDY_LAB_RANGES`, then
+type `on`. It is separate from health ranges: one can be on without the other. When on, the health-data tool gives
+Claude, and only Claude, one line a test from the owner's kept lab results:
+
+    [lab range] LDL cholesterol: above the lab's range; up since the last test
+
+built by rules in `labs.py` from a fixed list of tests, bands (below, within or above the lab's own reference
+range, or the typical range Buddy fills in when a report prints none; flagged by the lab; no range given) and directions (first result, up, down, about the same, not
+comparable). The gateway lets a `[lab range]` line through only if it matches that exact form, only to Claude, and
+only with the switch on; health ranges being on does not let it through. A report itself is read by code, never by
+a model. What lab ranges reveal: which tests the owner has had and whether each is in range.
+
 ## Where information can reach a model, and what guards it
 
 | Door | Used by | Guard | Proven by |

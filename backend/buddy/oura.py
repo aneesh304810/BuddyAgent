@@ -36,7 +36,8 @@ AUTHORIZE_URL = "https://cloud.ouraring.com/oauth/authorize"
 LINK_MINUTES = 15
 SYNC_KEY = "oura:synced"
 PROFILE_KEY = "oura:profile"   # age, weight, height, sex from Oura (for calorie and protein targets)
-KEEP_DAYS = 90
+KEEP_DAYS = 90  # the days shown at most; how long days are kept is healthrecords.keep_days()
+FIRST_DAYS = 365  # the first sync reads a year of history (for the personal model), later ones the last 14
 SYNC_EVERY_S = 3 * 3600
 FIELDS = ("readiness", "sleep_score", "activity_score", "steps", "active_calories", "total_calories",
           "sleep_minutes", "deep_minutes", "rem_minutes", "sleep_efficiency", "hrv", "lowest_hr", "avg_sleep_hr",
@@ -176,7 +177,7 @@ def _collection(memory: Memory, what: str, start: str, end: str, env=None, fetch
     """Every record of one kind between two days (following Oura's pages). A kind the link wasn't allowed to read
     (Oura answers 401/403 for a scope not granted) gives []: the rest still syncs."""
     params, out = {"start_date": start, "end_date": end}, []
-    for _ in range(10):
+    for _ in range(40):  # a year of history can take several pages
         try:
             got = _get(memory, what, params, env=env, fetch=fetch) or {}
         except gateway.ConnectError as e:
@@ -253,12 +254,12 @@ KINDS = ("daily_readiness", "daily_sleep", "daily_activity", "sleep", "daily_str
 
 
 def sync(memory: Memory, n: int | None = None, env=None, fetch=None, kind: str = "") -> int:
-    """Read the last n days from Oura and keep them (the first sync reads KEEP_DAYS, later ones 14, as Oura still
+    """Read the last n days from Oura and keep them (the first sync reads FIRST_DAYS, later ones 14, as Oura still
     corrects recent days), each value also as a health record with its source. Returns how many days came."""
     from . import connecthub, healthrecords  # noqa: PLC0415
     _ready(memory)
     first = memory.db.execute("SELECT 1 FROM oura_daily LIMIT 1").fetchone() is None
-    n = n or (KEEP_DAYS if first else 14)
+    n = n or (FIRST_DAYS if first else 14)
     today = local_now().date()
     start, end = (today - timedelta(days=n - 1)).isoformat(), (today + timedelta(days=1)).isoformat()
     with connecthub.syncing(memory, "oura", kind or ("initial" if first else "incremental")) as got:
@@ -276,7 +277,8 @@ def sync(memory: Memory, n: int | None = None, env=None, fetch=None, kind: str =
             got["records"] += n_rec
             got["new"] += n_new
             got["reached"] = max(got["reached"], day)
-        memory.db.execute("DELETE FROM oura_daily WHERE day < ?", ((today - timedelta(days=KEEP_DAYS)).isoformat(),))
+        memory.db.execute("DELETE FROM oura_daily WHERE day < ?",
+                          ((today - timedelta(days=healthrecords.keep_days())).isoformat(),))
         memory.db.commit()
         healthrecords.prune(memory, "oura")
     memory.set(SYNC_KEY, now)

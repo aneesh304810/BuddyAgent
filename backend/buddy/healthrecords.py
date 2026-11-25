@@ -13,13 +13,16 @@ Each record keeps:
   source_ref                 the source's own row it came from (its table and day): kept beside it, unchanged
   imported_at, sync_id       when, and in which sync (connecthub's sync history)
 
-Readers (the health plan, the Health page) still read the sources' own tables; this is the shared form lab
-results will be read in. Wearable records follow their source: 90 days. Everything stays on the owner's server
-and no AI model is given it (the Privacy Gateway's health rule).
+Readers (the health plan, the Health page) still read the sources' own tables; lab results (labs.py) are read in
+this form too, as measure "lab:<test>". How long readings are kept is one setting, BUDDY_HEALTH_KEEP_DAYS (two
+years when unset; the owner chose longer than 90 days, 25 November 2026, so a personal model has history to
+learn from); lab results are kept until the owner deletes the report. Everything stays on the owner's server and
+no AI model is given it (the Privacy Gateway's health rule).
 """
 
 import json
 import logging
+import os
 from datetime import datetime, timedelta, timezone
 
 from .memory import Memory
@@ -68,8 +71,19 @@ FROM = {  # connector -> {its field: (measure, its own unit)}
 UNIT_WORDS = {"{steps}/d": "steps a day", "/min": "beats a minute", "ms": "milliseconds", "Cel": "°C", "%": "%",
               "kcal/d": "kcal a day", "min": "minutes", "{score}": "a score out of 100"}  # the UCUM units, said plainly
 TABLES = {"health_connect": "health_daily", "oura": "oura_daily"}  # each source's own table, kept unchanged
-TITLES = {"health_connect": "Phone health data (Health Connect)", "oura": "Oura Ring"}
-KEEP_DAYS = {"health_connect": 90, "oura": 90}
+TITLES = {"health_connect": "Phone health data (Health Connect)", "oura": "Oura Ring",
+          "lab_upload": "Lab reports you upload"}
+LAB_SOURCES = ("lab_upload",)  # kept until the owner deletes them
+KEEP_SETTING, KEEP_DEFAULT = "BUDDY_HEALTH_KEEP_DAYS", 730
+
+
+def keep_days(env=None) -> int:
+    """How long readings from devices are kept: BUDDY_HEALTH_KEEP_DAYS, 30 days to 10 years; two years unset."""
+    try:
+        days = int(((env if env is not None else os.environ).get(KEEP_SETTING) or KEEP_DEFAULT))
+    except ValueError:
+        days = KEEP_DEFAULT
+    return max(30, min(days, 3650))
 BACKFILL_KEY = "healthrecords:backfilled_v1"
 SCHEMA = """
 CREATE TABLE IF NOT EXISTS health_records (      -- the owner's health values in one form, with their source
@@ -124,9 +138,29 @@ def record(memory: Memory, connector: str, day: str, values: dict, sync_id: int 
     return n, new
 
 
-def prune(memory: Memory, connector: str) -> int:
+def record_lab(memory: Memory, connector: str, at: str, test: str, value: float, unit: str, original: str,
+               loinc: str, source_ref: str, sync_id: int | None = None) -> tuple[int, int]:
+    """One lab result in the common form: measure "lab:<test>", the lab's own unit kept as it was printed."""
     _ready(memory)
-    cutoff = (local_now().date() - timedelta(days=KEEP_DAYS.get(connector, 90))).isoformat()
+    held = memory.db.execute("SELECT 1 FROM health_records WHERE connector = ? AND measure = ? AND at = ?",
+                             (connector, f"lab:{test}", at)).fetchone()
+    memory.db.execute(
+        "INSERT INTO health_records (connector, measure, at, value, unit, original_value, original_unit, quality, "
+        "loinc, source_ref, imported_at, sync_id) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?) "
+        "ON CONFLICT(connector, measure, at) DO UPDATE SET value = excluded.value, unit = excluded.unit, "
+        "original_value = excluded.original_value, original_unit = excluded.original_unit, loinc = excluded.loinc, "
+        "source_ref = excluded.source_ref, imported_at = excluded.imported_at, sync_id = excluded.sync_id",
+        (connector, f"lab:{test}", at, float(value), unit, str(original), unit, LAB, loinc, source_ref,
+         datetime.now(timezone.utc).isoformat(timespec="seconds"), sync_id))
+    memory.db.commit()
+    return 1, int(held is None)
+
+
+def prune(memory: Memory, connector: str) -> int:
+    if connector in LAB_SOURCES:
+        return 0
+    _ready(memory)
+    cutoff = (local_now().date() - timedelta(days=keep_days())).isoformat()
     n = memory.db.execute("DELETE FROM health_records WHERE connector = ? AND at < ?", (connector, cutoff)).rowcount
     memory.db.commit()
     return n
@@ -162,23 +196,34 @@ def sources(memory: Memory, env=None) -> list[dict]:
     backfill(memory)
     rows = {r["name"]: r for r in gateway.status(memory, env) if r["name"] in FROM}
     out = []
-    for connector in FROM:
+    for connector in (*FROM, *LAB_SOURCES):
         held = {r["measure"]: dict(r) for r in memory.db.execute(
             "SELECT measure, COUNT(*) AS n, MIN(at) AS first, MAX(at) AS last FROM health_records WHERE connector = ? "
             "GROUP BY measure", (connector,))}
         row, hub = rows.get(connector, {}), connecthub.SOURCES[connector]
         measures = []
-        for measure in dict.fromkeys(m for m, _ in FROM[connector].values()):
+        if connector in LAB_SOURCES:
+            from .labs import TESTS  # noqa: PLC0415
+            for measure, h in held.items():
+                test = measure.removeprefix("lab:")
+                measures.append({"measure": measure, "label": TESTS.get(test, (test,))[0], "unit": "", "unit_words":
+                                 "the lab's own unit", "loinc": "", "quality": LAB, "how": QUALITY[LAB] +
+                                 " read from your report and checked by you", "days": h["n"]})
+        for measure in dict.fromkeys(m for m, _ in FROM.get(connector, {}).values()):
             label, unit, loinc, quality = MEASURES[measure]
             measures.append({"measure": measure, "label": label, "unit": unit, "unit_words": UNIT_WORDS.get(unit, unit),
                              "loinc": loinc, "quality": quality,
                              "how": QUALITY[quality], "days": (held.get(measure) or {}).get("n", 0)})
-        out.append({"connector": connector, "title": TITLES[connector], "state": row.get("state", "not_set_up"),
+        state = row.get("state", "not_set_up")
+        if connector in LAB_SOURCES:
+            state = "working" if held else "not_set_up"
+        out.append({"connector": connector, "title": TITLES[connector], "state": state,
                     "expired": connecthub.expired(memory, connector), "last_error": row.get("last_error", ""),
                     **connecthub.last(memory, connector), "history": connecthub.history(memory, connector, 8),
                     "measures": measures, "records": sum(h["n"] for h in held.values()),
                     "first": min((h["first"] for h in held.values()), default=""),
                     "newest": max((h["last"] for h in held.values()), default=""),
-                    "keep_days": KEEP_DAYS[connector], "terms": (gateway.CATALOG.get(connector) or {}).get("terms", ""),
+                    "keep_days": None if connector in LAB_SOURCES else keep_days(env),
+                    "terms": (gateway.CATALOG.get(connector) or {}).get("terms", ""),
                     "can_sync": hub["sync"], "can_disconnect": hub["disconnect"], "stop": hub["stop"]})
     return out

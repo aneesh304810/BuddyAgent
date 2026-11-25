@@ -20,7 +20,7 @@ from . import gateway
 from .memory import Memory
 from .tools import ToolError, local_now
 
-KEEP_DAYS = 90
+KEEP_DAYS = 90  # the most days the chat tool sums; how long days are kept is healthrecords.keep_days()
 SYNC_KEY = "health:synced"
 FIELDS = ("steps", "sleep_minutes", "resting_hr", "avg_hr", "active_minutes", "calories")
 
@@ -76,7 +76,7 @@ def _ingest(memory: Memory, payload: dict, got: dict) -> int:
         got["records"] += n_rec
         got["new"] += n_new
         got["reached"] = max(got["reached"], day)
-    cutoff = (local_now().date() - timedelta(days=KEEP_DAYS)).isoformat()
+    cutoff = (local_now().date() - timedelta(days=healthrecords.keep_days())).isoformat()
     memory.db.execute("DELETE FROM health_daily WHERE day < ?", (cutoff,))
     memory.db.commit()
     healthrecords.prune(memory, "health_connect")

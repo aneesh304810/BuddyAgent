@@ -513,13 +513,24 @@ LIBRARY_TOOL = {
 }
 
 
+HEALTH_DOC = "health record"  # lab reports (labs.py): the owner's only; never listed, opened or unlocked for a model
+
+
+def _health_doc(memory: Memory, item_id: str) -> bool:
+    row = memory.db.execute("SELECT doc_type FROM library_items WHERE id = ?", (str(item_id),)).fetchone()
+    return bool(row) and row["doc_type"] == HEALTH_DOC
+
+
 async def run_tool(lib: Library, args: dict, thrift=None) -> str:
     action = args.get("action")
+    if action in ("open", "unlock") and _health_doc(lib.memory, str(args.get("id", ""))):
+        return ("That is a health document in the vault: it is shown to the owner on the Health page and is not "
+                "read by Buddy's AI.")
     if action == "search":
         found = lib.search(str(args.get("query", "")))
         return UNTRUSTED + json.dumps(found, ensure_ascii=False) if found else "Nothing in the library matches that."
     if action == "list":
-        items = lib.recent(str(args.get("kind") or ""))
+        items = [i for i in lib.recent(str(args.get("kind") or "")) if i.get("type") != HEALTH_DOC]
         return json.dumps(items, ensure_ascii=False) if items else "The library is empty: the user can share files to Buddy."
     item_id = str(args.get("id", ""))
     if action == "open":

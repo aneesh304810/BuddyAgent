@@ -557,6 +557,8 @@ async def run(memory: Memory, deliver: Deliver, connected=None) -> None:
                         memory.set(said_key, json.dumps(sorted(said)[-60:]))
                 if local_now().hour == 3:
                     await asyncio.to_thread(coach.prune, memory)
+                    from . import labs  # noqa: PLC0415  lab reports read but never confirmed
+                    await asyncio.to_thread(labs.drop_expired, memory)
             except Exception:
                 log.exception("health plan nudges failed")
             try:  # flights: the user's tracked flights, every 15 minutes from 4 hours before take-off to landing
