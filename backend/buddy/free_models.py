@@ -340,7 +340,7 @@ class FreeModels:
         elif code in (400, 404, 410):
             reason = f"model not available or request refused (HTTP {code}; check {PROVIDERS[name]['model_setting']})"
         else:
-            reason = f"HTTP {code}" if code else type(e).__name__
+            reason = f"HTTP {code}" if code else (f"{type(e).__name__}: {e}" if str(e) else type(e).__name__)[:160]
         if detail:
             reason += f": {detail}"
         if self.memory is not None:
@@ -528,6 +528,9 @@ class FreeModels:
                         openrouter_catalog.mark_bad(self.memory, model)
                         continue
                     raise
+                except ValueError:  # answered, but with an error or nothing: this model, not the key
+                    openrouter_catalog.mark_bad(self.memory, model)
+                    continue
         return self._call_model(name, self.model_of(name), system, prompt, timeout, max_tokens)
 
     def _call_model(self, name: str, model: str, system: str, prompt: str, timeout: float,
@@ -538,6 +541,9 @@ class FreeModels:
                 "messages": [{"role": "system", "content": system}, {"role": "user", "content": prompt}]}
         data = self.http(f"{p['base']}/chat/completions", body,
                          {"Authorization": f"Bearer {self.env[p['key']].strip()}", **p.get("headers", {})}, timeout)
+        if isinstance(data, dict) and isinstance(data.get("error"), dict):  # an error sent with HTTP 200
+            said = data["error"].get("message") or data["error"].get("code") or "an error"
+            raise ValueError(f"{model} answered with an error: {str(said)[:100]}")
         if not isinstance(data, dict) or not data.get("choices"):
             raise ValueError(f"unexpected reply: {str(data)[:120]}")
         return (data["choices"][0]["message"]["content"] or "").strip(), data.get("usage") or {}

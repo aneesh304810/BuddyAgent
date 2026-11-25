@@ -18,8 +18,9 @@ from buddy.social import Social, run_social_tool, social_tools
 from buddy.tools import ToolError
 from buddy.trends import Trends
 
-CATCHER = {"articles": [{"title": "Anthropic files for IPO", "name_source": "Reuters", "link": "https://reuters.com/a",
-                         "published_date": "2026-11-19 08:00:00"}]}
+CATCHER = {"count": 1, "results": [{"title": "Anthropic files for IPO", "url": "https://reuters.com/a",
+                                     "source": {"domain": "reuters.com"}, "published_at": "2026-11-19T08:00:00Z",
+                                     "story": {"id": "s1"}}]}
 
 
 def credits_error(url):
@@ -37,7 +38,7 @@ class Web:
         if "google.serper.dev" in url:
             raise credits_error(url)
         if "newscatcherapi.com" in url:
-            assert (headers or {}).get("x-api-token") == "nc"
+            assert (headers or {}).get("x-api-key") == "nc" and "/news-api/search?" in url and "search_window=" in url
             if isinstance(self.catcher, Exception):
                 raise self.catcher
             return json.dumps(self.catcher).encode()
@@ -55,7 +56,7 @@ def test_a_serper_credit_error_falls_back_to_a_connected_news_source_in_the_same
     data = json.loads(out.split("\n", 1)[1])
     assert data["answered_by"] == "NewsCatcher" and data["news"][0]["title"] == "Anthropic files for IPO"
     assert "Not enough credits" in data["fallback_reason"] and "Serper" in data["fallback_reason"]
-    assert [c[0].split("/")[2] for c in web.calls] == ["google.serper.dev", "v3-api.newscatcherapi.com"]
+    assert [c[0].split("/")[2] for c in web.calls] == ["google.serper.dev", "api.newscatcherapi.com"]
     # out of credits: the next news search goes straight to the news services, without asking Serper first
     asyncio.run(run_social_tool(social, "google_search", {"query": "OpenAI IPO", "news": True}))
     assert sum("serper" in c[0] for c in web.calls) == 1

@@ -99,11 +99,11 @@ news services that have a key, in this order, and the first with headlines answe
 
 | Order | Service | Key |
 |---|---|---|
-| 1 | NewsCatcher | `BUDDY_NEWSCATCHER_KEY` |
+| 1 | NewsCatcher (its News API, `api.newscatcherapi.com/news-api`; a key for the older v3 API is refused) | `BUDDY_NEWSCATCHER_KEY` |
 | 2 | NewsData.io | `BUDDY_NEWSDATA_KEY` |
 | 3 | Perigon | `BUDDY_PERIGON_KEY` |
 | 4 | Marketaux | `BUDDY_MARKETAUX_KEY` |
-| 5 | GDELT | none (one search every five seconds) |
+| 5 | GDELT | none (one search every five seconds; refused again and again, it is left alone longer each time: 15 minutes, then an hour, 4 hours, up to a day) |
 
 - The answer says which service it came from (`answered_by`) and why Serper and any earlier service didn't
   answer (`fallback_reason`, `also_failed`). A watched topic lists the same reasons under "Not reached".

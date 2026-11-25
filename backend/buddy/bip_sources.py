@@ -70,7 +70,8 @@ STATUS_PREFIX = "bip:source:"
 PACED = True  # the tests switch this off: they never reach a real source, so there is nothing to pace
 _last: dict[str, float] = {}  # when each paced source was last asked, on this server's clock
 _rest: dict[str, float] = {}  # until when a source is left alone, after it said "too many requests"
-REST_SECONDS = 15 * 60
+_strikes: dict[str, int] = {}  # refusals in a row: each one leaves the source alone four times as long
+REST_SECONDS, REST_MAX = 15 * 60, 24 * 3600
 _pace_lock = threading.Lock()
 
 
@@ -87,9 +88,18 @@ def turn(name: str, clock=time.monotonic) -> bool:
 
 
 def rest(name: str, seconds: float = REST_SECONDS, clock=time.monotonic) -> None:
-    """Leave a source alone for a while: it said Buddy asks too often."""
+    """Leave a source alone for a while: it said Buddy asks too often. Refused again after the rest, it is left
+    alone four times as long, up to a day (seen live: GDELT refused 271 of 342 requests in a month, though Buddy
+    waits 5.5 seconds between them, so it limits this server's address, not just its pace)."""
     with _pace_lock:
-        _rest[name] = clock() + seconds
+        _strikes[name] = _strikes.get(name, 0) + 1
+        _rest[name] = clock() + min(REST_MAX, seconds * 4 ** (_strikes[name] - 1))
+
+
+def recovered(name: str) -> None:
+    """It answered: the next refusal starts from the short rest again."""
+    with _pace_lock:
+        _strikes.pop(name, None)
 
 
 def resting(name: str, clock=time.monotonic) -> bool:
@@ -118,12 +128,14 @@ def _get(memory, name: str, url: str, fetch=None, headers=None, data=None, raw=F
     if fetch is None and PACED:
         _wait(name)
     try:
-        return gateway.call_url(memory, name, [url], data=data, headers=headers or {}, raw=raw, fetch=fetch,
-                                purpose="intelligence")
+        got = gateway.call_url(memory, name, [url], data=data, headers=headers or {}, raw=raw, fetch=fetch,
+                               purpose="intelligence")
     except gateway.ConnectError as e:
-        if e.status == 429:
+        if e.status in (403, 429):  # too often, or refused outright (seen live: SBIR.gov, 403 on every request)
             rest(name)
         raise
+    recovered(name)
+    return got
 
 
 def _day(text) -> str:

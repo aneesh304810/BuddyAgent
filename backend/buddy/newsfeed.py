@@ -89,10 +89,35 @@ def reset() -> None:
     _out_until.clear()
     bip_sources._last.pop("gdelt", None)
     bip_sources._rest.clear()
+    bip_sources._strikes.clear()
 
 
 def _plain(query: str) -> str:
     return " ".join(str(query or "").replace('"', " ").split())[:100]
+
+
+def newscatcher_path(q: str, days: int, num: int) -> str:
+    """A search of NewsCatcher's News API: the best `num` recent articles for plain words, the last `days` days
+    (it keeps 30)."""
+    return "/news-api/search?" + urllib.parse.urlencode(
+        {"q": q, "limit": max(1, min(int(num), 100)), "search_window": f"{max(1, min(int(days), 30))}d",
+         "languages": "en", "sort_by": "published_at"})
+
+
+def newscatcher_rows(got) -> list[tuple]:
+    """(title, outlet, link, date) from a NewsCatcher answer: the News API's "results", or the v3 API's "articles"."""
+    if not isinstance(got, dict):
+        return []
+    items = got.get("results") if isinstance(got.get("results"), list) else got.get("articles") or []
+    rows = []
+    for a in items:
+        if not isinstance(a, dict):
+            continue
+        source = a.get("source")
+        outlet = (source.get("domain") or source.get("name")) if isinstance(source, dict) else source
+        rows.append((a.get("title"), outlet or a.get("name_source") or a.get("domain_url") or a.get("clean_url"),
+                     a.get("url") or a.get("link"), a.get("published_at") or a.get("published_date")))
+    return rows
 
 
 def _ask(memory, name: str, query: str, days: int, num: int, env=None, fetch=None) -> list[dict]:
@@ -102,10 +127,7 @@ def _ask(memory, name: str, query: str, days: int, num: int, env=None, fetch=Non
     since = (date.today() - timedelta(days=days)).isoformat()
     common = {"env": env, "fetch": fetch, "purpose": "news search"}
     if name == "newscatcher":
-        got = gateway.call(memory, name, "/api/search?" + urllib.parse.urlencode(
-            {"q": q, "lang": "en", "from_": f"{days} days ago", "page_size": num, "sort_by": "date"}), **common) or {}
-        rows = [(a.get("title"), a.get("name_source") or a.get("domain_url") or a.get("clean_url"), a.get("link"),
-                 a.get("published_date")) for a in got.get("articles") or [] if isinstance(a, dict)]
+        rows = newscatcher_rows(gateway.call(memory, name, newscatcher_path(q, days, num), **common) or {})
     elif name == "newsdata":
         got = gateway.call(memory, name, "/api/1/latest?" + urllib.parse.urlencode(
             {"q": q, "language": "en", "apikey": gateway._secret(env, "BUDDY_NEWSDATA_KEY")}), **common) or {}

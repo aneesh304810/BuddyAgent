@@ -292,12 +292,11 @@ def _search(memory: Memory, name: str, company: str, today: date, env=None, fetc
             env=env, fetch=fetch, purpose="news fact check") or {}
         rows = [(a.get("title"), (a.get("source") or {}).get("domain") if isinstance(a.get("source"), dict) else a.get("source"),
                  a.get("url"), a.get("pubDate")) for a in got.get("articles") or [] if isinstance(a, dict)]
-    else:
-        got = gateway.call(memory, name, "/api/search?" + urllib.parse.urlencode(
-            {"q": q, "lang": "en", "from_": "7 days ago", "page_size": 25}), env=env, fetch=fetch,
-            purpose="news fact check") or {}
-        rows = [(a.get("title"), a.get("domain_url") or a.get("clean_url") or a.get("name_source"), a.get("link"),
-                 a.get("published_date")) for a in got.get("articles") or [] if isinstance(a, dict)]
+    else:  # NewsCatcher's News API ranks plain words, so the company's name and the story's own words
+        from .newsfeed import newscatcher_path, newscatcher_rows  # noqa: PLC0415
+        plain = " ".join([company] + list(words or [])[:3])
+        rows = newscatcher_rows(gateway.call(memory, name, newscatcher_path(plain, 7, 25), env=env, fetch=fetch,
+                                             purpose="news fact check") or {})
     return [{"title": str(t), "outlet": re.sub(r"^(?:https?://)?(?:www\.)?", "", str(o or "").lower()).split("/")[0],
              "url": str(u or ""), "day": str(d or "")[:10]} for t, o, u, d in rows if t]
 

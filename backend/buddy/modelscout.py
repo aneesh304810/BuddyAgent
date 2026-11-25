@@ -183,7 +183,9 @@ def run(memory: Memory, free=None, providers=None, fetch=None) -> dict:
     """Scout every provider that has a key (or the ones named). Returns {"providers": [...], "at"}."""
     from .free_models import FreeModels  # noqa: PLC0415
     free = free or FreeModels(memory)
-    wanted = [p for p in (providers or SCOUTED) if p in SCOUTED and (free.env.get(PROVIDERS[p]["key"]) or "").strip()]
+    from .free_models import TEXT_OFF  # noqa: PLC0415  (Groq hears speech only; GitHub Models is not used)
+    wanted = [p for p in (providers or SCOUTED) if p in SCOUTED and p not in TEXT_OFF
+              and (free.env.get(PROVIDERS[p]["key"]) or "").strip()]
     rows = []
     for provider in wanted:
         try:

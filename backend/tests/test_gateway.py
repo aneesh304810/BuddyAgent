@@ -153,10 +153,10 @@ def test_markets_reddit_and_alpaca_are_logged_under_their_own_names(tmp_path):
 def test_free_models_report_into_the_status(tmp_path):
     from buddy import free_models
     m = Memory(tmp_path / "b.db")
-    free_models._report(m, "github", False, "HTTP 200: OK")
+    free_models._report(m, "mistral", False, "HTTP 200: OK")
     free_models._report(m, "groq", True)
     st = {s["name"]: s for s in gateway.status(m, env={})}
-    assert st["github_models"]["last_ok"] is False and "HTTP 200" in st["github_models"]["last_error"]
+    assert st["mistral"]["last_ok"] is False and "HTTP 200" in st["mistral"]["last_error"]
     assert st["groq"]["last_ok"] is True and st["groq"]["in_connect"]
 
 
@@ -174,12 +174,12 @@ def test_status_uses_the_real_last_call_from_the_logs(tmp_path):
     gateway._table(m)
     log_call(m, "github", "/search/repositories", True, 0.2, "trends", cost=0.0)  # before Buddy Connect noted any
     usage.log_call(m, provider="claude", model="claude-sonnet-5-5", purpose="chat", seconds=1.0)
-    usage.log_call(m, provider="github", model="openai/gpt-4.1-mini", purpose="general", seconds=1.0, ok=False,
+    usage.log_call(m, provider="mistral", model="mistral-small-latest", purpose="general", seconds=1.0, ok=False,
                    stop="error: HTTP 200: OK")
     st = {s["name"]: s for s in gateway.status(m, env={})}
     assert st["github"]["last_ok"] is True and st["github"]["calls_this_month"] == 1
     assert st["claude"]["last_ok"] is True and st["claude"]["calls_this_month"] == 1
-    assert st["github_models"]["last_ok"] is False and "HTTP 200" in st["github_models"]["last_error"]
+    assert st["mistral"]["last_ok"] is False and "HTTP 200" in st["mistral"]["last_error"]
 
 
 def test_find_a_service_for_a_job_and_how_to_attach_it(tmp_path):

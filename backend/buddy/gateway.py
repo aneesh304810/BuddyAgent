@@ -191,9 +191,10 @@ CATALOG: dict[str, dict] = {
                             "asked third; and who else reports a story Buddy is unsure of (a company's name and "
                             "a few headline words), asked second of three"},
     "newscatcher": {"group": "Finance & markets", "title": "NewsCatcher (news search and fact check)",
-                    "hosts": ["https://v3-api.newscatcherapi.com"],
-                    "auth": {"type": "header", "header": "x-api-token", "secret": "BUDDY_NEWSCATCHER_KEY"},
-                    "health": {"path": "/api/search?q=news&lang=en&page_size=1"},
+                    # The News API (not the older v3 one, which takes x-api-token at v3-api.newscatcherapi.com)
+                    "hosts": ["https://api.newscatcherapi.com"],
+                    "auth": {"type": "header", "header": "x-api-key", "secret": "BUDDY_NEWSCATCHER_KEY"},
+                    "health": {"path": "/news-api/search?q=news&limit=1&search_window=7d"},
                     "cost": 0.0, "per_minute": 5, "privacy": "public", "no_backup": True,
                     "used_for": "news on a topic when Google News (Serper) cannot answer (the search words only), "
                                 "asked first; and who else reports a story Buddy is unsure of (a company's name "
@@ -352,7 +353,9 @@ CATALOG: dict[str, dict] = {
                 "privacy": "public", "used_for": "free models for general work", "reports": True},
     "github_models": {"group": "AI models", "title": "GitHub Models (free AI)", "auth": {"type": "header",
                                                                    "secret": "BUDDY_GITHUB_MODELS_KEY"},
-                      "privacy": "public", "used_for": "free models for general work", "reports": True},
+                      "privacy": "public", "used_for": "free models for general work", "reports": True,
+                      "retired": "Not used any more: it kept hitting its limit. The key can be removed: "
+                                 "sudo bash /opt/buddy/deploy/set.sh BUDDY_GITHUB_MODELS_KEY and press Enter."},
     # Listed for the status; they keep their own clients.
     "claude": {"group": "AI models", "title": "Claude (Anthropic)", "auth": {"type": "header", "secret": "ANTHROPIC_API_KEY"},
                "privacy": "personal", "used_for": "Buddy's thinking: everything personal goes only here"},
@@ -538,6 +541,8 @@ def reason_of(got) -> str:
         try:
             got = json.loads(got)
         except ValueError:
+            if re.search(r"(?i)<(?:!doctype|html|body|head|div|style)\b", got[:200]):
+                return "a web page instead of data (the service may be blocking requests from servers)"
             return " ".join(got.split())[:200]
     if isinstance(got, dict):
         got = {k: v for k, v in got.items() if "token" not in k.lower()}
@@ -803,8 +808,10 @@ def status(memory, env=None) -> list[dict]:
         for alias in aliases:
             a, b, c = src_usage.get(alias, (0, 0, 0.0))
             n, bad, usd = n + a, bad + b, usd + c
+        if entry.get("retired"):  # not used any more: its old failures are no one's to fix
+            last = {}
         out.append({"name": name, "group": group_of(name), "title": entry["title"],
-                    "used_for": entry.get("used_for", ""),
+                    "used_for": entry.get("retired") or entry.get("used_for", ""),
                     "privacy": entry.get("privacy", "public"), "set_up": configured(name, env),
                     "in_connect": bool(entry.get("moved") or entry.get("reports")), "last_ok": last.get("ok"),
                     "last_at": last.get("at", ""), "last_error": last.get("error", ""), "calls_this_month": n,

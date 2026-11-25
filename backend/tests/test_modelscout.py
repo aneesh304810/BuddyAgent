@@ -57,8 +57,8 @@ def test_a_working_model_is_left_alone_and_a_resting_provider_comes_back(memory)
     memory.set("free:rest:gemini", "99999999999")
     free, fetch, asked = setup(memory, {"gemini-flash-latest": "ready", "llama-3.3-70b-versatile": "Ready."})
     got = ms.run(memory, free, fetch=fetch)
-    assert [(r["provider"], r["state"]) for r in got["providers"]] == [("gemini", "working"), ("groq", "working")]
-    assert asked == ["gemini-flash-latest", "llama-3.3-70b-versatile"]  # one question each, no more
+    assert [(r["provider"], r["state"]) for r in got["providers"]] == [("gemini", "working")]  # Groq: speech only
+    assert asked == ["gemini-flash-latest"]  # one question each, no more
     assert not free.resting("gemini") and ms.message(got) == ""
 
 
@@ -81,10 +81,12 @@ def test_a_dead_model_is_replaced_by_the_first_one_that_answers(memory):
 def test_a_provider_at_its_limit_or_paused_by_the_budget_is_not_switched(memory):
     from buddy.budgets import BudgetStop
     free, fetch, asked = setup(memory, {"gemini-flash-latest": RateLimited(60),
-                                        "llama-3.3-70b-versatile": BudgetStop("api.groq.com: paused")})
+                                        "mistral-small-latest": BudgetStop("api.mistral.ai: paused")},
+                               env={**ENV, "BUDDY_MISTRAL_KEY": "m"},
+                               lists={**LISTS, "mistral": ["mistral-small-latest", "mistral-medium-latest"]})
     got = ms.run(memory, free, fetch=fetch)
     assert [r["state"] for r in got["providers"]] == ["at its free limit", "paused by your budget"]
-    assert asked == ["gemini-flash-latest", "llama-3.3-70b-versatile"] and ms.message(got) == ""
+    assert asked == ["gemini-flash-latest", "mistral-small-latest"] and ms.message(got) == ""
     assert memory.get("free:model:gemini") in (None, "")
 
 

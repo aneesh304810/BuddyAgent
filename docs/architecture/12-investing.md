@@ -513,7 +513,7 @@ source is treated as unclear.
 
 - Tables: `news_checks`
 - Settings: `BUDDY_ALPHAVANTAGE_KEY`, `BUDDY_FINNHUB_KEY`, `BUDDY_MARKETAUX_KEY`, `BUDDY_NEWSCATCHER_KEY`, `BUDDY_NEWSDATA_KEY`, `BUDDY_PERIGON_KEY`
-- Uses: finnhub.py, gateway.py, maestro.py, memory.py, pricebook.py, tools.py, watchpicks.py
+- Uses: finnhub.py, gateway.py, maestro.py, memory.py, newsfeed.py, pricebook.py, tools.py, watchpicks.py
 
 ### docread.py
 
