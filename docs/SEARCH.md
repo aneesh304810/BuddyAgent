@@ -99,7 +99,7 @@ news services that have a key, in this order, and the first with headlines answe
 
 | Order | Service | Key |
 |---|---|---|
-| 1 | NewsCatcher | `BUDDY_NEWSCATCHER_KEY` |
+| 1 | NewsCatcher | `BUDDY_NEWSCATCHER_KEY` (a News API key from the NewsCatcher dashboard, sent as `x-api-key`; a v3 key is for another host and is refused) |
 | 2 | NewsData.io | `BUDDY_NEWSDATA_KEY` |
 | 3 | Perigon | `BUDDY_PERIGON_KEY` |
 | 4 | Marketaux | `BUDDY_MARKETAUX_KEY` |

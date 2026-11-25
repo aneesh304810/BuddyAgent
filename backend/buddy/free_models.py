@@ -341,6 +341,8 @@ class FreeModels:
             reason = f"model not available or request refused (HTTP {code}; check {PROVIDERS[name]['model_setting']})"
         else:
             reason = f"HTTP {code}" if code else type(e).__name__
+            if not code:  # "empty answer", "unexpected reply: ...", a timeout: the words, not just the type
+                detail = re.sub(r"\s+", " ", str(e))[:160]
         if detail:
             reason += f": {detail}"
         if self.memory is not None:

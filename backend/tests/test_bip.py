@@ -7,6 +7,8 @@ from datetime import date, timedelta
 
 import pytest
 
+from unittest import mock
+
 from buddy import bip, pricebook
 from buddy import bip_sources as src
 from buddy.connectors.hub import ConnectorHub
@@ -423,4 +425,43 @@ def test_a_source_that_says_too_many_requests_is_left_alone_and_every_caller_sha
             src.gdelt(mem, "solid state battery", fetch=too_many)
     assert len(asked) == 1
     assert newsfeed._gdelt_turn() is False                 # the news fallback leaves it alone too
+    src._last.clear(); src._rest.clear()
+
+
+def test_a_paced_source_counts_its_pause_from_the_end_of_the_request_and_a_resting_one_is_skipped_at_once():
+    """GDELT measures "one request every 5 seconds" from the end of the last one, and its queries take seconds:
+    counting from the start got 429 after 429. The next turn is due 5.5 s after the answer came back."""
+    from buddy import newsfeed
+
+    src._last.clear(); src._rest.clear()
+    now = [500.0]
+    clock = lambda: now[0]  # noqa: E731
+    assert src.turn("gdelt", clock) is True       # the request starts at 500
+    now[0] += 4                                   # ...and answers at 504
+    src.done("gdelt", clock)
+    now[0] += 2                                   # 506: 6 s after the start, but 2 s after the answer
+    assert src.turn("gdelt", clock) is False
+    now[0] += 4                                   # 510: 5.5 s after the answer
+    assert src.turn("gdelt", clock) is True
+    src.done("openalex", clock)                   # sources without a pause keep no clock
+    assert "openalex" not in src._last
+    src._last.clear(); src._rest.clear()
+
+    mem = Memory(":memory:")
+    src.gdelt(mem, "solid state battery", fetch=lambda url, data=None, headers=None: {"articles": []})
+    assert newsfeed._gdelt_turn() is False        # _get marked the end of the request: not again right away
+    src._last.clear(); src._rest.clear()
+
+    # news fallback: its GDELT call marks the end of the request too
+    newsfeed.search("solid state battery", env={}, fetch=lambda url, data=None, headers=None: json.dumps({"articles": []}).encode())
+    assert src.turn("gdelt") is False
+    src._last.clear(); src._rest.clear()
+
+    # the nightly sweep: a resting source is skipped for every technology, without a 20 s sleep each
+    slept = []
+    src.rest("gdelt", 900)
+    with mock.patch.object(bip.time, "sleep", slept.append):
+        out = bip.collect(mem, fetch=lambda url, data=None, headers=None: {"articles": [], "data": [], "results": []},
+                          only=list(bip.TECHS)[:2])
+    assert out.get("waited", 0) >= 1 and slept == []
     src._last.clear(); src._rest.clear()

@@ -191,9 +191,9 @@ CATALOG: dict[str, dict] = {
                             "asked third; and who else reports a story Buddy is unsure of (a company's name and "
                             "a few headline words), asked second of three"},
     "newscatcher": {"group": "Finance & markets", "title": "NewsCatcher (news search and fact check)",
-                    "hosts": ["https://v3-api.newscatcherapi.com"],
-                    "auth": {"type": "header", "header": "x-api-token", "secret": "BUDDY_NEWSCATCHER_KEY"},
-                    "health": {"path": "/api/search?q=news&lang=en&page_size=1"},
+                    "hosts": ["https://api.newscatcherapi.com"],  # the News API; v3 keys use another host
+                    "auth": {"type": "header", "header": "x-api-key", "secret": "BUDDY_NEWSCATCHER_KEY"},
+                    "health": {"path": "/news-api/subscription"},  # plan and credits: free, and 401 on a bad key
                     "cost": 0.0, "per_minute": 5, "privacy": "public", "no_backup": True,
                     "used_for": "news on a topic when Google News (Serper) cannot answer (the search words only), "
                                 "asked first; and who else reports a story Buddy is unsure of (a company's name "

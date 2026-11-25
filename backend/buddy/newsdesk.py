@@ -292,12 +292,13 @@ def _search(memory: Memory, name: str, company: str, today: date, env=None, fetc
             env=env, fetch=fetch, purpose="news fact check") or {}
         rows = [(a.get("title"), (a.get("source") or {}).get("domain") if isinstance(a.get("source"), dict) else a.get("source"),
                  a.get("url"), a.get("pubDate")) for a in got.get("articles") or [] if isinstance(a, dict)]
-    else:
-        got = gateway.call(memory, name, "/api/search?" + urllib.parse.urlencode(
-            {"q": q, "lang": "en", "from_": "7 days ago", "page_size": 25}), env=env, fetch=fetch,
-            purpose="news fact check") or {}
-        rows = [(a.get("title"), a.get("domain_url") or a.get("clean_url") or a.get("name_source"), a.get("link"),
-                 a.get("published_date")) for a in got.get("articles") or [] if isinstance(a, dict)]
+    else:  # NewsCatcher's News API: POST /search; q keeps AND, OR and NOT
+        from .newsfeed import _nc_source  # noqa: PLC0415
+        got = gateway.call(memory, name, "/news-api/search", json_body={
+            "q": q, "languages": ["en"], "search_window": "7d", "limit": 25, "sort_by": "published_at"},
+            env=env, fetch=fetch, purpose="news fact check") or {}
+        rows = [(a.get("title"), _nc_source(a), a.get("url"), a.get("published_at"))
+                for a in got.get("results") or [] if isinstance(a, dict)]
     return [{"title": str(t), "outlet": re.sub(r"^(?:https?://)?(?:www\.)?", "", str(o or "").lower()).split("/")[0],
              "url": str(u or ""), "day": str(d or "")[:10]} for t, o, u, d in rows if t]
 

@@ -18,8 +18,9 @@ from buddy.social import Social, run_social_tool, social_tools
 from buddy.tools import ToolError
 from buddy.trends import Trends
 
-CATCHER = {"articles": [{"title": "Anthropic files for IPO", "name_source": "Reuters", "link": "https://reuters.com/a",
-                         "published_date": "2026-11-19 08:00:00"}]}
+CATCHER = {"count": 1, "results": [{"title": "Anthropic files for IPO", "source": {"domain": "reuters.com", "name": "Reuters"},
+                                    "url": "https://reuters.com/a", "published_at": "2026-11-19T08:00:00Z",
+                                    "story": {"id": "s1"}}]}
 
 
 def credits_error(url):
@@ -37,7 +38,9 @@ class Web:
         if "google.serper.dev" in url:
             raise credits_error(url)
         if "newscatcherapi.com" in url:
-            assert (headers or {}).get("x-api-token") == "nc"
+            assert (headers or {}).get("x-api-key") == "nc" and url.endswith("/news-api/search")
+            body = json.loads(data)   # the News API takes its parameters as a JSON body
+            assert body["languages"] == ["en"] and body["search_window"].endswith("d") and 1 <= body["limit"] <= 100
             if isinstance(self.catcher, Exception):
                 raise self.catcher
             return json.dumps(self.catcher).encode()
@@ -55,7 +58,7 @@ def test_a_serper_credit_error_falls_back_to_a_connected_news_source_in_the_same
     data = json.loads(out.split("\n", 1)[1])
     assert data["answered_by"] == "NewsCatcher" and data["news"][0]["title"] == "Anthropic files for IPO"
     assert "Not enough credits" in data["fallback_reason"] and "Serper" in data["fallback_reason"]
-    assert [c[0].split("/")[2] for c in web.calls] == ["google.serper.dev", "v3-api.newscatcherapi.com"]
+    assert [c[0].split("/")[2] for c in web.calls] == ["google.serper.dev", "api.newscatcherapi.com"]
     # out of credits: the next news search goes straight to the news services, without asking Serper first
     asyncio.run(run_social_tool(social, "google_search", {"query": "OpenAI IPO", "news": True}))
     assert sum("serper" in c[0] for c in web.calls) == 1
@@ -213,3 +216,27 @@ def test_a_newly_listed_stock_gets_a_clear_message_not_an_error():
 
     none = Markets(Memory(":memory:"), env=env, fetch=lambda url, headers=None, data=None: {}).analyze("ANT")
     assert none["status"] == "no_price_history" and "symbol is wrong" in none["message"]
+
+
+def test_the_fact_check_asks_newscatchers_news_api_with_a_json_body_and_reads_its_results():
+    """newsdesk's last-resort search speaks the same News API: x-api-key, POST /news-api/search, results[]."""
+    from buddy import newsdesk
+    seen = []
+
+    def web(url, data=None, headers=None):
+        seen.append((url, headers, json.loads(data)))
+        return json.dumps(CATCHER).encode()
+
+    rows = newsdesk._search(None, "newscatcher", "Anthropic", date(2026, 11, 20), env={"BUDDY_NEWSCATCHER_KEY": "nc"},
+                            fetch=web, words=["IPO", "filing"])
+    url, headers, body = seen[0]
+    assert url == "https://api.newscatcherapi.com/news-api/search" and headers["x-api-key"] == "nc"
+    assert body["q"] == '"Anthropic" AND (IPO OR filing)' and body["search_window"] == "7d" and body["limit"] == 25
+    assert rows == [{"title": "Anthropic files for IPO", "outlet": "reuters.com", "url": "https://reuters.com/a",
+                     "day": "2026-11-19"}]
+
+
+def test_a_news_api_article_without_a_source_block_still_gets_an_outlet():
+    assert newsfeed._nc_source({"source": {"name": "Reuters"}}) == "Reuters"
+    assert newsfeed._nc_source({"source": "reuters.com"}) == "reuters.com"
+    assert newsfeed._nc_source({}) == ""
