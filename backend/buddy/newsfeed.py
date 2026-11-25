@@ -95,17 +95,26 @@ def _plain(query: str) -> str:
     return " ".join(str(query or "").replace('"', " ").split())[:100]
 
 
+def _nc_source(article: dict) -> str:
+    """A News API article's outlet: source.domain (or its name), as the migration table maps domain_url."""
+    source = article.get("source")
+    if isinstance(source, dict):
+        return source.get("domain") or source.get("name") or ""
+    return str(source or "")
+
+
 def _ask(memory, name: str, query: str, days: int, num: int, env=None, fetch=None) -> list[dict]:
     """One service's recent articles for a query: [{"title", "source", "date", "link"}]."""
     from . import gateway  # noqa: PLC0415
     q = _plain(query)
     since = (date.today() - timedelta(days=days)).isoformat()
     common = {"env": env, "fetch": fetch, "purpose": "news search"}
-    if name == "newscatcher":
-        got = gateway.call(memory, name, "/api/search?" + urllib.parse.urlencode(
-            {"q": q, "lang": "en", "from_": f"{days} days ago", "page_size": num, "sort_by": "date"}), **common) or {}
-        rows = [(a.get("title"), a.get("name_source") or a.get("domain_url") or a.get("clean_url"), a.get("link"),
-                 a.get("published_date")) for a in got.get("articles") or [] if isinstance(a, dict)]
+    if name == "newscatcher":  # the News API: POST /search, one ranked page, up to 30 days back
+        got = gateway.call(memory, name, "/news-api/search", json_body={
+            "q": q, "languages": ["en"], "search_window": f"{min(max(days, 1), 30)}d", "limit": min(max(num, 1), 100),
+            "sort_by": "published_at"}, **common) or {}
+        rows = [(a.get("title"), _nc_source(a), a.get("url"), a.get("published_at"))
+                for a in got.get("results") or [] if isinstance(a, dict)]
     elif name == "newsdata":
         got = gateway.call(memory, name, "/api/1/latest?" + urllib.parse.urlencode(
             {"q": q, "language": "en", "apikey": gateway._secret(env, "BUDDY_NEWSDATA_KEY")}), **common) or {}
