@@ -36,6 +36,9 @@ SOURCES = {  # connector -> the module that brings its data in, and what it can 
                        "stop": "The phone sends this. To stop it, turn off health data in the Buddy app's settings, "
                                "or remove Buddy's access in Health Connect's own settings.",
                        "fetch": "The phone sends this: open the Buddy app to send the latest."},
+    "mychart": {"module": "fhirlabs", "group": "Health", "sync": True, "disconnect": True,
+                "stop": "Disconnect here; to remove Buddy's access at your health system too, remove it in MyChart's "
+                        "settings (linked apps)."},
     "lab_upload": {"module": "labs", "group": "Health", "sync": False, "disconnect": False,
                    "stop": "Nothing comes in unless you upload a report.",
                    "fetch": "Upload a report on the Health page's Labs tab."},

@@ -214,6 +214,29 @@ def allowed(line: str) -> bool:
 
 def _ready(memory: Memory) -> None:
     memory.db.executescript(SCHEMA)
+    memory._add_columns("lab_results", {"source_id": "TEXT NOT NULL DEFAULT ''", "lab": "TEXT NOT NULL DEFAULT ''"})
+
+
+def keep_portal_result(memory: Memory, source: str, lab: str, r: dict) -> bool:
+    """A result read from a patient portal (fhirlabs), kept once by the portal's own id; a corrected one replaces
+    it. True when it is new or changed."""
+    _ready(memory)
+    held = memory.db.execute("SELECT id, value, unit, ref_low, ref_high, flag FROM lab_results WHERE source = ? AND "
+                             "source_id = ?", (source, r["source_id"])).fetchone() if r.get("source_id") else None
+    if held and (held["value"], held["unit"], held["ref_low"], held["ref_high"], held["flag"]) == (
+            r["value"], r["unit"], r["ref_low"], r["ref_high"], r["flag"]):
+        return False
+    if held:
+        memory.db.execute("DELETE FROM lab_results WHERE id = ?", (held["id"],))
+    memory.db.execute(
+        "INSERT INTO lab_results (report_id, source, test, printed, value, value_text, unit, ref_low, ref_high, "
+        "ref_text, ref_source, flag, band, collected, loinc, source_id, lab) "
+        "VALUES (0, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)",
+        (source, r["test"], r["printed"], r["value"], r["value_text"], r["unit"], r["ref_low"], r["ref_high"],
+         r["ref_text"], r.get("ref_source") or "", r["flag"], r["band"], r["collected"], r.get("loinc", ""),
+         r.get("source_id", ""), str(lab or "")[:120]))
+    memory.db.commit()
+    return True
 
 
 # --- reading a report -------------------------------------------------------------------------------------------
@@ -469,8 +492,8 @@ def results(memory: Memory) -> list[dict]:
     """Each test held, newest result first, with every earlier one and the direction since the one before."""
     _ready(memory)
     rows = [dict(r) for r in memory.db.execute(
-        "SELECT r.*, p.lab FROM lab_results r LEFT JOIN lab_reports p ON p.id = r.report_id "
-        "ORDER BY r.test, r.collected, r.id")]
+        "SELECT r.*, COALESCE(NULLIF(r.lab, ''), p.lab, '') AS lab FROM lab_results r "
+        "LEFT JOIN lab_reports p ON p.id = r.report_id ORDER BY r.test, r.collected, r.id")]
     by: dict[str, list[dict]] = {}
     for r in rows:
         by.setdefault(r["test"], []).append(r)
@@ -482,6 +505,12 @@ def results(memory: Memory) -> list[dict]:
         latest = seen[-1]
         out.append({"test": test, "label": TESTS[test][0], "latest": latest, "earlier": seen[:-1][::-1],
                     "direction": _direction(latest, seen[-2] if len(seen) > 1 else None)})
+    for test, seen in by.items():  # tests a portal sent that Buddy has no name for: by their code, under "other"
+        if test in TESTS:
+            continue
+        latest = seen[-1]
+        out.append({"test": test, "label": latest["printed"], "other": True, "latest": latest,
+                    "earlier": seen[:-1][::-1], "direction": _direction(latest, seen[-2] if len(seen) > 1 else None)})
     return out
 
 
@@ -542,8 +571,9 @@ def forget(memory: Memory) -> None:
 
 
 def brief(memory: Memory) -> str:
-    """The lab range lines for Claude (only used when the owner has switched lab ranges on)."""
-    held = results(memory)
+    """The lab range lines for Claude (only used when the owner has switched lab ranges on): the tests Buddy knows
+    by name only, so a portal's own wording never reaches a model."""
+    held = [t for t in results(memory) if not t.get("other")]
     if not held:
         return NONE
     return "\n".join([HEAD, *(f"{MARK} {t['label']}: {t['latest']['band']}; {t['direction']}" for t in held)])

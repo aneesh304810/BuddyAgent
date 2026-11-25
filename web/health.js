@@ -116,7 +116,54 @@ function renderSources() {
 }
 
 // --- Labs: a report is read by code on your server (never an AI), you check every result, then it is kept
-let labData = null, labDraft = null, labAsk = 0, labBusy = false;
+let labData = null, labDraft = null, labAsk = 0, labBusy = false, portalData = null, portalFound = null, portalAsk = "";
+async function loadPortals() {
+  try { portalData = await api("/api/health/mychart", { action: "list" }); } catch (e) { portalData = { failed: e.message }; }
+  if (tab === "labs") render();
+}
+function portalCard() {
+  if (!portalData) { loadPortals(); return ""; }
+  if (portalData.failed) return card("Patient portals (MyChart)", `<p class="err">${esc(portalData.failed)}</p>`);
+  if (!portalData.set_up) return card("Patient portals (MyChart)",
+    `<p class="muted">To read results straight from MyChart, register a free patient app once at fhir.epic.com (Epic on FHIR) with this return address, then set its client ID on the server:</p>
+     <p><code>${esc(portalData.back || "https://<your tailnet name>/connect/mychart/linked")}</code></p>
+     <p><code>sudo bash /opt/buddy/deploy/set.sh BUDDY_EPIC_CLIENT_ID</code></p>`, "Steps in docs/HEALTH.md. Until then, download the report as a PDF and add it above.");
+  const rows = (portalData.portals || []).map((p) => `<div class="line"><div class="what">${esc(p.name)}
+      <small>${p.connected ? `Connected${p.lasting ? "" : " (signs in each time)"} · read ${esc(ago(p.synced))}` : "Not signed in"}</small></div>
+      ${p.connected ? "" : `<button class="btn" data-portal-connect="${esc(p.base)}" data-name="${esc(p.name)}">Sign in</button>`}
+      ${portalAsk === p.base ? `<button class="btn danger solid" data-portal-off="${esc(p.base)}" data-sure="1">Yes, disconnect</button>` : `<button class="btn danger" data-portal-off="${esc(p.base)}">Disconnect</button>`}</div>`).join("");
+  const found = (portalFound || []).map((f) => `<div class="line"><div class="what">${esc(f.name)}</div>
+      <button class="btn" data-portal-connect="${esc(f.base)}" data-name="${esc(f.name)}">Sign in</button></div>`).join("");
+  return card("Patient portals (MyChart)",
+    `${rows}${rows ? `<p><button class="btn" id="portal-sync">Read new results now</button></p>` : ""}
+     <div class="add" style="display:flex;gap:8px;margin-top:8px"><input id="portal-q" placeholder="Your health system, e.g. Hackensack" aria-label="Health system" style="flex:1;min-width:0">
+     <button class="btn" id="portal-find">Find</button></div>
+     ${portalFound ? (found || `<p class="muted">No health system by that name in Epic's list.</p>`) : ""}`,
+    "You sign in at your health system; Buddy reads your lab results (read only) once a day and they join your results below. Nothing goes to an AI model.");
+}
+function wirePortals() {
+  if ($("portal-find")) $("portal-find").onclick = async () => {
+    try { portalFound = (await api("/api/health/mychart", { action: "find", q: $("portal-q").value })).found; render(); } catch (e) { notice(e.message); }
+  };
+  $("main").querySelectorAll("[data-portal-connect]").forEach((b) => b.onclick = async () => {
+    try {
+      const out = await api("/api/health/mychart", { action: "connect", base: b.dataset.portalConnect, name: b.dataset.name });
+      const w = window.open(out.url, "_blank", "noopener");
+      if (!w) location.href = out.url;
+      notice(`Sign in at ${out.name}, then come back here.`); portalData = null; portalFound = null;
+    } catch (e) { notice(e.message); }
+  });
+  $("main").querySelectorAll("[data-portal-off]").forEach((b) => b.onclick = async () => {
+    if (!b.dataset.sure) { portalAsk = b.dataset.portalOff; render(); return; }
+    try { notice((await api("/api/health/mychart", { action: "disconnect", base: b.dataset.portalOff, confirm: true })).text); } catch (e) { notice(e.message); }
+    portalAsk = ""; portalData = null; render();
+  });
+  if ($("portal-sync")) $("portal-sync").onclick = async () => {
+    $("portal-sync").disabled = true; $("portal-sync").textContent = "Reading…";
+    try { notice((await api("/api/health/mychart", { action: "sync" })).text); } catch (e) { notice(e.message); }
+    labData = null; portalData = null; render();
+  };
+}
 async function loadLabs() {
   try { labData = await api("/api/health/labs"); } catch (e) { labData = { failed: e.message }; }
   if (tab === "labs") render();
@@ -146,7 +193,7 @@ function renderLabs() {
     `<p class="muted">Download the report as a PDF from Quest, Labcorp or your portal (MyChart), then add it here. It is read by code on your server, never by an AI, and nothing is kept until you check it. The report itself goes into your vault, encrypted.</p>
      <p><input type="file" id="lab-file" accept="application/pdf,.pdf" aria-label="Lab report PDF"></p>
      <p><button class="btn solid" id="lab-read"${labBusy ? " disabled" : ""}>${labBusy ? "Reading…" : "Read the report"}</button></p>`);
-  const results = (labData.results || []).map((t) => `<div class="line"><div class="what">${esc(t.label)}
+  const results = (labData.results || []).map((t) => `<div class="line"><div class="what">${esc(t.label)}${t.other ? ` <small style="display:inline">(${esc(t.latest.loinc ? "LOINC " + t.latest.loinc : "other")})</small>` : ""}
       <small>${esc(t.latest.value_text)} ${esc(t.latest.unit)} · range ${esc(range(t.latest))} · ${esc(when(t.latest.collected))}${t.latest.lab ? " · " + esc(t.latest.lab) : ""} · ${esc(t.direction)}</small>
       ${t.earlier.length ? `<small>Before: ${t.earlier.slice(0, 4).map((e) => `${esc(e.value_text)} ${esc(e.unit)} (${esc(when(e.collected))})`).join(", ")}</small>` : ""}</div>
       ${bandPill(t.latest.band)}</div>`).join("");
@@ -154,12 +201,13 @@ function renderLabs() {
       <small>${esc(r.file_name)} · ${esc(r.results)} results</small></div>
       ${r.has_file ? `<button class="btn" data-lab-open="${esc(r.id)}">Open</button>` : ""}
       ${labAsk === r.id ? `<button class="btn danger solid" data-lab-delete="${esc(r.id)}" data-sure="1">Yes, delete</button>` : `<button class="btn danger" data-lab-delete="${esc(r.id)}">Delete</button>`}</div>`).join("");
-  $("main").innerHTML = (labDraft ? draftCard() : upload) +
+  $("main").innerHTML = (labDraft ? draftCard() : upload) + portalCard() +
     card("Your results", results || `<p class="muted">No results kept yet.</p>`,
       "Below, within or above is against the lab's own reference range printed on the report. When a report prints no range, Buddy uses a typical adult range for that test (marked “typical”); labs set their own, so the lab's always wins. Not medical advice: talk to your doctor about any result.") +
     (reports ? card("Reports", reports) : "") +
     `<p class="note">Lab ranges for Claude are ${labData.ranges_on ? "on: Claude may be told whether each test is below, within or above the lab's range, never a value" : "off: no AI model is told anything about your lab results"}. Changed only on the server: ${esc(labData.ranges_how)}.</p>`;
   wireLabs();
+  wirePortals();
 }
 function wireLabs() {
   if ($("lab-read")) $("lab-read").onclick = () => {

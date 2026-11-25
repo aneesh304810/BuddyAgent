@@ -66,6 +66,33 @@ your server. No AI model is given any of it.
 
 What it does not do: it gives no advice beyond those fixed rules, and it is not medical advice.
 
+## Lab results from MyChart (patient portals)
+
+Health → Labs → **Patient portals (MyChart)**: find your health system in Epic's public list, tap **Sign in**, sign
+in at your health system, and allow Buddy to read your results. Buddy reads your lab results (read only) right away
+and then once a day, and they join your results beside uploaded reports, each with the health system's own test
+code (LOINC), unit, reference range and flag. Results with no number (a "negative", a comment) are not kept. Tests
+Buddy has no name for are listed under their code and are never in the lines Claude may get. Nothing goes to an AI
+model. Disconnect on the same card (Buddy forgets its sign-in; the results stay until you delete them on Sources);
+also remove Buddy from MyChart's linked apps to end the access at the health system.
+
+**Set up once (about 15 minutes; Epic decides when it works at your health system):**
+1. Create a free account at **fhir.epic.com** ("Epic on FHIR") and choose **Build Apps → Create**.
+2. Application audience: **Patients**. Name it (for example "Buddy, personal"). Incoming APIs: the R4 **Patient.Read**,
+   **Observation.Read (Labs)** and **DiagnosticReport.Read** APIs. SMART on FHIR version R4; **not** a confidential
+   client (Buddy uses PKCE); ask for **refresh tokens** if offered, so Buddy can read new results without you signing
+   in each time.
+3. Redirect URI: your server's own return page, shown on the Labs tab, `https://<your tailnet name>/connect/mychart/linked`.
+4. Save, mark it ready for production, and copy the **production client ID** (the non-production one works only with
+   Epic's test site). On the server: `sudo bash /opt/buddy/deploy/set.sh BUDDY_EPIC_CLIENT_ID` and paste it.
+5. Epic shares a new patient app's client ID with health systems on its own schedule (it can take a day or more), and
+   some health systems approve apps themselves. Until it reaches yours, the sign-in page at your health system says
+   the app isn't recognised: try again later. Without a refresh token your health system asks you to sign in again
+   after an hour; Buddy then shows **Sign in again** on Sources and the Connections screen.
+
+Untested against a real health system: tested against a made-up one that follows the SMART App Launch and FHIR R4
+rules. The first real sign-in is the true test.
+
 ## 1. Connect your Oura Ring
 
 Two parts: a one-time setup on the server by whoever runs Buddy, then a tap in the app for each person.
@@ -130,7 +157,8 @@ Habits Buddy tracks by itself: **steps**, **sleep hours**, **bedtime** (lights o
   Claude included. If you switch on health ranges on the server, Claude, and only Claude, is told how a measure compares
   with your usual ("sleep: below usual"), never the value (`docs/PRIVACY-GATEWAY.md`).
 - The plan stays until you change it; the habit log and meals as long as the readings (two years).
-- Lab reports and results: until you delete the report (Health → Labs → Delete). No AI model reads a report or is
+- Lab reports and results: until you delete the report (Health → Labs → Delete); results from MyChart until you
+  delete them (Health → Sources → MyChart → Delete its data). No AI model reads a report or is
   given a result. **Lab ranges** are their own switch, off unless you turn it on, on the server:
   `sudo bash /opt/buddy/deploy/set.sh BUDDY_LAB_RANGES`, then type `on`. When on, Claude and only Claude may be
   given one line a test, "LDL cholesterol: above the lab's range; up since the last test", never the value, unit,

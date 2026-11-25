@@ -72,8 +72,8 @@ UNIT_WORDS = {"{steps}/d": "steps a day", "/min": "beats a minute", "ms": "milli
               "kcal/d": "kcal a day", "min": "minutes", "{score}": "a score out of 100"}  # the UCUM units, said plainly
 TABLES = {"health_connect": "health_daily", "oura": "oura_daily"}  # each source's own table, kept unchanged
 TITLES = {"health_connect": "Phone health data (Health Connect)", "oura": "Oura Ring",
-          "lab_upload": "Lab reports you upload"}
-LAB_SOURCES = ("lab_upload",)  # kept until the owner deletes them
+          "lab_upload": "Lab reports you upload", "mychart": "MyChart (patient portals)"}
+LAB_SOURCES = ("lab_upload", "mychart")  # kept until the owner deletes them
 KEEP_SETTING, KEEP_DEFAULT = "BUDDY_HEALTH_KEEP_DAYS", 730
 
 
@@ -206,16 +206,18 @@ def sources(memory: Memory, env=None) -> list[dict]:
             from .labs import TESTS  # noqa: PLC0415
             for measure, h in held.items():
                 test = measure.removeprefix("lab:")
-                measures.append({"measure": measure, "label": TESTS.get(test, (test,))[0], "unit": "", "unit_words":
-                                 "the lab's own unit", "loinc": "", "quality": LAB, "how": QUALITY[LAB] +
-                                 " read from your report and checked by you", "days": h["n"]})
+                measures.append({"measure": measure, "label": TESTS.get(test, (test.replace("loinc:", "LOINC "),))[0],
+                                 "unit": "", "unit_words": "the lab's own unit", "loinc": "", "quality": LAB,
+                                 "how": QUALITY[LAB] + (" read from your report and checked by you"
+                                                        if connector == "lab_upload" else " from your health system"),
+                                 "days": h["n"]})
         for measure in dict.fromkeys(m for m, _ in FROM.get(connector, {}).values()):
             label, unit, loinc, quality = MEASURES[measure]
             measures.append({"measure": measure, "label": label, "unit": unit, "unit_words": UNIT_WORDS.get(unit, unit),
                              "loinc": loinc, "quality": quality,
                              "how": QUALITY[quality], "days": (held.get(measure) or {}).get("n", 0)})
         state = row.get("state", "not_set_up")
-        if connector in LAB_SOURCES:
+        if connector == "lab_upload":
             state = "working" if held else "not_set_up"
         out.append({"connector": connector, "title": TITLES[connector], "state": state,
                     "expired": connecthub.expired(memory, connector), "last_error": row.get("last_error", ""),

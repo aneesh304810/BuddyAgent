@@ -559,6 +559,8 @@ async def run(memory: Memory, deliver: Deliver, connected=None) -> None:
                     await asyncio.to_thread(coach.prune, memory)
                     from . import labs  # noqa: PLC0415  lab reports read but never confirmed
                     await asyncio.to_thread(labs.drop_expired, memory)
+                from . import fhirlabs  # noqa: PLC0415  new results from the patient portals, once a day
+                await asyncio.to_thread(fhirlabs.sync_if_due, memory)
             except Exception:
                 log.exception("health plan nudges failed")
             try:  # flights: the user's tracked flights, every 15 minutes from 4 hours before take-off to landing

@@ -21,6 +21,7 @@ flowchart LR
         healthpage_py["healthpage.py<br/>the owner's own numbers, shown to the owner, worked out by rules"]
         healthrecords_py["healthrecords.py<br/>The owner's health values in one form, each with where it came from:…"]
         labs_py["labs.py<br/>reports the owner uploads (Quest, Labcorp, a hospital portal's PDF),…"]
+        fhirlabs_py["fhirlabs.py<br/>Lab results from the owner's patient portals (MyChart and other Epic…"]
     end
     you --> t_thermostat
     t_thermostat --> nest_py
@@ -42,6 +43,8 @@ flowchart LR
     healthrecords_py --> labs_py
     labs_py --> healthrecords_py
     labs_py --> oura_py
+    fhirlabs_py --> healthrecords_py
+    fhirlabs_py --> labs_py
     db[("Your database<br/>coach_log, coach_meals, health_daily, health_records, lab_reports, lab_results, oura_daily")]
     health_data_py --> db
     oura_py --> db
@@ -259,6 +262,39 @@ It does reveal which tests the owner has had and whether each is in range: that 
 - Tables: `lab_reports`, `lab_results`
 - Settings: `BUDDY_LAB_RANGES`
 - Uses: connecthub.py, docread.py, healthrecords.py, library.py, memory.py, oura.py, tools.py
+
+### fhirlabs.py
+
+```text
+Lab results from the owner's patient portals (MyChart and other Epic sites) over SMART on FHIR: the owner signs
+in at their health system, Buddy reads their lab results (read only), and they join the Labs tab beside uploaded
+reports.
+
+What has to be set up once (docs/HEALTH.md): a free patient app registered at fhir.epic.com ("Epic on FHIR"), with
+this server's return address (https://<your tailnet name>/connect/mychart/linked) and read access to Patient,
+Observation and DiagnosticReport; its client ID goes into Buddy with
+sudo bash /opt/buddy/deploy/set.sh BUDDY_EPIC_CLIENT_ID. Epic decides when a new app's production client ID works
+at each health system; until then a sign-in fails at the health system's page, and Buddy says so.
+
+How it works (the SMART App Launch "standalone" flow):
+  1. The owner picks their health system (Epic's public directory of patient endpoints, or its FHIR address).
+  2. Buddy reads the system's /.well-known/smart-configuration, makes a one-time state and a PKCE secret, and gives
+     the sign-in link (scopes: launch/patient, openid, fhirUser, offline_access, read of Patient, Observation and
+     DiagnosticReport).
+  3. The health system sends the browser back to /connect/mychart/linked; the code is swapped for tokens, kept in
+     the encrypted database. With a refresh token Buddy reads new results once a day by itself; without one (the
+     health system decides), each read after the first hour needs the owner to sign in again: shown as "Sign in
+     again" (connecthub) until they do.
+  4. Lab Observations (category laboratory) are read page by page: the test (with its LOINC code, given by the
+     health system, not guessed), the value and unit (UCUM), the reference range, the flag (H, L, A), the date.
+     Results with no number (a "negative", a comment) are not kept. Each is kept once (by the health system's own
+     id) in labs.py's tables, as a health record (quality "lab"), and shown on the Labs tab.
+
+Nothing here is given to an AI model; only the lab ranges switch (labs.py) lets Claude have a test's range word.
+```
+
+- Settings: `BUDDY_EPIC_CLIENT_ID`
+- Uses: connecthub.py, gateway.py, healthrecords.py, labs.py, memory.py
 
 ## How it connects
 

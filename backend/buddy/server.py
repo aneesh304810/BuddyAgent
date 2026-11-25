@@ -1754,6 +1754,29 @@ async def api_health_labs_act(body: dict) -> dict:
     raise HTTPException(400, "unknown action")
 
 
+@app.post("/api/health/mychart", dependencies=[Depends(require_admin)])
+async def api_health_mychart(body: dict) -> dict:
+    """Patient portals: find (Epic's directory), connect (the sign-in link for one), sync, disconnect, or list."""
+    from . import fhirlabs, gateway  # noqa: PLC0415
+    action = str(body.get("action") or "list")
+    try:
+        if action == "find":
+            return {"found": await asyncio.to_thread(fhirlabs.directory, memory, str(body.get("q") or ""))}
+        if action == "connect":
+            return await asyncio.to_thread(fhirlabs.start_link, memory, None, str(body.get("base") or ""),
+                                           str(body.get("name") or ""))
+        if action == "sync":
+            return {"text": await asyncio.to_thread(fhirlabs.sync_now, memory)}
+        if action == "disconnect" and body.get("confirm") is True:
+            return {"text": await asyncio.to_thread(fhirlabs.disconnect, memory, str(body.get("base") or ""))}
+    except gateway.ConnectError as e:
+        raise HTTPException(400, str(e)) from None
+    if action == "list":
+        return {"portals": fhirlabs.portals(memory), "set_up": gateway.configured("mychart"),
+                "back": fhirlabs.redirect_uri(memory)}
+    raise HTTPException(400, "unknown action")
+
+
 @app.get("/api/health/labs/report/{report_id}", dependencies=[Depends(require_admin)])
 async def api_health_lab_file(report_id: int):
     """The report as it was uploaded (kept encrypted in Buddy's database)."""

@@ -306,6 +306,16 @@ CATALOG: dict[str, dict] = {
              "terms": "Your own data, read with the access you granted in Oura's sign-in; kept on your server only.",
              "setup_command": "sudo bash /opt/buddy/deploy/oura.sh", "health": {"custom": "oura.check"},
              "moved": True},
+    # The owner's patient portals (fhirlabs.py): SMART on FHIR, read only; each health system's own address, signed
+    # in at that system with a one-time state and PKCE; the app's client ID comes from fhir.epic.com.
+    "mychart": {"group": "Health", "title": "MyChart (patient portals)", "hosts": ["https://open.epic.com"],
+                "auth": {"type": "oauth", "fields": {"client_id": "BUDDY_EPIC_CLIENT_ID"}},
+                "link": "fhirlabs", "cost": 0.0, "per_minute": 60, "privacy": "personal", "no_backup": True,
+                "used_for": "your lab results from your health systems' patient portals (MyChart), read only, for "
+                            "the Labs tab; never given to an AI model",
+                "terms": "Your own records, read with the access you grant at your health system's sign-in.",
+                "setup_command": "sudo bash /opt/buddy/deploy/set.sh BUDDY_EPIC_CLIENT_ID",
+                "health": {"custom": "fhirlabs.check"}, "moved": True},
     # Restaurants (dining.py): Google's official Places API, for finding a table; only the search words and a
     # neighbourhood go out, never the owner's position. Without it, dining falls back to Serper's Maps results.
     "google_places": {"group": "Food & dining", "title": "Google Places (restaurants)",
