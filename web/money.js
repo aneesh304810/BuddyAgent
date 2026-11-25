@@ -152,7 +152,9 @@ function render() {
       <span class="muted"> · ${esc(w.why)}</span></span><span class="amt" style="color:var(--bad)">${money(w.amount)}</span></div>`).join("")));
   if (d.opportunities.length) parts.push(card(`Ways to save · ${money(d.possible_yearly_savings)} a year`,
     d.opportunities.map((o) => `<div class="save"><b>${money(o.yearly)}</b><span>${esc(o.do)}</span></div>`).join("")));
-  parts.push('<div id="cardoffers"></div>');  // the offers on your cards: filled in when they arrive
+  parts.push('<div id="cardoffers"></div><div id="p2p"></div>');  // offers and payments with people: filled in when they arrive
+  parts.push(card("Your email", `<p class="muted" style="margin:0">See the kinds of email you get, and choose what Buddy does with each.</p>
+    <p style="margin:8px 0 0"><a href="mail.html" style="color:var(--accent)">Open your email groups →</a></p>`));
   // budget
   const maxB = Math.max(...d.budget.map((b) => Math.max(b.now, b.budget)), 1);
   parts.push(card("This month against a suggested budget", d.budget.map((b) =>
@@ -175,6 +177,21 @@ function render() {
     drill([{ label: el.dataset.merchant, q: { merchant: el.dataset.merchant } }]));
   document.querySelectorAll("[data-month]").forEach((el) => el.onclick = () => load(el.dataset.month));
   loadOffers();
+  loadPayments();
+}
+
+async function loadPayments() {
+  const box = $("p2p");
+  if (!box) return;
+  let got;
+  try { got = await api("/api/money/payments?days=90"); } catch { box.innerHTML = ""; return; }
+  if (!got.payments.length) { box.innerHTML = ""; return; }
+  const row = (p) => `<div class="row" style="cursor:default"><span class="name" style="white-space:normal">${p.direction === "out" ? "To" : "From"} ${esc(p.person)}
+      <small class="muted" style="display:block">${esc(p.app)} · ${esc(shortDay(p.day))}${p.note ? " · " + esc(p.note) : ""}</small></span>
+      <span class="amt" style="color:${p.direction === "out" ? "var(--text)" : "var(--good)"}">${p.direction === "out" ? "" : "+"}${money(p.amount)}</span></div>`;
+  box.innerHTML = card(`Payments with people · ${money(got.paid)} paid, ${money(got.received)} received`,
+    got.payments.slice(0, 12).map(row).join(""),
+    "From Venmo, Zelle, PayPal and Cash App emails, last 90 days. Not added to Spent: your bank or card already counts money that leaves it.");
 }
 
 const shortDay = (iso) => new Date(iso + "T12:00:00").toLocaleDateString(undefined, { month: "short", day: "numeric" });

@@ -597,6 +597,11 @@ async def run(memory: Memory, deliver: Deliver, connected=None) -> None:
                 if (dealmail.configured() or dealmail.accounts()) and dealmail.due(memory):
                     memory.set(dealmail.DAY_KEY, local_now().date().isoformat())
                     log.info("deals inbox: %s", await asyncio.to_thread(dealmail.run, memory))
+                from . import mailmap  # noqa: PLC0415  the email map: the new mail's senders (headers only)
+                if mailmap.due(memory):
+                    memory.set(mailmap.DAY_KEY, local_now().date().isoformat())
+                    if (said := await asyncio.to_thread(mailmap.nightly, memory)):
+                        log.info(said)
                 from . import mailorganizer  # noqa: PLC0415  after the deals reader has read the marketing mail
                 if mailorganizer.due(memory):
                     memory.set(mailorganizer.DAY_KEY, local_now().date().isoformat())

@@ -19,6 +19,8 @@ flowchart LR
     subgraph Modules["Modules"]
         mailbrain_py["mailbrain.py<br/>reads new mail from every account, sorts it by priority against your…"]
         mailorganizer_py["mailorganizer.py<br/>marketing, newsletters and app notifications are moved out of the…"]
+        mailmap_py["mailmap.py<br/>what kinds of email arrive, from whom, and what Buddy does with each…"]
+        paymail_py["paymail.py<br/>Payments to and from people, from the payment apps' own emails:…"]
         lifemail_py["lifemail.py<br/>Buddy reads the email that is about the owner's own life and…"]
         mailfiles_py["mailfiles.py<br/>the PDFs, pictures and documents attached to the owner's life email…"]
         email_accounts_py["email_accounts.py<br/>All of the user's email accounts, read from the settings file"]
@@ -40,12 +42,19 @@ flowchart LR
     you --> t_packages
     t_packages --> packages_py
     mailbrain_py --> email_accounts_py
+    mailbrain_py --> mailmap_py
+    mailbrain_py --> paymail_py
     mailorganizer_py --> email_accounts_py
+    mailmap_py --> email_accounts_py
+    mailmap_py --> mailorganizer_py
+    paymail_py --> mailmap_py
     lifemail_py --> mailfiles_py
     mailfiles_py --> email_accounts_py
-    db[("Your database<br/>mail_circle, mail_files, mail_life, mail_moves, mail_routine, mail_rules, mail_triage, msg_autoreply and more")]
+    db[("Your database<br/>mail_choices, mail_circle, mail_files, mail_life, mail_moves, mail_routine, mail_rules, mail_senders and more")]
     mailbrain_py --> db
     mailorganizer_py --> db
+    mailmap_py --> db
+    paymail_py --> db
     lifemail_py --> db
     mailfiles_py --> db
     messaging_py --> db
@@ -101,7 +110,7 @@ New mail is sorted in small batches by the cheap model, about a tenth of a cent 
 ```
 
 - Tables: `mail_rules`, `mail_triage`
-- Uses: agent.py, budgets.py, cancelling.py, config.py, email_accounts.py, memory.py, money.py, thrift.py, tools.py, usage.py
+- Uses: agent.py, budgets.py, cancelling.py, config.py, email_accounts.py, mailmap.py, memory.py, money.py, paymail.py, thrift.py, tools.py, usage.py
 
 ### mailorganizer.py
 
@@ -142,6 +151,52 @@ where no archive can be found is left as it is.
 - Tables: `mail_moves`
 - Settings: `BUDDY_EMAIL_ADDRESS`, `BUDDY_EMAIL_APP_PASSWORD`
 - Uses: dealmail.py, email_accounts.py, memory.py, tools.py
+
+### mailmap.py
+
+```text
+The email map: what kinds of email arrive, from whom, and what Buddy does with each kind, as the owner decides.
+
+The scan     the last 90 days of every regular account (not the deals inbox), read-only and headers only: who
+             sent each message, its subject and its date, and whether it is bulk mail. No message is opened,
+             nothing in the mailbox changes, and no AI is involved: rules on this server put each sender in a
+             category. The owner starts it from the Email page; after that, each night adds the new mail's senders.
+What is kept per sender (mail_senders, in the encrypted database): address, name, account, category, how many
+             emails, how many were bulk, the last date, and up to three recent subjects, for bulk mail only and
+             never for health or people: a person's email and health mail keep no subject.
+Categories   security and sign-in, card offers, payments to people, bank and card alerts, bills, orders and
+             deliveries, travel, health, deals and promotions, newsletters, social and app notices, people, not sure.
+The choices  (mail_choices) for a category, or for one sender in it, which wins over its category:
+               importance  tell me now, normal, low, or ignore (low, and never told). The email manager uses it
+                           for that sender's mail in place of its own judgment; a rule the owner wrote still wins.
+               uses        what Buddy takes from the mail, switched per category or sender: card offers, deals and
+                           prices, payments to people (paymail.py), keep in the inbox (the organizer leaves it).
+               category    a sender put in another category by the owner.
+```
+
+- Tables: `mail_choices`, `mail_senders`
+- Settings: `BUDDY_DEALS_EMAIL_ADDRESS`, `BUDDY_EMAIL_ADDRESS`
+- Uses: email_accounts.py, mailorganizer.py, memory.py, tools.py
+
+### paymail.py
+
+```text
+Payments to and from people, from the payment apps' own emails: Venmo, Zelle (sent by your bank), PayPal, Cash App.
+
+Read in code from the subject (and, for Venmo, the note under the amount), with no AI, from the email Buddy already
+fetched. Runs with the email manager, so it keeps working while background AI work is paused.
+
+  "You paid Peiji Shi $38.00"      -> to Peiji Shi, $38.00, Venmo, note "Lokal"
+  "Neha paid you $20.00"           -> from Neha, $20.00
+  "You sent $500.00 to NEHA S"     -> to Neha S, $500.00, Zelle (a bank's email that says Zelle)
+
+Kept in their own table (p2p_payments) and shown on the Money page, and not added to what you spent: when a payment
+is paid from a bank or card, the bank feed or the card's email already counts that money, so adding it again would
+count it twice. The owner can switch it off per sender on the Email page ("payments to people"). Kept two years.
+```
+
+- Tables: `p2p_payments`
+- Uses: mailmap.py, memory.py
 
 ### lifemail.py
 

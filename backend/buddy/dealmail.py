@@ -562,7 +562,7 @@ def offer_text(o: dict) -> str:
 
 def run_all(memory: Memory, env=None, connect=None) -> str:
     """The owner's regular accounts: bulk mail only. Returns a status line ('' when there is nothing to read)."""
-    from . import dealforecast  # noqa: PLC0415
+    from . import dealforecast, mailmap  # noqa: PLC0415
     lines = []
     for account in accounts(env):
         try:
@@ -572,9 +572,10 @@ def run_all(memory: Memory, env=None, connect=None) -> str:
             continue
         found = kept = new_offers = 0
         for m in messages:
-            try:
-                got = offers_in(m)
-                deals = [] if issuer_of(m) else deals_in(m)  # a card issuer's email holds offers, not prices
+            try:  # what the owner switched off for this sender on the Email page is not taken
+                got = offers_in(m) if mailmap.use_on(memory, str(m.get("From", "")), "offers") else []
+                deals = [] if issuer_of(m) or not mailmap.use_on(memory, str(m.get("From", "")), "deals") \
+                    else deals_in(m)  # a card issuer's email holds offers, not prices
             except Exception:
                 log.warning("deal mail: couldn't read a marketing email", exc_info=True)
                 continue
@@ -627,6 +628,7 @@ def reread_offers(memory: Memory, env=None, connect=None, days: int = REREAD_DAY
     nightly read only looks at mail it has not seen, so offers an older version of this reader missed (a store shown
     only as a logo) would otherwise stay missed. Read-only; headers first, and only an issuer's bulk mail is opened.
     Returns a status line ('' when it has already been done)."""
+    from . import mailmap  # noqa: PLC0415
     mine = accounts(env)
     if memory.get(REREAD_KEY) or not mine:
         return ""
@@ -650,7 +652,8 @@ def reread_offers(memory: Memory, env=None, connect=None, days: int = REREAD_DAY
                 if not head:
                     continue
                 headers = email.message_from_bytes(head, policy=email.policy.default)
-                if not (is_bulk(headers) and issuer_of(headers)):
+                if not (is_bulk(headers) and issuer_of(headers)) or not mailmap.use_on(
+                        memory, str(headers.get("From", "")), "offers"):
                     continue
                 _, parts = imap.uid("fetch", str(uid), "(BODY.PEEK[])")
                 raw = next((p[1] for p in parts if isinstance(p, tuple)), None)

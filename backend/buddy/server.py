@@ -2293,6 +2293,58 @@ async def api_money_dashboard(period: str = "last_month") -> dict:
         raise HTTPException(status_code=400, detail=str(e)) from e
 
 
+# --- the email map (web/mail.html): the kinds of email that arrive and what Buddy does with each -----------------
+_mail_scan: asyncio.Task | None = None
+
+
+@app.get("/api/mail/map", dependencies=[Depends(require_admin)])
+async def api_mail_map() -> dict:
+    from . import mailmap  # noqa: PLC0415
+    return await asyncio.to_thread(mailmap.view, memory)
+
+
+@app.post("/api/mail/map/scan", dependencies=[Depends(require_admin)])
+async def api_mail_map_scan() -> dict:
+    """Start the scan (headers only, read-only); the page asks how it is going."""
+    global _mail_scan
+    from . import mailmap  # noqa: PLC0415
+    if _mail_scan and not _mail_scan.done():
+        return {"state": "scanning"}
+
+    async def scan() -> None:
+        try:
+            await asyncio.to_thread(mailmap.scan, memory)
+        except Exception as e:  # no account, or every account failed: the page says why
+            memory.set(mailmap.STATUS_KEY, json.dumps({"state": "failed", "why": str(e)[:200],
+                                                       "at": datetime.now(timezone.utc).isoformat()}))
+    _mail_scan = asyncio.create_task(scan())
+    return {"state": "scanning"}
+
+
+@app.post("/api/mail/map/choose", dependencies=[Depends(require_admin)])
+async def api_mail_map_choose(body: dict) -> dict:
+    from . import mailmap  # noqa: PLC0415
+    on = body.get("on")
+    try:
+        return await asyncio.to_thread(mailmap.choose, memory, str(body.get("target") or ""), body.get("importance"),
+                                       body.get("use"), None if on is None else bool(on), body.get("category"))
+    except ToolError as e:
+        raise HTTPException(status_code=400, detail=str(e)) from e
+
+
+@app.post("/api/mail/map/forget", dependencies=[Depends(require_admin)])
+async def api_mail_map_forget() -> dict:
+    from . import mailmap  # noqa: PLC0415
+    return {"said": await asyncio.to_thread(mailmap.forget, memory)}
+
+
+@app.get("/api/money/payments", dependencies=[Depends(require_admin)])
+async def api_money_payments(days: int = 90) -> dict:
+    """Payments to and from people read from the payment apps' emails (not part of what was spent)."""
+    from . import paymail  # noqa: PLC0415
+    return await asyncio.to_thread(paymail.payments, memory, max(1, min(days, 365)))
+
+
 @app.get("/api/money/offers", dependencies=[Depends(require_admin)])
 async def api_money_offers() -> dict:
     """The offers on the owner's cards (read from the card issuers' emails), soonest ending first."""

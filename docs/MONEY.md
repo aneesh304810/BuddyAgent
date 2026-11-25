@@ -452,4 +452,11 @@ decide each differently), and uses it whenever you ask about a purchase.
   per eligible dollar" are understood too. After an update that reads offers better, Buddy reads your card
   issuers' emails of the last 30 days once more (headers first, and only an issuer's bulk mail is opened).
 
+- **Payments with people.** Venmo, PayPal and Cash App emails, and Zelle emails from your bank, are read in code
+  (no AI) from the email Buddy already fetched: "You paid Peiji Shi $38.00" with Venmo's note ("Lokal"), "Neha paid
+  you $20.00", "You sent $500.00 to NEHA S". They are listed on the Money page under **Payments with people**, last
+  90 days, with what you paid and received. They are not added to what you spent: a payment made from a bank or
+  card is already counted there, and adding it again would count it twice. It keeps working while background AI
+  work is paused, and it can be switched off per sender on the Email page. Kept two years.
+
 All of it stays on your server; only Claude sees it. Buddy still never buys or pays.

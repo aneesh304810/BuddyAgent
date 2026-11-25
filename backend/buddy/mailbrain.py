@@ -312,7 +312,11 @@ class MailManager:
             if plain:  # rules that change mail wait for Claude's reading: plain words could misfire on them
                 applied = [r for r in applied if r["action"] not in CHANGES_MAIL]
             priority = next((r["action"] for r in reversed(applied) if r["action"] in ("urgent", "normal", "low")),
-                            v["priority"])
+                            "")
+            if not priority:  # what the owner chose on the Email page for this sender or its category
+                from . import mailmap  # noqa: PLC0415
+                chosen = mailmap.importance(self.memory, data.get("from", ""))
+                priority = "low" if chosen == "ignore" else chosen or v["priority"]
             done = await asyncio.to_thread(self._apply, data, applied)
             self.memory.db.execute(
                 """INSERT OR REPLACE INTO mail_triage
@@ -333,6 +337,12 @@ class MailManager:
                 money_notes += Cancelling(self.memory).scan_email(email_row, data.get("from", ""))
             except Exception:
                 log.exception("cancel and trial check failed")
+        try:  # payments to and from people (Venmo, Zelle...): code only, so they are read even while Claude is paused
+            from . import paymail  # noqa: PLC0415
+            paymail.backfill(self.memory)
+            paymail.take(self.memory, emails)
+        except Exception:
+            log.exception("payments from email failed")
         self.memory.set("mailbrain:last_record", str(max(e["id"] for e in emails)))
         self.memory.db.commit()
         if urgent and not in_quiet_hours():

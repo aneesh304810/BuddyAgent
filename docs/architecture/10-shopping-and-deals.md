@@ -242,7 +242,7 @@ visits). The owner opens a deal's link in their own browser from the Deals page.
 
 - Tables: `card_offers`
 - Settings: `BUDDY_DEALS_EMAIL_ADDRESS`, `BUDDY_DEALS_EMAIL_APP_PASSWORD`, `BUDDY_DEALS_EMAIL_CLEAN_DAYS`, `BUDDY_DEALS_EMAIL_IMAP_HOST`, `BUDDY_DEALS_FROM_ALL_EMAIL`
-- Uses: dealforecast.py, email_accounts.py, gateway.py, memory.py, pricebook.py, productid.py, shopper.py, tools.py
+- Uses: dealforecast.py, email_accounts.py, gateway.py, mailmap.py, memory.py, pricebook.py, productid.py, shopper.py, tools.py
 
 ### dealnotif.py
 

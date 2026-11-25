@@ -148,3 +148,27 @@ their own folders (Buddy Promotions, Buddy Newsletters, Buddy Notifications; in 
 
 It works on every email account Buddy can read (Gmail, Yahoo, iCloud and others). When in doubt a message stays
 in the inbox: it is better to leave a promotion than to hide something real.
+
+## Your email groups (the Email page)
+
+Money → Email in the app, or "Open your email groups" on the Money page, shows the kinds of email you get and
+lets you decide what Buddy does with each.
+
+- **The scan**: press "Scan my email". Buddy reads the last 90 days of each of your email accounts (not the
+  separate deals inbox): who sent each email, its subject and its date, and whether it is bulk mail. No email is
+  opened, nothing in your mailbox changes, and no AI is involved: rules on your server sort each sender into a
+  group. After the first scan, each night adds the new mail's senders, and a sender Buddy hasn't seen before is
+  marked **new**.
+- **The groups**: security and sign-in, card offers, payments to people, bank and card alerts, bills, orders and
+  deliveries, travel, health, deals and promotions, newsletters, social and app notices, people, and not sure.
+  Each says what Buddy does with that kind of email today.
+- **How important**: for a group, or one sender in it: *Tell me now*, *Normal*, *Low*, or *Ignore* (never
+  mentioned). The email manager uses it in place of its own judgment; a rule you wrote in chat ("anything from
+  priya@work.com is urgent") still wins. A sender's choice wins over its group's.
+- **What Buddy takes from it**: card offers onto the Money page, deals and prices onto the Deals page, payments to
+  people onto the Money page, and "always keep in the inbox" (the organizer leaves that sender's mail alone). Each
+  can be switched off per group or per sender.
+- **A sender in the wrong group**: pick another group for it; the choice is kept.
+- **What is kept**: for each sender, the address and name, how many emails, the latest date, the group, and up to
+  three recent subjects of its bulk mail. Never a subject of email from a person or about health. "Delete the
+  email map" at the bottom removes it all, with your choices; your email is not touched.
