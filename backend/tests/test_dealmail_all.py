@@ -120,3 +120,81 @@ def test_it_can_be_turned_off_and_the_nightly_run_reports_both(memory):
     status = dealmail.run(memory, ENV, connect=lambda env: Box([]), connect_account=lambda a: promo)
     assert status.startswith("read 0 emails") and "Your email accounts (marketing mail only, nothing changed there)" in status
     assert not dealmail.is_bulk(mail("a@b.example", "hi", "x", bulk=False))
+
+
+# --- an Amex Offers email that was not picked up (stores shown only as logos) ------------------------------------------
+AMEX_HTML = """<html><body><table>
+<tr><td><img src="https://x/amex.png" alt="American Express"></td><td>Account ending: 12345</td></tr>
+<tr><td>Total earnings from Amex Offers: $200.00 in statement credits</td></tr>
+<tr><td><img src="https://x/dell.png" alt="Dell Technologies logo"></td></tr>
+<tr><td>Spend $500 or more, earn $100 back, up to 2 times</td></tr>
+<tr><td>Expires 12/31/2026</td></tr>
+<tr><td><img src="https://x/hilton.png" alt="Hilton"></td></tr>
+<tr><td>Earn +3 Membership Rewards&reg; points per eligible dollar spent, up to 3,000 points</td></tr>
+<tr><td><img src="https://x/w.png" alt="Walmart+"> Earn a $10 statement credit on a purchase of $50 or more</td></tr>
+<tr><td><img src="https://x/spacer.gif" alt=""><a href="https://x/add"><img alt="Add to Card button"></a></td></tr>
+</table></body></html>"""
+
+
+def html_mail(sender, subject, html):
+    m = EmailMessage()
+    m["From"], m["Subject"], m["List-Unsubscribe"] = sender, subject, "<https://example.com/unsub>"
+    m.set_content("Your offers are inside.")
+    m.add_alternative(html, subtype="html")
+    return m
+
+
+def test_stores_shown_only_as_logos_and_other_wordings_are_read():
+    got = dealmail.offers_in(html_mail("Amex Offers from American Express <AmericanExpress@welcome.aexp.example>",
+                                       "Aneesh, your new Amex Offers are inside!", AMEX_HTML))
+    by = {o["merchant"]: o for o in got}
+    assert set(by) == {"Dell Technologies", "Hilton", "Walmart+"}         # the logo's label, without "logo"
+    assert (by["Dell Technologies"]["spend"], by["Dell Technologies"]["reward"]) == (500, 100)
+    assert by["Dell Technologies"]["ends"] == "12/31/2026"                  # the date in the cell under the offer
+    assert (by["Hilton"]["reward"], by["Hilton"]["reward_kind"]) == (3, "points_per_dollar")
+    assert (by["Walmart+"]["spend"], by["Walmart+"]["reward"]) == (50, 10)  # the reward first, the spend after
+    assert "$200" not in str(got)                                          # earnings so far are not an offer
+    assert dealmail.picture_words("Dell logo") == "Dell" and dealmail.picture_words("spacer image") == ""
+    assert dealmail.offer_short({"reward_kind": "cash", "reward": 100, "spend": 500}) == "$100 back on $500+"
+    assert dealmail.offer_short({"reward_kind": "points_per_dollar", "reward": 3, "spend": 0}) == "3 extra points per $"
+
+
+def test_issuers_emails_are_read_once_more_and_personal_mail_is_never_opened(memory):
+    amex = html_mail("American Express <offers@americanexpress.example>", "Your offers", AMEX_HTML)
+    friend = mail("Chase Miller <chase@example.com>", "Lunch?", "Spend $20 or more at Lokal, get $5 back, ha", bulk=False)
+    news = mail("Chase <news@chase.example>", "Chase news", "Nothing to see")
+    inbox, work = Box([amex, friend, news]), Box([])
+    boxes = {"me@gmail.com": inbox, "work@yahoo.com": work}
+    status = dealmail.reread_offers(memory, ENV, lambda account: boxes[account.address])
+    assert inbox.bodies == [1, 3]                         # the friend's email: headers only, never its body
+    assert inbox.readonly is True and inbox.changed == []
+    assert "3 card offers found that were missed" in status
+    assert {o["merchant"] for o in dealmail.offers(memory)} >= {"Dell Technologies", "Hilton", "Walmart+"}
+    again = Box([amex])
+    assert dealmail.reread_offers(memory, ENV, lambda account: again) == "" and again.bodies == []  # only once
+
+
+def test_a_failed_account_means_it_is_tried_again_next_night(memory):
+    def down(account):
+        raise OSError("no connection")
+    assert dealmail.reread_offers(memory, ENV, down) == "" and not memory.get(dealmail.REREAD_KEY)
+
+
+def test_the_money_page_lists_the_offers_soonest_ending_first(monkeypatch):
+    from fastapi.testclient import TestClient
+
+    from buddy import server
+    monkeypatch.setattr(server, "authorized", lambda t: t == "s3cret")
+    server.memory.db.execute("DROP TABLE IF EXISTS card_offers")
+    dealmail.keep_offers(server.memory, [
+        {"issuer": "American Express", "merchant": "Dell Technologies", "spend": 500, "reward": 100,
+         "reward_kind": "cash", "ends": "12/31/2099", "subject": "x"},
+        {"issuer": "Chase", "merchant": "Hilton", "spend": None, "reward": 3, "reward_kind": "points_per_dollar",
+         "ends": "", "subject": "x"},
+        {"issuer": "Citi", "merchant": "Lokal", "spend": 20, "reward": 5, "reward_kind": "cash", "ends": "1/15/2099",
+         "subject": "x"}])
+    with TestClient(server.app) as client:
+        assert client.get("/api/money/offers").status_code == 401
+        got = client.get("/api/money/offers", headers={"Authorization": "Bearer s3cret"}).json()["offers"]
+    assert [o["merchant"] for o in got] == ["Lokal", "Dell Technologies", "Hilton"]  # undated last
+    assert got[1]["reward"] == "$100 back on $500+" and got[1]["ends"] == "2099-12-31"

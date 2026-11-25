@@ -134,8 +134,13 @@ def _claude_calls(m, usd, n=10, purpose="briefing"):
                      purpose=purpose)
 
 
-def test_a_forecast_over_budget_holds_background_work_and_asks():
+def test_a_forecast_over_budget_holds_background_work_and_asks(monkeypatch):
     from buddy.config import claude_client
+    from buddy.tools import local_now
+    # Early in this month, so most of it is still ahead (it failed in the last days of a month: too little left to
+    # pass the budget at any pace). The calls below are made now, inside the window the pace is measured over.
+    early = local_now().replace(day=2, hour=12, minute=0, second=0, microsecond=0)
+    monkeypatch.setattr(budgets, "local_now", lambda: early)
     m = Memory(":memory:")
     budgets.set_budget(m, "claude", 20)
     budgets.attach(m)

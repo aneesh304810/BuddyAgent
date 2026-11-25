@@ -447,4 +447,9 @@ decide each differently), and uses it whenever you ask about a purchase.
   about your own cards, so they are kept in Buddy's encrypted database, not the price book. Turn it off with
   `BUDDY_DEALS_FROM_ALL_EMAIL=0`.
 
+  The offers are listed on the Money page under **Offers on your cards**, soonest ending first. A store shown only
+  as a logo is read from the picture's label. Offers worded "earn $10 back on a purchase of $50" and "+3 points
+  per eligible dollar" are understood too. After an update that reads offers better, Buddy reads your card
+  issuers' emails of the last 30 days once more (headers first, and only an issuer's bulk mail is opened).
+
 All of it stays on your server; only Claude sees it. Buddy still never buys or pays.

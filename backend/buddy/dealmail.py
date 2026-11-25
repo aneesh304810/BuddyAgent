@@ -76,6 +76,14 @@ PLACE = re.compile(r"\bin\s+([A-Z][a-zA-Z .]{2,30}?)(?:[,.:!]|\s+(?:from|for|sta
 SKIP_LINK = re.compile(r"unsubscribe|preferences|privacy|view (?:this|in) (?:email|browser)|manage|mailto:|"
                        r"facebook|twitter|instagram|tiktok|youtube|pinterest|app store|google play", re.I)
 BLOCKS = {"td", "tr", "table", "div", "p", "li", "h1", "h2", "h3", "h4", "section", "article"}  # <br> stays inline
+# Words a picture's label adds that say nothing about what it shows ("Dell logo" is Dell).
+PICTURE_NOISE = re.compile(r"(?i)\b(?:logo|image|img|icon|banner|photo|picture|graphic|spacer|pixel)s?\b")
+
+
+def picture_words(alt: str) -> str:
+    """What a picture's label (its alt text) says, for a store or product shown only as a picture: '' for none."""
+    words = " ".join(PICTURE_NOISE.sub(" ", str(alt or "")).split()).strip(" -–|:,.")
+    return words if 2 <= len(words) <= 80 and re.search(r"[A-Za-z]", words) else ""
 
 
 class _Cells(HTMLParser):
@@ -97,6 +105,12 @@ class _Cells(HTMLParser):
             self.skip += 1
         elif tag == "a":
             self.href, self.anchor = dict(attrs).get("href", ""), []
+        elif tag == "img" and not self.skip:  # a store's logo, a product's photo: its label is its name
+            words = picture_words(dict(attrs).get("alt") or "")
+            if words:
+                self.text.append(f" {words} ")
+                if self.href is not None:
+                    self.anchor.append(f" {words} ")
         elif tag == "br":
             self.text.append(" ")
         elif tag in BLOCKS and tag not in ("td",):
@@ -343,6 +357,12 @@ ISSUERS = {"American Express": r"american ?express|\bamex\b", "Chase": r"\bchase
 SPEND_GET = re.compile(r"spend\s+\$\s?(\d[\d,]*)(?:\.\d{2})?(?:\s+or more)?[^$]{0,90}?(?:get|earn|receive)\s+"
                        r"(?:a\s+)?\$\s?(\d[\d,]*)(?:\.\d{2})?\s+(?:back|statement credit|credit|cash ?back)", re.I)
 PCT_BACK = re.compile(r"(?:get|earn|receive)\s+(\d{1,2})%\s+(?:cash ?)?back", re.I)
+# The reward first: "earn a $10 statement credit on a purchase of $50 or more".
+EARN_ON = re.compile(r"(?:get|earn|receive)\s+(?:a\s+)?\$\s?(\d[\d,]*)(?:\.\d{2})?\s+(?:back|statement credit|credit|"
+                     r"cash ?back)\b[^$]{0,60}?\b(?:purchases?|spend(?:ing)?|orders?)\s+(?:of\s+)?\$\s?(\d[\d,]*)", re.I)
+# Points for every dollar: "earn +3 Membership Rewards points per eligible dollar spent".
+PER_DOLLAR = re.compile(r"(?:get|earn|receive)\s+(?:an?\s+)?(?:additional\s+|extra\s+)?\+?\s?(\d{1,2})\s+"
+                        r"(?:[\w®]+\s+){0,3}?(?:points|miles)\s+(?:per|for every|on every)\s+(?:eligible\s+)?dollar", re.I)
 POINTS = re.compile(r"(?:get|earn|receive)\s+(?:an additional\s+|\+\s?)?(\d{1,3}(?:,\d{3})+|\d{3,6})\s+(?:[\w® ]{0,30}\s)?"
                     r"(?:points|miles)[^$]{0,90}?spend(?:ing)?\s+\$\s?(\d[\d,]*)", re.I)
 AT = re.compile(r"\b(?:at|with|from|on)\s+((?:[A-Z][\w&'-]*(?:\.\w+)*)(?:\s+(?:[A-Z&][\w&'-]*(?:\.\w+)*)){0,3})")
@@ -433,8 +453,12 @@ def offers_in(message) -> list[dict]:
         text = " ".join(cell["text"].split())
         if m := SPEND_GET.search(text):
             spend, reward, kind = _num(m.group(1)), _num(m.group(2)), "cash"
+        elif m := EARN_ON.search(text):
+            spend, reward, kind = _num(m.group(2)), _num(m.group(1)), "cash"
         elif m := POINTS.search(text):
             spend, reward, kind = _num(m.group(2)), _num(m.group(1)), "points"
+        elif m := PER_DOLLAR.search(text):
+            spend, reward, kind = None, float(m.group(1)), "points_per_dollar"
         elif m := PCT_BACK.search(text):
             spend, reward, kind = None, float(m.group(1)), "percent"
         else:
@@ -442,12 +466,18 @@ def offers_in(message) -> list[dict]:
         where = AT.search(text[m.end():]) or AT.search(text)
         merchant = re.sub(r"\s+(?:by|through|until|before|and|or|when|with)\b.*$", "", where.group(1)).strip(" .,") \
             if where else ""
+        lead = text[:m.start()].strip(" -–:|,.")  # "Dell  Spend $500 or more...": the logo's label in the same cell
+        if not merchant and 2 < len(lead) <= 40 and not re.search(r"[\d$%]", lead):
+            merchant = lead
         before = " ".join(cells[i - 1]["text"].split()) if i else ""
         if not merchant and 2 < len(before) <= 40 and not re.search(r"[\d$%]", before):
             merchant = before  # the store's name on its own line above the offer; never a neighbouring offer's
         if not merchant or re.fullmatch(r"(?i)(your|the|this|eligible|select|participating).*", merchant):
             continue
         ends = OFFER_ENDS.search(text)  # this offer's own date only: a neighbour's would be wrong
+        after = " ".join(cells[i + 1]["text"].split()) if i + 1 < len(cells) else ""
+        if not ends and len(after) <= 40 and not re.search(r"\$|%|points|miles", after, re.I):
+            ends = OFFER_ENDS.search(after)  # "Expires 12/31/2026" in the cell under the offer, on its own
         key = (merchant.lower(), spend, reward, kind)
         if key not in seen:
             seen.add(key)
@@ -513,9 +543,19 @@ def offers(memory: Memory, merchant: str = "", today: date | None = None) -> lis
     return rows
 
 
+def offer_short(o: dict) -> str:
+    """The reward in a few words, for a list: '$50 back on $250+', '5,000 points on $500+', '10% back',
+    '3 extra points per $'."""
+    kind, reward, spend = o["reward_kind"], o["reward"], o.get("spend") or 0
+    what = (f"${reward:,.0f} back" if kind == "cash" else f"{reward:g}% back" if kind == "percent"
+            else f"{reward:g} extra points per $" if kind == "points_per_dollar" else f"{reward:,.0f} points")
+    return what + (f" on ${spend:,.0f}+" if spend else "")
+
+
 def offer_text(o: dict) -> str:
     what = (f"${o['reward']:,.0f} back" if o["reward_kind"] == "cash" else f"{o['reward']:g}% back"
-            if o["reward_kind"] == "percent" else f"{o['reward']:,.0f} points")
+            if o["reward_kind"] == "percent" else f"{o['reward']:g} extra points per dollar"
+            if o["reward_kind"] == "points_per_dollar" else f"{o['reward']:,.0f} points")
     return (f"{o['issuer']}: {what} at {o['merchant']}" + (f" when you spend ${o['spend']:,.0f} or more" if o["spend"]
                                                              else "") + (f", until {o['ends']}" if o["ends"] else ""))
 
@@ -575,6 +615,60 @@ def keep(memory: Memory, deals: list[dict], when: datetime | None = None, source
     return added
 
 
+# Words in a card issuer's sender address. A message is opened only if its headers also say it is bulk mail from an
+# issuer (issuer_of), so a personal email from someone called Chase is never opened.
+ISSUER_FROM = ("americanexpress", "aexp", "chase", "citi", "capitalone", "discover", "bankofamerica", "wellsfargo",
+               "usbank", "barclays")
+REREAD_KEY, REREAD_DAYS, REREAD_MAX = "dealmail:offers_reread_v1", 30, 200
+
+
+def reread_offers(memory: Memory, env=None, connect=None, days: int = REREAD_DAYS) -> str:
+    """Once: the card issuers' emails of the last `days` days in the regular accounts, read again for offers. The
+    nightly read only looks at mail it has not seen, so offers an older version of this reader missed (a store shown
+    only as a logo) would otherwise stay missed. Read-only; headers first, and only an issuer's bulk mail is opened.
+    Returns a status line ('' when it has already been done)."""
+    mine = accounts(env)
+    if memory.get(REREAD_KEY) or not mine:
+        return ""
+    since = date.fromordinal(local_now().date().toordinal() - days).strftime("%d-%b-%Y")
+    added, failed = 0, False
+    for account in mine:
+        try:
+            imap = (connect or _imap_account)(account)
+        except (imaplib.IMAP4.error, OSError):
+            failed = True
+            continue
+        try:
+            imap.select(account.folder, readonly=True)
+            uids: set[int] = set()
+            for word in ISSUER_FROM:
+                _, found = imap.uid("search", None, f'(SINCE {since} FROM "{word}")')
+                uids |= {int(u) for u in (found[0] or b"").split()}
+            for uid in sorted(uids)[-REREAD_MAX:]:
+                _, parts = imap.uid("fetch", str(uid), "(BODY.PEEK[HEADER.FIELDS (LIST-UNSUBSCRIBE PRECEDENCE FROM)])")
+                head = next((p[1] for p in parts if isinstance(p, tuple)), None)
+                if not head:
+                    continue
+                headers = email.message_from_bytes(head, policy=email.policy.default)
+                if not (is_bulk(headers) and issuer_of(headers)):
+                    continue
+                _, parts = imap.uid("fetch", str(uid), "(BODY.PEEK[])")
+                raw = next((p[1] for p in parts if isinstance(p, tuple)), None)
+                if raw:
+                    added += keep_offers(memory, offers_in(email.message_from_bytes(raw, policy=email.policy.default)))
+        except (imaplib.IMAP4.error, OSError):
+            failed = True
+        finally:
+            try:
+                imap.logout()
+            except Exception:
+                pass
+    if failed:
+        return ""  # tried again the next night
+    memory.set(REREAD_KEY, local_now().date().isoformat())
+    return f"card issuers' emails of the last {days} days read again: {added} card offers found that were missed"
+
+
 def run(memory: Memory, env=None, connect=None, connect_account=None) -> str:
     """The nightly read: the deals inbox, then the marketing mail in the owner's regular accounts."""
     try:
@@ -582,6 +676,11 @@ def run(memory: Memory, env=None, connect=None, connect_account=None) -> str:
     except Exception:
         log.warning("deal mail: reading the regular accounts failed", exc_info=True)
         rest = ""
+    try:
+        again = reread_offers(memory, env, connect_account)
+        rest = "; ".join(x for x in (rest, again) if x)
+    except Exception:
+        log.warning("deal mail: reading the card issuers' emails again failed", exc_info=True)
     first = _run_inbox(memory, env, connect)
     if rest and not configured(env) and connect is None:
         first = "no separate deals inbox"

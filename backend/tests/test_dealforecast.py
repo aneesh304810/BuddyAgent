@@ -37,7 +37,10 @@ def test_model_key_matches_across_stores():
     assert not df._same(df.model_key("Sony WH-1000XM5"), a)
 
 
-def test_forecast_from_its_own_rhythm_then_alert_when_it_comes(memory):
+def test_forecast_from_its_own_rhythm_then_alert_when_it_comes(memory, monkeypatch):
+    # The whole story happens on 14 November 2026 (it failed once the real date passed the predicted 24 November).
+    from datetime import datetime as _dt, timezone as _tz
+    monkeypatch.setattr(df, "local_now", lambda: _dt(2026, 11, 14, 9, 0, tzinfo=_tz.utc))
     patterns.keep(memory, {"fitted_at": "x", "prices": 10, "item_deals": {"sony wh-1000xm6": {
         "dates": ["2026-07-10", "2026-08-25", "2026-10-09"], "prices": [329.0, 319.0, 299.0],
         "depths": [0.25, 0.27, 0.33], "stores": ["Best Buy"]}}})

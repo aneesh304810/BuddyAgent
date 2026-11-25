@@ -152,6 +152,7 @@ function render() {
       <span class="muted"> · ${esc(w.why)}</span></span><span class="amt" style="color:var(--bad)">${money(w.amount)}</span></div>`).join("")));
   if (d.opportunities.length) parts.push(card(`Ways to save · ${money(d.possible_yearly_savings)} a year`,
     d.opportunities.map((o) => `<div class="save"><b>${money(o.yearly)}</b><span>${esc(o.do)}</span></div>`).join("")));
+  parts.push('<div id="cardoffers"></div>');  // the offers on your cards: filled in when they arrive
   // budget
   const maxB = Math.max(...d.budget.map((b) => Math.max(b.now, b.budget)), 1);
   parts.push(card("This month against a suggested budget", d.budget.map((b) =>
@@ -173,6 +174,21 @@ function render() {
   document.querySelectorAll("[data-merchant]").forEach((el) => el.onclick = () =>
     drill([{ label: el.dataset.merchant, q: { merchant: el.dataset.merchant } }]));
   document.querySelectorAll("[data-month]").forEach((el) => el.onclick = () => load(el.dataset.month));
+  loadOffers();
+}
+
+const shortDay = (iso) => new Date(iso + "T12:00:00").toLocaleDateString(undefined, { month: "short", day: "numeric" });
+async function loadOffers() {
+  const box = $("cardoffers");
+  if (!box) return;
+  let got;
+  try { got = await api("/api/money/offers"); } catch { box.innerHTML = ""; return; }
+  const note = "From your card issuers' offer emails, read each night. Most offers must be added to the card in the issuer's app before you pay.";
+  box.innerHTML = got.offers.length
+    ? card(`Offers on your cards · ${got.offers.length}`, got.offers.map((o) => `<div class="row" style="cursor:default">
+        <span class="name" style="white-space:normal">${esc(o.merchant)}<small class="muted" style="display:block">${esc(o.issuer)}${o.ends ? " · until " + esc(shortDay(o.ends)) : ""}</small></span>
+        <span class="amt" style="white-space:nowrap">${esc(o.reward)}</span></div>`).join(""), note)
+    : card("Offers on your cards", '<p class="muted">None found yet.</p>', note);
 }
 
 function creditCard(cr) {

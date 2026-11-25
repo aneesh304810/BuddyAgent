@@ -2293,6 +2293,16 @@ async def api_money_dashboard(period: str = "last_month") -> dict:
         raise HTTPException(status_code=400, detail=str(e)) from e
 
 
+@app.get("/api/money/offers", dependencies=[Depends(require_admin)])
+async def api_money_offers() -> dict:
+    """The offers on the owner's cards (read from the card issuers' emails), soonest ending first."""
+    from . import dealmail  # noqa: PLC0415
+    rows = await asyncio.to_thread(dealmail.offers, memory)
+    rows.sort(key=lambda r: (r["ends"] or "9999", r["merchant"].lower()))
+    return {"offers": [{"issuer": r["issuer"], "merchant": r["merchant"], "reward": dealmail.offer_short(r),
+                        "ends": r["ends"], "seen_on": r["seen_on"]} for r in rows]}
+
+
 @app.get("/api/money/transactions", dependencies=[Depends(require_admin)])
 async def api_money_transactions(start: str, end: str, category: str = "", detail: str = "", merchant: str = "",
                                  card: str = "", transfer: str = "", recipient: str = "") -> dict:
