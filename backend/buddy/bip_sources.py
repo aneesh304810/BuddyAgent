@@ -86,6 +86,14 @@ def turn(name: str, clock=time.monotonic) -> bool:
         return True
 
 
+def done(name: str, clock=time.monotonic) -> None:
+    """A paced source has just answered (or failed): its pause counts from now. GDELT measures the gap from the
+    end of the last request, and its queries can take seconds, so counting from the start asked too soon."""
+    if name in PAUSE:
+        with _pace_lock:
+            _last[name] = clock()
+
+
 def rest(name: str, seconds: float = REST_SECONDS, clock=time.monotonic) -> None:
     """Leave a source alone for a while: it said Buddy asks too often."""
     with _pace_lock:
@@ -124,6 +132,8 @@ def _get(memory, name: str, url: str, fetch=None, headers=None, data=None, raw=F
         if e.status == 429:
             rest(name)
         raise
+    finally:
+        done(name)
 
 
 def _day(text) -> str:

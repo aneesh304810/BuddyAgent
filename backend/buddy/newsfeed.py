@@ -135,9 +135,13 @@ def _ask(memory, name: str, query: str, days: int, num: int, env=None, fetch=Non
         gq = " ".join(re.sub(r"[^\w\s&.-]", " ", q).split())
         if re.search(r"\sOR\s", gq):  # GDELT wants OR'd words in parentheses
             gq = f"({gq})"
-        got = gateway.call(memory, name, "/api/v2/doc/doc?" + urllib.parse.urlencode(
-            {"query": f"{gq} sourcelang:english", "mode": "artlist", "format": "json", "maxrecords": num,
-             "sort": "datedesc", "timespan": f"{days}d"}), **common) or {}
+        from . import bip_sources  # noqa: PLC0415
+        try:
+            got = gateway.call(memory, name, "/api/v2/doc/doc?" + urllib.parse.urlencode(
+                {"query": f"{gq} sourcelang:english", "mode": "artlist", "format": "json", "maxrecords": num,
+                 "sort": "datedesc", "timespan": f"{days}d"}), **common) or {}
+        finally:
+            bip_sources.done("gdelt")  # its pause counts from the end of the request
         rows = [(a.get("title"), a.get("domain"), a.get("url"),
                  f"{str(a.get('seendate') or '')[:4]}-{str(a.get('seendate') or '')[4:6]}-{str(a.get('seendate') or '')[6:8]}"
                  if a.get("seendate") else "") for a in (got.get("articles") if isinstance(got, dict) else None) or []

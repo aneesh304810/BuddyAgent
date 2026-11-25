@@ -217,6 +217,9 @@ def collect(memory: Memory, fetch=None, today: date | None = None, pause: float 
         for name, (fn, wanted) in src.SOURCES.items():
             if name in broken or (wanted is not None and t["sector"] not in wanted):
                 continue
+            if src.resting(name):  # it said "too many requests" a moment ago: left alone, without a 20 s wait each
+                out["waited"] = out.get("waited", 0) + 1
+                continue
             try:
                 found = fn(memory, t["phrase"], fetch)
                 out["asked"] += 1

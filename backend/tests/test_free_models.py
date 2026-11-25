@@ -251,3 +251,22 @@ def test_what_the_privacy_gateway_keeps_back_is_not_a_failing_service():
     assert rows["cerebras"]["last_ok"] is None and rows["cerebras"]["failed_this_month"] == 0
     assert rows["gemini"]["last_ok"] is True and (rows["gemini"]["calls_this_month"], rows["gemini"]["failed_this_month"]) == (1, 0)
     assert gateway.state_of(rows["gemini"]) == "working"
+
+
+def test_a_failure_that_is_not_an_http_error_is_recorded_with_its_words_not_only_its_type():
+    """Buddy Connect showed "error: ValueError" for GitHub Models and OpenRouter: nothing to act on. The reason
+    a provider's reply was unusable ("unexpected reply: ...", "empty answer", a timeout) is kept with it."""
+    class Odd(FakeHTTP):
+        def __call__(self, url, body, headers, timeout):
+            name = super().__call__(url, body, headers, timeout) and self.calls[-1]
+            if name == "github":
+                return {"error": {"message": "model not deployed in this region"}}  # 200 OK, but no choices
+            return {"choices": [{"message": {"content": f"answer from {name}"}}]}
+    mem = Memory(":memory:")
+    f = free(Odd(), env={"BUDDY_FREE_MODELS": "1", "BUDDY_GITHUB_MODELS_KEY": "h", "BUDDY_OPENROUTER_KEY": "o"}, memory=mem)
+    f.order = lambda kind: ["github", "openrouter"]
+    result = asyncio.run(f.run("quick_answer", "name three rivers"))
+    assert result["model"].startswith("openrouter")
+    row = mem.db.execute("SELECT stop FROM model_calls WHERE provider = 'github' AND ok = 0").fetchone()
+    assert row["stop"].startswith("error: ValueError: unexpected reply:") and "not deployed" in row["stop"]
+    assert "unexpected reply" in (mem.get("free:lasterr:github") or "")
