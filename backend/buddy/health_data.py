@@ -45,7 +45,15 @@ def _int(v):
 
 
 def ingest(memory: Memory, payload: dict) -> int:
-    """Days from the app: [{"day": "2026-11-10", "steps": 8123, "sleep_minutes": 412, ...}]. Returns how many."""
+    """Days from the app: [{"day": "2026-11-10", "steps": 8123, "sleep_minutes": 412, ...}]. Returns how many.
+    Each is also kept as health records with their source, and the send is in the sync history."""
+    from . import connecthub  # noqa: PLC0415
+    with connecthub.syncing(memory, "health_connect", "phone") as got:
+        return _ingest(memory, payload, got)
+
+
+def _ingest(memory: Memory, payload: dict, got: dict) -> int:
+    from . import healthrecords  # noqa: PLC0415
     _ready(memory)
     n = 0
     now = datetime.now(timezone.utc).isoformat()
@@ -64,12 +72,25 @@ def ingest(memory: Memory, payload: dict) -> int:
             "workouts = excluded.workouts, updated_at = excluded.updated_at",
             (day, *values, json.dumps(workouts), now))
         n += 1
+        n_rec, n_new = healthrecords.record(memory, "health_connect", day, dict(zip(FIELDS, values)), got["id"])
+        got["records"] += n_rec
+        got["new"] += n_new
+        got["reached"] = max(got["reached"], day)
     cutoff = (local_now().date() - timedelta(days=KEEP_DAYS)).isoformat()
     memory.db.execute("DELETE FROM health_daily WHERE day < ?", (cutoff,))
     memory.db.commit()
+    healthrecords.prune(memory, "health_connect")
     memory.set(SYNC_KEY, now)
     gateway.report(memory, "health_connect", True)
     return n
+
+
+def forget(memory: Memory) -> None:
+    """Delete the days the phone sent (connecthub.forget also takes out their health records and sync history)."""
+    _ready(memory)
+    memory.db.execute("DELETE FROM health_daily")
+    memory.db.commit()
+    memory.set(SYNC_KEY, "")
 
 
 def days(memory: Memory, n: int = 7) -> list[dict]:

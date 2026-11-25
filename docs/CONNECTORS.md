@@ -156,6 +156,22 @@ a few cents at most.
 | Switch off | `POST /admin/connectors/email/disable` (and `/enable` to switch back on) |
 | Change schedule | `BUDDY_CONN_EMAIL_EVERY=30` (minutes; same for `CALENDAR`) |
 
+### The connector hub: sync history, states and sources (`connecthub.py`)
+
+Every source that brings your own data in records each sync: when, which kind (the first sync, which reads the
+history; an update, which reads what's new; one the phone sent; one you asked for), how many records came and how
+many were new, how far it reached, and the error if it failed. Counts and dates only, the last 50 per source.
+
+Two more states beside working, failing, half set up and not set up: **Sign in again** (the service refused
+Buddy's sign-in; shown until you reconnect) and **Needs approval** (a service that only opens its data to
+developers it approved: never shown as connected while that approval is missing). Each service also shows its
+**terms** where Buddy knows them (public domain, personal non-commercial use only, a licence and its credit).
+
+A source can be synced, have its data deleted, or be disconnected on its own (Health → Sources for the health
+sources). A source module implements `sync_now`, `forget` and `disconnect`; the hub records the syncs and
+deletes the source's health records and history with it. Health values go into one common form with their source
+(`healthrecords.py`).
+
 ## Every app on the plan
 
 | App | How Buddy connects | Reads / acts | When |

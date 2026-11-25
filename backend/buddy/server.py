@@ -1716,6 +1716,31 @@ async def api_health_act(body: dict) -> dict:
         raise HTTPException(status_code=502, detail="That could not be done just now. Try again in a minute.") from e
 
 
+@app.get("/api/health/sources", dependencies=[Depends(require_admin)])
+async def api_health_sources() -> dict:
+    """Where the owner's health data comes from: each source's state, syncs, what it sends and how it's obtained."""
+    from . import healthrecords  # noqa: PLC0415
+    return {"sources": await asyncio.to_thread(healthrecords.sources, memory)}
+
+
+@app.post("/api/health/sources", dependencies=[Depends(require_admin)])
+async def api_health_source_act(body: dict) -> dict:
+    """Sync a source now, delete what it gave Buddy, or disconnect it (the last two only with confirm: true)."""
+    from . import connecthub, healthrecords  # noqa: PLC0415
+    action, connector = str(body.get("action") or ""), str(body.get("connector") or "")
+    if connector not in connecthub.SOURCES or action not in ("sync", "forget", "disconnect"):
+        raise HTTPException(400, "unknown source or action")
+    if action != "sync" and body.get("confirm") is not True:
+        raise HTTPException(400, "confirm first")
+    job = {"sync": connecthub.sync_now, "forget": connecthub.forget, "disconnect": connecthub.disconnect}[action]
+    try:
+        text = await asyncio.to_thread(job, memory, connector)
+    except Exception as e:  # the source's own words (Oura refused, not connected): said on the page
+        log.info("health source %s %s: %s", connector, action, type(e).__name__)
+        text = f"That didn't work: {str(e)[:200]}"
+    return {"text": text, "sources": await asyncio.to_thread(healthrecords.sources, memory)}
+
+
 @app.get("/api/security", dependencies=[Depends(require_admin)])
 async def api_security() -> dict:
     from . import securitywatch

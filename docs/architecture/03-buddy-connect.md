@@ -13,20 +13,27 @@ flowchart LR
     subgraph Modules["Modules"]
         gateway_py["gateway.py<br/>every outside API Buddy uses, in one catalog, called one way"]
         keytest_py["keytest.py<br/>one tiny real request to each service that has a key, and the…"]
+        connecthub_py["connecthub.py<br/>what every connector shares beyond its calls"]
     end
     you --> t_connections
     t_connections --> gateway_py
+    gateway_py --> connecthub_py
     keytest_py --> gateway_py
+    connecthub_py --> gateway_py
+    db[("Your database<br/>connect_syncs")]
+    connecthub_py --> db
     o_0["Claude"]
     gateway_py -. uses .-> o_0
     o_1["Email, messages and apps"]
     gateway_py -. uses .-> o_1
     o_2["Free AI models"]
     gateway_py -. uses .-> o_2
-    o_3["Investing"]
+    o_3["Home and health"]
     gateway_py -. uses .-> o_3
-    o_4["Travel and getting around"]
+    o_4["Investing"]
     gateway_py -. uses .-> o_4
+    o_5["Memory"]
+    gateway_py -. uses .-> o_5
 ```
 
 The diagram reads left to right: what you ask, the tools Buddy uses, the modules that do the work, and what they keep or call. Dashed arrows are other features this one relies on.
@@ -60,7 +67,7 @@ failover and report each result; Claude and Plaid keep their own clients and are
 ```
 
 - Settings: `BUDDY_AIRLABS_KEY`, `BUDDY_ALPACA_KEY_ID`, `BUDDY_ALPACA_SECRET`, `BUDDY_ALPHAVANTAGE_KEY`, `BUDDY_BESTBUY_KEY`, `BUDDY_CEREBRAS_KEY`, `BUDDY_DEALS_EMAIL_ADDRESS`, `BUDDY_DEALS_EMAIL_APP_PASSWORD`, `BUDDY_DEEPGRAM_KEY`, `BUDDY_EBAY_CLIENT_ID`, `BUDDY_EBAY_CLIENT_SECRET`, `BUDDY_EIA_KEY` and 33 more
-- Uses: maestro.py, markets.py, tools.py, travel.py
+- Uses: connecthub.py, maestro.py, markets.py, tools.py, travel.py
 
 ### keytest.py
 
@@ -90,8 +97,34 @@ that is reached does. Either way the report ends by saying that paid work is pau
 - Settings: `BUDDY_17TRACK_KEY`, `BUDDY_AEROAPI_KEY`, `BUDDY_ALPACA_SECRET`, `BUDDY_ANTHROPIC_ADMIN_KEY`, `BUDDY_DB_KEY`, `BUDDY_DO_TOKEN`, `BUDDY_DUFFEL_TOKEN`, `BUDDY_DUFFEL_VERSION`, `BUDDY_EMAIL_2_ADDRESS`, `BUDDY_EMAIL_2_APP_PASSWORD`, `BUDDY_EMAIL_ADDRESS`, `BUDDY_EMAIL_APP_PASSWORD` and 17 more
 - Uses: budgets.py, email_accounts.py, free_models.py, gateway.py, maestro_usage.py, modelscout.py, openrouter_catalog.py, transit.py
 
+### connecthub.py
+
+```text
+Buddy Connect's connector hub: what every connector shares beyond its calls. Its sync history, two more states,
+the terms its data comes under, and syncing, deleting or disconnecting it on its own.
+
+  sync history   each time a source brought the owner's data in (the Oura Ring, the phone's Health Connect, and
+                 later lab results and other devices): when, what kind of sync (the first one, which reads the
+                 history; a later one, which reads what's new; one the phone sent; one the owner asked for), how
+                 many records came and how many were new, how far it reached, and the error if it failed. The last
+                 50 per source, a year at most. No health value is in it: counts, dates and errors only.
+  expired        the service no longer accepts Buddy's sign-in (a refresh refused): the owner connects it again.
+                 Set by the source's own code; cleared when the sign-in works again.
+  needs approval a service that opens its data only to developers it has approved (catalog "approval" says what
+                 is needed), while it isn't set up. Never shown as connected.
+  terms          what a source's data may be used for, where Buddy knows it (catalog "terms"); "" when unknown.
+  sources        the connectors that bring the owner's own data in (SOURCES), each with its module's sync, delete
+                 and disconnect. Deleting takes out what the source gave Buddy, its normalized health records and
+                 its sync history; disconnecting also stops more coming.
+
+A source module implements, as it can: sync_now(memory) -> str, forget(memory), disconnect(memory) -> str.
+```
+
+- Tables: `connect_syncs`
+- Uses: gateway.py, healthrecords.py, memory.py
+
 ## How it connects
 
-- Relies on: Claude: the brain; Email, messages and apps; Free AI models (Groq, Gemini, Mistral, Cerebras, GitHub Models, OpenRouter); Investing: signals, research and practice; Travel and getting around
+- Relies on: Claude: the brain; Email, messages and apps; Free AI models (Groq, Gemini, Mistral, Cerebras, GitHub Models, OpenRouter); Home and health; Investing: signals, research and practice; Memory; Travel and getting around
 - Relied on by: Buddy Intelligence Platform; Claude: the brain; Fixing and explaining itself; Free AI models (Groq, Gemini, Mistral, Cerebras, GitHub Models, OpenRouter); Going out: restaurants and events; Home and health; Investing: signals, research and practice; Learning: the English and investing tutors; Money; News, trends and research; Phone calls; Security and privacy; Shopping and deals; The price book, pattern learning and trained models; The server and the app; Travel and getting around; Voice: Talk mode and Listen-in
 

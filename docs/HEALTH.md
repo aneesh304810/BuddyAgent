@@ -34,6 +34,18 @@ your server. No AI model is given any of it.
   food targets. This form replaces the set-up conversation in section 2. "Forget my health plan" (pressed twice)
   deletes the plan, the habit log and the meals; the readings stay until their 90 days are up.
 
+- **Sources:** where your health data comes from. For each source (the phone's Health Connect, the Oura Ring):
+  whether it works, when it last synced and what kind of sync that was (the first one, an update, sent by the
+  phone, or one you asked for), how many values came and how many were new, a failed sync with its error, the
+  last syncs, what it sends, how much is held and for how long, and its terms. Each measure says how it is
+  obtained: **measured by a device** (heart rate, HRV, steps, temperature, blood oxygen), **estimated by the
+  maker's software** (sleep and its stages, calories, scores), **entered by you**, or **a lab result**. A ring is
+  not a lab. Where a standard code fits exactly, it is shown (LOINC 41950-7 steps, 40443-4 resting heart rate,
+  41979-6 calories burned); Oura's HRV is RMSSD, which LOINC's HRV code (SDNN) is not, so it has none. Buttons:
+  **Sync now** (Oura), **Delete its data** and **Disconnect** (Oura), each delete or disconnect asked twice. The
+  phone's data is turned off on the phone. When Oura stops accepting Buddy's sign-in, the source and the
+  Connections screen say **Sign in again**.
+
 What it does not do: it gives no advice beyond those fixed rules, and it is not medical advice.
 
 ## 1. Connect your Oura Ring
@@ -99,5 +111,12 @@ Habits Buddy tracks by itself: **steps**, **sleep hours**, **bedtime** (lights o
   with your usual ("sleep: below usual"), never the value (`docs/PRIVACY-GATEWAY.md`).
 - The plan stays until you change it; the habit log and meals 90 days.
 - **"Forget my health plan"** deletes the plan, habit log and meals.
-- To stop Oura syncing: remove Buddy in your Oura account (Connected apps). To turn Oura off for the whole server,
-  clear the `BUDDY_OURA_*` settings with `set.sh` (press Enter).
+- To stop Oura syncing: Health → Sources → Oura Ring → **Disconnect** (Buddy forgets its sign-in and deletes
+  what the ring gave it), and remove Buddy in your Oura account (Connected apps). To turn Oura off for the whole
+  server, clear the `BUDDY_OURA_*` settings with `set.sh` (press Enter).
+- **Delete its data** (Health → Sources) deletes one source's readings, their health records and its sync
+  history, and leaves the other source's alone.
+- Each reading is also kept once in a common form with its source (`health_records`: the value in a standard
+  unit, the source's own value and unit, how it was obtained, the sync it came in), for 90 days like its source.
+  This is the form lab results will be read in. The sync history keeps counts, dates and errors, never a value:
+  the last 50 syncs per source, a year at most.

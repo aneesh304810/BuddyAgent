@@ -13,7 +13,8 @@ if (params.get("token") && storageGet("buddyToken") === token) history.replaceSt
 
 const $ = (id) => document.getElementById(id);
 const esc = (s) => String(s ?? "").replace(/[&<>"']/g, (c) => ({ "&": "&amp;", "<": "&lt;", ">": "&gt;", '"': "&quot;", "'": "&#39;" }[c]));
-const TABS = [["today", "Today"], ["trends", "Trends"], ["habits", "Habits"], ["food", "Food"], ["plan", "Plan"]];
+const TABS = [["today", "Today"], ["trends", "Trends"], ["habits", "Habits"], ["food", "Food"], ["plan", "Plan"], ["sources", "Sources"]];
+let srcData = null, srcAsk = "";  // the Sources tab, and the delete or disconnect waiting for a second tap
 let data = null, tab = TABS.some(([k]) => k === storageGet("healthTab")) ? storageGet("healthTab") : "today";
 let span = ["14", "30", "90"].includes(storageGet("healthDays")) ? storageGet("healthDays") : "30", sure = false;
 
@@ -59,6 +60,59 @@ function sources() {
        ${s.ring.connected ? `<button class="btn" id="read">Read the ring now</button>` : ""}</div>
      <div class="line"><div class="what">Phone (Health Connect)<small>${s.phone.read ? "Sent " + esc(ago(s.phone.read)) : "Nothing sent yet"}</small></div></div>`,
     esc(data.privacy.note));
+}
+
+// --- Sources: where your health data comes from, each with its syncs, what it sends and how each value is obtained
+const STATE = { working: ["Working", "good"], unused: ["Connected, nothing yet", ""], expired: ["Sign in again", "warn"],
+  failing: ["Last sync failed", "warn"], missing_keys: ["Half set up", "warn"], not_set_up: ["Not connected", ""],
+  needs_approval: ["Needs approval", ""] };
+const KIND = { initial: "first sync", incremental: "update", phone: "sent by the phone", manual: "you asked" };
+const values = (n) => `${esc(n)} value${n === 1 ? "" : "s"}`;
+async function loadSources() {
+  try { srcData = (await api("/api/health/sources")).sources; } catch (e) { srcData = { failed: e.message }; }
+  if (tab === "sources") render();
+}
+async function sourceAct(action, connector, confirm) {
+  try { const out = await api("/api/health/sources", { action, connector, confirm: !!confirm }); srcData = out.sources; srcAsk = ""; render(); notice(out.text); }
+  catch (e) { notice(e.message); }
+}
+function syncLine(r) {
+  if (!r) return "never";
+  return `${esc(ago(r.finished_at || r.started_at))} (${esc(KIND[r.kind] || r.kind)}${r.ok ? `: ${values(r.records)}, ${esc(r.new_records)} new${r.reached ? `, up to ${esc(when(r.reached))}` : ""}` : ""})`;
+}
+function sourceCard(s) {
+  const [word, kind] = STATE[s.state] || [s.state, ""];
+  const failed = s.last && !s.last.ok ? `<p class="err" style="padding:4px 0">Last sync failed: ${esc(s.last.error)}</p>` : "";
+  const connect = s.state === "not_set_up" && s.can_disconnect ? `<p class="muted">To connect it: More → Connections → Health → ${esc(s.title)} → Connect.</p>` : "";
+  const expired = s.state === "expired" ? `<p class="err" style="padding:4px 0">${esc(s.expired)}. Connect it again: More → Connections → Health → ${esc(s.title)} → Reconnect.</p>` : "";
+  const measures = s.measures.map((m) => `<div class="line"><div class="what">${esc(m.label)}<small>${esc(m.how)}${m.loinc ? ` · LOINC ${esc(m.loinc)}` : ""} · ${esc(m.unit_words)}</small></div><span class="muted">${esc(m.days)} days</span></div>`).join("");
+  const hist = (s.history || []).map((r) => `<div class="line"><div class="what">${esc(when(r.started_at))} · ${esc(KIND[r.kind] || r.kind)}<small>${r.ok ? `${values(r.records)}, ${esc(r.new_records)} new` : r.finished_at ? "failed: " + esc(r.error) : "running"}</small></div></div>`).join("");
+  const ask = (action, label) => srcAsk === `${action}:${s.connector}`
+    ? `<button class="btn danger solid" data-src="${action}" data-conn="${esc(s.connector)}" data-sure="1">Yes, ${esc(label.toLowerCase())}</button> <button class="btn" data-src-cancel="1">Keep it</button>`
+    : `<button class="btn danger" data-src="${action}" data-conn="${esc(s.connector)}">${esc(label)}</button>`;
+  const buttons = [s.can_sync && s.state !== "not_set_up" ? `<button class="btn" data-src="sync" data-conn="${esc(s.connector)}">Sync now</button>` : "",
+    s.records ? ask("forget", "Delete its data") : "", s.can_disconnect && s.state !== "not_set_up" ? ask("disconnect", "Disconnect") : ""].filter(Boolean).join(" ");
+  return card(`${esc(s.title)} <span class="pill ${kind}">${esc(word)}</span>`,
+    connect + expired + failed +
+    `<p class="muted">Last sync: ${syncLine(s.last)}${s.last_ok && s.last && !s.last.ok ? ` · last good: ${syncLine(s.last_ok)}` : ""}</p>
+     <p class="muted">Held: ${values(s.records)}${s.records ? `, ${esc(when(s.first))} to ${esc(when(s.newest))}` : ""}, kept ${esc(s.keep_days)} days.</p>
+     <details><summary class="muted" style="cursor:pointer">What it sends (${esc(s.measures.length)})</summary>${measures}</details>
+     <details><summary class="muted" style="cursor:pointer">Sync history</summary>${hist || `<p class="muted">No syncs yet.</p>`}</details>
+     ${buttons ? `<p style="margin:10px 0 0">${buttons}</p>` : ""}`,
+    `${s.terms ? esc(s.terms) + " " : ""}${s.can_disconnect ? "" : esc(s.stop)}`);
+}
+function renderSources() {
+  if (!srcData) { $("main").innerHTML = `<p class="muted">Loading…</p>`; loadSources(); return; }
+  if (srcData.failed) { $("main").innerHTML = `<p class="err">${esc(srcData.failed)}</p>`; return; }
+  $("main").innerHTML = srcData.map(sourceCard).join("") +
+    `<p class="note">Each value is kept with where it came from and how it was obtained: measured by a device, estimated by the maker's software (sleep stages, calories, scores), entered by you, or a lab result. A ring is not a lab. All of it stays on your server, and no AI model is given any of it.</p>`;
+  $("main").querySelectorAll("[data-src]").forEach((b) => b.onclick = () => {
+    const action = b.dataset.src, conn = b.dataset.conn;
+    if (action === "sync") { b.disabled = true; b.textContent = "Syncing…"; sourceAct("sync", conn); return; }
+    if (!b.dataset.sure) { srcAsk = `${action}:${conn}`; render(); return; }
+    sourceAct(action, conn, true);
+  });
+  $("main").querySelectorAll("[data-src-cancel]").forEach((b) => b.onclick = () => { srcAsk = ""; render(); });
 }
 
 function habitLine(h) {
@@ -189,7 +243,7 @@ function wire() {
 
 function render() {
   tabs();
-  ({ today: renderToday, trends: renderTrends, habits: renderHabits, food: renderFood, plan: renderPlan })[tab]();
+  ({ today: renderToday, trends: renderTrends, habits: renderHabits, food: renderFood, plan: renderPlan, sources: renderSources })[tab]();
 }
 
 async function load() {

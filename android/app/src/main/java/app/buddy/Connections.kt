@@ -70,9 +70,14 @@ data class Service(
     val missingKeys: List<String> = emptyList(),
     val canLink: Boolean = false,   // each user signs in to their own account (Connect), e.g. the Oura Ring
     val linked: Boolean = false,
+    val serverState: String = "",   // the server's own word, for the states only it can tell (below)
+    val expiredWhy: String = "",    // why the service refused Buddy's sign-in
+    val approval: String = "",      // what approval the service needs before it can be set up
 ) {
-    /** gateway.state_of: failing, missing_keys (half set up), working, unused (set up, never called), not_set_up */
+    /** gateway.state_of: expired (sign in again), failing, missing_keys (half set up), working, unused (set up,
+     *  never called), needs_approval, not_set_up */
     val state: String get() = when {
+        serverState == "expired" || serverState == "needs_approval" -> serverState
         missingKeys.isNotEmpty() -> "missing_keys"
         !setUp -> "not_set_up"
         lastOk == false -> "failing"
@@ -83,7 +88,7 @@ data class Service(
     /** what needs the owner first, then what works, then set up but unused, then not set up (gateway.STATES) */
     val rank: Int get() = ConnectStates.indexOf(state)
 
-    val needsAttention: Boolean get() = state == "failing" || state == "missing_keys"
+    val needsAttention: Boolean get() = state == "expired" || state == "failing" || state == "missing_keys"
 }
 
 /** One block of the screen, as the server's gateway.arrange() sends it: kind is attention, group or not_set_up. */
@@ -92,7 +97,7 @@ data class ConnectSection(val title: String, val kind: String, val names: List<S
 /** What /admin/connections answers: every service, and the sections to show them in. */
 data class ConnectList(val services: List<Service>, val sections: List<ConnectSection>)
 
-val ConnectStates = listOf("failing", "missing_keys", "working", "unused", "not_set_up")
+val ConnectStates = listOf("expired", "failing", "missing_keys", "working", "unused", "needs_approval", "not_set_up")
 
 /** The same order as gateway.arrange(), for servers that don't send sections yet. */
 fun arrangeServices(services: List<Service>): List<ConnectSection> {
@@ -162,6 +167,9 @@ object ConnectionsApi {
                         ?: emptyList(),
                     canLink = o.optBoolean("can_link"),
                     linked = o.optBoolean("linked"),
+                    serverState = o.optString("state"),
+                    expiredWhy = o.optString("expired"),
+                    approval = o.optString("approval"),
                 )
             }.sortedWith(compareBy<Service>({ groupOrder(it.group) }, { it.rank }, { it.title }))
             val sent = body.optJSONArray("sections")
@@ -214,6 +222,8 @@ fun groupOrder(group: String): Int = ConnectGroups.indexOf(group).let { if (it <
 
 /** Short label and colour for a service's state. */
 private fun stateOf(s: Service): Pair<String, Color> = when (s.state) {
+    "expired" -> "Sign in again" to Pal.bad
+    "needs_approval" -> "Needs approval" to Pal.dim
     "missing_keys" -> "Missing keys" to Pal.bad
     "not_set_up" -> "Not set up" to Pal.dim
     "failing" -> "Failing" to Pal.bad
@@ -223,6 +233,8 @@ private fun stateOf(s: Service): Pair<String, Color> = when (s.state) {
 
 /** The one line under a service's name when its row is folded: what you'd want to know at a glance. */
 private fun glanceOf(s: Service): String = when (s.state) {
+    "expired" -> s.expiredWhy.ifEmpty { "The service no longer accepts Buddy's sign-in" } + ": tap Reconnect"
+    "needs_approval" -> s.approval.ifEmpty { s.usedFor }
     "failing" -> s.lastError.ifEmpty { "Last call failed" }
     "missing_keys" -> "Missing " + s.missingKeys.joinToString(", ")
     "not_set_up" -> if (s.canLink) "Tap to connect your account" else s.usedFor
@@ -240,7 +252,7 @@ private fun Show.keeps(s: Service): Boolean = when (this) {
     Show.All -> true
     Show.Attention -> s.needsAttention
     Show.Working -> s.state == "working" || s.state == "unused"
-    Show.Idle -> s.state == "not_set_up"
+    Show.Idle -> s.state == "not_set_up" || s.state == "needs_approval"
 }
 
 /** Buddy Connect: every outside service Buddy uses, grouped, with status filters; tap a service for its details. */

@@ -19,6 +19,7 @@ flowchart LR
         oura_py["oura.py<br/>The owner's Oura Ring, through Buddy Connect (Health group) and…"]
         coach_py["coach.py<br/>goals, a few daily habits, food targets, tracking and timely nudges"]
         healthpage_py["healthpage.py<br/>the owner's own numbers, shown to the owner, worked out by rules"]
+        healthrecords_py["healthrecords.py<br/>The owner's health values in one form, each with where it came from:…"]
     end
     you --> t_thermostat
     t_thermostat --> nest_py
@@ -28,16 +29,19 @@ flowchart LR
     t_health_info --> health_data_py
     you --> t_health_plan
     t_health_plan --> coach_py
+    health_data_py --> healthrecords_py
     health_data_py --> oura_py
+    oura_py --> healthrecords_py
     coach_py --> health_data_py
     coach_py --> oura_py
     healthpage_py --> coach_py
     healthpage_py --> health_data_py
     healthpage_py --> oura_py
-    db[("Your database<br/>coach_log, coach_meals, health_daily, oura_daily")]
+    db[("Your database<br/>coach_log, coach_meals, health_daily, health_records, oura_daily")]
     health_data_py --> db
     oura_py --> db
     coach_py --> db
+    healthrecords_py --> db
     s_medlineplus["MedlinePlus (NIH health topics)<br/>(public data only)"]
     health_data_py --> s_medlineplus
     s_nest["Google Nest (thermostat)<br/>(may see personal data)"]
@@ -107,7 +111,7 @@ medical advice: the tool says so.
 
 - Tables: `health_daily`
 - Outside services: MedlinePlus (NIH health topics), openFDA (medicines), Open Food Facts (nutrition)
-- Uses: gateway.py, memory.py, oura.py, tools.py
+- Uses: connecthub.py, gateway.py, healthrecords.py, memory.py, oura.py, tools.py
 
 ### oura.py
 
@@ -133,7 +137,7 @@ is saved at once. Connecting again replaces them.
 - Tables: `oura_daily`
 - Outside services: Oura Ring
 - Settings: `BUDDY_OURA_CLIENT_ID`, `BUDDY_OURA_CLIENT_SECRET`, `BUDDY_OURA_REDIRECT`
-- Uses: gateway.py, memory.py, tools.py
+- Uses: connecthub.py, gateway.py, healthrecords.py, memory.py, tools.py
 
 ### coach.py
 
@@ -179,8 +183,34 @@ Nothing here calls a model or leaves this server, apart from reading the ring fr
 
 - Uses: coach.py, health_data.py, healthranges.py, memory.py, oura.py, tools.py
 
+### healthrecords.py
+
+```text
+The owner's health values in one form, each with where it came from: the common record every health source
+writes into (the Oura Ring and the phone's Health Connect now; lab results and other devices next).
+
+Each record keeps:
+  connector, measure, at     which source, which measure (MEASURES), which day (or time, for lab results)
+  value, unit                the value in a standard unit (UCUM: /min, ms, min, kcal/d, %, Cel)
+  original_value/unit        the value and unit as the source gave them
+  quality                    how it was obtained: measured by a device, estimated by the maker's software (sleep
+                             stages, calories, scores), entered by the owner, or a lab result. A ring is not a lab.
+  loinc                      the LOINC code, only where one exactly matches what the source measures (checked
+                             against LOINC and HL7's physical activity value set); blank otherwise. Oura's HRV is
+                             RMSSD, so it does not take LOINC's SDNN code.
+  source_ref                 the source's own row it came from (its table and day): kept beside it, unchanged
+  imported_at, sync_id       when, and in which sync (connecthub's sync history)
+
+Readers (the health plan, the Health page) still read the sources' own tables; this is the shared form lab
+results will be read in. Wearable records follow their source: 90 days. Everything stays on the owner's server
+and no AI model is given it (the Privacy Gateway's health rule).
+```
+
+- Tables: `health_records`
+- Uses: connecthub.py, gateway.py, memory.py, tools.py
+
 ## How it connects
 
 - Relies on: Buddy Connect; Claude: the brain; Memory; Security and privacy; Speaking up on its own: briefing, reminders and alerts; Travel and getting around
-- Relied on by: Claude: the brain; Security and privacy; Speaking up on its own: briefing, reminders and alerts; The server and the app
+- Relied on by: Buddy Connect; Claude: the brain; Security and privacy; Speaking up on its own: briefing, reminders and alerts; The server and the app
 

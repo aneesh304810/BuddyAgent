@@ -90,6 +90,7 @@ CATALOG: dict[str, dict] = {
              "used_for": "the weekly Commitments of Traders report for 17 futures markets: how many contracts large "
                          "speculators, hedgers and small traders hold (market codes and a date only; public domain, "
                          "credited to the CFTC)",
+             "terms": "US government work, public domain; the CFTC asks to be credited.",
              "health": {"custom": "cftc.check"}, "moved": True},
     "finra": {"group": "Finance & markets", "title": "FINRA (short selling)",
               "hosts": ["https://api.finra.org", "https://cdn.finra.org"], "auth": {"type": "none"}, "cost": 0.0,
@@ -98,6 +99,8 @@ CATALOG: dict[str, dict] = {
                           "is sent but the date) and short interest twice a month (the watchlist's ticker symbols). "
                           "FINRA's terms: for your personal, non-commercial use only, so it is shown on the "
                           "Investments page by code and not given to an AI model or used in Buddy's learning",
+              "terms": "Personal, non-commercial use only (FINRA's Equity Data terms); commercial use needs a FINRA "
+                       "licence.",
               "health": {"custom": "finra.check"}, "moved": True},
     "bls": {"group": "Finance & markets", "title": "BLS (government price indexes)", "hosts": ["https://api.bls.gov"],
             "auth": {"type": "none"}, "cost": 0.0, "per_minute": 5, "privacy": "public", "no_backup": True,
@@ -288,6 +291,8 @@ CATALOG: dict[str, dict] = {
     # topic or product name.
     "health_connect": {"group": "Health", "title": "Phone health data (Health Connect)", "auth": {"type": "phone"},
                        "privacy": "personal", "used_for": "your steps, sleep, heart rate and workouts, from the phone",
+                       "terms": "Your own data, sent by your phone with your permission. Google's Health Connect "
+                                "rules: used only for Buddy's health features, never sold or used for ads.",
                        "reports": True},
     # The owner's Oura Ring (oura.py): read only, linked with Oura's sign-in coming back to this server's own page;
     # its refresh tokens work once, so oura.py renews them itself and keeps the newest (in the database).
@@ -298,6 +303,7 @@ CATALOG: dict[str, dict] = {
              "cost": 0.0, "per_minute": 30, "privacy": "personal", "no_backup": True,
              "used_for": "your readiness, sleep, HRV, temperature, activity and workouts from the ring, for your "
                          "health plan",
+             "terms": "Your own data, read with the access you granted in Oura's sign-in; kept on your server only.",
              "setup_command": "sudo bash /opt/buddy/deploy/oura.sh", "health": {"custom": "oura.check"},
              "moved": True},
     # Restaurants (dining.py): Google's official Places API, for finding a table; only the search words and a
@@ -321,6 +327,7 @@ CATALOG: dict[str, dict] = {
     "openfda": {"group": "Health", "title": "openFDA (medicines)", "hosts": ["https://api.fda.gov"],
                 "auth": {"type": "none"}, "cost": 0.0, "per_minute": 40, "privacy": "public",
                 "used_for": "what a medicine is for, warnings, interactions, recalls",
+                "terms": "Public domain (US government data); it must not be presented as endorsed by the FDA.",
                 "health": {"path": "/drug/label.json?search=openfda.generic_name:ibuprofen&limit=1"}, "moved": True},
     "medlineplus": {"group": "Health", "title": "MedlinePlus (NIH health topics)",
                     "hosts": ["https://wsearch.nlm.nih.gov"], "auth": {"type": "none"}, "cost": 0.0,
@@ -330,6 +337,7 @@ CATALOG: dict[str, dict] = {
     "openfoodfacts": {"group": "Health", "title": "Open Food Facts (nutrition)",
                       "hosts": ["https://world.openfoodfacts.org"], "auth": {"type": "none"}, "cost": 0.0,
                       "per_minute": 30, "privacy": "public", "used_for": "nutrition and allergens of food products",
+                      "terms": "Open Database License (ODbL): free to use with credit to Open Food Facts.",
                       "health": {"path": "/api/v2/product/3017624010701.json"}, "moved": True},
     # Home (nest.py): the owner's own thermostat, through Google's Smart Device Management API. Personal: commands
     # and readings about the owner's home, between Buddy and Google (which already holds them).
@@ -831,7 +839,9 @@ def status(memory, env=None) -> list[dict]:
                     "in_connect": bool(entry.get("moved") or entry.get("reports")), "last_ok": last.get("ok"),
                     "last_at": last.get("at", ""), "last_error": last.get("error", ""), "calls_this_month": n,
                     "failed_this_month": bad, "cost_this_month": round(usd, 4), "can_test": bool(entry.get("health")),
-                    "setup": setup_hint(name), "missing_keys": missing_keys(name, env)})
+                    "setup": setup_hint(name), "missing_keys": missing_keys(name, env),
+                    "terms": entry.get("terms", ""), "approval": entry.get("approval", ""),
+                    "expired": _expired(memory, name)})
         if entry.get("link") and configured(name, env):  # set up on the server; each user still signs in (Connect)
             row = out[-1]
             row["can_link"] = True
@@ -841,6 +851,15 @@ def status(memory, env=None) -> list[dict]:
     for row in out:
         row["state"] = state_of(row)
     return out
+
+
+def _expired(memory, name: str) -> str:
+    """Why a service's sign-in expired (connecthub), or ""."""
+    try:
+        from . import connecthub  # noqa: PLC0415
+        return connecthub.expired(memory, name) if memory is not None else ""
+    except Exception:
+        return ""
 
 
 def _link_module(name: str):
@@ -871,13 +890,19 @@ def finish_link(name: str, memory, code: str, state: str, env=None, fetch=None) 
 
 # How the Connections screen orders a service: what needs the owner first, then what works, then what's idle.
 NOT_HELD_BACK = "stop NOT LIKE '%PrivacyBlocked%'"  # model_calls rows that were really sent
-STATES = ["failing", "missing_keys", "working", "unused", "not_set_up"]
-ATTENTION = ("failing", "missing_keys")
+STATES = ["expired", "failing", "missing_keys", "working", "unused", "needs_approval", "not_set_up"]
+ATTENTION = ("expired", "failing", "missing_keys")
 
 
 def state_of(row: dict) -> str:
-    """One word for a status row: failing (set up, last call failed), missing_keys (half set up), working,
-    unused (set up, never called) or not_set_up."""
+    """One word for a status row: expired (set up, but the service refused Buddy's sign-in: connect again),
+    failing (set up, last call failed), missing_keys (half set up), working, unused (set up, never called),
+    needs_approval (the service opens its data only to developers it approved, and it isn't set up) or
+    not_set_up."""
+    if row.get("approval") and not row.get("set_up"):
+        return "needs_approval"
+    if row.get("expired") and row.get("set_up"):
+        return "expired"
     if row.get("missing_keys"):
         return "missing_keys"
     if not row.get("set_up"):
@@ -902,7 +927,7 @@ def arrange(rows: list[dict]) -> list[dict]:
         st = r.get("state") or state_of(r)
         if st in ATTENTION:
             attention.append(r)
-        elif st == "not_set_up":
+        elif st in ("not_set_up", "needs_approval"):
             idle.append(r)
         else:
             by_group.setdefault(r.get("group") or "Other", []).append(r)

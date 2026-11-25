@@ -121,6 +121,8 @@ def finish_link(memory: Memory, code: str, state: str, env=None, fetch=None) -> 
         memory.set(TOKENS_KEY, json.dumps({"refresh": got["refresh_token"], "access": got.get("access_token", ""),
                                            "until": time.time() + int(got.get("expires_in") or 3600)}))
         memory.set(SYNC_KEY, "")  # sync at the next look
+    from . import connecthub  # noqa: PLC0415
+    connecthub.set_expired(memory, "oura", "")
     return {"linked": True}
 
 
@@ -142,6 +144,8 @@ def access_token(memory: Memory, env=None, fetch=None, fresh: bool = False) -> s
                                    headers={"Content-Type": "application/x-www-form-urlencoded"})
         except gateway.ConnectError as e:
             if e.status in (400, 401):
+                from . import connecthub  # noqa: PLC0415  shown as "expired" until connected again
+                connecthub.set_expired(memory, "oura", f"Oura no longer accepts Buddy's link ({e.reason or e.status})")
                 raise gateway.ConnectError("oura", f"Oura no longer accepts Buddy's link ({e.reason or e.status}): "
                                                    "Connections > Health > Oura Ring > Connect again",
                                            e.status, e.reason) from e
@@ -248,25 +252,51 @@ KINDS = ("daily_readiness", "daily_sleep", "daily_activity", "sleep", "daily_str
          "daily_spo2", "workout")
 
 
-def sync(memory: Memory, n: int = 14, env=None, fetch=None) -> int:
-    """Read the last n days from Oura and keep them. Returns how many days came."""
+def sync(memory: Memory, n: int | None = None, env=None, fetch=None, kind: str = "") -> int:
+    """Read the last n days from Oura and keep them (the first sync reads KEEP_DAYS, later ones 14, as Oura still
+    corrects recent days), each value also as a health record with its source. Returns how many days came."""
+    from . import connecthub, healthrecords  # noqa: PLC0415
     _ready(memory)
+    first = memory.db.execute("SELECT 1 FROM oura_daily LIMIT 1").fetchone() is None
+    n = n or (KEEP_DAYS if first else 14)
     today = local_now().date()
     start, end = (today - timedelta(days=n - 1)).isoformat(), (today + timedelta(days=1)).isoformat()
-    records = {k: _collection(memory, k, start, end, env=env, fetch=fetch) for k in KINDS}
-    rows = days_from(records)
-    now = datetime.now(timezone.utc).isoformat()
-    for day, d in rows.items():
-        if not re.fullmatch(r"\d{4}-\d{2}-\d{2}", day):
-            continue
-        memory.db.execute(
-            f"INSERT OR REPLACE INTO oura_daily (day, {', '.join(FIELDS)}, workouts, updated_at) "
-            f"VALUES (?, {', '.join('?' for _ in FIELDS)}, ?, ?)",
-            (day, *[d.get(f) for f in FIELDS], json.dumps(d["workouts"][:20]), now))
-    memory.db.execute("DELETE FROM oura_daily WHERE day < ?", ((today - timedelta(days=KEEP_DAYS)).isoformat(),))
-    memory.db.commit()
+    with connecthub.syncing(memory, "oura", kind or ("initial" if first else "incremental")) as got:
+        records = {k: _collection(memory, k, start, end, env=env, fetch=fetch) for k in KINDS}
+        rows = days_from(records)
+        now = datetime.now(timezone.utc).isoformat()
+        for day, d in rows.items():
+            if not re.fullmatch(r"\d{4}-\d{2}-\d{2}", day):
+                continue
+            memory.db.execute(
+                f"INSERT OR REPLACE INTO oura_daily (day, {', '.join(FIELDS)}, workouts, updated_at) "
+                f"VALUES (?, {', '.join('?' for _ in FIELDS)}, ?, ?)",
+                (day, *[d.get(f) for f in FIELDS], json.dumps(d["workouts"][:20]), now))
+            n_rec, n_new = healthrecords.record(memory, "oura", day, d, got["id"])
+            got["records"] += n_rec
+            got["new"] += n_new
+            got["reached"] = max(got["reached"], day)
+        memory.db.execute("DELETE FROM oura_daily WHERE day < ?", ((today - timedelta(days=KEEP_DAYS)).isoformat(),))
+        memory.db.commit()
+        healthrecords.prune(memory, "oura")
     memory.set(SYNC_KEY, now)
     return len(rows)
+
+
+def sync_now(memory: Memory, env=None, fetch=None) -> str:
+    """The owner asked (the Health page's Sync now)."""
+    if not linked(memory, env):
+        return "The Oura Ring isn't connected: Connections > Health > Oura Ring > Connect."
+    days = sync(memory, env=env, fetch=fetch, kind="manual")
+    return f"Synced {days} days from the Oura Ring."
+
+
+def disconnect(memory: Memory) -> str:
+    """Forget Buddy's sign-in to Oura: nothing more is read until the owner connects again."""
+    with _lock:
+        memory.set(TOKENS_KEY, "")
+        memory.set(LINK_KEY, "")
+    return "The Oura Ring is disconnected from Buddy."
 
 
 def sync_if_due(memory: Memory, env=None, fetch=None) -> bool:

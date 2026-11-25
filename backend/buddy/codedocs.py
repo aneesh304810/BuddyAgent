@@ -169,7 +169,7 @@ COMPONENTS = [  # every server module belongs to one feature (tests check none i
      "with your personal data: translating, summarising public text, brainstorming, general code questions",
      ["maestro.py", "maestro_usage.py", "free_models.py", "openrouter_catalog.py", "modelscout.py", "model_advisor.py"]),
     ("Buddy Connect", "One catalog and one way of calling every outside service: keys, backup hosts, rate limits, the "
-     "personal-data check, logging and costs", ["gateway.py", "keytest.py"]),
+     "personal-data check, logging and costs", ["gateway.py", "keytest.py", "connecthub.py"]),
     ("Memory", "What Buddy knows and remembers: facts, the conversation log and its search, the documents library, "
      "your taste and daily routine, and connecting what it knows",
      ["memory.py", "convolog.py", "brain.py", "connect.py", "library.py", "lifelog.py", "companydocs.py", "taste.py",
@@ -219,7 +219,8 @@ COMPONENTS = [  # every server module belongs to one feature (tests check none i
      ["mailbrain.py", "mailorganizer.py", "mailmap.py", "paymail.py", "lifemail.py", "mailfiles.py", "email_accounts.py",
       "messaging.py", "packages.py"]),
     ("Home and health", "Your Nest thermostat, your phone's health data and Oura Ring, and your health plan with "
-     "public medical sources", ["nest.py", "health_data.py", "oura.py", "coach.py", "healthpage.py"]),
+     "public medical sources", ["nest.py", "health_data.py", "oura.py", "coach.py", "healthpage.py",
+                                "healthrecords.py"]),
     ("Making and doing things", "Diagrams, charts, images, Word, PowerPoint, PDF and Excel; data crunching in the "
      "sandbox; a real browser Buddy drives; filling forms; rich cards in the chat; background jobs",
      ["makers.py", "docedit.py", "datatools.py", "browse.py", "formfill.py", "cards.py", "jobs.py"]),
