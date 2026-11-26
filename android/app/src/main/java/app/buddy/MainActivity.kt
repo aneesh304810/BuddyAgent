@@ -436,7 +436,7 @@ private fun BuddyScreen(
                 return@Column
             }
             Screen.Health -> {  // the owner's health numbers by rules; no AI model is given them (web/health.html)
-                BuddyPage(prefs.link, "health.html")
+                HealthScreen(prefs.link)  // with "Scan food": a pack's barcode read on the phone (FoodScan.kt)
                 return@Column
             }
             Screen.Security -> {  // the daily threat watch: layers, open and fixed findings (web/security.html)

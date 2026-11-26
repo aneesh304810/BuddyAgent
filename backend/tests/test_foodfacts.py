@@ -126,3 +126,39 @@ def test_the_page_endpoint(tmp_path, monkeypatch):
     missing = client.get("/api/health/facts?kind=food&q=idli", headers=auth)
     assert missing.status_code == 400 and "BUDDY_USDA_KEY" in missing.json()["detail"]
     assert client.get("/api/health/facts?kind=nope&q=x", headers=auth).status_code == 400
+
+
+def test_barcodes_are_checked_and_short_upc_e_codes_written_out():
+    assert foodfacts.gtin_ok("036000291452") and foodfacts.gtin_ok("96385074") and foodfacts.gtin_ok("5000112548167")
+    assert not foodfacts.gtin_ok("5000112548160") and not foodfacts.gtin_ok("12345") and not foodfacts.gtin_ok("abc")
+    assert foodfacts.upce_to_upca("04252614") == "042100005264" and foodfacts.upce_to_upca("01234565") == "012345000065"
+    assert foodfacts.upce_to_upca("94252614") == ""
+
+
+def test_a_scanned_pack_sends_only_its_number(tmp_path):
+    foodfacts.CACHE.clear()
+    sent = []
+
+    def fake(url, data=None, headers=None):
+        sent.append(url)
+        if "api.nal.usda.gov" in url:
+            return json.dumps({"foods": [
+                {"fdcId": 1, "description": "HAZELNUT SPREAD", "dataType": "Branded", "gtinUpc": "03017624010701",
+                 "brandOwner": "Some Brand", "servingSize": 37, "servingSizeUnit": "g",
+                 "foodNutrients": [{"nutrientId": 1008, "unitName": "KCAL", "value": 541},
+                                   {"nutrientId": 1003, "value": 5.4}]},
+                {"fdcId": 2, "description": "SOMETHING ELSE", "dataType": "Branded", "gtinUpc": "999",
+                 "foodNutrients": [{"nutrientId": 1008, "unitName": "KCAL", "value": 1}]}]})
+        return json.dumps({"product": {"product_name": "Hazelnut spread", "brands": "Some Brand", "serving_quantity": 15,
+                                       "serving_size": "15 g", "nutriments": {"energy-kcal_100g": 539,
+                                                                              "proteins_100g": 6.3,
+                                                                              "sodium_100g": 0.0428}}})
+    got = foodfacts.barcode(Memory(tmp_path / "b.db"), "3017624010701", env=KEY, fetch=fake)
+    assert [g["kind"] for g in got] == ["Branded product (USDA)", "Branded product (Open Food Facts)"]
+    assert got[1]["per100"] == {"kcal": 539.0, "protein_g": 6.3, "sodium_mg": 42.8}
+    assert got[1]["portions"] == [{"label": "15 g (label serving)", "grams": 15.0}]
+    assert all("3017624010701" in u for u in sent) and len(sent) == 2  # the number, and nothing else about anyone
+    with pytest.raises(ToolError, match="isn't a barcode"):
+        foodfacts.barcode(Memory(tmp_path / "b.db"), "3017624010700", env=KEY, fetch=fake)
+    upce = foodfacts.barcode(Memory(tmp_path / "c.db"), "04252614", env={}, fetch=fake)
+    assert upce and "042100005264" in sent[-1]  # a short UPC-E is looked up as its full UPC-A

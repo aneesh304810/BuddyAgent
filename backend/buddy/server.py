@@ -1884,6 +1884,9 @@ async def api_health_facts(kind: str, q: str = "") -> dict:
         if kind == "food":
             return {"foods": await asyncio.to_thread(foodfacts.foods, memory, q),
                     "source": "USDA FoodData Central (public domain)"}
+        if kind == "barcode":
+            return {"foods": await asyncio.to_thread(foodfacts.barcode, memory, q),
+                    "source": "USDA FoodData Central and Open Food Facts, by the barcode only"}
         if kind == "supplement":
             return {"products": await asyncio.to_thread(foodfacts.supplements, memory, q),
                     "source": "NIH Office of Dietary Supplements, Dietary Supplement Label Database"}

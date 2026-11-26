@@ -8,6 +8,8 @@
   servings a day set against the adult Tolerable Upper Intake Level (the National Academies' limits, as ODS gives
   them), and a link to ODS's fact sheet for it.
 - **Medicines: openFDA's drug labels and recalls**, through health_data.drug and health_data.recalls.
+- **Packs scanned on the phone**: the phone reads the barcode itself (on-device; no photo leaves it) and only the
+  number comes here, to be looked up in USDA's branded foods and in Open Food Facts (Open Database License).
 
 Only the words the owner types go out (a food or product name; for a label, the database's own number); nothing
 about the owner. Public data, so no AI model is involved and nothing is kept but a day's cache of the answers.
@@ -111,6 +113,75 @@ def foods(memory: Memory, text: str, env=None, fetch=None) -> list[dict]:
     out = [_food(f) for f in (got or {}).get("foods") or [] if f.get("fdcId")]
     order = {"USDA basic food": 0, "As people eat it": 1, "Branded product": 2}
     return sorted((f for f in out if f["per100"]), key=lambda f: order.get(f["kind"], 3))
+
+
+def gtin_ok(code: str) -> bool:
+    """A barcode as printed on packs (EAN-8, UPC-A, EAN-13, GTIN-14): digits with a valid check digit."""
+    if not re.fullmatch(r"\d{8}|\d{12,14}", code or ""):
+        return False
+    digits = [int(c) for c in code]
+    total = sum(d * (3 if i % 2 == 0 else 1) for i, d in enumerate(reversed(digits[:-1])))
+    return (10 - total % 10) % 10 == digits[-1]
+
+
+OFF_FIELDS = {"energy-kcal_100g": "kcal", "proteins_100g": "protein_g", "carbohydrates_100g": "carbs_g",
+              "fat_100g": "fat_g", "fiber_100g": "fiber_g", "sugars_100g": "sugar_g"}
+
+
+def upce_to_upca(code: str) -> str:
+    """A short UPC-E (8 digits, small US packs) written out as the 12-digit UPC-A it stands for ('' if it isn't one)."""
+    if not re.fullmatch(r"[01]\d{7}", code or ""):
+        return ""
+    ns, d, check = code[0], code[1:7], code[7]
+    last = d[5]
+    if last in "012":
+        body = d[0:2] + last + "0000" + d[2:5]
+    elif last == "3":
+        body = d[0:3] + "00000" + d[3:5]
+    elif last == "4":
+        body = d[0:4] + "00000" + d[4]
+    else:
+        body = d[0:5] + "0000" + last
+    upca = ns + body + check
+    return upca if gtin_ok(upca) else ""
+
+
+def barcode(memory: Memory, code: str, env=None, fetch=None) -> list[dict]:
+    """A pack scanned on the phone: only its barcode number goes out, to USDA's branded foods (when the owner has
+    the key) and to Open Food Facts."""
+    code = re.sub(r"\D", "", str(code or ""))
+    if len(code) == 8 and not gtin_ok(code):
+        code = upce_to_upca(code) or code  # a UPC-E: looked up as its UPC-A
+    if not gtin_ok(code):
+        raise ToolError("That isn't a barcode from a food pack: scan it again, or type the numbers under it.")
+    out = []
+    if set_up(env):
+        got = _cached(f"fdc:gtin:{code}", lambda: gateway.call(memory, USDA, "/fdc/v1/foods/search?" + urllib.parse.urlencode(
+            {"query": code, "dataType": "Branded", "pageSize": 5}), env=env, fetch=fetch, purpose="food lookup"))
+        for f in (got or {}).get("foods") or []:
+            if str(f.get("gtinUpc") or "").lstrip("0") == code.lstrip("0") and f.get("fdcId"):
+                food = _food(f)
+                if food["per100"]:
+                    out.append(food | {"kind": "Branded product (USDA)", "barcode": code})
+    got = _cached(f"off:{code}", lambda: gateway.call(memory, "openfoodfacts", f"/api/v2/product/{code}.json",
+                                                      env=env, fetch=fetch, purpose="food lookup"))
+    p = (got or {}).get("product") or {}
+    n = p.get("nutriments") or {}
+    per100 = {ours: round(float(n[theirs]), 2) for theirs, ours in OFF_FIELDS.items()
+              if isinstance(n.get(theirs), (int, float))}
+    if isinstance(n.get("sodium_100g"), (int, float)):
+        per100["sodium_mg"] = round(float(n["sodium_100g"]) * 1000, 1)
+    if per100.get("kcal") is not None and p.get("product_name"):
+        portions = []
+        serving = p.get("serving_quantity")
+        if isinstance(serving, (int, float)) and 0 < serving < 3000 and str(p.get("serving_quantity_unit") or "g") == "g":
+            portions.append({"label": f"{p.get('serving_size') or 'a serving'} (label serving)"[:60],
+                             "grams": round(float(serving), 1)})
+        out.append({"id": f"off:{code}", "name": " ".join(str(p["product_name"]).split())[:120],
+                    "kind": "Branded product (Open Food Facts)",
+                    "brand": " ".join(str(p.get("brands") or "").split(","))[:60].strip(), "per100": per100,
+                    "portions": portions, "barcode": code})
+    return out
 
 
 def portion(food: dict, grams: float) -> dict:

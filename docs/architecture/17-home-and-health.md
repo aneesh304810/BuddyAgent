@@ -95,6 +95,7 @@ flowchart LR
     health_data_py --> s_openfda
     s_openfoodfacts["Open Food Facts (nutrition)<br/>(public data only)"]
     health_data_py --> s_openfoodfacts
+    foodfacts_py --> s_openfoodfacts
     s_oura["Oura Ring<br/>(may see personal data)"]
     oura_py --> s_oura
     s_pubmed["PubMed (research digest)<br/>(public data only)"]
@@ -492,12 +493,15 @@ Food, supplement and medicine facts from US government sources, looked up when t
   servings a day set against the adult Tolerable Upper Intake Level (the National Academies' limits, as ODS gives
   them), and a link to ODS's fact sheet for it.
 - **Medicines: openFDA's drug labels and recalls**, through health_data.drug and health_data.recalls.
+- **Packs scanned on the phone**: the phone reads the barcode itself (on-device; no photo leaves it) and only the
+  number comes here, to be looked up in USDA's branded foods and in Open Food Facts (Open Database License).
 
 Only the words the owner types go out (a food or product name; for a label, the database's own number); nothing
 about the owner. Public data, so no AI model is involved and nothing is kept but a day's cache of the answers.
 Not medical advice.
 ```
 
+- Outside services: Open Food Facts (nutrition)
 - Settings: `BUDDY_USDA_KEY`
 - Uses: gateway.py, health_data.py, memory.py, tools.py
 

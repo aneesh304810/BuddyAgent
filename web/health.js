@@ -473,11 +473,14 @@ function renderFood() {
 const facts = { food: null, supplement: null, label: null, medicine: null }, factQ = { food: "", supplement: "", medicine: "" };
 let foodPick = -1, foodGrams = "";
 async function lookUp(kind, q) {
-  facts[kind] = { busy: true };
+  const slot = kind === "barcode" ? "food" : kind;  // a scanned pack's matches show in the food lookup
+  facts[slot] = { busy: true };
   if (kind === "supplement") facts.label = null;
+  if (slot === "food") foodPick = -1;
   render();
-  try { facts[kind] = await api(`/api/health/facts?kind=${kind}&q=${encodeURIComponent(q)}`); }
-  catch (e) { facts[kind] = { failed: e.message }; }
+  try { facts[slot] = await api(`/api/health/facts?kind=${kind}&q=${encodeURIComponent(q)}`); }
+  catch (e) { facts[slot] = { failed: e.message }; }
+  if (kind === "barcode" && facts.food.foods && !facts.food.foods.length) facts.food = { failed: "That barcode isn't in USDA's or Open Food Facts' lists: look the food up by its name." };
   render();
 }
 const searchForm = (kind, placeholder) => `<form class="f" data-fact-form="${kind}"><input class="grow" name="q" maxlength="80" placeholder="${esc(placeholder)}" value="${esc(factQ[kind])}" aria-label="${esc(placeholder)}"><button class="btn solid">Look up</button></form>`;
@@ -860,4 +863,16 @@ async function load() {
   try { data = await api(`/api/health/page?days=${span}`); render(); }
   catch (e) { tabs(); $("main").innerHTML = `<p class="err">${esc(e.message)}</p>`; }
 }
-load();
+// The app's "Scan food" opens this page with the barcode it read on the phone: show its matches on Plan → Food.
+const scanned = (() => {  // read from the address as it arrived (the token line above may have cleared it since)
+  const code = (params.get("scanbarcode") || "").replace(/\D/g, "");
+  if (!code) return "";
+  const rest = new URLSearchParams(location.search);
+  if (rest.has("scanbarcode")) {  // a reload doesn't look it up again
+    rest.delete("scanbarcode"); rest.delete("t");
+    history.replaceState(null, "", location.pathname + (String(rest) ? `?${rest}` : ""));
+  }
+  tab = "plan"; storageSet("healthTab", "plan"); storageSet("healthSub:plan", "food");
+  return code;
+})();
+load().then(() => { if (scanned) { factQ.food = scanned; lookUp("barcode", scanned); } });

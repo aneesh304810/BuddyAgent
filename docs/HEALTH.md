@@ -65,6 +65,14 @@ sub-tabs under them, and the page remembers where you were.
   portion or type grams, and "Add" puts that food into today's meals with the calories and protein worked out by
   code from USDA's numbers. No AI estimates them. Food lookups need a free api.data.gov key, set once on the
   server: `sudo bash /opt/buddy/deploy/set.sh BUDDY_USDA_KEY` (sign up at api.data.gov; Buddy can't do it for you).
+- **Scan food** (the button over the Health screen, in the app): point the camera at a food pack's barcode. It is
+  read on the phone by Google's ML Kit barcode scanner, bundled in the app, which works offline; no picture is kept
+  or sent. Only the number goes to your server, which looks it up (the number only) in USDA's branded foods (with
+  your USDA key) and Open Food Facts, and the Health page opens Plan → Food with the matches and the pack's label
+  serving, ready to add. Short UPC-E codes on small US packs are written out to their full UPC-A first. No camera?
+  Type the numbers under the barcode. The app asks for camera access the first time.
+  - **Cooked dishes from a photo** come next: a recognition model that runs on the phone (Google's food
+    classifier, Apache 2.0), checked first on South Indian dishes; the photo will never leave the phone.
 - **Learn → Research:** new studies on the topics you choose, strongest evidence first, from PubMed (the US
   National Library of Medicine). Ready-made topics: longevity research (the journals Nature Aging, Aging Cell and
   GeroScience, and work from the National Institute on Aging, the Buck Institute and AFAR), South Asian heart and

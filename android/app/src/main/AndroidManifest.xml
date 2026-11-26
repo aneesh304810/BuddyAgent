@@ -3,6 +3,8 @@
 
     <uses-permission android:name="android.permission.INTERNET" />
     <uses-permission android:name="android.permission.RECORD_AUDIO" />
+    <uses-permission android:name="android.permission.CAMERA" />  <!-- Health → Scan food: barcodes read on the phone -->
+    <uses-feature android:name="android.hardware.camera.any" android:required="false" />
     <uses-permission android:name="android.permission.VIBRATE" />
     <uses-permission android:name="android.permission.MODIFY_AUDIO_SETTINGS" />
     <uses-permission android:name="android.permission.FOREGROUND_SERVICE" />
@@ -80,6 +82,9 @@
         </activity>
 
         <!-- Android 14+: Health Connect's "why does Buddy need this" link opens the app. -->
+        <activity
+            android:name=".FoodScanActivity"
+            android:exported="false" />
         <activity-alias
             android:name="ViewPermissionUsageActivity"
             android:exported="true"
