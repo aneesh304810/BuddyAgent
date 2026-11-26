@@ -23,6 +23,12 @@ from .tools import ToolError, local_now
 KEEP_DAYS = 90  # the most days the chat tool sums; how long days are kept is healthrecords.keep_days()
 SYNC_KEY = "health:synced"
 FIELDS = ("steps", "sleep_minutes", "resting_hr", "avg_hr", "active_minutes", "calories")
+# Readings with decimals the app sends since Part 3 (from whichever app wrote them to Health Connect: Garmin
+# Connect, Fitbit, Samsung Health, a scale, a blood pressure cuff, a glucose meter): the day's average, or for
+# weight, body fat, blood pressure and VO2 max the day's last reading.
+EXTRA = ("hrv", "spo2", "weight_kg", "body_fat", "bp_systolic", "bp_diastolic", "glucose_mgdl", "respiratory_rate",
+         "vo2max")
+PACKAGE = re.compile(r"^[A-Za-z][\w.]{2,120}$")
 
 SCHEMA = """
 CREATE TABLE IF NOT EXISTS health_daily (       -- from Health Connect on the phone, owner's permission; 90 days
@@ -35,6 +41,15 @@ CREATE TABLE IF NOT EXISTS health_daily (       -- from Health Connect on the ph
 
 def _ready(memory: Memory) -> None:
     memory.db.executescript(SCHEMA)
+    memory._add_columns("health_daily", {**{f: "REAL" for f in EXTRA}, "apps": "TEXT NOT NULL DEFAULT '[]'"})
+
+
+def _real(v):
+    try:
+        f = float(v)
+    except (TypeError, ValueError):
+        return None
+    return round(f, 2) if f == f and abs(f) < 1e6 else None
 
 
 def _int(v):
@@ -72,7 +87,12 @@ def _ingest(memory: Memory, payload: dict, got: dict) -> int:
             "workouts = excluded.workouts, updated_at = excluded.updated_at",
             (day, *values, json.dumps(workouts), now))
         n += 1
-        n_rec, n_new = healthrecords.record(memory, "health_connect", day, dict(zip(FIELDS, values)), got["id"])
+        extra = {f: _real(d.get(f)) for f in EXTRA}
+        apps = [str(a) for a in (d.get("apps") or [])[:12] if PACKAGE.match(str(a))]
+        memory.db.execute(f"UPDATE health_daily SET {', '.join(f'{f} = ?' for f in EXTRA)}, apps = ? WHERE day = ?",
+                          (*extra.values(), json.dumps(apps), day))  # nosec B608: our own column names only
+        n_rec, n_new = healthrecords.record(memory, "health_connect", day, {**dict(zip(FIELDS, values)), **extra},
+                                            got["id"])
         got["records"] += n_rec
         got["new"] += n_new
         got["reached"] = max(got["reached"], day)

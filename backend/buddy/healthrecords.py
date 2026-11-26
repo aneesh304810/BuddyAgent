@@ -51,6 +51,21 @@ MEASURES = {  # measure -> (label, UCUM unit, LOINC where it exactly matches, ho
     "sleep_efficiency": ("Sleep efficiency", "%", "", ESTIMATED),
     "stress_minutes": ("Stressed time", "min", "", ESTIMATED),
     "recovery_minutes": ("Recovery time", "min", "", ESTIMATED),
+    "recovery": ("Recovery score", "{score}", "", ESTIMATED),
+    "strain": ("Day strain", "{score}", "", ESTIMATED),
+    "max_hr": ("Highest heart rate", "/min", "", MEASURED),
+    "skin_temp": ("Skin temperature in sleep", "Cel", "", MEASURED),
+    "light_minutes": ("Light sleep", "min", "", ESTIMATED),
+    "sleep_performance": ("Sleep performance", "%", "", ESTIMATED),
+    "respiratory_rate": ("Breathing rate", "/min", "9279-1", MEASURED),  # Respiratory rate
+    "hrv_any": ("Heart rate variability (RMSSD)", "ms", "", MEASURED),
+    "spo2_any": ("Blood oxygen", "%", "", MEASURED),
+    "weight": ("Body weight", "kg", "29463-7", MEASURED),  # Body weight
+    "body_fat": ("Body fat", "%", "", ESTIMATED),
+    "bp_systolic": ("Blood pressure, systolic", "mm[Hg]", "8480-6", MEASURED),  # Systolic blood pressure
+    "bp_diastolic": ("Blood pressure, diastolic", "mm[Hg]", "8462-4", MEASURED),  # Diastolic blood pressure
+    "glucose_home": ("Blood glucose (home meter or sensor)", "mg/dL", "", MEASURED),
+    "vo2max": ("VO2 max", "mL/(kg.min)", "", ESTIMATED),
     "readiness": ("Readiness score", "{score}", "", ESTIMATED),
     "sleep_score": ("Sleep score", "{score}", "", ESTIMATED),
     "activity_score": ("Activity score", "{score}", "", ESTIMATED),
@@ -58,7 +73,18 @@ MEASURES = {  # measure -> (label, UCUM unit, LOINC where it exactly matches, ho
 FROM = {  # connector -> {its field: (measure, its own unit)}
     "health_connect": {"steps": ("steps", "steps"), "sleep_minutes": ("sleep_minutes", "minutes"),
                        "resting_hr": ("resting_hr", "bpm"), "avg_hr": ("avg_hr", "bpm"),
-                       "active_minutes": ("active_minutes", "minutes"), "calories": ("calories", "kcal")},
+                       "active_minutes": ("active_minutes", "minutes"), "calories": ("calories", "kcal"),
+                       "hrv": ("hrv_any", "ms"), "spo2": ("spo2_any", "%"), "weight_kg": ("weight", "kg"),
+                       "body_fat": ("body_fat", "%"), "bp_systolic": ("bp_systolic", "mmHg"),
+                       "bp_diastolic": ("bp_diastolic", "mmHg"), "glucose_mgdl": ("glucose_home", "mg/dL"),
+                       "respiratory_rate": ("respiratory_rate", "breaths/min"), "vo2max": ("vo2max", "mL/kg/min")},
+    "whoop": {"recovery": ("recovery", "%"), "resting_hr": ("resting_hr", "bpm"), "hrv": ("hrv", "ms"),
+              "spo2": ("spo2", "%"), "skin_temp": ("skin_temp", "°C"), "strain": ("strain", "strain"),
+              "calories": ("calories", "kcal"), "avg_hr": ("avg_hr", "bpm"), "max_hr": ("max_hr", "bpm"),
+              "sleep_minutes": ("sleep_minutes", "minutes"), "deep_minutes": ("deep_minutes", "minutes"),
+              "rem_minutes": ("rem_minutes", "minutes"), "light_minutes": ("light_minutes", "minutes"),
+              "sleep_efficiency": ("sleep_efficiency", "%"), "sleep_performance": ("sleep_performance", "%"),
+              "respiratory_rate": ("respiratory_rate", "breaths/min")},
     "oura": {"readiness": ("readiness", "score"), "sleep_score": ("sleep_score", "score"),
              "activity_score": ("activity_score", "score"), "steps": ("steps", "steps"),
              "active_calories": ("active_calories", "kcal"), "total_calories": ("calories", "kcal"),
@@ -68,10 +94,15 @@ FROM = {  # connector -> {its field: (measure, its own unit)}
              "temp_deviation": ("temp_deviation", "°C"), "stress_minutes": ("stress_minutes", "minutes"),
              "recovery_minutes": ("recovery_minutes", "minutes"), "spo2": ("spo2", "%")},
 }
-UNIT_WORDS = {"{steps}/d": "steps a day", "/min": "beats a minute", "ms": "milliseconds", "Cel": "°C", "%": "%",
-              "kcal/d": "kcal a day", "min": "minutes", "{score}": "a score out of 100"}  # the UCUM units, said plainly
-TABLES = {"health_connect": "health_daily", "oura": "oura_daily"}  # each source's own table, kept unchanged
-TITLES = {"health_connect": "Phone health data (Health Connect)", "oura": "Oura Ring",
+UNIT_WORDS = {"{steps}/d": "steps a day", "/min": "a minute", "ms": "milliseconds", "Cel": "°C", "%": "%",
+              "kcal/d": "kcal a day", "min": "minutes", "{score}": "a score", "kg": "kilograms", "mm[Hg]": "mmHg",
+              "mg/dL": "mg/dL", "mL/(kg.min)": "mL per kg a minute"}  # the UCUM units, said plainly
+APPS = {"com.garmin.android.apps.connectmobile": "Garmin Connect", "com.fitbit.FitbitMobile": "Fitbit (and Pixel Watch)",
+        "com.google.android.apps.fitness": "Google Fit", "com.sec.android.app.shealth": "Samsung Health",
+        "com.ouraring.oura": "Oura", "com.withings.wiscale2": "Withings", "com.google.android.apps.healthdata":
+        "Health Connect"}  # the apps that write to Health Connect, by their Android package
+TABLES = {"health_connect": "health_daily", "oura": "oura_daily", "whoop": "whoop_daily"}  # sources' own tables
+TITLES = {"health_connect": "Phone health data (Health Connect)", "oura": "Oura Ring", "whoop": "WHOOP",
           "lab_upload": "Lab reports you upload", "mychart": "MyChart (patient portals)"}
 LAB_SOURCES = ("lab_upload", "mychart")  # kept until the owner deletes them
 KEEP_SETTING, KEEP_DEFAULT = "BUDDY_HEALTH_KEEP_DAYS", 730
@@ -219,7 +250,15 @@ def sources(memory: Memory, env=None) -> list[dict]:
         state = row.get("state", "not_set_up")
         if connector == "lab_upload":
             state = "working" if held else "not_set_up"
+        apps = []
+        if connector == "health_connect":  # which apps wrote to Health Connect lately (Garmin, Fitbit, Samsung...)
+            try:
+                for r in memory.db.execute("SELECT apps FROM health_daily ORDER BY day DESC LIMIT 30"):
+                    apps += [a for a in json.loads(r["apps"] or "[]") if a not in apps]
+            except Exception:
+                apps = []
         out.append({"connector": connector, "title": TITLES[connector], "state": state,
+                    "apps": [APPS.get(a, a) for a in apps][:12],
                     "expired": connecthub.expired(memory, connector), "last_error": row.get("last_error", ""),
                     **connecthub.last(memory, connector), "history": connecthub.history(memory, connector, 8),
                     "measures": measures, "records": sum(h["n"] for h in held.values()),

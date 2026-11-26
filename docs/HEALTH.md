@@ -66,6 +66,32 @@ your server. No AI model is given any of it.
 
 What it does not do: it gives no advice beyond those fixed rules, and it is not medical advice.
 
+## Garmin, Fitbit, Pixel Watch, Samsung and other devices (through Health Connect)
+
+These write to Google Health Connect on your phone, and the Buddy app reads Health Connect, so no separate
+connection is needed: Garmin Connect (since mid-2025), the Fitbit app (also for the Pixel Watch), Samsung Health, and
+scales, blood pressure cuffs and glucose meters whose apps write there.
+1. In each device's app, turn on syncing to **Health Connect** (Garmin Connect: Settings → Health Connect; Fitbit:
+   Settings → Health Connect; Samsung Health: Settings → Health Connect).
+2. In the Buddy app: Connections → Health → Phone health data → allow the types you want: steps, sleep, heart rate,
+   resting heart rate, exercise and calories as before, and now HRV, blood oxygen, weight, body fat, blood pressure,
+   blood glucose, breathing rate and VO2 max. Each type is your choice.
+3. Health → Sources → Phone health data shows which apps wrote to Health Connect lately ("Garmin Connect, Fitbit").
+Each day Buddy gets the day's total or average (for weight, body fat, blood pressure and VO2 max, the day's last
+reading), never the minute-by-minute readings. What each app shares with Health Connect is that app's choice
+(Garmin shares a set of about 15 kinds of data, for example). Google's Health API (the Fitbit cloud's successor)
+is not used: it needs Google's review of the app, and Health Connect gives the same data from the phone.
+
+## WHOOP
+
+Set up once on the server, like the Oura Ring: create an app at developer.whoop.com, then
+`sudo bash /opt/buddy/deploy/whoop.sh` (it shows the return address to put on the app and asks for the client ID
+and secret). Then in the Buddy app: Connections → Health → WHOOP → Connect, and allow access. Buddy reads a year of
+history the first time, then the last 14 days every three hours (WHOOP rescores recent days): each day's recovery
+(score, resting heart rate, HRV, blood oxygen, skin temperature), strain, calories and heart rate, the main sleep
+(deep, REM, light, efficiency, performance, breathing rate) and workouts. The health plan reads WHOOP when there is
+no Oura reading for a day. Built from WHOOP's published API and tested against a made-up WHOOP, not a real band.
+
 ## Lab results from MyChart (patient portals)
 
 Health → Labs → **Patient portals (MyChart)**: find your health system in Epic's public list, tap **Sign in**, sign

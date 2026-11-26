@@ -75,7 +75,9 @@ def test_every_mapped_field_has_a_measure_and_the_loinc_codes_are_the_checked_on
         for field, (measure, unit) in fields.items():
             assert measure in healthrecords.MEASURES and unit, (connector, field)
     codes = {m: v[2] for m, v in healthrecords.MEASURES.items() if v[2]}
-    assert codes == {"steps": "41950-7", "resting_hr": "40443-4", "calories": "41979-6"}
+    assert codes == {"steps": "41950-7", "resting_hr": "40443-4", "calories": "41979-6",  # HL7 physical activity
+                     "respiratory_rate": "9279-1", "weight": "29463-7", "bp_systolic": "8480-6",  # FHIR vital signs
+                     "bp_diastolic": "8462-4"}
     assert {v[3] for v in healthrecords.MEASURES.values()} <= set(healthrecords.QUALITY)
 
 
@@ -115,3 +117,20 @@ def test_how_long_readings_are_kept_is_one_setting():
     assert healthrecords.keep_days({"BUDDY_HEALTH_KEEP_DAYS": "365"}) == 365
     assert healthrecords.keep_days({"BUDDY_HEALTH_KEEP_DAYS": "5"}) == 30 and healthrecords.keep_days(
         {"BUDDY_HEALTH_KEEP_DAYS": "lots"}) == 730
+
+
+def test_the_phone_sends_what_garmin_fitbit_and_other_apps_wrote_and_which_apps(tmp_path):
+    m = Memory(tmp_path / "b.db")
+    health_data.ingest(m, {"days": [{"day": TODAY, "steps": 9000, "hrv": 41.5, "spo2": 97.2, "weight_kg": 78.4,
+                                     "bp_systolic": 121, "bp_diastolic": 79, "glucose_mgdl": 96, "vo2max": 44.1,
+                                     "respiratory_rate": 14.2, "body_fat": "21.5",
+                                     "apps": ["com.garmin.android.apps.connectmobile", "com.fitbit.FitbitMobile",
+                                              "bad name; drop table"]}]})
+    got = rows(m, "health_connect")
+    assert got["weight"]["value"] == 78.4 and got["weight"]["loinc"] == "29463-7" and got["weight"]["unit"] == "kg"
+    assert got["bp_systolic"]["loinc"] == "8480-6" and got["bp_diastolic"]["value"] == 79
+    assert got["hrv_any"]["value"] == 41.5 and got["vo2max"]["quality"] == "estimated" and got["body_fat"]["value"] == 21.5
+    phone = {s["connector"]: s for s in healthrecords.sources(m, ENV)}["health_connect"]
+    assert phone["apps"] == ["Garmin Connect", "Fitbit (and Pixel Watch)"]  # an odd package name is dropped
+    day = m.db.execute("SELECT weight_kg, apps FROM health_daily").fetchone()
+    assert day["weight_kg"] == 78.4 and "garmin" in day["apps"]

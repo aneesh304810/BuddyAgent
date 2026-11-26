@@ -83,7 +83,7 @@ function syncLine(r) {
 function sourceCard(s) {
   const [word, kind] = STATE[s.state] || [s.state, ""];
   const failed = s.last && !s.last.ok ? `<p class="err" style="padding:4px 0">Last sync failed: ${esc(s.last.error)}</p>` : "";
-  const connect = s.state === "not_set_up" && s.can_disconnect ? `<p class="muted">To connect it: More → Connections → Health → ${esc(s.title)} → Connect.</p>` : "";
+  const connect = s.state === "not_set_up" && s.can_disconnect ? `<p class="muted">To connect it: ${s.connector === "mychart" ? "Health → Labs → Patient portals" : `More → Connections → Health → ${esc(s.title)} → Connect`}.</p>` : "";
   const expired = s.state === "expired" ? `<p class="err" style="padding:4px 0">${esc(s.expired)}. Connect it again: More → Connections → Health → ${esc(s.title)} → Reconnect.</p>` : "";
   const measures = s.measures.map((m) => `<div class="line"><div class="what">${esc(m.label)}<small>${esc(m.how)}${m.loinc ? ` · LOINC ${esc(m.loinc)}` : ""} · ${esc(m.unit_words)}</small></div><span class="muted">${esc(m.days)} days</span></div>`).join("");
   const hist = (s.history || []).map((r) => `<div class="line"><div class="what">${esc(when(r.started_at))} · ${esc(KIND[r.kind] || r.kind)}<small>${r.ok ? `${values(r.records)}, ${esc(r.new_records)} new` : r.finished_at ? "failed: " + esc(r.error) : "running"}</small></div></div>`).join("");
@@ -95,6 +95,7 @@ function sourceCard(s) {
   return card(`${esc(s.title)} <span class="pill ${kind}">${esc(word)}</span>`,
     connect + expired + failed +
     `<p class="muted">Last sync: ${syncLine(s.last)}${s.last_ok && s.last && !s.last.ok ? ` · last good: ${syncLine(s.last_ok)}` : ""}</p>
+     ${(s.apps || []).length ? `<p class="muted">Apps that wrote to it lately: ${esc(s.apps.join(", "))}</p>` : ""}
      <p class="muted">Held: ${values(s.records)}${s.records ? `, ${esc(when(s.first))} to ${esc(when(s.newest))}` : ""}, kept ${esc(s.keep_days)} days.</p>
      <details><summary class="muted" style="cursor:pointer">What it sends (${esc(s.measures.length)})</summary>${measures}</details>
      <details><summary class="muted" style="cursor:pointer">Sync history</summary>${hist || `<p class="muted">No syncs yet.</p>`}</details>

@@ -22,6 +22,7 @@ flowchart LR
         healthrecords_py["healthrecords.py<br/>The owner's health values in one form, each with where it came from:…"]
         labs_py["labs.py<br/>reports the owner uploads (Quest, Labcorp, a hospital portal's PDF),…"]
         fhirlabs_py["fhirlabs.py<br/>Lab results from the owner's patient portals (MyChart and other Epic…"]
+        whoop_py["whoop.py<br/>The owner's WHOOP band, through Buddy Connect (Health group) and…"]
     end
     you --> t_thermostat
     t_thermostat --> nest_py
@@ -37,6 +38,7 @@ flowchart LR
     coach_py --> health_data_py
     coach_py --> healthrecords_py
     coach_py --> oura_py
+    coach_py --> whoop_py
     healthpage_py --> coach_py
     healthpage_py --> health_data_py
     healthpage_py --> oura_py
@@ -45,12 +47,14 @@ flowchart LR
     labs_py --> oura_py
     fhirlabs_py --> healthrecords_py
     fhirlabs_py --> labs_py
-    db[("Your database<br/>coach_log, coach_meals, health_daily, health_records, lab_reports, lab_results, oura_daily")]
+    whoop_py --> healthrecords_py
+    db[("Your database<br/>coach_log, coach_meals, health_daily, health_records, lab_reports, lab_results, oura_daily, whoop_daily")]
     health_data_py --> db
     oura_py --> db
     coach_py --> db
     healthrecords_py --> db
     labs_py --> db
+    whoop_py --> db
     s_medlineplus["MedlinePlus (NIH health topics)<br/>(public data only)"]
     health_data_py --> s_medlineplus
     s_nest["Google Nest (thermostat)<br/>(may see personal data)"]
@@ -169,7 +173,7 @@ Personal: kept on this server (90 days of logs), seen only by Claude. "Forget my
 ```
 
 - Tables: `coach_log`, `coach_meals`
-- Uses: health_data.py, healthrecords.py, location.py, memory.py, oura.py, tools.py
+- Uses: health_data.py, healthrecords.py, location.py, memory.py, oura.py, tools.py, whoop.py
 
 ### healthpage.py
 
@@ -295,6 +299,32 @@ Nothing here is given to an AI model; only the lab ranges switch (labs.py) lets 
 
 - Settings: `BUDDY_EPIC_CLIENT_ID`
 - Uses: connecthub.py, gateway.py, healthrecords.py, labs.py, memory.py
+
+### whoop.py
+
+```text
+The owner's WHOOP band, through Buddy Connect (Health group) and WHOOP's developer API (v2). Read only.
+
+Each day: recovery (score, resting heart rate, HRV, blood oxygen, skin temperature), the day's strain, energy and
+heart rate, the main sleep (total, deep "slow wave", REM, light, efficiency, performance, respiratory rate) and
+workouts. Kept like the other health readings (healthrecords.keep_days), in the encrypted database, and also as
+health records with their source. No AI model is given any of it (the Privacy Gateway's health rule).
+
+Two steps, as for the Oura Ring:
+  once per server  register an app at developer.whoop.com with this server's return address
+                   (https://<tailnet name>/connect/whoop/linked) and run deploy/whoop.sh (client ID and secret).
+  each user        Connections > Health > WHOOP > Connect: a sign-in link with a one-time state (15 minutes); WHOOP
+                   sends the browser back to this server's own page, which swaps the code for tokens (with the
+                   "offline" scope, a refresh token, so Buddy reads new days by itself every few hours).
+
+Built from WHOOP's published v2 API (records under "records", pages by "next_token", up to 25 at a time) and tested
+against a made-up WHOOP, not a real band: the first real sync is the true test, and a field WHOOP names differently
+is simply left empty.
+```
+
+- Tables: `whoop_daily`
+- Settings: `BUDDY_WHOOP_CLIENT_ID`, `BUDDY_WHOOP_CLIENT_SECRET`, `BUDDY_WHOOP_REDIRECT`
+- Uses: connecthub.py, gateway.py, healthrecords.py, memory.py, tools.py
 
 ## How it connects
 

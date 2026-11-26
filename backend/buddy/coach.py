@@ -95,14 +95,26 @@ def set_plan(memory: Memory, args: dict) -> dict:
 
 # --- the day's numbers ---------------------------------------------------------------------------------------
 def _data(memory: Memory, n: int) -> dict[str, dict]:
-    """day -> the merged numbers (Oura first, the phone's Health Connect for what Oura lacks)."""
+    """day -> the merged numbers (Oura first, then WHOOP, then the phone's Health Connect for what they lack)."""
     out: dict[str, dict] = {}
-    from . import health_data, oura  # noqa: PLC0415
+    from . import health_data, oura, whoop  # noqa: PLC0415
     try:
         for r in health_data.days(memory, n):
             out[r["day"]] = {"steps": r.get("steps"), "sleep_minutes": r.get("sleep_minutes"),
                              "active_minutes": r.get("active_minutes"), "resting_hr": r.get("resting_hr"),
                              "workouts": len(r.get("workouts") or [])}
+    except Exception:
+        pass
+    try:
+        for r in whoop.days(memory, n):
+            d = out.setdefault(r["day"], {})
+            for k in ("recovery", "strain", "hrv", "resting_hr", "deep_minutes", "rem_minutes"):
+                if r.get(k) is not None:
+                    d[k] = r[k]
+            if r.get("sleep_minutes"):
+                d["sleep_minutes"] = r["sleep_minutes"]
+            if r.get("workouts"):
+                d["workouts"] = max(d.get("workouts") or 0, len(r["workouts"]))
     except Exception:
         pass
     try:

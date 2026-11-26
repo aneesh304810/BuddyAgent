@@ -290,7 +290,11 @@ CATALOG: dict[str, dict] = {
     # Health (health_data.py): the phone's own data stays on this server; the public ones get only a drug,
     # topic or product name.
     "health_connect": {"group": "Health", "title": "Phone health data (Health Connect)", "auth": {"type": "phone"},
-                       "privacy": "personal", "used_for": "your steps, sleep, heart rate and workouts, from the phone",
+                       "privacy": "personal",
+                       "used_for": "your steps, sleep, heart rate, workouts, HRV, blood oxygen, weight, body fat, "
+                                   "blood pressure, glucose, breathing rate and VO2 max, from the phone: whatever "
+                                   "Garmin Connect, Fitbit (and Pixel Watch), Samsung Health or other apps wrote "
+                                   "to Health Connect",
                        "terms": "Your own data, sent by your phone with your permission. Google's Health Connect "
                                 "rules: used only for Buddy's health features, never sold or used for ads.",
                        "reports": True},
@@ -306,6 +310,16 @@ CATALOG: dict[str, dict] = {
              "terms": "Your own data, read with the access you granted in Oura's sign-in; kept on your server only.",
              "setup_command": "sudo bash /opt/buddy/deploy/oura.sh", "health": {"custom": "oura.check"},
              "moved": True},
+    # The owner's WHOOP band (whoop.py): WHOOP's developer API v2, read only, linked like the Oura Ring.
+    "whoop": {"group": "Health", "title": "WHOOP", "hosts": ["https://api.prod.whoop.com"],
+              "auth": {"type": "oauth", "token_url": "https://api.prod.whoop.com/oauth/oauth2/token",
+                       "fields": {"client_id": "BUDDY_WHOOP_CLIENT_ID", "client_secret": "BUDDY_WHOOP_CLIENT_SECRET"}},
+              "link": "whoop", "cost": 0.0, "per_minute": 60, "privacy": "personal", "no_backup": True,
+              "used_for": "your recovery, strain, sleep, HRV and workouts from the band, for your health plan; never "
+                          "given to an AI model",
+              "terms": "Your own data, read with the access you granted in WHOOP's sign-in; kept on your server only.",
+              "setup_command": "sudo bash /opt/buddy/deploy/whoop.sh", "health": {"custom": "whoop.check"},
+              "moved": True},
     # The owner's patient portals (fhirlabs.py): SMART on FHIR, read only; each health system's own address, signed
     # in at that system with a one-time state and PKCE; the app's client ID comes from fhir.epic.com.
     "mychart": {"group": "Health", "title": "MyChart (patient portals)", "hosts": ["https://open.epic.com"],

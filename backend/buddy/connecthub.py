@@ -36,6 +36,8 @@ SOURCES = {  # connector -> the module that brings its data in, and what it can 
                        "stop": "The phone sends this. To stop it, turn off health data in the Buddy app's settings, "
                                "or remove Buddy's access in Health Connect's own settings.",
                        "fetch": "The phone sends this: open the Buddy app to send the latest."},
+    "whoop": {"module": "whoop", "group": "Health", "sync": True, "disconnect": True,
+              "stop": "Disconnect here; to remove Buddy's access at WHOOP too, remove it in the WHOOP app's settings."},
     "mychart": {"module": "fhirlabs", "group": "Health", "sync": True, "disconnect": True,
                 "stop": "Disconnect here; to remove Buddy's access at your health system too, remove it in MyChart's "
                         "settings (linked apps)."},
