@@ -665,7 +665,7 @@ async function grocFind(kind, q, fromScan = false) {
   if (kind === "barcode") groc.naming = null;
   groc.linked = null;
   let got;
-  try { got = await api(`/api/health/facts?kind=${kind}&q=${encodeURIComponent(q)}`); groc.found = got.foods || []; }
+  try { got = await api(`/api/health/facts?kind=${kind}&q=${encodeURIComponent(q)}`); groc.found = got.foods || []; groc.lastFound = groc.found; }
   catch (e) { groc.failed = e.message; groc.busy = false; render(); return; }
   groc.busy = false;
   if (!groc.found.length && kind === "barcode" && got.key) {
@@ -759,16 +759,26 @@ function toBuyCard() {
 function kitchenCard() {
   const k = grocList.kitchen || [];
   const row = (x) => `<div class="line" style="align-items:flex-start"><div class="what">${x.verdict ? `<span class="pill ${VERDICT_PILL[x.verdict]}">${esc(x.headline.split(":")[0])}</span> ` : ""}${esc(x.name)}${expiryPill(x)}
-      <small>${[x.brand, x.packs > 1 ? `${x.packs} packs` : "", x.serving ? `a serving: ${x.serving}` : "no label numbers", x.eaten ? `eaten ${x.eaten} time${x.eaten === 1 ? "" : "s"}` : ""].filter(Boolean).map(esc).join(" · ")}</small>
+      <small>${[x.brand, x.packs > 1 ? `${x.packs} packs` : "", x.serving ? `a serving: ${x.serving}` : "no label numbers", x.eaten ? `eaten ${x.eaten} time${x.eaten === 1 ? "" : "s"}` : ""].filter(Boolean).map(esc).join(" · ")}${x.matched ? ` · USDA: ${esc(x.matched)} <a href="#" data-refood="${x.id}" data-refood-name="${esc(x.name)}">change</a>` : !x.scan_id && !x.serving ? ` · <a href="#" data-refood="${x.id}" data-refood-name="${esc(x.name)}">find its numbers</a>` : ""}</small>
       <div class="f" style="margin-top:4px"><select data-who-item="${x.id}" aria-label="Who it's for">${whoOptions(x.who)}</select><label style="margin:0;display:flex;align-items:center;gap:6px">Date on the pack <input type="date" data-exp="${x.id}" value="${esc(x.expires || "")}"></label></div></div>
-      <div class="f" style="gap:6px;flex-wrap:nowrap"><button class="btn solid" data-ate="${x.id}">Ate it</button><button class="btn" data-finished="${x.id}">Finished</button></div></div>`;
+      <div class="f" style="gap:6px;flex-wrap:nowrap"><button class="btn solid" data-ate="${x.id}">Ate it</button><button class="btn" data-finished="${x.id}">Finished</button><button class="btn" data-finished="${x.id}" aria-label="Remove ${esc(x.name)}: added by mistake">✕</button></div></div>`;
   const groups = [...new Set(k.map((x) => x.who || ""))];
-  return card("My kitchen", k.length ? groups.map((g) => (groups.length > 1 ? `<p style="margin:10px 0 2px"><b>${esc(whoName(g))}</b></p>` : "") + k.filter((x) => (x.who || "") === g).map(row).join("")).join("")
-    : `<p class="muted">Nothing yet. In a store, scan a product and tap <b>Add to my groceries</b>.</p>`, esc(grocList.note || ""));
+  const add = `<form class="f" id="kitchen-add" style="margin-bottom:8px"><input class="grow" name="text" maxlength="1000" placeholder="What you bought, e.g. eggs x12, milk use by Friday, spinach for Ishaan" aria-label="What you bought"><button class="btn solid">Add</button></form>
+    <p class="muted" style="margin:0 0 8px;font-size:13px">Commas between items. Or tell Buddy: "I'm buying eggs, milk and spinach for my kitchen" (in the app or through your glasses).</p>`;
+  return card("My kitchen", add + (k.length ? groups.map((g) => (groups.length > 1 ? `<p style="margin:10px 0 2px"><b>${esc(whoName(g))}</b></p>` : "") + k.filter((x) => (x.who || "") === g).map(row).join("")).join("")
+    : `<p class="muted">Nothing yet: type what you bought above, say it to Buddy, or scan a product and tap <b>Add to my groceries</b>.</p>`), esc(grocList.note || ""));
 }
 function wireGroceries() {
   if ($("groc-keep")) $("groc-keep").onclick = () => keepGroc(groc.verdict.id, false);
   if ($("groc-anyway")) $("groc-anyway").onclick = () => keepGroc(groc.verdict.id, true);
+  if ($("kitchen-add")) $("kitchen-add").onsubmit = async (e) => {
+    e.preventDefault(); const text = e.target.text.value.trim(); if (!text) return;
+    const out = await loadGroceries({ action: "add", text }); if (out && out.said) notice(out.said);
+  };
+  $("main").querySelectorAll("[data-refood]").forEach((a) => a.onclick = (e) => {  // the right USDA food for it
+    e.preventDefault(); groc.fixing = { id: Number(a.dataset.refood), name: a.dataset.refoodName }; groc.naming = null;
+    groc.q = groc.fixing.name; grocFind("food", groc.fixing.name); window.scrollTo(0, 0);
+  });
   if ($("buy-form")) $("buy-form").onsubmit = (e) => { e.preventDefault(); const text = e.target.text.value.trim(); if (text) loadGroceries({ action: "buy", text, who: e.target.who.value }); };
   if ($("people-form")) $("people-form").onsubmit = (e) => { e.preventDefault(); loadGroceries({ action: "people", names: e.target.names.value.split(",").map((x) => x.trim()).filter(Boolean) }); };
   $("main").querySelectorAll("[data-who-item]").forEach((el) => el.onchange = () => loadGroceries({ action: "who", id: Number(el.dataset.whoItem), who: el.value }));
@@ -900,6 +910,7 @@ function renderGroceries() {
   const naming = groc.naming;
   let body = `<form class="f" id="groc-form"><input class="grow" name="q" maxlength="80" placeholder="${naming ? "What is it? e.g. chicken thighs" : "A product, e.g. Greek yogurt, oat bread"}" value="${esc(groc.q)}" aria-label="${naming ? "What you scanned" : "A product"}"><button class="btn solid">Check</button></form>
     <p class="muted" style="margin:6px 0 0">Or scan its barcode with <b>Scan food</b>.</p>`;
+  if (groc.fixing && !groc.busy) body += `<p style="margin:10px 0 0">Pick the food that's right for <b>${esc(groc.fixing.name)}</b> in My kitchen (or type other words above). <a href="#" id="groc-unfix">Never mind</a></p>`;
   if (naming && !groc.busy) body += `<p style="margin:10px 0 0">${esc(NAMING[naming.store ? "store" : ""])}</p>
     ${groc.found && groc.found.length ? `<p class="muted" style="margin:6px 0 2px">Pick the one that matches what you scanned:</p>` : ""}
     <p style="margin:6px 0 0"><button class="btn" id="groc-unname">Don't remember it</button></p>`;
@@ -950,8 +961,16 @@ function renderGroceries() {
   $("main").querySelectorAll("[data-place-del]").forEach((b) => b.onclick = () => loadPlaces({ action: "forget", id: Number(b.dataset.placeDel) }));
   $("groc-form").onsubmit = (e) => { e.preventDefault(); const q = e.target.q.value.trim(); if (!q) return; groc.q = q; if (!groc.naming) groc.packDate = ""; grocFind("food", q); };
   if ($("groc-unname")) $("groc-unname").onclick = () => { groc.naming = null; render(); };
+  if ($("groc-unfix")) $("groc-unfix").onclick = (e) => { e.preventDefault(); groc.fixing = null; groc.found = null; render(); };
   $("main").querySelectorAll("[data-groc-pick]").forEach((b) => b.onclick = () => {  // another match for what was named: linked instead
-    groc.pick = Number(b.dataset.grocPick); if (groc.verdict && groc.linked) groc.naming = groc.linked; grocCheck(groc.found[groc.pick]);
+    groc.pick = Number(b.dataset.grocPick);
+    if (groc.fixing) {  // the right food for a kitchen item added by name
+      const f = groc.fixing, food = (groc.lastFound || [])[groc.pick];
+      groc.fixing = null; groc.found = null;
+      loadGroceries({ action: "refood", id: f.id, food }).then((out) => { if (out) notice(`${f.name}: numbers from USDA's ${food.name}.`); });
+      return;
+    }
+    if (groc.verdict && groc.linked) groc.naming = groc.linked; grocCheck(groc.found[groc.pick]);
   });
   $("main").querySelectorAll("[data-cmp]").forEach((b) => b.onclick = () => { const id = Number(b.dataset.cmp); groc.compare.has(id) ? groc.compare.delete(id) : groc.compare.add(id); render(); });
   $("main").querySelectorAll("[data-groc-open]").forEach((b) => b.onclick = () => {

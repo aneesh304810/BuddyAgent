@@ -251,3 +251,74 @@ def test_the_date_read_in_the_same_scan_is_saved_with_add(tmp_path):
     assert sooner["expires"] == today.isoformat()
     odd = groceries.keep(memory, scan, expires="1999-01-01")  # a misread: the add still goes through
     assert odd["added"] and odd["expires"] == today.isoformat()
+
+
+EGG = {"fdcId": 748967, "description": "Eggs, Grade A, Large, egg whole", "dataType": "Foundation",
+       "foodNutrients": [{"nutrientId": 1008, "unitName": "KCAL", "value": 148}, {"nutrientId": 1003, "value": 12.4},
+                         {"nutrientId": 1004, "value": 10}, {"nutrientId": 1258, "value": 3.1},
+                         {"nutrientId": 1093, "value": 129}],
+       "foodMeasures": [{"disseminationText": "1 large", "gramWeight": 50}]}
+
+
+def _usda_fetch(seen):
+    import json as _json
+
+    def fetch(url, data=None, headers=None):
+        seen.append(url)
+        return _json.dumps({"foods": [EGG] if "egg" in url.lower() else []})
+    return fetch
+
+
+def test_what_you_type_or_say_is_read_into_items():
+    today = datetime(2026, 11, 26).date()  # a Thursday
+    got = groceries.parse_items("2 dozen eggs, milk use by Friday, spinach for Ishaan, chicken use within 2 days, "
+                                "3 packs of yogurt and bananas x6", ["Ishaan"], today)
+    assert got == [{"name": "eggs", "count": 24}, {"name": "milk", "use_by": "2026-11-27"},
+                   {"name": "spinach", "who": "Ishaan"}, {"name": "chicken", "within_days": 2},
+                   {"name": "yogurt", "count": 3}, {"name": "bananas", "count": 6}]
+    assert groceries.parse_items("butter, bread best by dec 5, rice for Bob", [], today) == [
+        {"name": "butter"}, {"name": "bread", "use_by": "2026-12-05"}, {"name": "rice for Bob"}]
+
+
+def test_groceries_said_go_into_the_kitchen_with_usda_numbers(tmp_path, monkeypatch):
+    m = _owner(tmp_path)
+    monkeypatch.setenv("BUDDY_USDA_KEY", "k")
+    from buddy import foodfacts
+    foodfacts.CACHE.clear()
+    seen = []
+    groceries.set_people(m, ["Ishaan"])
+    groceries.add_buy(m, "eggs")
+    got = groceries.add_by_name(m, [{"name": "eggs", "count": 12}, {"name": "spinach", "who": "Ishaan",
+                                                                    "within_days": 3},
+                                    {"name": "milk", "who": "Grandpa"}], fetch=_usda_fetch(seen))
+    assert [a["name"] for a in got["added"]] == ["Eggs", "Spinach", "Milk"] and got["ticked"] == ["eggs"]
+    assert all("api.nal.usda.gov" in u for u in seen) and any("eggs" in u.lower() for u in seen)  # only the name goes out
+    eggs = next(k for k in got["kitchen"] if k["name"] == "Eggs")
+    assert eggs["packs"] == 12 and eggs["matched"].startswith("Eggs, grade a") and eggs["verdict"]
+    spinach = next(k for k in got["kitchen"] if k["name"] == "Spinach")
+    assert spinach["who"] == "Ishaan" and spinach["expires"] and spinach["matched"] == "" and "verdict" not in spinach
+    assert any("Grandpa" in n for n in got["notes"]) and any("No USDA match for Spinach" in n for n in got["notes"])
+    line = groceries.said(got)
+    assert line.startswith("Added to your kitchen: eggs (12), spinach for Ishaan use by") and "Ticked off your list: eggs" in line
+    assert "Good" not in line and "kcal" not in line  # no verdicts or numbers in what Claude hears
+    more = groceries.add_by_name(m, [{"name": "eggs", "count": 6}], fetch=_usda_fetch(seen))
+    assert next(k for k in more["kitchen"] if k["name"] == "Eggs")["packs"] == 18  # one more pack, not a new row
+    m2 = groceries.refood(m, spinach["id"], foodfacts._food(EGG))  # the owner picks the right food
+    assert next(k for k in m2 if k["id"] == spinach["id"])["matched"].startswith("Eggs")
+    assert "Added to your kitchen" in groceries.run_tool(m, {"action": "add", "items": [{"name": "bread"}]})
+
+
+def test_typed_on_the_page(tmp_path, monkeypatch):
+    from fastapi.testclient import TestClient
+    from buddy import server
+    m = _owner(tmp_path)
+    monkeypatch.setattr(server, "memory", m)
+    monkeypatch.setattr(server, "authorized", lambda t: t == "s3cret")
+    monkeypatch.setattr(groceries, "_usda", lambda memory, name, env=None, fetch=None: {})
+    client, auth = TestClient(server.app), {"Authorization": "Bearer s3cret"}
+    out = client.post("/api/health/groceries", json={"action": "add", "text": "eggs x12, milk use by friday"},
+                      headers=auth).json()
+    assert [a["name"] for a in out["added"]] == ["Eggs", "Milk"] and out["said"].startswith("Added to your kitchen")
+    bad = client.post("/api/health/groceries", json={"action": "refood", "id": out["added"][0]["id"], "food": {}},
+                      headers=auth)
+    assert bad.status_code == 400

@@ -2001,6 +2001,13 @@ async def api_health_groceries_act(body: dict) -> dict:
             return await asyncio.to_thread(groceries.ate, memory, n)
         if action == "finished":
             return {"kitchen": await asyncio.to_thread(groceries.finish, memory, n)}
+        if action == "add":  # typed: "eggs x12, milk use by Friday, spinach for Ishaan"
+            items = groceries.parse_items(str(body.get("text") or "")[:1000], groceries.people(memory))
+            got = await asyncio.to_thread(groceries.add_by_name, memory, items)
+            return got | {"said": groceries.said(got)}
+        if action == "refood":  # the right USDA food for an item added by name
+            food = body.get("food") if isinstance(body.get("food"), dict) else {}
+            return {"kitchen": await asyncio.to_thread(groceries.refood, memory, n, food)}
     except ToolError as e:
         raise HTTPException(400, str(e)) from None
     raise HTTPException(400, "unknown action")

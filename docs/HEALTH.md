@@ -158,6 +158,13 @@ sub-tabs under them, and the page remembers where you were.
   track, the next-meal hint names kitchen foods whose serving fits what's left today. **Bought** ticks an item off by
   hand (it goes in by its name, without numbers). Kept on your server until finished or deleted; no AI model sees the
   kitchen.
+- **Without a scan: typed or said.** On My kitchen, type what you bought ("eggs x12, milk use by Friday, spinach for
+  Ishaan", commas between items), or tell Buddy in the app or through your glasses: "I'm buying eggs, milk and
+  spinach for my kitchen". Each item goes in at once (Buddy reads back what it added; ✕ removes one), with how many,
+  whom it's for and the use-by date or "use within N days" when said, ticking off what it matches on To buy. Its
+  numbers come from USDA's closest basic food (only the name goes to USDA), so Ate it counts it and the verdict shows;
+  "change" picks another match. Buddy's reply names only what was added: the kitchen, verdicts and numbers stay
+  off AI models.
 - **For the family, dates, spending and deals** (`groceries.py`, `PackDate.kt`). Name the people you shop for once
   (e.g. your wife and Ishaan) under **Who you shop for**; each item on To buy and in My kitchen can be for one of you
   or everyone (the scanner has chips for it), and My kitchen groups by person. **The date on the pack** is read in the same

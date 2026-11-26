@@ -12,6 +12,7 @@ flowchart LR
         t_my_health["my_health"]
         t_health_info["health_info"]
         t_health_plan["health_plan"]
+        t_my_kitchen["my_kitchen"]
     end
     subgraph Modules["Modules"]
         nest_py["nest.py<br/>The owner's Nest thermostat, through Buddy Connect (Home group) and…"]
@@ -51,6 +52,8 @@ flowchart LR
     t_health_info --> health_data_py
     you --> t_health_plan
     t_health_plan --> coach_py
+    you --> t_my_kitchen
+    t_my_kitchen --> groceries_py
     health_data_py --> bodylog_py
     health_data_py --> healthrecords_py
     health_data_py --> oura_py
@@ -123,6 +126,7 @@ flowchart LR
     scanmeal_py --> foodverdict_py
     scanmeal_py --> groceries_py
     groceries_py --> coach_py
+    groceries_py --> foodfacts_py
     groceries_py --> foodverdict_py
     groceries_py --> scanmeal_py
     db[("Your database<br/>bp_readings, buy_for, coach_log, coach_meals, evidence_papers, food_places, food_scans, health_daily and more")]
@@ -183,6 +187,7 @@ The diagram reads left to right: what you ask, the tools Buddy uses, the modules
 | `my_health` | The user's own health data from their phone (Google Health Connect, read by the Buddy app with their permission): daily steps, sleep, resting and average heart  | - | health_data.py |
 | `health_info` | Public health information through Buddy Connect: drug (what a medicine is for, warnings, side effects, interactions, from the US FDA label), recalls (FDA drug r | drug, recalls, topic, food | health_data.py |
 | `health_plan` | The owner's health plan: goals, daily habits, food targets, tracking, progress | show, set_plan, today, progress, log, meal, food, forget | coach.py |
+| `my_kitchen` | Groceries the user bought, into My kitchen (Food -> Groceries) | add | groceries.py |
 
 ## Technical design, module by module
 
@@ -872,7 +877,7 @@ already reads.
 ```
 
 - Tables: `buy_for`, `kitchen`
-- Uses: coach.py, foodverdict.py, memory.py, money.py, organiser.py, pricebook.py, scanmeal.py, shopper.py, tools.py
+- Uses: coach.py, foodfacts.py, foodverdict.py, memory.py, money.py, organiser.py, pricebook.py, scanmeal.py, shopper.py, tools.py
 
 ## How it connects
 

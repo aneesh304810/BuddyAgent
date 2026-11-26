@@ -259,6 +259,7 @@ def kitchen(memory: Memory) -> list[dict]:
         item = {k: r[k] for k in ("id", "scan_id", "name", "brand", "packs", "eaten", "added_at", "last_eaten", "who",
                                   "expires", "expires_how")}
         food = json.loads(r["food"] or "{}")
+        item["matched"] = food.get("matched", "")  # added by name: the USDA food it was matched to
         if food:
             try:
                 got = foodverdict.judge(memory, food)
@@ -488,3 +489,223 @@ def lists(memory: Memory, now: datetime | None = None) -> dict:
     buy = [t | {"deals": deals_for(memory, t["text"], seen=seen)} for t in to_buy(memory)]
     return {"people": people(memory), "to_buy": buy, "kitchen": kitchen(memory), "use_soon": use_soon(memory, now),
             "spend": spend(memory, now=now), "note": NOTE}
+
+
+# --- groceries said or typed, without a scan ----------------------------------------------------------------------
+COUNT_WORDS = {"a": 1, "an": 1, "one": 1, "two": 2, "three": 3, "four": 4, "five": 5, "six": 6, "seven": 7,
+               "eight": 8, "nine": 9, "ten": 10, "twelve": 12, "a dozen": 12, "dozen": 12, "one dozen": 12,
+               "half a dozen": 6, "two dozen": 24, "three dozen": 36}
+WEEKDAYS = ("monday", "tuesday", "wednesday", "thursday", "friday", "saturday", "sunday")
+MONTHS = ("jan", "feb", "mar", "apr", "may", "jun", "jul", "aug", "sep", "oct", "nov", "dec")
+UNITS = r"(?:packs?|packets?|bags?|boxes?|cartons?|bottles?|cans?|jars?|tubs?|bunch(?:es)?|heads?|loaves|loaf|" \
+        r"lbs?|pounds?|kg|dozen)"
+
+
+def _day(text: str, today: date) -> date | None:
+    """'friday', 'tomorrow', 'dec 5', '12/5', '2026-12-05' as a date on or after today."""
+    t = " ".join(str(text or "").lower().replace(",", " ").split())
+    if t in ("today", "tonight"):
+        return today
+    if t == "tomorrow":
+        return today + timedelta(days=1)
+    for i, name in enumerate(WEEKDAYS):
+        if t in (name, name[:3]):
+            return today + timedelta(days=(i - today.weekday()) % 7)
+    try:
+        return date.fromisoformat(t[:10])
+    except ValueError:
+        pass
+    m = re.fullmatch(r"(\d{1,2})/(\d{1,2})(?:/(\d{2,4}))?", t)
+    if m:
+        month, day_, year = int(m.group(1)), int(m.group(2)), m.group(3)
+    else:
+        m = re.fullmatch(r"([a-z]{3})[a-z]*\.? (\d{1,2})(?: (\d{4}))?", t)
+        if not m or m.group(1) not in MONTHS:
+            return None
+        month, day_, year = MONTHS.index(m.group(1)) + 1, int(m.group(2)), m.group(3)
+    try:
+        when = date(int(year) + (2000 if year and len(year) == 2 else 0) if year else today.year, month, day_)
+    except ValueError:
+        return None
+    return when if year or when >= today - timedelta(days=30) else when.replace(year=when.year + 1)
+
+
+def parse_items(text: str, household: list[str], today: date | None = None) -> list[dict]:
+    """What the owner typed: "eggs x12, 2 dozen eggs, milk use by Friday, spinach for Ishaan, chicken use within 2
+    days" -> [{name, count, who, use_by, within_days}]. Commas (or new lines) between items; "and" before the last."""
+    today = today or local_now().date()
+    parts = [p for p in re.split(r"[,;\n]+", str(text or "")) if p.strip()]
+    if parts:
+        parts = parts[:-1] + re.split(r"\s+and\s+", parts[-1])
+    names = {p.lower(): p for p in household} | {"me": "me", "everyone": "everyone", "all": "everyone"}
+    out = []
+    for raw in parts[:30]:
+        s = " ".join(raw.split())
+        item: dict = {}
+        m = re.search(r"\bfor\s+(\w+)\s*$", s, re.I) or re.search(r"\bfor\s+(\w+)\b", s, re.I)
+        if m and m.group(1).lower() in names:
+            item["who"] = names[m.group(1).lower()]
+            s = (s[:m.start()] + s[m.end():]).strip()
+        m = re.search(r"\b(?:use\s+)?within\s+(\d+)\s+days?\b|\bin\s+(\d+)\s+days?\b", s, re.I)
+        if m:
+            item["within_days"] = int(m.group(1) or m.group(2))
+            s = (s[:m.start()] + s[m.end():]).strip()
+        m = re.search(r"\b(?:use|best|sell|good)?\s*(?:by|before|until)\s+([a-z0-9/\- ]+?)\s*$", s, re.I)
+        if m and (when := _day(m.group(1), today)):
+            item["use_by"] = when.isoformat()
+            s = s[:m.start()].strip()
+        m = re.search(r"\s*(?:x|×)\s*(\d+)\s*$|\s*\((\d+)\)\s*$", s, re.I)
+        if m:
+            item["count"] = int(m.group(1) or m.group(2))
+            s = s[:m.start()].strip()
+        m = re.match(r"^(\d+|an?|one|two|three|four|five|half an?)\s+dozen\s+(?:of\s+)?", s, re.I)
+        if m and len(s) > m.end():  # "2 dozen eggs", "half a dozen eggs"
+            word = m.group(1).lower()
+            item.setdefault("count", 6 if word.startswith("half") else 12 * (int(word) if word.isdigit()
+                                                                              else COUNT_WORDS.get(word, 1)))
+            s = s[m.end():]
+        m = re.match(r"^(\d+|half a dozen|(?:one|two|three) dozen|a dozen|dozen|an?|one|two|three|four|five|six|seven|"
+                     rf"eight|nine|ten|twelve)\s+(?:{UNITS}\s+(?:of\s+)?)?", s, re.I)
+        if m and len(s) > m.end():
+            word = m.group(1).lower()
+            item.setdefault("count", int(word) if word.isdigit() else COUNT_WORDS.get(word, 1))
+            s = s[m.end():]
+        s = re.sub(rf"^(?:{UNITS}\s+of\s+)", "", s, flags=re.I).strip(" .-")
+        if len(s) >= 2:
+            out.append({"name": s[:60], **item})
+    return out
+
+
+def _usda(memory: Memory, name: str, env=None, fetch=None) -> dict:
+    """USDA's closest basic food for a name ('eggs' -> 'Egg, whole, raw, fresh'), or {} (no key, no match, offline).
+    Only the name goes to USDA."""
+    from . import foodfacts, foodverdict  # noqa: PLC0415
+    try:
+        found = foodfacts.foods(memory, name, env=env, fetch=fetch)
+    except (ToolError, OSError, ValueError):
+        return {}
+    pick = next((f for f in found if (f.get("per100") or {}).get("kcal")), None)
+    if not pick:
+        return {}
+    return {k: pick.get(k) for k in foodverdict.KEEP if pick.get(k) not in (None, "", [])} | {"matched": pick["name"]}
+
+
+def add_by_name(memory: Memory, items: list[dict], env=None, fetch=None) -> dict:
+    """Groceries the owner says or types they bought, into My kitchen without a scan: each matched to USDA's closest
+    basic food (so Ate it counts it and the verdict shows), how many, whom it's for, the use-by date; a shopping-list
+    item it matches is ticked off. One already in the kitchen gets more packs (the sooner date stays)."""
+    _ready(memory)
+    today = local_now().date()
+    added, ticked, notes = [], [], []
+    for it in (items or [])[:30]:
+        name = " ".join(str(it.get("name") or "").split())[:60]
+        if len(name) < 2:
+            continue
+        name = name[0].upper() + name[1:]
+        try:
+            count = max(1, min(int(it.get("count") or 1), 99))
+        except (TypeError, ValueError):
+            count = 1
+        try:
+            chosen = _who(memory, it.get("who")) if it.get("who") not in (None, "") else None
+        except ToolError:
+            chosen = None
+            notes.append(f"Who's {it.get('who')}? Add them under Who you shop for; {name} is for everyone for now.")
+        expires = ""
+        if it.get("use_by"):
+            try:
+                expires = date.fromisoformat(str(it["use_by"])[:10]).isoformat()
+            except ValueError:
+                expires = ""
+        elif str(it.get("within_days") or "").isdigit():
+            expires = (today + timedelta(days=min(int(it["within_days"]), 1100))).isoformat()
+        food = _usda(memory, name, env, fetch)
+        if not food:
+            notes.append(f"No USDA match for {name}: kept by name, without numbers.")
+        tick = _match(memory, name)
+        who = chosen if chosen is not None else (tick or {}).get("who", "")
+        now = datetime.now(timezone.utc).isoformat(timespec="seconds")
+        same = memory.db.execute("SELECT id, expires FROM kitchen WHERE barcode = '' AND lower(name) = lower(?)",
+                                 (name,)).fetchone()
+        if same:
+            item_id = same["id"]
+            memory.db.execute("UPDATE kitchen SET packs = packs + ?, added_at = ?, who = ? WHERE id = ?",
+                              (count, now, who, item_id))
+            if food:
+                memory.db.execute("UPDATE kitchen SET food = ? WHERE id = ?", (json.dumps(food)[:20000], item_id))
+        else:
+            item_id = memory.db.execute(
+                "INSERT INTO kitchen (scan_id, name, food, packs, added_at, who) VALUES (0, ?, ?, ?, ?, ?)",
+                (name, json.dumps(food)[:20000] if food else "{}", count, now, who)).lastrowid
+        memory.db.commit()
+        if expires and not (same and same["expires"] and same["expires"] <= expires):
+            try:
+                set_expires(memory, int(item_id), expires, how="set")
+            except ToolError:
+                notes.append(f"The date for {name} doesn't look right for food: pick it on Groceries.")
+                expires = ""
+        if tick:
+            _org(memory).complete(str(tick["id"]))
+            ticked.append(tick["text"])
+        added.append({"id": int(item_id), "name": name, "count": count, "who": who, "use_by": expires,
+                      "matched": food.get("matched", "")})
+    return {"added": added, "ticked": ticked, "notes": notes, "to_buy": to_buy(memory), "kitchen": kitchen(memory)}
+
+
+def refood(memory: Memory, item_id: int, food: dict) -> list[dict]:
+    """The owner picked the right USDA food for a kitchen item added by name ("not that milk, 2% milk")."""
+    from . import foodverdict  # noqa: PLC0415
+    _ready(memory)
+    if not isinstance(food, dict) or not (food.get("per100") or {}).get("kcal"):
+        raise ToolError("Pick a food with numbers.")
+    slim = {k: food.get(k) for k in foodverdict.KEEP if food.get(k) not in (None, "", [])}
+    slim["matched"] = " ".join(str(food.get("name") or "").split())[:120]
+    if not memory.db.execute("UPDATE kitchen SET food = ? WHERE id = ?", (json.dumps(slim)[:20000], int(item_id))).rowcount:
+        raise ToolError("That isn't in your kitchen any more.")
+    memory.db.commit()
+    return kitchen(memory)
+
+
+def said(result: dict) -> str:
+    """The read-back: only what was added, in the owner's own words (no verdicts or numbers: those stay off AI)."""
+    def one(a):
+        bits = [a["name"].lower() + (f" ({a['count']})" if a["count"] > 1 else "")]
+        if a["who"] and a["who"] != "me":
+            bits.append(f"for {a['who']}")
+        if a["use_by"]:
+            bits.append(f"use by {date.fromisoformat(a['use_by']).strftime('%a %b %d')}")
+        return " ".join(bits)
+    if not result["added"]:
+        return "Nothing added: say what you bought, like \"eggs, milk and spinach for my kitchen\"."
+    out = "Added to your kitchen: " + ", ".join(one(a) for a in result["added"]) + "."
+    if result["ticked"]:
+        out += " Ticked off your list: " + ", ".join(result["ticked"]) + "."
+    return " ".join([out] + result["notes"][:3])
+
+
+TOOL = {
+    "name": "my_kitchen",
+    "description": "Groceries the user bought, into My kitchen (Food -> Groceries). When they say they bought or are "
+    "buying groceries for their kitchen ('I'm buying eggs, milk and spinach for my kitchen', 'got two dozen eggs and "
+    "chicken, use within 2 days', 'yogurt for Ishaan'), call add at once with every item and read back the result "
+    "(no need to ask first; each has a remove button on the page). Each item: name (as they said it), count (packs "
+    "or pieces, when said), who (a household member's name, 'me' or 'everyone', when said), use_by (YYYY-MM-DD, when "
+    "they gave a date or day) or within_days ('use within 2 days'). Shopping-list items they match are ticked off. "
+    "Nutrition comes from USDA's closest basic food on the server; you never see the kitchen, its verdicts or "
+    "numbers, so for those point them to Food -> Groceries. Not for things still to buy (that's the shopping list: "
+    "add_task with list shopping).",
+    "input_schema": {"type": "object", "properties": {
+        "action": {"type": "string", "enum": ["add"]},
+        "items": {"type": "array", "items": {"type": "object", "properties": {
+            "name": {"type": "string"}, "count": {"type": "integer"}, "who": {"type": "string"},
+            "use_by": {"type": "string"}, "within_days": {"type": "integer"}},
+            "required": ["name"], "additionalProperties": False}}},
+        "required": ["action", "items"], "additionalProperties": False},
+}
+
+
+def run_tool(memory: Memory, args: dict) -> str:
+    if args.get("action") != "add":
+        raise ToolError("Use add.")
+    items = args.get("items") if isinstance(args.get("items"), list) else []
+    return said(add_by_name(memory, [i for i in items if isinstance(i, dict)]))
