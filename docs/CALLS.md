@@ -227,7 +227,9 @@ Once set up, a call you don't pick up goes to Buddy instead of your voicemail. B
 If someone asks, Buddy says honestly that it's an AI assistant. At most 30 answered calls a day, 5 minutes each.
 
 **Turn it on:** `calls.sh` prints the codes with your Plivo number. On your phone, dial each and press Call:
-- `**61*1PLIVONUMBER**20#`: when you don't answer within 20 seconds
+- `**61*1PLIVONUMBER**15#`: when you don't answer within 15 seconds, about 3 rings (a US ring is about 6 seconds;
+  the carrier takes 5 to 30 in steps of 5: `**10#` for about 2 rings, `**20#` for about 4). Dialling it again with
+  another number of seconds replaces the old one.
 - `**67*1PLIVONUMBER#`: when you're on another call
 - `**62*1PLIVONUMBER#`: when your phone is off or has no signal
 

@@ -99,7 +99,7 @@ echo "Plivo's signature)."
 echo
 echo "Buddy answers the calls you miss: on your phone, dial each of these and press Call (T-Mobile and most US"
 echo "carriers; each replaces your voicemail for that case):"
-echo "  **61*${PLIVO_DIGITS}**20#   you don't answer within 20 seconds"
+echo "  **61*${PLIVO_DIGITS}**15#   you don't answer within 15 seconds (about 3 rings; 5 to 30 in steps of 5)"
 echo "  **67*${PLIVO_DIGITS}#       you're on another call"
 echo "  **62*${PLIVO_DIGITS}#       your phone is off or has no signal"
 echo "  To stop and go back to voicemail: ##004#"
