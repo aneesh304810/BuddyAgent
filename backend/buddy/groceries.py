@@ -270,9 +270,10 @@ def kitchen(memory: Memory) -> list[dict]:
     return out
 
 
-def keep(memory: Memory, scan_id: int, anyway: bool = False, who: str | None = None) -> dict:
+def keep(memory: Memory, scan_id: int, anyway: bool = False, who: str | None = None, expires: str = "") -> dict:
     """A scanned product into My kitchen; ticks off the shopping-list item it matches. who: whom it's for (else the
-    list item's, else everyone)."""
+    list item's, else everyone). expires: the date on the pack as the phone's camera read it in the same scan; with
+    one more pack of a product already in the kitchen, the sooner date stays."""
     from . import foodverdict  # noqa: PLC0415
     _ready(memory)
     chosen = _who(memory, who) if who not in (None, "") else None
@@ -285,7 +286,7 @@ def keep(memory: Memory, scan_id: int, anyway: bool = False, who: str | None = N
                                          "better": better_than(memory, scan_id)}}
     barcode = str(row["barcode"] or "")
     same = memory.db.execute(
-        "SELECT id FROM kitchen WHERE (barcode != '' AND barcode = ?) OR (barcode = '' AND lower(name) = lower(?))",
+        "SELECT id, expires FROM kitchen WHERE (barcode != '' AND barcode = ?) OR (barcode = '' AND lower(name) = lower(?))",
         (barcode, row["name"])).fetchone()
     now = local_now().isoformat(timespec="seconds")
     ticked = _match(memory, row["name"], row["brand"] or "")
@@ -299,9 +300,19 @@ def keep(memory: Memory, scan_id: int, anyway: bool = False, who: str | None = N
             "INSERT INTO kitchen (scan_id, name, brand, barcode, food, added_at, who) VALUES (?, ?, ?, ?, ?, ?, ?)",
             (int(scan_id), row["name"], row["brand"] or "", barcode, json.dumps(food)[:20000], now, who)).lastrowid
     memory.db.commit()
+    dated = ""
+    if expires and not (same and same["expires"] and same["expires"] <= str(expires)[:10]):
+        try:
+            set_expires(memory, int(item_id), str(expires), how="read")
+            dated = str(expires)[:10]
+        except (ToolError, ValueError):
+            pass  # a date that doesn't look right for food: left for the owner to read again or pick
+    if not dated and same and same["expires"]:
+        dated = same["expires"]
     if ticked:
         _org(memory).complete(str(ticked["id"]))
     return {"added": True, "already": bool(same), "name": row["name"], "item_id": int(item_id), "who": who,
+            "expires": dated,
             "ticked": ticked["text"] if ticked else "", "to_buy": to_buy(memory), "kitchen": kitchen(memory)}
 
 

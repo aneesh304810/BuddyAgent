@@ -642,7 +642,7 @@ function mealsBySlot(recent) {
 
 // --- Groceries: is this product good for me? One serving judged by the server's code against your own numbers
 // (foodverdict.py); the products you check are kept, so you can look back and compare them on the shelf.
-const groc = { q: "", found: null, busy: false, failed: "", pick: 0, verdict: null, scans: null, compare: new Set(), cmp: null, sure: false, naming: null };
+const groc = { q: "", found: null, busy: false, failed: "", pick: 0, verdict: null, scans: null, compare: new Set(), cmp: null, sure: false, naming: null, packDate: "" };
 // A barcode no list has, or a store's own label (meat, deli, bakery weighed in the store): "What is it?" The food
 // picked is kept with the barcode (or that store item), so the next scan of it finds it on your server.
 const NAMING = {
@@ -695,9 +695,9 @@ async function loadGroceries(body) {
     if (body && (out.kitchen || out.to_buy || out.people)) { grocList.stale = true; }
     return out;
   } catch (e) { notice(e.message); grocList = grocList || { to_buy: [], kitchen: [] }; return null; }
-  finally {
-    if (grocList && grocList.stale) { grocList.stale = false; loadGroceries(); return; }  // dates, deals and spend again
-    if (showing("plan", "groceries") || tab === "today") render();
+  finally {  // no return in here: it would replace the answer above
+    if (grocList && grocList.stale) { grocList.stale = false; loadGroceries(); }  // dates, deals and spend again
+    else if (showing("plan", "groceries") || tab === "today") render();
   }
 }
 const usd = (n) => "$" + Number(n || 0).toFixed(2);
@@ -733,14 +733,15 @@ function useSoonCard(buttons) {
   return card("Use soon", u.map((x) => `<div class="line"><div class="what">${esc(x.name)}${expiryPill(x)}<small>${esc(whoName(x.who))}</small></div>${buttons ? `<div class="f" style="gap:6px;flex-wrap:nowrap"><button class="btn solid" data-ate="${x.id}">Ate it</button><button class="btn" data-finished="${x.id}">Finished</button></div>` : ""}</div>`).join(""),
     "By the date on each pack in My kitchen. No AI model sees it.");
 }
-async function keepGroc(id, anyway) {
-  const out = await loadGroceries({ action: "keep", scan: id, anyway });
-  if (out) { grocAdd = out; render(); }
+async function keepGroc(id, anyway) {  // with the date on the pack when the phone read it in the same scan
+  const out = await loadGroceries({ action: "keep", scan: id, anyway, ...(groc.packDate ? { expires: groc.packDate } : {}) });
+  if (out) { grocAdd = out; if (out.added) groc.packDate = ""; render(); }
 }
+const packDay = (iso) => { const d = new Date(iso + "T12:00:00"); return isNaN(d) ? iso : d.toLocaleDateString(undefined, { weekday: "short", month: "short", day: "numeric" }); };
 function grocAddBox() {
   const a = grocAdd;
   if (!a) return "";
-  if (a.added) return `<p style="margin:10px 0 0"><span class="pill good">${a.already ? "One more in your kitchen" : "In your kitchen"}</span> ${esc(a.name)}${a.ticked ? ` · ticked off <b>${esc(a.ticked)}</b>` : ""}</p>`;
+  if (a.added) return `<p style="margin:10px 0 0"><span class="pill good">${a.already ? "One more in your kitchen" : "In your kitchen"}</span> ${esc(a.name)}${a.ticked ? ` · ticked off <b>${esc(a.ticked)}</b>` : ""}${a.expires ? ` · date on the pack ${esc(packDay(a.expires))}` : ""}</p>`;
   const w = a.warn, b = w.better;
   return `<div style="margin-top:12px;padding-top:10px;border-top:1px solid var(--line)"><p style="margin:0"><span class="pill bad">${esc(w.headline.split(":")[0])}</span> for you${w.why.length ? ": " + esc(w.why.join(" ")) : "."}</p>
     ${b ? `<p style="margin:8px 0 0">Better for you, scanned before: <b>${esc(b.name)}</b>${b.brand ? ` (${esc(b.brand)})` : ""} <span class="pill ${VERDICT_PILL[b.verdict]}">${esc(b.headline.split(":")[0])}</span></p>` : ""}
@@ -907,7 +908,8 @@ function renderGroceries() {
     const shopping = scanMeal && !scanMeal.done && !scanMeal.busy;  // at a store, or "Just buying"
     if (v.id && groc.dealsFor !== v.id) { groc.dealsFor = v.id; groc.deals = null; api(`/api/health/groceries/deals?scan=${v.id}`).then((o) => { groc.deals = o.deals; render(); }).catch(() => {}); }
     const cheaper = groc.deals && groc.deals.length ? `<p style="margin:8px 0 0"><b>Seen lately:</b> ${dealLine(groc.deals).replace(/^<small>|<\/small>$/g, "")}</p>` : "";
-    body += verdictCard(v) + cheaper + mealBox() + grocAddBox() + `<div class="f" style="margin-top:10px">${v.id && !(grocAdd && grocAdd.added) ? `<button class="btn${shopping || !scanMeal ? " solid" : ""}" id="groc-keep">Add to my groceries</button>` : ""}${scanMeal ? "" : `<button class="btn" id="groc-eat">Add to a meal</button>`}
+    const dated = groc.packDate && !(grocAdd && grocAdd.added) ? `<p class="muted" style="margin:8px 0 0">Date on the pack: <b>${esc(packDay(groc.packDate))}</b>, read in the same scan; saved when you add it to your groceries.</p>` : "";
+    body += verdictCard(v) + cheaper + dated + mealBox() + grocAddBox() + `<div class="f" style="margin-top:10px">${v.id && !(grocAdd && grocAdd.added) ? `<button class="btn${shopping || !scanMeal ? " solid" : ""}" id="groc-keep">Add to my groceries</button>` : ""}${scanMeal ? "" : `<button class="btn" id="groc-eat">Add to a meal</button>`}
       ${v.id ? `<button class="btn${groc.compare.has(v.id) ? " on" : ""}" data-cmp="${v.id}">${groc.compare.has(v.id) ? "In the comparison" : "Compare"}</button>` : ""}</div>`;
     if (groc.found && groc.found.length > 1) body += `<p class="muted" style="margin:10px 0 2px">Other matches:</p>` + groc.found.map((f, i) => i === groc.pick ? "" :
       `<div class="line"><div class="what">${esc(f.name)}<small>${esc(f.kind)}${f.brand ? " · " + esc(f.brand) : ""}</small></div><button class="btn" data-groc-pick="${i}">Check this</button></div>`).join("");
@@ -944,7 +946,7 @@ function renderGroceries() {
   wireScanMeal();
   wireGroceries();
   $("main").querySelectorAll("[data-place-del]").forEach((b) => b.onclick = () => loadPlaces({ action: "forget", id: Number(b.dataset.placeDel) }));
-  $("groc-form").onsubmit = (e) => { e.preventDefault(); const q = e.target.q.value.trim(); if (!q) return; groc.q = q; grocFind("food", q); };
+  $("groc-form").onsubmit = (e) => { e.preventDefault(); const q = e.target.q.value.trim(); if (!q) return; groc.q = q; if (!groc.naming) groc.packDate = ""; grocFind("food", q); };
   if ($("groc-unname")) $("groc-unname").onclick = () => { groc.naming = null; render(); };
   $("main").querySelectorAll("[data-groc-pick]").forEach((b) => b.onclick = () => {  // another match for what was named: linked instead
     groc.pick = Number(b.dataset.grocPick); if (groc.verdict && groc.linked) groc.naming = groc.linked; grocCheck(groc.found[groc.pick]);
@@ -952,7 +954,7 @@ function renderGroceries() {
   $("main").querySelectorAll("[data-cmp]").forEach((b) => b.onclick = () => { const id = Number(b.dataset.cmp); groc.compare.has(id) ? groc.compare.delete(id) : groc.compare.add(id); render(); });
   $("main").querySelectorAll("[data-groc-open]").forEach((b) => b.onclick = () => {
     const s = groc.scans.find((x) => x.id === Number(b.dataset.grocOpen)); if (!s) return;
-    groc.verdict = { ...s, food: s.food }; groc.found = null; groc.failed = ""; grocAdd = null; scanMeal = null; render(); window.scrollTo(0, 0);
+    groc.verdict = { ...s, food: s.food }; groc.found = null; groc.failed = ""; grocAdd = null; scanMeal = null; groc.packDate = ""; render(); window.scrollTo(0, 0);
   });
   $("main").querySelectorAll("[data-groc-del]").forEach((b) => b.onclick = async () => {
     try { groc.scans = (await api("/api/health/scans", { action: "delete", id: Number(b.dataset.grocDel) })).scans; groc.compare.delete(Number(b.dataset.grocDel)); }
@@ -1460,18 +1462,19 @@ async function load() {
 // number or the dish's name came from the phone; never a picture.
 const scanned = (() => {  // read from the address as it arrived (the token line above may have cleared it since)
   const code = (params.get("scanbarcode") || "").replace(/\D/g, "");
+  const packdate = /^\d{4}-\d{2}-\d{2}$/.test(params.get("packdate") || "") ? params.get("packdate") : "";
   const dish = (params.get("scandish") || "").replace(/[^\p{L}\p{N} '&(),.-]/gu, "").trim().slice(0, 60);
   if (!code && !dish) return null;
   const rest = new URLSearchParams(location.search);
   if (rest.has("scanbarcode") || rest.has("scandish")) {  // a reload doesn't look it up again
-    rest.delete("scanbarcode"); rest.delete("scandish"); rest.delete("t");
+    rest.delete("scanbarcode"); rest.delete("scandish"); rest.delete("packdate"); rest.delete("t");
     history.replaceState(null, "", location.pathname + (String(rest) ? `?${rest}` : ""));
   }
   tab = "plan"; storageSet("healthTab", "plan"); storageSet("healthSub:plan", code ? "groceries" : "food");
-  return code ? { kind: "barcode", q: code } : { kind: "food", q: dish };
+  return code ? { kind: "barcode", q: code, packdate } : { kind: "food", q: dish };
 })();
 load().then(() => {
   if (!scanned) return;
-  if (scanned.kind === "barcode") grocFind("barcode", scanned.q, true);
+  if (scanned.kind === "barcode") { groc.packDate = scanned.packdate; grocFind("barcode", scanned.q, true); }
   else { factQ.food = scanned.q; lookUp(scanned.kind, scanned.q); }
 });

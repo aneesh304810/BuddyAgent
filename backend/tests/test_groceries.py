@@ -1,7 +1,7 @@
 """Groceries: the shopping list ticked off by scans, My kitchen with "Ate it" and Finished, a warning before a product
 that's better to skip, and kitchen foods in the next-meal hint. Code only; no AI model sees the kitchen."""
 
-from datetime import datetime
+from datetime import datetime, timedelta
 
 import pytest
 from fastapi.testclient import TestClient
@@ -231,3 +231,23 @@ def test_api_v2(tmp_path, monkeypatch):
     pricebook.observe(m, "product", "Fage Total Greek Yogurt", 5.49, seller="Walmart", source="deals inbox")
     assert client.get(f"/api/health/groceries/deals?scan={scan}", headers=auth).json()["deals"][0]["store"] == "Walmart"
     assert client.get("/api/health/groceries/deals?q=greek+yogurt", headers=auth).json()["deals"]
+
+
+def test_the_date_read_in_the_same_scan_is_saved_with_add(tmp_path):
+    """The phone reads the date on the pack with the barcode; Add saves it. One more pack keeps the sooner date."""
+    from buddy import foodverdict, groceries
+    memory = Memory(tmp_path / "d.db")
+    food = {"name": "Chicken, thigh, raw", "per100": {"kcal": 221, "protein_g": 17.3, "fat_g": 16.6},
+            "barcode": "store-207542", "named": True}
+    scan = foodverdict.keep(memory, food, "sometimes")
+    today = groceries.local_now().date()
+    first = groceries.keep(memory, scan, expires=(today + timedelta(days=2)).isoformat())
+    assert first["added"] and first["expires"] == (today + timedelta(days=2)).isoformat()
+    item = next(k for k in first["kitchen"] if k["id"] == first["item_id"])
+    assert item["expires"] == first["expires"] and item["expires_how"] == "read"
+    later = groceries.keep(memory, scan, expires=(today + timedelta(days=6)).isoformat())
+    assert later["already"] and later["expires"] == first["expires"]  # the sooner pack's date stays
+    sooner = groceries.keep(memory, scan, expires=today.isoformat())
+    assert sooner["expires"] == today.isoformat()
+    odd = groceries.keep(memory, scan, expires="1999-01-01")  # a misread: the add still goes through
+    assert odd["added"] and odd["expires"] == today.isoformat()

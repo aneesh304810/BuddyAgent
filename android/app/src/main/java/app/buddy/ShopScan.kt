@@ -63,7 +63,12 @@ class Unnamed(val key: String, val store: Boolean) : Exception(
     else "No food list has this barcode (USDA's or Open Food Facts'). What is it?")
 
 data class ShopAdd(val added: Boolean, val already: Boolean, val ticked: String, val warn: String, val better: String,
-                   val toBuy: List<ShopItem>, val itemId: Int = 0)
+                   val toBuy: List<ShopItem>, val itemId: Int = 0, val expires: String = "")
+
+/** "2026-11-26" as "Thu, Nov 26". */
+fun packDay(iso: String): String =
+    runCatching { java.time.LocalDate.parse(iso).format(java.time.format.DateTimeFormatter.ofPattern("EEE, MMM d")) }
+        .getOrDefault(iso)
 
 object GroceryApi {
     private val http = OkHttpClient.Builder().callTimeout(30, TimeUnit.SECONDS).build()
@@ -149,9 +154,11 @@ object GroceryApi {
             v.optString("headline"), bits.joinToString(" · "))
     }
 
-    suspend fun keep(link: ServerLink, scanId: Int, anyway: Boolean, who: String?): ShopAdd {
+    /** Into My kitchen, with the date on the pack when the camera read it in the same scan. */
+    suspend fun keep(link: ServerLink, scanId: Int, anyway: Boolean, who: String?, expires: java.time.LocalDate?): ShopAdd {
         val body = JSONObject().put("action", "keep").put("scan", scanId).put("anyway", anyway)
         if (who != null) body.put("who", who.ifBlank { "everyone" })
+        if (expires != null) body.put("expires", expires.toString())
         val o = call(link, "/api/health/groceries", body)
         val warn = o.optJSONObject("warn")
         val why = warn?.optJSONArray("why")?.let { a -> (0 until a.length()).joinToString(" ") { a.getString(it) } }.orEmpty()
@@ -160,7 +167,7 @@ object GroceryApi {
         }.orEmpty()
         return ShopAdd(o.optBoolean("added"), o.optBoolean("already"), o.optString("ticked"),
             if (warn != null) why.ifBlank { warn.optString("headline") } else "", better, items(o.optJSONArray("to_buy")),
-            o.optInt("item_id"))
+            o.optInt("item_id"), o.optString("expires"))
     }
 }
 
@@ -174,9 +181,12 @@ class ShopSession(private val link: ServerLink?, private val scope: CoroutineSco
     var added by mutableIntStateOf(0)
     var people by mutableStateOf<List<String>>(emptyList())
     var who by mutableStateOf<String?>(null)     // null: the list item's person, else everyone
-    var readingFor by mutableIntStateOf(0)        // a kitchen item whose pack date the camera is reading
-    var dateSeen by mutableStateOf<java.time.LocalDate?>(null)
+    var readingFor by mutableIntStateOf(0)        // a kitchen item waiting for the date on its pack
+    var dateSeen by mutableStateOf<java.time.LocalDate?>(null)  // read in this scan, saved with Add
     var dateSaved by mutableStateOf("")
+    private val watch = DateWatch()
+    private var waitUntil = 0L
+    private var saving = false
     var unnamed by mutableStateOf<Unnamed?>(null)   // a barcode no list has: what is it?
     var naming by mutableStateOf("")
     var matches by mutableStateOf<List<JSONObject>>(emptyList())
@@ -202,6 +212,8 @@ class ShopSession(private val link: ServerLink?, private val scope: CoroutineSco
             add = null
             readingFor = 0
             dateSaved = ""
+            dateSeen = watch.date?.takeIf { now - watch.at <= 1500 }  // in view with the barcode: this pack's
+            watch.clear()
             unnamed = null
             matches = emptyList()
             runCatching { GroceryApi.check(link, code) }
@@ -254,20 +266,49 @@ class ShopSession(private val link: ServerLink?, private val scope: CoroutineSco
         }
     }
 
-    /** What the text reader saw while the camera points at the pack's date. */
-    fun sawText(text: String) {
-        if (readingFor == 0 || dateSeen != null) return
-        PackDate.parse(text)?.let { dateSeen = it }
+    /**
+     * One camera frame: the barcode in view (if any) and the words the text reader saw, both on the phone. The date on
+     * the pack comes from the same scan: read with the barcode it's saved with Add; otherwise, after Add, the camera
+     * looks for it for a few seconds and saves it by itself. Another barcode in view stops that, so the next pack's
+     * date isn't taken for this one.
+     */
+    fun frame(code: String?, text: String) {
+        val now = SystemClock.elapsedRealtime()
+        val other = code != null && code != last
+        if (readingFor != 0 && (other || now > waitUntil)) readingFor = 0
+        if (text.isNotBlank()) {
+            val day = watch.saw(text, now)
+            val a = add
+            if (day != null && !other && verdict != null && dateSaved.isBlank()) {
+                if (a == null || !a.added) dateSeen = day
+                else if (readingFor != 0) { dateSeen = day; saveDate() }
+            }
+        }
+        if (code != null) scanned(code)
     }
 
-    fun saveDate() {
+    /** Look for the date again (after Add): shown to the camera, it's saved by itself. */
+    fun readDate() {
+        val a = add ?: return
+        if (a.itemId <= 0) return
+        watch.clear()
+        dateSeen = null
+        dateSaved = ""
+        readingFor = a.itemId
+        waitUntil = SystemClock.elapsedRealtime() + 10_000
+    }
+
+    private fun saveDate() {
         val link = link ?: return
         val day = dateSeen ?: return
         val item = readingFor
+        if (saving || item == 0) return
+        saving = true
         scope.launch {
             runCatching { GroceryApi.expires(link, item, day.toString()) }
-                .onSuccess { dateSaved = day.toString(); readingFor = 0; dateSeen = null }
+                .onSuccess { dateSaved = day.toString(); readingFor = 0 }
                 .onFailure { problem = it.message ?: "Couldn't save the date: try again." }
+            saving = false
         }
     }
 
@@ -276,8 +317,15 @@ class ShopSession(private val link: ServerLink?, private val scope: CoroutineSco
         val v = verdict ?: return
         scope.launch {
             busy = true
-            runCatching { GroceryApi.keep(link, v.scanId, anyway, who) }
-                .onSuccess { a -> add = a; if (a.added) { added += 1; toBuy = a.toBuy } }
+            runCatching { GroceryApi.keep(link, v.scanId, anyway, who, dateSeen) }
+                .onSuccess { a ->
+                    add = a
+                    if (a.added) {
+                        added += 1
+                        toBuy = a.toBuy
+                        if (a.expires.isNotBlank()) dateSaved = a.expires else readDate()  // not seen yet: look for it
+                    }
+                }
                 .onFailure { problem = it.message ?: "Couldn't add it: try again." }
             busy = false
         }
@@ -331,6 +379,10 @@ fun ShopPanel(s: ShopSession, modifier: Modifier = Modifier) {
                 if (v.numbers.isNotBlank()) Text(v.numbers, color = Pal.dim, fontSize = 13.sp)
                 if (v.deals.isNotBlank()) Text("Seen lately: ${v.deals}", color = Pal.link, fontSize = 13.sp)
                 val a = s.add
+                val seen = s.dateSeen
+                if ((a == null || !a.added) && seen != null) {
+                    Text("Date on the pack: ${packDay(seen.toString())}, saved when you add it", color = Pal.dim, fontSize = 13.sp)
+                }
                 if (a == null && s.people.isNotEmpty()) {  // whom it's for: you, each person, or everyone
                     Row(Modifier.horizontalScroll(rememberScrollState()), horizontalArrangement = Arrangement.spacedBy(6.dp)) {
                         (listOf("" to "Everyone", "me" to "You") + s.people.map { it to it }).forEach { (key, label) ->
@@ -346,13 +398,18 @@ fun ShopPanel(s: ShopSession, modifier: Modifier = Modifier) {
                         Text((if (a.already) "✓ One more in your groceries" else "✓ In your groceries") +
                             if (a.ticked.isNotBlank()) " · ticked off ${a.ticked}" else "", color = Pal.good)
                         when {
-                            s.dateSaved.isNotBlank() -> Text("Date on the pack: ${s.dateSaved}", color = Pal.dim, fontSize = 13.sp)
-                            s.readingFor == 0 -> OutlinedButton(onClick = { s.readingFor = a.itemId; s.dateSeen = null },
-                                enabled = a.itemId > 0) { Text("Read the date on the pack") }
-                            s.dateSeen == null -> Text("Point the camera at the date (best by, use by, exp)…", color = Pal.dim)
-                            else -> Row(horizontalArrangement = Arrangement.spacedBy(8.dp)) {
-                                Button(onClick = { s.saveDate() }) { Text("Save ${s.dateSeen}") }
-                                OutlinedButton(onClick = { s.dateSeen = null }) { Text("Read again") }
+                            s.dateSaved.isNotBlank() -> Row(horizontalArrangement = Arrangement.spacedBy(8.dp)) {
+                                Text("Date on the pack: ${packDay(s.dateSaved)}", color = Pal.dim, fontSize = 13.sp,
+                                    modifier = Modifier.weight(1f))
+                                OutlinedButton(onClick = { s.readDate() }) { Text("Wrong? Read again") }
+                            }
+                            s.readingFor != 0 -> Row(horizontalArrangement = Arrangement.spacedBy(8.dp)) {
+                                Text("Show the date on the pack (best by, use by, sell by)…", color = Pal.dim,
+                                    modifier = Modifier.weight(1f))
+                                OutlinedButton(onClick = { s.readingFor = 0 }) { Text("Skip") }
+                            }
+                            else -> OutlinedButton(onClick = { s.readDate() }, enabled = a.itemId > 0) {
+                                Text("Read the date on the pack")
                             }
                         }
                     }

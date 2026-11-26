@@ -131,9 +131,10 @@ fun scanQuery(result: ActivityResult): String? {
     val code = result.data?.getStringExtra(FoodScanActivity.BARCODE)
     val dish = result.data?.getStringExtra(FoodScanActivity.DISH)
     val shopped = result.data?.getStringExtra(FoodScanActivity.GROCERIES)
+    val day = result.data?.getStringExtra(FoodScanActivity.PACK_DATE)?.takeIf { runCatching { java.time.LocalDate.parse(it) }.isSuccess }
     val stamp = "&t=" + System.currentTimeMillis()
     return when {
-        !code.isNullOrBlank() -> "scanbarcode=" + URLEncoder.encode(code, "UTF-8") + stamp
+        !code.isNullOrBlank() -> "scanbarcode=" + URLEncoder.encode(code, "UTF-8") + (day?.let { "&packdate=$it" } ?: "") + stamp
         !dish.isNullOrBlank() -> "scandish=" + URLEncoder.encode(dish, "UTF-8") + stamp
         !shopped.isNullOrBlank() -> "section=groceries" + stamp
         else -> null
@@ -166,6 +167,15 @@ class FoodScanActivity : ComponentActivity() {
         const val BARCODE = "barcode"
         const val DISH = "dish"
         const val GROCERIES = "groceries"  // in: open in Groceries mode; out: a shopping trip ended (open Groceries)
+        const val PACK_DATE = "packdate"   // out, with a barcode: the date on the pack, read in the same scan
+    }
+
+    private fun finishCode(code: String, day: java.time.LocalDate?) {
+        if (code.isBlank() || !done.compareAndSet(false, true)) return
+        val out = Intent().putExtra(BARCODE, code.trim())
+        if (day != null) out.putExtra(PACK_DATE, day.toString())
+        setResult(Activity.RESULT_OK, out)
+        finish()
     }
 
     private val done = AtomicBoolean(false)
@@ -182,7 +192,7 @@ class FoodScanActivity : ComponentActivity() {
         val shopping = intent.getBooleanExtra(GROCERIES, false)
         setContent {
             MaterialTheme(colorScheme = buddyColorScheme()) {
-                ScanScreen(link, shopping, onCode = { finishWith(BARCODE, it) }, onDish = { finishWith(DISH, it) },
+                ScanScreen(link, shopping, onCode = { code, day -> finishCode(code, day) }, onDish = { finishWith(DISH, it) },
                     onCancel = { finish() }, onShopDone = { finishWith(GROCERIES, "1") })
             }
         }
@@ -190,7 +200,8 @@ class FoodScanActivity : ComponentActivity() {
 }
 
 @Composable
-private fun ScanScreen(link: ServerLink?, startShopping: Boolean, onCode: (String) -> Unit, onDish: (String) -> Unit,
+private fun ScanScreen(link: ServerLink?, startShopping: Boolean, onCode: (String, java.time.LocalDate?) -> Unit,
+                       onDish: (String) -> Unit,
                        onCancel: () -> Unit, onShopDone: () -> Unit) {
     val context = LocalContext.current
     var allowed by remember {
@@ -216,7 +227,14 @@ private fun ScanScreen(link: ServerLink?, startShopping: Boolean, onCode: (Strin
         }
     }
     LaunchedEffect(shopMode) { if (shopMode) shop.load() }
-    val readCode: (String) -> Unit = { code -> if (shopMode) shop.scanned(code) else onCode(code) }
+    // Barcode mode: one scan per product, so the date read on the pack while the scanner is open is this pack's
+    val watch = remember { DateWatch() }
+    val readFrame: (String?, String) -> Unit = { code, text ->
+        if (shopMode) shop.frame(code, text) else {
+            if (text.isNotBlank()) watch.saw(text, SystemClock.elapsedRealtime())
+            if (code != null) onCode(code, watch.date)
+        }
+    }
     var typed by remember { mutableStateOf("") }
     var guesses by remember { mutableStateOf(listOf<Guess>()) }
     var problem by remember { mutableStateOf("") }
@@ -242,22 +260,19 @@ private fun ScanScreen(link: ServerLink?, startShopping: Boolean, onCode: (Strin
                 "picture is kept or sent. It doesn't know dosa, appam, avial, thoran or chapati until you teach it: " +
                 "type the name and tap Teach, from 3 to 5 sides."
             else if (shopMode) "Shopping: scan each product. Buddy says if it's good for you, and Add puts it in your " +
-                "groceries and ticks it off your list. Only the barcode number is looked up; no picture is kept or sent."
-            else "Point at the pack's barcode. Read on your phone; only the number is looked up. No picture is " +
-                "kept or sent.",
+                "groceries with the date on the pack and ticks it off your list. Only the barcode number is looked " +
+                "up and only the date is kept; no picture is kept or sent."
+            else "Point at the pack's barcode; the date on the pack is read in the same scan when it's in view. " +
+                "Read on your phone: only the number is looked up. No picture is kept or sent.",
             color = Pal.dim,
         )
         if (allowed) {
-            key(mode, shop.readingFor != 0) {
+            key(mode) {
                 if (dishMode) {
                     DishCamera(book, latest, onGuesses = { guesses = it }, onProblem = { problem = it },
                         modifier = Modifier.fillMaxWidth().weight(1f))
                 } else {
-                    if (shopMode && shop.readingFor != 0) {
-                        DateCamera({ text -> shop.sawText(text) }, Modifier.fillMaxWidth().weight(1f))
-                    } else {
-                        BarcodeCamera(readCode, Modifier.fillMaxWidth().weight(1f))
-                    }
+                    ScanCamera(readFrame, Modifier.fillMaxWidth().weight(1f))
                 }
             }
         } else {
@@ -288,7 +303,7 @@ private fun ScanScreen(link: ServerLink?, startShopping: Boolean, onCode: (Strin
         )
         Row(horizontalArrangement = Arrangement.spacedBy(8.dp)) {
             Button(
-                onClick = { if (dishMode) onDish(typed) else if (shopMode) { shop.scanned(typed); typed = "" } else onCode(typed) },
+                onClick = { if (dishMode) onDish(typed) else if (shopMode) { shop.scanned(typed); typed = "" } else onCode(typed, watch.date) },
                 enabled = if (dishMode) typed.trim().length >= 2 else typed.length >= 8,
             ) { Text("Look up") }
             if (dishMode) {
@@ -373,9 +388,14 @@ private fun CameraFeed(modifier: Modifier, analyze: (ImageProxy) -> Unit) {
     )
 }
 
+/**
+ * The barcode in view and the words around it, read on the phone from the same frame by ML Kit's bundled barcode
+ * scanner and text reader. The words are only searched for the date on the pack (PackDate.kt); no picture is kept or
+ * sent. [onFrame] gets the barcode (null when none is in view) and the words, on the main thread.
+ */
 @androidx.annotation.OptIn(ExperimentalGetImage::class)
 @Composable
-private fun BarcodeCamera(onCode: (String) -> Unit, modifier: Modifier) {
+private fun ScanCamera(onFrame: (String?, String) -> Unit, modifier: Modifier) {
     val scanner = remember {
         BarcodeScanning.getClient(
             BarcodeScannerOptions.Builder().setBarcodeFormats(
@@ -383,34 +403,31 @@ private fun BarcodeCamera(onCode: (String) -> Unit, modifier: Modifier) {
             ).build()
         )
     }
-    DisposableEffect(Unit) { onDispose { scanner.close() } }
-    CameraFeed(modifier) { proxy ->
-        val image = proxy.image
-        if (image == null) {
-            proxy.close()
-        } else {
-            scanner.process(InputImage.fromMediaImage(image, proxy.imageInfo.rotationDegrees))
-                .addOnSuccessListener { codes ->
-                    codes.firstNotNullOfOrNull { c -> c.rawValue?.takeIf { v -> v.all { it.isDigit() } } }?.let(onCode)
-                }
-                .addOnCompleteListener { proxy.close() }
-        }
-    }
-}
-
-/** The words in view, read on the phone (ML Kit's text reader), for the date on a pack (PackDate.kt). */
-@Composable
-private fun DateCamera(onText: (String) -> Unit, modifier: Modifier) {
     val reader = remember { TextRecognition.getClient(TextRecognizerOptions.DEFAULT_OPTIONS) }
-    DisposableEffect(Unit) { onDispose { reader.close() } }
+    DisposableEffect(Unit) { onDispose { scanner.close(); reader.close() } }
     CameraFeed(modifier) { proxy ->
         val image = proxy.image
         if (image == null) {
             proxy.close()
         } else {
-            reader.process(InputImage.fromMediaImage(image, proxy.imageInfo.rotationDegrees))
-                .addOnSuccessListener { seen -> if (seen.text.isNotBlank()) onText(seen.text) }
-                .addOnCompleteListener { proxy.close() }
+            val input = InputImage.fromMediaImage(image, proxy.imageInfo.rotationDegrees)
+            scanner.process(input).addOnCompleteListener { found ->
+                val code = if (!found.isSuccessful) null else found.result.firstNotNullOfOrNull { c ->
+                    c.rawValue?.takeIf { v -> v.isNotEmpty() && v.all { it.isDigit() } }
+                }
+                val words = runCatching { reader.process(input) }.getOrNull()
+                if (words == null) {  // the reader was let go (the screen is closing)
+                    proxy.close()
+                } else {
+                    words.addOnCompleteListener { read ->
+                        try {
+                            onFrame(code, if (read.isSuccessful) read.result.text else "")
+                        } finally {
+                            proxy.close()
+                        }
+                    }
+                }
+            }
         }
     }
 }

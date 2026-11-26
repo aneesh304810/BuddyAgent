@@ -63,13 +63,51 @@ object PackDate {
         return out.filter { !it.date.isBefore(today.minusDays(30)) && !it.date.isAfter(today.plusYears(3)) }
     }
 
-    /** The use-by date in what the text reader saw, or null. */
-    fun parse(seen: String, today: LocalDate = LocalDate.now()): LocalDate? {
+    /** A date read, and whether a marker (BEST BY, USE BY, EXP, SELL BY) stood just before it. */
+    data class Reading(val date: LocalDate, val marked: Boolean)
+
+    /** The use-by date in what the text reader saw, with whether it was marked, or null. */
+    fun read(seen: String, today: LocalDate = LocalDate.now()): Reading? {
         val text = seen.uppercase()
         val found = candidates(text, today)
         if (found.isEmpty()) return null
         val marks = marker.findAll(text).map { it.range.last }.toList()
         val marked = found.filter { f -> marks.any { it < f.at && f.at - it <= 24 } }
-        return marked.ifEmpty { found }.maxOf { it.date }
+        return Reading(marked.ifEmpty { found }.maxOf { it.date }, marked.isNotEmpty())
+    }
+
+    /** The use-by date in what the text reader saw, or null. */
+    fun parse(seen: String, today: LocalDate = LocalDate.now()): LocalDate? = read(seen, today)?.date
+}
+
+/**
+ * The date on a pack, from frame after frame of what the text reader sees while scanning (several a second): a marked
+ * date ("SELL BY 11.26.26") counts at once, an unmarked one once the same date is read twice, so a stray number is not
+ * taken; a marked date isn't replaced by an unmarked one. [at] is when it was last read (elapsed milliseconds).
+ */
+class DateWatch(private val today: () -> LocalDate = { LocalDate.now() }) {
+    var date: LocalDate? = null
+        private set
+    var at = 0L
+        private set
+    private var marked = false
+    private var candidate: LocalDate? = null
+    private var count = 0
+
+    fun saw(text: String, now: Long): LocalDate? {
+        val r = PackDate.read(text, today()) ?: return date
+        if (r.date == candidate) count += 1 else { candidate = r.date; count = 1 }
+        if ((r.marked || count >= 2) && (r.marked || !marked)) {
+            date = r.date
+            marked = r.marked
+            at = now
+        } else if (r.date == date) {
+            at = now  // still in view
+        }
+        return date
+    }
+
+    fun clear() {
+        date = null; at = 0L; marked = false; candidate = null; count = 0
     }
 }

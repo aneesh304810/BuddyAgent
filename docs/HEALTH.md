@@ -155,10 +155,15 @@ sub-tabs under them, and the page remembers where you were.
   kitchen.
 - **For the family, dates, spending and deals** (`groceries.py`, `PackDate.kt`). Name the people you shop for once
   (e.g. your wife and Ishaan) under **Who you shop for**; each item on To buy and in My kitchen can be for one of you
-  or everyone (the scanner has chips for it), and My kitchen groups by person. **The date on the pack:** after adding
-  a product in the scanner, **Read the date on the pack** points the camera at "best by", "use by" or "exp"; the
-  words are read on the phone (no picture is kept or sent) and the date is taken by code (US month-first dates, or
-  DEC 05 2026), or pick it on Groceries. **Use soon** (within two days, or past) shows on Home's Today strip, on Health
+  or everyone (the scanner has chips for it), and My kitchen groups by person. **The date on the pack** is read in the same
+  scan, with no taps: while the scanner looks for the barcode, the phone also reads the words in view (ML Kit's text
+  reader, on the phone; no picture is kept or sent) and code takes the date (BEST BY, USE BY, SELL BY or EXP; US
+  month-first dates like 11.26.26, or DEC 05 2026; an unmarked date only once it's read twice). In Groceries mode a
+  date read with the barcode is saved when you tap Add; if it wasn't in view, the camera looks for it for a few
+  seconds after Add and saves it by itself (Skip, or "Wrong? Read again"); another product's barcode in view stops
+  it. In Barcode mode the date goes with the barcode to Food → Groceries and is saved with Add to my groceries. One
+  more pack of something already in My kitchen keeps the sooner date. Typing or picking a date on Groceries is only
+  for when the camera can't read it. **Use soon** (within two days, or past) shows on Home's Today strip, on Health
   → Today and in the evening check-in, never as a notification. **Grocery spending** by month and store comes from
   the card and bank transactions Buddy files as groceries, plus grocery stores' order emails (e-receipts).
   **Lower prices** for what's on your list and what you scan come from the store emails Buddy already reads (weekly

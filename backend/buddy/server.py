@@ -1974,7 +1974,8 @@ async def api_health_groceries_act(body: dict) -> dict:
             return await asyncio.to_thread(groceries.bought, memory, n)
         if action == "keep":
             return await asyncio.to_thread(groceries.keep, memory, int(body.get("scan") or 0), bool(body.get("anyway")),
-                                           body.get("who") if isinstance(body.get("who"), str) else None)
+                                           body.get("who") if isinstance(body.get("who"), str) else None,
+                                           str(body.get("expires") or "")[:10])
         if action == "ate":
             return await asyncio.to_thread(groceries.ate, memory, n)
         if action == "finished":

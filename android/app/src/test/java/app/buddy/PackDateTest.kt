@@ -34,6 +34,25 @@ class PackDateTest {
     }
 
     @Test
+    fun theChickenLabel() {  // a store's own label: the sell-by date printed beside the price and the barcode
+        val r = PackDate.read("THIGHS\nP-667 SELL BY 11.26.26\n2.99 2.62lb\nTOTAL PRICE $7.83", today)
+        assertEquals(PackDate.Reading(LocalDate.of(2026, 11, 26), true), r)
+    }
+
+    @Test
+    fun whileScanningAMarkedDateCountsAtOnceAnUnmarkedOneWhenReadTwice() {
+        val w = DateWatch { today }
+        assertEquals(LocalDate.of(2026, 12, 5), w.saw("BEST BY 12/05/26", 1L))
+        assertEquals(LocalDate.of(2026, 12, 5), w.saw("12/20/26", 2L))  // unmarked: not over a marked one
+        assertEquals(LocalDate.of(2026, 12, 5), w.saw("12/20/26", 3L))
+        w.clear()
+        assertNull(w.saw("12/20/26", 4L))                            // once: could be a stray number
+        assertEquals(LocalDate.of(2026, 12, 20), w.saw("12/20/26", 5L))  // twice: taken
+        assertEquals(5L, w.at)
+        assertEquals(LocalDate.of(2026, 12, 20), w.saw("Net Wt 32 oz", 6L))  // nothing new: the date stays
+    }
+
+    @Test
     fun nothingThatLooksLikeAUseByDate() {
         assertNull(read("Net Wt 32 oz (2 lb) 907 g"))
         assertNull(read("12/05/19"))  // years ago
