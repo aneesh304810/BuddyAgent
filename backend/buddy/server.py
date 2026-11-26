@@ -1843,6 +1843,19 @@ async def api_health_diet_act(body: dict) -> dict:
     return {"text": text, **await asyncio.to_thread(dietplan.menu, memory, None, swap)}
 
 
+@app.post("/api/health/fit", dependencies=[Depends(require_admin)])
+async def api_health_fit(body: dict) -> dict:
+    """Does this food, at this portion, fit the owner's goal and plan? Worked out by code on the server (dietcheck)."""
+    from . import dietcheck  # noqa: PLC0415
+    per100 = body.get("per100") if isinstance(body.get("per100"), dict) else {}
+    allergens = body.get("allergens") if isinstance(body.get("allergens"), list) else []
+    try:
+        return await asyncio.to_thread(dietcheck.check, memory, str(body.get("what") or ""), per100, body.get("grams"),
+                                       str(body.get("ingredients") or ""), allergens)
+    except ToolError as e:
+        raise HTTPException(400, str(e)) from None
+
+
 @app.get("/api/health/research", dependencies=[Depends(require_admin)])
 async def api_health_research(pmid: str = "") -> dict:
     """The research digest (topics, papers by evidence), or one paper's abstract with pmid."""

@@ -65,6 +65,23 @@ sub-tabs under them, and the page remembers where you were.
   portion or type grams, and "Add" puts that food into today's meals with the calories and protein worked out by
   code from USDA's numbers. No AI estimates them. Food lookups need a free api.data.gov key, set once on the
   server: `sudo bash /opt/buddy/deploy/set.sh BUDDY_USDA_KEY` (sign up at api.data.gov; Buddy can't do it for you).
+  - **Does it fit?** Pick a food and its portion, and before you tap Add Buddy's code checks it against your own
+    plan: **Fits your plan**, **Fits, with care** (with what to watch) or **Not for you** (it's on your allergy
+    list). It checks:
+    - *your allergies and foods to avoid* (from your plan), against the food's name, its ingredients where USDA or
+      Open Food Facts list them, and a pack's allergen list, with the words that give each away ("dairy" finds
+      paneer, ghee and whey; peanut butter and coconut milk aren't dairy); and your vegetarian or no-egg menu;
+    - *your goal*: today's calories after it against your target, and how much of the day it is in one go. Beside
+      it, your weight's course over the last four weeks against keep, lose slowly or gain slowly;
+    - *the guidelines*: protein, fibre, saturated fat, sodium and added sugar (Dietary Guidelines 2025-2030), and
+      FDA's daily values (5% or less is low, 20% or more is high);
+    - *your labs and conditions*: with an A1c in the prediabetes or diabetes range, carbohydrate with little fibre
+      and more than a cup of white rice (Kerala matta or brown rice is suggested instead); with an LDL of 130 mg/dL
+      or more, saturated fat at 6% of calories (the American Heart Association's advice); with blood pressure of
+      130/80 or more, sodium at 1,500 mg.
+    "What this rests on" shows each source. It is worked out by code from the food's numbers and your plan; no AI
+    model sees any of it, and it isn't medical advice. Meals added from a lookup or the menu now keep their
+    saturated fat and sugar too, so the day's totals count them.
 - **Scan food** (the button over the Health screen, in the app): point the camera at a food pack's barcode. It is
   read on the phone by Google's ML Kit barcode scanner, bundled in the app, which works offline; no picture is kept
   or sent. Only the number goes to your server, which looks it up (the number only) in USDA's branded foods (with

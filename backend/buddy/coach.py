@@ -44,7 +44,8 @@ CREATE TABLE IF NOT EXISTS coach_meals (         -- meals the owner mentioned, w
 """
 
 
-EXTRA = ("carbs_g", "fat_g", "fiber_g", "sodium_mg")  # kept when a meal comes from a lookup or the day's menu
+EXTRA = ("carbs_g", "fat_g", "fiber_g", "sodium_mg", "sat_fat_g", "sugar_g", "added_sugar_g")  # kept when a meal
+# comes from a lookup or the day's menu (the fit check counts the day's saturated fat and sodium from them)
 
 
 def _ready(memory: Memory) -> None:
@@ -246,8 +247,8 @@ def add_meal(memory: Memory, what: str, calories=None, protein_g=None, now: date
         raise ToolError("Say what was eaten.")
     cal, pro = _num(calories), _num(protein_g)
     more = [(_num((extra or {}).get(k)) if (extra or {}).get(k) not in (None, "") else None) for k in EXTRA]
-    memory.db.execute("INSERT INTO coach_meals (day, at, what, calories, protein_g, carbs_g, fat_g, fiber_g, sodium_mg) "
-                      "VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?)",
+    memory.db.execute(f"INSERT INTO coach_meals (day, at, what, calories, protein_g, {', '.join(EXTRA)}) "  # nosec B608
+                      f"VALUES (?, ?, ?, ?, ?{', ?' * len(EXTRA)})",  # fixed column names
                       (now.date().isoformat(), now.strftime("%H:%M"), what, round(cal) if cal else None,
                        round(pro) if pro else None, *[round(v, 1) if v is not None else None for v in more]))
     memory.db.commit()
@@ -257,7 +258,7 @@ def add_meal(memory: Memory, what: str, calories=None, protein_g=None, now: date
 def eaten(memory: Memory, day: date) -> dict:
     _ready(memory)
     rows = [dict(r) for r in memory.db.execute(
-        "SELECT at, what, calories, protein_g, carbs_g, fat_g, fiber_g, sodium_mg FROM coach_meals WHERE day = ? "
+        f"SELECT at, what, calories, protein_g, {', '.join(EXTRA)} FROM coach_meals WHERE day = ? "  # nosec B608
         "ORDER BY at", (day.isoformat(),))]
     out = {"meals": rows, "calories": sum(r["calories"] or 0 for r in rows),
            "protein_g": sum(r["protein_g"] or 0 for r in rows)}

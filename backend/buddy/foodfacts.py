@@ -30,7 +30,7 @@ CACHE: dict[str, tuple[float, object]] = {}
 CACHE_SECONDS, CACHE_MAX = 86400, 300
 NUTRIENTS = {  # FoodData Central nutrient id -> our name (per 100 g in search results)
     1008: "kcal", 2047: "kcal", 2048: "kcal", 1003: "protein_g", 1005: "carbs_g", 1004: "fat_g", 1079: "fiber_g",
-    2000: "sugar_g", 1093: "sodium_mg",
+    2000: "sugar_g", 1093: "sodium_mg", 1258: "sat_fat_g", 1235: "added_sugar_g",
 }
 KINDS = {"Foundation": "USDA basic food", "SR Legacy": "USDA basic food", "Survey (FNDDS)": "As people eat it",
          "Branded": "Branded product"}
@@ -98,7 +98,7 @@ def _food(f: dict) -> dict:
     brand = " ".join(str(f.get("brandName") or f.get("brandOwner") or "").split())
     return {"id": f.get("fdcId"), "name": " ".join(str(f.get("description") or "").split()).capitalize()[:120],
             "kind": KINDS.get(f.get("dataType"), f.get("dataType") or ""), "brand": brand[:60], "per100": per100,
-            "portions": portions[:8]}
+            "portions": portions[:8], "ingredients": " ".join(str(f.get("ingredients") or "").split())[:1500]}
 
 
 def foods(memory: Memory, text: str, env=None, fetch=None) -> list[dict]:
@@ -125,7 +125,7 @@ def gtin_ok(code: str) -> bool:
 
 
 OFF_FIELDS = {"energy-kcal_100g": "kcal", "proteins_100g": "protein_g", "carbohydrates_100g": "carbs_g",
-              "fat_100g": "fat_g", "fiber_100g": "fiber_g", "sugars_100g": "sugar_g"}
+              "fat_100g": "fat_g", "fiber_100g": "fiber_g", "sugars_100g": "sugar_g", "saturated-fat_100g": "sat_fat_g"}
 
 
 def upce_to_upca(code: str) -> str:
@@ -180,7 +180,10 @@ def barcode(memory: Memory, code: str, env=None, fetch=None) -> list[dict]:
         out.append({"id": f"off:{code}", "name": " ".join(str(p["product_name"]).split())[:120],
                     "kind": "Branded product (Open Food Facts)",
                     "brand": " ".join(str(p.get("brands") or "").split(","))[:60].strip(), "per100": per100,
-                    "portions": portions, "barcode": code})
+                    "portions": portions, "barcode": code,
+                    "ingredients": " ".join(str(p.get("ingredients_text_en") or p.get("ingredients_text") or "")
+                                            .split())[:1500],
+                    "allergens": [str(t)[:40] for t in (p.get("allergens_tags") or [])[:30]]})
     return out
 
 

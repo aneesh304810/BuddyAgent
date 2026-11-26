@@ -472,6 +472,34 @@ function renderFood() {
 // --- facts looked up on request (USDA foods, NIH supplement labels, openFDA medicines): only the words typed go out
 const facts = { food: null, supplement: null, label: null, medicine: null }, factQ = { food: "", supplement: "", medicine: "" };
 let foodPick = -1, foodGrams = "";
+// Does it fit? The server's code checks the picked food at this portion against the goal, the guidelines, your labs
+// and your allergies (dietcheck.py), before it is added.
+const fits = {};
+const FIT = { fits: ["Fits your plan", "good"], watch: ["Fits, with care", "warn"], stop: ["Not for you", "bad"], partial: ["Not fully checked", ""] };
+async function loadFit(f, grams) {
+  const key = `${f.id}|${grams}`;
+  if (fits[key]) return;
+  fits[key] = { busy: true };
+  try { fits[key] = await api("/api/health/fit", { what: f.name, per100: f.per100, grams, ingredients: f.ingredients || "", allergens: f.allergens || [] }); }
+  catch (e) { fits[key] = { failed: e.message }; }
+  if (tab === "plan") render();
+}
+function fitBox(f, grams) {
+  const got = fits[`${f.id}|${grams}`];
+  if (!got) { loadFit(f, grams); return `<p class="muted" style="margin:8px 0 0">Checking it against your plan…</p>`; }
+  if (got.busy) return `<p class="muted" style="margin:8px 0 0">Checking it against your plan…</p>`;
+  if (got.failed) return `<p class="why" style="margin:8px 0 0;color:var(--bad)">${esc(got.failed)}</p>`;
+  const [word, cls] = FIT[got.verdict] || [got.headline, ""];
+  const mark = { stop: "✕", watch: "!", good: "✓", info: "·" };
+  const line = (l) => `<p class="why" style="margin:4px 0 0"><b aria-hidden="true">${mark[l.level] || "·"}</b> ${esc(l.text)}</p>`;
+  const why = [...new Set([...got.lines, ...(got.goal ? [got.goal] : [])].map((l) => l.why))];
+  return `<div class="fit" style="margin-top:8px"><span class="pill ${cls}">${esc(word)}</span>
+    ${got.lines.map(line).join("")}
+    ${got.goal ? `<p class="why" style="margin:8px 0 0"><b>Your goal:</b> ${esc(got.goal.text)}</p>` : ""}
+    <details style="margin-top:6px"><summary class="why" style="cursor:pointer">What this rests on</summary>
+      ${why.map((w) => `<p class="why" style="margin:4px 0 0">${esc(w)}</p>`).join("")}
+      <p class="muted" style="margin:4px 0 0;font-size:12px">${esc(got.note)}</p></details></div>`;
+}
 async function lookUp(kind, q) {
   const slot = kind === "barcode" ? "food" : kind;  // a scanned pack's matches show in the food lookup
   facts[slot] = { busy: true };
@@ -504,7 +532,8 @@ function foodLookup() {
         ${open ? `<div class="f" style="align-items:flex-end;margin-top:6px">
           ${f.portions.length ? `<select data-food-portion aria-label="Portion"><option value="">Grams</option>${f.portions.map((p) => `<option value="${p.grams}"${Number(foodGrams) === p.grams ? " selected" : ""}>${esc(p.label)} (${num(p.grams)} g)</option>`).join("")}</select>` : ""}
           <input class="narrow" data-food-grams inputmode="decimal" value="${esc(grams)}" aria-label="Grams"> g
-          <button class="btn solid" data-food-add="${i}">Add ${num(amt.kcal)} kcal, ${num(amt.protein)} g protein</button></div>` : ""}</div>
+          <button class="btn solid" data-food-add="${i}">Add ${num(amt.kcal)} kcal, ${num(amt.protein)} g protein</button></div>
+          ${grams > 0 && grams <= 3000 ? fitBox(f, grams) : ""}` : ""}</div>
         ${open ? "" : `<button class="btn" data-food-pick="${i}">Use</button>`}</div>`;
     }).join("") : `<p class="muted">Nothing found: try fewer or plainer words.</p>`;
   }
@@ -524,7 +553,9 @@ function wireFoodLookup() {
     const of = (k) => (f.per100[k] == null ? null : Math.round(f.per100[k] * g) / 100);
     act({ action: "meal", what: `${f.name} (${label})`.slice(0, 200), calories: Math.round((f.per100.kcal || 0) * g / 100),
       protein_g: Math.round((f.per100.protein_g || 0) * g / 100), carbs_g: of("carbs_g"), fat_g: of("fat_g"),
-      fiber_g: of("fiber_g"), sodium_mg: of("sodium_mg") }, "Added to today's meals.");
+      fiber_g: of("fiber_g"), sodium_mg: of("sodium_mg"), sat_fat_g: of("sat_fat_g"), sugar_g: of("sugar_g"),
+      added_sugar_g: of("added_sugar_g") }, "Added to today's meals.");
+    Object.keys(fits).forEach((k) => delete fits[k]);  // today's totals changed: check again next time
     foodPick = -1; foodGrams = "";
   });
 }
