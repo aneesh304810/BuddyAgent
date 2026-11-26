@@ -111,8 +111,9 @@ def test_greeting_says_ai_assistant_and_greets_known_callers_by_name(tmp_path, e
     priya = calls.screen_call(m, {"From": "12015550111", "CallUUID": "a"})
     stranger = calls.screen_call(m, {"From": "12015550999", "CallUUID": "c"})
     hi = calls.screen_greeting(None, priya)
-    assert "Priya" in hi and "AI assistant" in hi and calls.screen_greeting(None, priya) == hi  # the same all call
-    assert "AI assistant" in calls.screen_greeting(None, stranger) and "Priya" not in calls.screen_greeting(None, stranger)
+    assert "Priya" in hi and "AI sidekick" in hi and calls.screen_greeting(None, priya) == hi  # the same all call
+    other = calls.screen_greeting(None, stranger)
+    assert "AI sidekick" in other and "Priya" not in other and "Heyyy" not in other  # no first-name familiarity
 
 
 def test_putting_a_caller_through(tmp_path, env, monkeypatch):
@@ -212,3 +213,33 @@ def test_being_out_of_state_is_shared_with_everyone_once_mentioned():
     """The owner's standing permission is in the tool's instructions: out of state or travelling, for everyone."""
     d = calls.TOOL["description"]
     assert "out of state" in d and "for everyone until their last day away, without asking" in d
+
+
+def test_other_languages_are_offered_only_on_an_accent_or_trouble_understanding(tmp_path, env, monkeypatch):
+    """Not in the greeting. The hearing taking their English for Hindi twice (an accent) gets a note to offer other
+    languages once; the rules also cover not understanding them twice, and switching to the language they pick."""
+    m = _owner(tmp_path)
+    priya = calls.screen_call(m, {"From": "12015550111", "CallUUID": "a"})
+    assert "language" not in calls.screen_greeting(None, priya)
+    prompt = calls.system_prompt(m, priya)
+    assert "Offering another language: never in your greeting" in prompt and "twice had to ask them to repeat" in prompt
+    assert "switch to it at once and stay in it" in prompt and "Hindi" in prompt
+
+    async def nothing(*a):
+        pass
+    mind = calls.Mind(m, priya, say=nothing, press_keys=nothing, finish=nothing, env=env)
+    first = mind._they_said("I wanted to ask about the school pickup", "hi")
+    second = mind._they_said("Can you tell him to call me back please", "hi")
+    third = mind._they_said("And one more thing about Friday", "hi")
+    assert "Note for you" not in first and "taken their English for Hindi" in second and "Note for you" not in third
+    assert "Note for you" not in mind._they_said("Thank you so much for that", "en")
+    real_hindi = calls.Mind(m, priya, say=nothing, press_keys=nothing, finish=nothing, env=env)
+    assert real_hindi._they_said("नमस्ते मैं प्रिया बोल रही हूँ", "hi").startswith("[They said, in Hindi]")
+    dial = calls.plan(m, "Dr. Mehta", "2015550123", "question", "hours?")
+    out = calls.Mind(m, dial, say=nothing, press_keys=nothing, finish=nothing, env=env)  # not on calls Buddy places
+    out._they_said("What are your opening hours today", "hi")
+    assert "Note for you" not in out._they_said("Do you take new patients now", "hi")
+    monkeypatch.setenv("BUDDY_CALL_LANGUAGES", "en")  # English only: no offer, no rules
+    assert "Offering another language" not in calls.system_prompt(m, priya)
+    ids = [calls.screen_call(m, {"From": "12015550111", "CallUUID": f"x{i}"}) for i in range(3)]
+    assert any(calls.screen_greeting(None, c).startswith("Heyyy Priya! What's happening?") for c in ids)

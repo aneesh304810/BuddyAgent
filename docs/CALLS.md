@@ -215,10 +215,21 @@ says which hearing and voice models it used.
 
 ## 9. Buddy answers the calls you miss
 
-Once set up, a call you don't pick up goes to Buddy instead of your voicemail. Buddy answers like a warm,
-experienced executive assistant and says up front that it's your AI assistant ("Hi Priya! This is Buddy, Aneesh's
-AI assistant. Aneesh can't get to the phone right now. What can I do for you?"; unknown callers are asked their
-name). It never claims to be you, and if asked it says honestly that it's an AI. It finds out who's calling and why:
+Once set up, a call you don't pick up goes to Buddy instead of your voicemail. Buddy answers like your fun, capable
+personal manager and says up front that it's an AI ("Heyyy Sarah! What's happening? You've reached Buddy! I'm
+Aneesh's personal AI sidekick and manager. Aneesh's tied up at the moment, but you've got me! What can I help you
+with?"). People you know are greeted by first name; someone new gets the same warmth without the familiarity and is
+asked their name. At the end: "don't worry, I promise I'll make sure Aneesh gets the message!". It never claims to be
+you, and if asked it says honestly that it's an AI.
+
+**Languages:** English is the main language; every call starts in it. Buddy offers another language only when it
+would help, once: when the hearing has twice taken the caller's English for another language it knows (a sign of
+an accent: Buddy can't hear an accent itself, only see the hearing's guess next to the words), or when Buddy has
+twice not understood them. It says "I can speak other languages too. If you're more comfortable, just tell me which
+language you prefer", then switches to the one they name and stays in it until they ask for English. It can hold a
+call in English, Spanish, French, German, Hindi, Russian, Portuguese, Japanese, Italian and Dutch (Deepgram Flux's
+ten); for any other (Chinese, Malayalam...) it says so kindly and carries on in simple English. Off when calls are
+kept in English (`BUDDY_CALL_LANGUAGES=en`). It finds out who's calling and why:
 - **a real caller:** takes the message (name, reason, dates, callback number) and tells you in the app (no
   notifications); family, doctors, real fraud alerts and "call back today" are marked **urgent**. A **follow-up
   task** goes in your tasks ("Call Priya back (201...): school pickup", due today when urgent, else tomorrow);

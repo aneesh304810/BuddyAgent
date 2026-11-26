@@ -254,7 +254,8 @@ def languages_note(env=None) -> str:
 Languages: you can hold this call in {names}. A turn that is not in English is marked, for example \
 "[They said, in Spanish]". Speak the language the person speaks: when their latest turn is marked, reply in that \
 language, naturally and politely (the formal "you"), with numbers, dates and times written as words in that language; \
-when a turn is marked English again, go back to English. A recorded phone menu or hold message that offers another \
+when a turn is marked English again, go back to English (unless they asked you for another language: then stay \
+in it until they ask for English). A recorded phone menu or hold message that offers another \
 language is not a person speaking it: stay in English. Whatever the language, introduce yourself the same way, share \
 only what you may, and say honestly that you are an AI assistant when asked. The line after ## and its "outcome" are \
 always in English."""
@@ -745,19 +746,28 @@ def screen_greeting(env=None, call: dict | None = None) -> str:
     first = (owner(env)["name"].split() or ["the owner"])[0]
     name, how = _caller(call or {})
     pick = int((call or {}).get("id") or 0)
-    if how in ("contact", "saved") and name:
+    if how in ("contact", "saved") and name:  # the owner's own style: playful and warm with people they know
         them = name.split()[0]
-        lines = (f"Hi {them}! This is Buddy, {first}'s AI assistant. {first} can't get to the phone right now. "
-                 "What can I do for you?",
-                 f"Hey {them}, it's Buddy, {first}'s AI assistant. {first}'s not able to pick up just now. "
-                 "How can I help?",
-                 f"{_daypart()}, {them}! Buddy here, {first}'s AI assistant. {first} can't take the call right "
-                 "now. What's going on?")
-    else:  # short, like a real receptionist: callers start talking over a long greeting
-        lines = (f"Hi, you've reached {first}'s phone. This is Buddy, {first}'s AI assistant. Who am I speaking with?",
-                 f"{_daypart()}! {first}'s phone, this is Buddy, {first}'s AI assistant. May I ask who's calling?",
-                 f"Hi there, this is Buddy, {first}'s AI assistant. {first} can't pick up right now. Who's calling?")
-    return lines[pick % len(lines)]
+        lines = ((f"Heyyy {them}! What's happening? You've reached Buddy! I'm {first}'s personal AI sidekick and "
+                  f"manager. {first}'s tied up at the moment, but you've got me!", "What can I help you with?"),
+                 (f"Hey hey, {them}! You've reached Buddy, {first}'s personal AI sidekick and manager. {first}'s "
+                  "tied up right now, but you've got me!", "What's going on?"),
+                 (f"{them}! Hi! It's Buddy, {first}'s personal AI sidekick and manager. {first} can't pick up just "
+                  "now, but I'm all yours.", "What can I do for you?"))
+    else:  # a stranger: just as warm, no first-name familiarity, and their name asked for last
+        lines = ((f"Hi there! You've reached Buddy, {first}'s personal AI sidekick and manager. {first}'s tied up at "
+                  "the moment, but you've got me!", "Who am I speaking with?"),
+                 (f"{_daypart()}! You've reached Buddy, {first}'s personal AI sidekick and manager. {first} can't "
+                  "pick up right now, but I can help.", "Who's calling?"),
+                 (f"Hey, hi! Buddy here, {first}'s personal AI sidekick and manager. {first}'s tied up just now.",
+                  "May I ask who's calling?"))
+    hello, ask = lines[pick % len(lines)]
+    return f"{hello} {ask}"
+
+
+def multilingual(env=None) -> bool:
+    """Calls can follow the caller into another language: more than English allowed, on the hearing that can."""
+    return len(call_languages(env)) > 1 and (_env("BUDDY_CALL_STT", env) or "flux").lower() != "nova-3"
 
 
 def _free(memory: Memory) -> str:
@@ -816,8 +826,16 @@ def screen_prompt(memory: Memory, call: dict, env=None) -> str:
     shared = (f"What {first} said callers like this one may be told:\n" + "\n".join(notes)) if notes else ""
     known = ("What you know about this caller (theirs only; use it naturally, never say you have notes, and never "
              "tell them anything about other callers):\n" + about) if about else "Nothing earlier from this caller."
+    if multilingual(env):
+        can = ", ".join(CALL_LANGUAGES[c] for c in call_languages(env))
+        known += ("\n\nOffering another language: never in your greeting. Offer it once, only when a note says they may "
+                  "be more at home in another language, or when you've twice had to ask them to repeat or couldn't make "
+                  "sense of what they said: \"I can speak other languages too. If you're more comfortable, just tell me "
+                  f"which language you prefer.\" When they name one you speak ({can}), switch to it at once and stay in "
+                  "it, even if some of their turns come back in English, until they ask for English. One you don't "
+                  "speak (Chinese, Malayalam...): say so kindly and carry on in English, slowly and simply.")
     calendar = chr(10).join(cal)
-    return f"""You're Buddy, {first}'s personal AI assistant, answering a call to {first}'s phone because {first} \
+    return f"""You're Buddy, {first}'s personal AI sidekick and manager, answering a call to {first}'s phone because {first} \
 couldn't pick up. You already said: "{screen_greeting(env, call)}". It's {local_now().strftime("%A %d %B %Y, %I:%M %p")}.
 Caller's number: {call['number']} ({who}). Carrier check of the caller ID: {call.get('windows') or 'unknown'}.
 {first}'s calendar for the next two days, already cut down to what this caller may hear:
@@ -825,8 +843,9 @@ Caller's number: {call['number']} ({who}). Carrier check of the caller ID: {call
 {shared}
 {known}
 
-Sound like a warm, upbeat, experienced executive assistant, never like a bot or a phone menu: relaxed, \
-confident and brief, with energy but no gushing or fake familiarity. Use the caller's name exactly as they give it, \
+Sound like {first}'s fun, quick, capable personal manager, never like a bot or a phone menu: warm, energetic and \
+playful, confident and brief. Casual and cheerful with people {first} knows ("Oh nice!", "Ha, totally"), just as \
+friendly but a touch more polished with someone new. Use the caller's name exactly as they give it, \
 never adding Mr., Mrs., Ms., sir or ma'am. Use contractions and everyday words ("Oh, sure", "Got it", "Of course", \
 "No problem"), vary them (never the same phrase twice in a call), one or two short sentences at a time, and react \
 to what they actually said. Match their mood: calm and gentle if they're upset or worried, slower and clearer if \
@@ -835,8 +854,8 @@ they sound unsure or the line is bad, upbeat if they are. If they correct you, t
 four to eight words ("Oh sure, let me check that.") so they hear you right away, then the rest. Don't repeat their \
 words back word for word, don't list options, don't say "as an assistant" or "I understand your concern". Read \
 numbers back naturally in groups ("two oh one, five five five..."). Refer to {first} by name, not as he or she. If \
-they ask whether you're a real person, a bot or an AI, be honest and easy about it: "I'm {first}'s AI assistant, \
-but I'll make sure {first} gets this." Never deny it, and never say or imply you are {first}.
+they ask whether you're a real person, a bot or an AI, be honest and easy about it: "I'm {first}'s AI sidekick, \
+but I promise I'll make sure {first} gets this!" Never deny it, and never say or imply you are {first}.
 
 What this caller may hear about {first}'s time: {hear}. Say only that, and only when it helps (when {first} could \
 call back, whether {first} is free tomorrow). Never say where {first} is or will be, that {first} is travelling or \
@@ -853,7 +872,8 @@ booked. Free times (working hours, next week): {_free(memory)}
 
 Your job: find out who's calling and why, take a clear message, and judge how much it matters.
 - A real caller: get their name, the reason, any date, time or reference number, and the best number to call back \
-(read it back). Tell them when {first} will likely get back to them, then wrap up warmly and end. If they say how \
+(read it back). Tell them when {first} will likely get back to them, reassure them in your own words ("And \
+don't worry, I promise I'll make sure {first} gets the message!"), then wrap up warmly and end. If they say how \
 they like to be reached ("text me", "after six is better"), note it.
 Ending the call, like a person: when you are done, say a warm goodbye in one short sentence (for example "Thanks so much for your help, have a great day!") and set "end" in that same reply. You don't hang up yourself: you wait for their goodbye, and if they add something you'll hear it and can carry on. Never end while a question is still open or they are mid-thought. When everything is settled, ask once, naturally, "Anything else I can help with?" (or "Was there anything else?"). When they say no in any form ("I'm good", "no, that's it", "it's fine", "that's all, thanks"), that is their closing: say a short warm goodbye and end in that same reply. Never ask it twice.
 - Scam or robocall: threats (IRS, police, Social Security, arrest), gift cards, crypto or wire payments, "your car's \
@@ -1153,6 +1173,8 @@ class Mind:
         self.claude_usd = 0.0
         self.languages = call_languages(env)
         self.language = "en"            # the language Buddy last spoke (set where its words are voiced)
+        self.accent: dict[str, int] = {}  # turns in English the hearing took for another language (an accent)
+        self.offered = False            # the note to offer another language was given once
 
     @staticmethod
     def _key(text: str) -> str:
@@ -1161,10 +1183,28 @@ class Mind:
     def _they_said(self, said: str, lang: str = "") -> str:
         """Their turn as the call's history keeps it, marked with its language when that isn't English (or when it
         is English again after Buddy spoke another language)."""
+        raw = str(getattr(lang, "value", lang) or "").split("-")[0].lower()
         lang = heard_language(said, lang, self.languages)
+        note = self._accent_note(said, raw, lang)
         if lang and (lang != "en" or self.language != "en"):
-            return f"[They said, in {CALL_LANGUAGES[lang]}] {said}"
-        return f"[They said] {said}"
+            return f"[They said, in {CALL_LANGUAGES[lang]}] {said}{note}"
+        return f"[They said] {said}{note}"
+
+    def _accent_note(self, said: str, raw: str, lang: str) -> str:
+        """On a call Buddy answers: English the hearing keeps taking for another language it knows (the words are
+        English, the sound isn't) hints at an accent. After two such turns, once, a note for Claude to offer that
+        language; it isn't said aloud."""
+        if self.call.get("kind") != SCREEN or self.offered or self.language != "en" or not multilingual(self.env):
+            return ""
+        if raw == "en" or raw not in self.languages or lang == raw or len(_words(said)) < 3:
+            return ""
+        self.accent[raw] = self.accent.get(raw, 0) + 1
+        if self.accent[raw] < 2:
+            return ""
+        self.offered = True
+        name = CALL_LANGUAGES[raw]
+        return (f"\n[Note for you, not to say aloud: the hearing has twice taken their English for {name}, so they "
+                f"may be more at home in {name}. Once, naturally, offer other languages now, as the rules say.]")
 
     async def heard(self, said: str, lang: str = "") -> None:
         said = (said or "").strip()

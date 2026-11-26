@@ -658,7 +658,7 @@ def test_forwarded_call_is_answered_with_what_buddy_knows(tmp_path, env):
     assert "Never say where Sam is" in prompt and '"scam"' in prompt and "never like a bot" in prompt
     # known only from what Sam told Buddy, not a phone contact: when Sam is busy and free, nothing about what
     assert "Never deny it" in prompt and "only when Sam is busy and when Sam will be free" in prompt
-    assert "AI assistant" in calls.screen_greeting() and "Sam's phone" in calls.screen_greeting()  # said up front
+    assert "Sam's personal AI sidekick" in calls.screen_greeting()  # an AI, said up front
     unknown = calls.screen_call(m, {"From": "anonymous", "CallUUID": "in-2"})
     assert unknown["number"] == "unknown" and unknown["goal"] == ""
 

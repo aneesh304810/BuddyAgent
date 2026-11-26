@@ -106,12 +106,13 @@ def test_screened_call_greets_contacts_by_name_and_saves_important_strangers(tmp
     contacts.ingest(m, {"contacts": [{"name": "Priya Nair", "numbers": ["2015550111"]}]})
     priya = calls.screen_call(m, {"From": "12015550111", "CallUUID": "c1"})
     hi = calls.screen_greeting(None, priya)
-    assert "Priya" in hi and "Sam's AI assistant" in hi  # by name, and an AI assistant up front
+    assert "Priya!" in hi and "Sam's personal AI sidekick and manager" in hi  # by name, and an AI up front
+    assert "language" not in hi and hi.endswith("?")  # other languages are offered later, only when they'd help
     prompt = calls.system_prompt(m, priya)
     assert "Priya Nair, in Sam's contacts" in prompt and "what kind of thing Sam is doing" in prompt
 
     stranger = calls.screen_call(m, {"From": "12015550222", "CallUUID": "c2"})
-    assert calls.screen_greeting(None, stranger).endswith("?") and "AI assistant" in calls.screen_greeting(None, stranger)
+    assert calls.screen_greeting(None, stranger).endswith("?") and "AI sidekick" in calls.screen_greeting(None, stranger)
     prompt = calls.system_prompt(m, stranger)
     assert "an unknown number" in prompt and "ask their name early" in prompt
     assert "only when Sam is busy and when Sam will be free" in prompt
