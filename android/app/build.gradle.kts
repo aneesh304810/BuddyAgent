@@ -62,16 +62,16 @@ dependencies {
     implementation("androidx.compose.material3:material3")
     implementation("androidx.activity:activity-compose:1.9.3")
     implementation("androidx.core:core-ktx:1.15.0")
-    implementation("com.squareup.okhttp3:okhttp:4.12.0")
-    implementation("androidx.health.connect:connect-client:1.1.0-alpha07")  // Buddy Connect's Health group
+    implementation("com.squareup.okhttp3:okhttp:4.12.1")
+    implementation("androidx.health.connect:connect-client:1.2.0-alpha06")  // Buddy Connect's Health group
     implementation("androidx.lifecycle:lifecycle-runtime-ktx:2.8.7")
     implementation("io.coil-kt:coil-compose:2.7.0")  // photos and map tiles in result cards
-    implementation("com.microsoft.onnxruntime:onnxruntime-android:1.19.2")  // speech detection (Silero VAD)
+    implementation("com.microsoft.onnxruntime:onnxruntime-android:1.32.0")  // speech detection (Silero VAD)
     // Health → Scan food: the camera, and Google's barcode scanner with its model bundled (works offline;
     // no picture leaves the phone).
-    implementation("androidx.camera:camera-camera2:1.4.1")
-    implementation("androidx.camera:camera-lifecycle:1.4.1")
-    implementation("androidx.camera:camera-view:1.4.1")
+    implementation("androidx.camera:camera-camera2:1.7.0")
+    implementation("androidx.camera:camera-lifecycle:1.7.0")
+    implementation("androidx.camera:camera-view:1.7.0")
     // CameraX hands back its camera as a Guava ListenableFuture but carries that type only at run time.
     implementation("com.google.guava:listenablefuture:1.0")
     implementation("com.google.mlkit:barcode-scanning:17.3.0")
