@@ -1,6 +1,6 @@
 # Buddy Privacy and Data Retention Policy
 
-Source: https://claude.ai/artifact/MJVGZ7pWQvi26tg1MS914P, revision 139
+Source: https://claude.ai/artifact/MJVGZ7pWQvi26tg1MS914P, revision 142
 
 Nov 1, 2026 · @Aneesh
 
@@ -130,7 +130,7 @@ Buddy uses a few service providers to work. Each sees only what its job needs, u
 | Plivo | Placing the phone calls the owner approved, ringing the owner in on hold-and-connect calls, and answering calls the owner's phone forwards when they don't pick up | The numbers called and the call's audio while it lasts, which includes the facts the owner allowed for that call; Buddy doesn't turn on Plivo's call recording |
 | Deepgram | Turning the other side's speech into text during a call, in any of ten languages. Also, when live hearing is in use, turning what the owner says to Buddy in Talk mode into text as it is spoken (never Listen-in: other people's speech around the owner stays on Buddy's server) | The call's audio, only while someone is talking; in Talk mode, the owner's speech from the moment they start a sentence until it ends, with a short list of names and words from the owner's vocabulary so they are heard right; Buddy opts out of Deepgram's model improvement program on every connection, in one place in the code |
 | ElevenLabs | Buddy's spoken voice on calls | The words Buddy says on the call, which can include the facts the owner allowed for that call |
-| openFDA (api.fda.gov), MedlinePlus (wsearch.nlm.nih.gov), Open Food Facts | Public health information the owner asks for: medicine labels and recalls, health topics, food nutrition | Only the medicine, topic or product name; never the owner's health data |
+| openFDA (api.fda.gov), MedlinePlus (wsearch.nlm.nih.gov), Open Food Facts, USDA FoodData Central (api.nal.usda.gov, through api.data.gov), the NIH Office of Dietary Supplements' Label Database (api.ods.od.nih.gov) | Public health information the owner asks for: medicine labels and recalls, health topics, food nutrition, the nutrients of foods the owner looks up, and supplement labels | Only the medicine, topic, food or product name the owner types (for a supplement label, the database's own label number), and for USDA the owner's own api.data.gov key; never the owner's health data |
 | Google Shopping (through Serper) and Keepa (optional), for Amazon prices | Checking an Amazon price the owner asks about or watches | Only the product's name or Amazon ID; never personal data. Amazon's own pages are never scraped |
 | GitHub, and Claude Code running there (Anthropic's GitHub Action, on the owner's Claude subscription) | Fixing Buddy's own code: after the owner's yes, Buddy opens an issue in its private repository and Claude Code pushes a fix to a branch | Code instructions only (what to fix, where); never the owner's personal data, which Buddy refuses to put in an issue |
 | Serper | Web search and news search | Search words only |

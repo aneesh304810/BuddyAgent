@@ -66,7 +66,7 @@ PATH and Serper here; stage 2 markets, trends and news, flights and weather. The
 failover and report each result; Claude and Plaid keep their own clients and are listed for the status.
 ```
 
-- Settings: `BUDDY_AIRLABS_KEY`, `BUDDY_ALPACA_KEY_ID`, `BUDDY_ALPACA_SECRET`, `BUDDY_ALPHAVANTAGE_KEY`, `BUDDY_BESTBUY_KEY`, `BUDDY_CEREBRAS_KEY`, `BUDDY_DEALS_EMAIL_ADDRESS`, `BUDDY_DEALS_EMAIL_APP_PASSWORD`, `BUDDY_DEEPGRAM_KEY`, `BUDDY_EBAY_CLIENT_ID`, `BUDDY_EBAY_CLIENT_SECRET`, `BUDDY_EIA_KEY` and 36 more
+- Settings: `BUDDY_AIRLABS_KEY`, `BUDDY_ALPACA_KEY_ID`, `BUDDY_ALPACA_SECRET`, `BUDDY_ALPHAVANTAGE_KEY`, `BUDDY_BESTBUY_KEY`, `BUDDY_CEREBRAS_KEY`, `BUDDY_DEALS_EMAIL_ADDRESS`, `BUDDY_DEALS_EMAIL_APP_PASSWORD`, `BUDDY_DEEPGRAM_KEY`, `BUDDY_EBAY_CLIENT_ID`, `BUDDY_EBAY_CLIENT_SECRET`, `BUDDY_EIA_KEY` and 37 more
 - Uses: connecthub.py, maestro.py, markets.py, tools.py, travel.py
 
 ### keytest.py

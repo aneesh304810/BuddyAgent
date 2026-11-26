@@ -94,7 +94,8 @@ def view(memory: Memory, days: int = 30, now: datetime | None = None, env=None) 
                      "start": plan.get("start") or {}, "since": plan.get("created_at", "")} if plan else None,
         "food": {"eaten": eaten, "targets": {k: diet.get(k) for k in ("calories", "protein_g") if diet.get(k)},
                  "left": {"calories": left("calories"), "protein_g": left("protein_g")}, "recent": recent,
-                 "note": "Calories and protein are counted only when you type them: nothing estimates them."},
+                 "note": "Calories and protein are counted only when you type them or add a food you looked up "
+                         "(USDA's numbers for the amount you pick): no AI estimates them."},
         "privacy": {"ranges": healthranges.on(env),
                     "note": "Ranges are on: Buddy may be told where a measure stands against your usual (never the "
                             "numbers) so it can talk about it." if healthranges.on(env) else

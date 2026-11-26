@@ -27,6 +27,7 @@ flowchart LR
         moodlog_py["moodlog.py<br/>how they feel, in their own words, kept on their server only"]
         prevention_py["prevention.py<br/>which screenings apply to the owner, what they usually cost, and…"]
         nhanesref_py["nhanesref.py<br/>weighted percentiles from NHANES, the CDC's national health survey"]
+        foodfacts_py["foodfacts.py<br/>Food, supplement and medicine facts from US government sources,…"]
     end
     you --> t_thermostat
     t_thermostat --> nest_py
@@ -59,6 +60,7 @@ flowchart LR
     prevention_py --> labs_py
     prevention_py --> nhanesref_py
     prevention_py --> oura_py
+    foodfacts_py --> health_data_py
     db[("Your database<br/>coach_log, coach_meals, health_daily, health_model_runs, health_records, lab_reports, lab_results, mood_log and more")]
     health_data_py --> db
     oura_py --> db
@@ -429,6 +431,28 @@ combine. Blood pressure is the mean of the three seated oscillometric readings; 
 glucose and LDL are from the fasting subsample. A group is kept with 30 or more people; the page wants 80.
 Percentiles: 5, 10, 25, 50, 75, 90, 95. NHANES data are public domain (CDC/NCHS).
 ```
+
+### foodfacts.py
+
+```text
+Food, supplement and medicine facts from US government sources, looked up when the owner asks on the Health page.
+
+- **Foods: USDA FoodData Central** (api.nal.usda.gov, a free api.data.gov key in BUDDY_USDA_KEY). Basic foods,
+  survey foods (with household portions such as "1 cup") and branded products, each with calories, protein, carbs,
+  fat, fibre, sugar and sodium per 100 g. The page works out a portion by code and can add it to today's meals.
+- **Supplements: the NIH Office of Dietary Supplements' Label Database (DSLD)** (api.ods.od.nih.gov, no key): a
+  product's label, ingredient by ingredient, per serving, with each ingredient's daily amount at the label's most
+  servings a day set against the adult Tolerable Upper Intake Level (the National Academies' limits, as ODS gives
+  them), and a link to ODS's fact sheet for it.
+- **Medicines: openFDA's drug labels and recalls**, through health_data.drug and health_data.recalls.
+
+Only the words the owner types go out (a food or product name; for a label, the database's own number); nothing
+about the owner. Public data, so no AI model is involved and nothing is kept but a day's cache of the answers.
+Not medical advice.
+```
+
+- Settings: `BUDDY_USDA_KEY`
+- Uses: gateway.py, health_data.py, memory.py, tools.py
 
 ## How it connects
 

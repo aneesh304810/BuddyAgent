@@ -19,6 +19,7 @@ const SECTIONS = [
   ["trends", "Trends", [["measures", "Measures"], ["patterns", "Patterns"], ["mood", "Mood"]]],
   ["labs", "Labs", [["results", "Results"], ["add", "Add a report"], ["portals", "Portals"], ["checkups", "Checkups"]]],
   ["plan", "Plan", [["habits", "Progress"], ["food", "Food"], ["goals", "Goals & habits"]]],
+  ["learn", "Learn", [["supplements", "Supplements"], ["medicines", "Medicines"]]],
   ["sources", "Sources", []],
 ];
 const TABS = SECTIONS.map(([k, label]) => [k, label]);
@@ -424,14 +425,106 @@ function renderFood() {
   const meals = f.recent.length ? f.recent.map((m) => `<div class="line"><div class="what">${esc(m.what)}<small>${esc(when(m.day))} ${esc(m.at)}</small></div>
       <div class="num">${m.calories == null ? "" : num(m.calories) + " cal"}${m.protein_g == null ? "" : `<small>${num(m.protein_g)} g protein</small>`}</div></div>`).join("")
     : `<p class="muted">No meals noted in the last week.</p>`;
-  $("main").innerHTML = `<div class="kpis">${k.join("")}</div>`
+  $("main").innerHTML = `<div class="kpis">${k.join("")}</div>` + foodLookup()
     + card("Note a meal", `<form id="meal"><div class="f"><input class="grow" name="what" placeholder="What you ate" aria-label="What you ate" required maxlength="200">
         <input class="narrow" name="calories" inputmode="numeric" placeholder="Calories" aria-label="Calories">
         <input class="narrow" name="protein_g" inputmode="numeric" placeholder="Protein g" aria-label="Protein in grams">
         <button class="btn solid">Add</button></div></form>`, esc(f.note))
     + card("Last 7 days", meals);
+  wireFoodLookup();
   $("meal").onsubmit = (e) => { e.preventDefault(); const d = new FormData(e.target);
     act({ action: "meal", what: d.get("what"), calories: d.get("calories"), protein_g: d.get("protein_g") }, "Meal noted."); };
+}
+
+// --- facts looked up on request (USDA foods, NIH supplement labels, openFDA medicines): only the words typed go out
+const facts = { food: null, supplement: null, label: null, medicine: null }, factQ = { food: "", supplement: "", medicine: "" };
+let foodPick = -1, foodGrams = "";
+async function lookUp(kind, q) {
+  facts[kind] = { busy: true };
+  if (kind === "supplement") facts.label = null;
+  render();
+  try { facts[kind] = await api(`/api/health/facts?kind=${kind}&q=${encodeURIComponent(q)}`); }
+  catch (e) { facts[kind] = { failed: e.message }; }
+  render();
+}
+const searchForm = (kind, placeholder) => `<form class="f" data-fact-form="${kind}"><input class="grow" name="q" maxlength="80" placeholder="${esc(placeholder)}" value="${esc(factQ[kind])}" aria-label="${esc(placeholder)}"><button class="btn solid">Look up</button></form>`;
+function wireSearch() {
+  $("main").querySelectorAll("[data-fact-form]").forEach((f) => f.onsubmit = (e) => {
+    e.preventDefault(); const kind = f.dataset.factForm, q = f.q.value.trim();
+    if (!q) return; factQ[kind] = q; if (kind === "food") foodPick = -1; lookUp(kind, q);
+  });
+}
+const factState = (got) => !got ? "" : got.busy ? `<p class="muted">Looking…</p>` : got.failed ? `<p class="err">${esc(got.failed)}</p>` : null;
+const per100 = (p) => [p.kcal != null ? `${num(p.kcal)} kcal` : "", p.protein_g != null ? `${num(p.protein_g)} g protein` : "",
+  p.carbs_g != null ? `${num(p.carbs_g)} g carbs` : "", p.fat_g != null ? `${num(p.fat_g)} g fat` : ""].filter(Boolean).join(" · ");
+function foodLookup() {
+  const got = facts.food, state = factState(got);
+  let body = state ?? "";
+  if (state === null) {
+    body = got.foods.length ? got.foods.map((f, i) => {
+      const open = i === foodPick, grams = Number(foodGrams) || (f.portions[0] ? f.portions[0].grams : 100);
+      const amt = { kcal: Math.round((f.per100.kcal || 0) * grams / 100), protein: Math.round((f.per100.protein_g || 0) * grams / 10) / 10 };
+      return `<div class="line" style="align-items:flex-start"><div class="what">${esc(f.name)}<small>${esc(f.kind)}${f.brand ? " · " + esc(f.brand) : ""} · per 100 g: ${per100(f.per100)}</small>
+        ${open ? `<div class="f" style="align-items:flex-end;margin-top:6px">
+          ${f.portions.length ? `<select data-food-portion aria-label="Portion"><option value="">Grams</option>${f.portions.map((p) => `<option value="${p.grams}"${Number(foodGrams) === p.grams ? " selected" : ""}>${esc(p.label)} (${num(p.grams)} g)</option>`).join("")}</select>` : ""}
+          <input class="narrow" data-food-grams inputmode="decimal" value="${esc(grams)}" aria-label="Grams"> g
+          <button class="btn solid" data-food-add="${i}">Add ${num(amt.kcal)} kcal, ${num(amt.protein)} g protein</button></div>` : ""}</div>
+        ${open ? "" : `<button class="btn" data-food-pick="${i}">Use</button>`}</div>`;
+    }).join("") : `<p class="muted">Nothing found: try fewer or plainer words.</p>`;
+  }
+  return card("Look up a food", searchForm("food", "A food, e.g. idli, banana, Greek yogurt") + body,
+    got && got.source ? `${esc(got.source)}. Only the words you type are sent.` : "From USDA FoodData Central. Only the words you type are sent.");
+}
+function wireFoodLookup() {
+  wireSearch();
+  $("main").querySelectorAll("[data-food-pick]").forEach((b) => b.onclick = () => { foodPick = Number(b.dataset.foodPick); foodGrams = ""; render(); });
+  const portion = $("main").querySelector("[data-food-portion]"), grams = $("main").querySelector("[data-food-grams]");
+  if (portion) portion.onchange = () => { if (portion.value) { foodGrams = portion.value; render(); } };
+  if (grams) grams.onchange = () => { foodGrams = grams.value; render(); };
+  $("main").querySelectorAll("[data-food-add]").forEach((b) => b.onclick = () => {
+    const f = facts.food.foods[Number(b.dataset.foodAdd)], g = Number(grams.value);
+    if (!(g > 0 && g <= 3000)) { notice("An amount between 1 and 3,000 grams."); return; }
+    const label = portion && portion.value && Number(portion.value) === g ? portion.selectedOptions[0].textContent : `${num(g)} g`;
+    act({ action: "meal", what: `${f.name} (${label})`.slice(0, 200), calories: Math.round((f.per100.kcal || 0) * g / 100),
+      protein_g: Math.round((f.per100.protein_g || 0) * g / 100) }, "Added to today's meals.");
+    foodPick = -1; foodGrams = "";
+  });
+}
+
+function renderSupplements() {
+  const got = facts.supplement, state = factState(got), lab = facts.label;
+  let list = state ?? "";
+  if (state === null) list = got.products.length ? got.products.map((p) => `<div class="line"><div class="what">${esc(p.name)}<small>${esc(p.brand)}${p.off_market ? " · no longer sold" : ""}${p.ingredients.length ? " · " + esc(p.ingredients.slice(0, 4).join(", ")) : ""}</small></div>
+      <button class="btn" data-label="${esc(p.id)}">Label</button></div>`).join("") : `<p class="muted">Nothing found: try the brand and the main ingredient.</p>`;
+  let detail = "";
+  if (lab && (lab.busy || lab.failed)) detail = factState(lab);
+  else if (lab) {
+    const rows = lab.rows.map((r) => `<div class="line"><div class="what">${r.fact_sheet ? `<a href="${esc(r.fact_sheet)}" target="_blank" rel="noopener">${esc(r.name)}</a>` : esc(r.name)}
+        <small>${num(r.amount)} ${esc(r.unit)} a serving${r.daily_value_pct != null ? ` · ${num(r.daily_value_pct)}% of the daily value` : ""}${r.upper ? ` · adult upper limit ${esc(r.upper)}` : ""}</small></div>
+        ${r.upper_pct != null ? `<span class="pill ${r.upper_pct > 100 ? "warn" : ""}">${num(r.upper_pct)}% of the limit</span>` : ""}</div>`).join("");
+    detail = card(esc(lab.name || "Label"), `<p class="why" style="margin:0">${esc(lab.brand)} · a serving is ${esc(lab.serving)}; up to ${num(lab.most_servings)} a day on the label${lab.off_market ? " · no longer sold" : ""}</p>`
+      + (lab.warning ? `<p class="err">${esc(lab.warning)}</p>` : "") + rows
+      + `<p class="why"><a href="${esc(lab.page)}" target="_blank" rel="noopener">The label in the NIH database</a> · the share of the limit is at the label's most servings a day.</p>`, esc(lab.note));
+  }
+  $("main").innerHTML = card("Look up a supplement", searchForm("supplement", "A product, e.g. Kirkland vitamin D3") + list,
+    "From the NIH Office of Dietary Supplements' Label Database. Only the words you type are sent.") + detail;
+  wireSearch();
+  $("main").querySelectorAll("[data-label]").forEach((b) => b.onclick = () => lookUp("label", b.dataset.label));
+}
+
+function renderMedicines() {
+  const got = facts.medicine, state = factState(got);
+  let body = state ?? "";
+  if (state === null) {
+    const l = got.label || {}, part = (title, text, open) => text ? `<details${open ? " open" : ""}><summary style="cursor:pointer">${title}</summary><p class="why">${esc(text)}</p></details>` : "";
+    body = (l.used_for || l.warnings) ? `<p style="margin:8px 0 4px"><b>${esc(l.name)}</b>${l.generic ? ` <span class="muted">(${esc(l.generic)})</span>` : ""}</p>`
+      + part("What it is for", l.used_for, true) + part("Warnings", l.warnings) + part("Interactions", l.interactions) + part("Side effects", l.side_effects)
+      + (got.recalls.length ? `<p class="muted" style="margin:10px 0 0">Recalls</p>` + got.recalls.map((r) => `<div class="line"><div class="what">${esc(r.product)}<small>${esc(r.date)} · ${esc(r.status)} · ${esc(r.reason)}</small></div></div>`).join("") : "")
+      : `<p class="muted">No FDA label found: try the generic name.</p>`;
+  }
+  $("main").innerHTML = card("Look up a medicine", searchForm("medicine", "A medicine, e.g. metformin") + body,
+    got && got.note ? esc(got.note) : "From openFDA, the US FDA's public drug labels. Only the words you type are sent.");
+  wireSearch();
 }
 
 function habitRow(h) {
@@ -597,6 +690,7 @@ const VIEWS = {
   "labs/results": () => renderLabs("results"), "labs/add": () => renderLabs("add"), "labs/portals": () => renderLabs("portals"),
   "labs/checkups": renderCheckups,
   "plan/habits": renderHabits, "plan/food": renderFood, "plan/goals": renderPlan,
+  "learn/supplements": renderSupplements, "learn/medicines": renderMedicines,
 };
 function render() {
   tabs();

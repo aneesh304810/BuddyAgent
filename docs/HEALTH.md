@@ -27,6 +27,7 @@ sub-tabs under them, and the page remembers where you were.
 | **Trends** | Measures · Patterns · Mood |
 | **Labs** | Results · Add a report · Portals · Checkups |
 | **Plan** | Progress · Food · Goals & habits |
+| **Learn** | Supplements · Medicines |
 | **Sources** | (one page) each source, and "Read the ring now" |
 
 - **Today:** readiness, sleep, heart rate variability, lowest night heart rate and temperature, what they mean for
@@ -46,7 +47,21 @@ sub-tabs under them, and the page remembers where you were.
 - **Plan → Progress:** each habit over the last 7 and 30 days (days done, the rate, the run in a row), and your
   weekly averages now against when the plan started.
 - **Plan → Food:** what you noted today against the plan's calories and protein, and the last week's meals. You
-  type a meal; calories and protein are counted only if you type them, because nothing estimates them any more.
+  type a meal, or **look up a food**: USDA FoodData Central's basic foods, foods as people eat them (with portions
+  such as "1 idli" or "1 cup") and branded products, each with calories, protein, carbs and fat per 100 g. Pick a
+  portion or type grams, and "Add" puts that food into today's meals with the calories and protein worked out by
+  code from USDA's numbers. No AI estimates them. Food lookups need a free api.data.gov key, set once on the
+  server: `sudo bash /opt/buddy/deploy/set.sh BUDDY_USDA_KEY` (sign up at api.data.gov; Buddy can't do it for you).
+- **Learn → Supplements:** look up a product in the NIH Office of Dietary Supplements' Label Database (no key):
+  products sold now first, then ones no longer sold. Open a label to see each ingredient per serving, its share of
+  the daily value, and, for the nutrients with an adult upper limit (vitamin D, C, E and B6, niacin, calcium,
+  iron, zinc, magnesium, selenium, iodine, copper, manganese, choline), its share of that limit at the label's
+  most servings a day, warned when over 100%. Each nutrient links to ODS's fact sheet. It is what the label says,
+  not a test of the product, and food adds to the limits.
+- **Learn → Medicines:** a medicine's FDA label (what it is for, warnings, interactions, side effects) and recent
+  recalls, from openFDA. Ask your pharmacist or doctor about your own medicines.
+- These lookups send only the words you type (or the database's own label number), nothing about you, and keep a
+  day's cache of the answers. No AI model is involved.
 - **Plan → Goals & habits:** goals, up to eight habits (tracked from the ring or phone with a target, or ticked off
   by you), and food targets. This form replaces the set-up conversation in section 2, and Plan opens on it until
   there is a plan. "Forget my health plan" (pressed twice) deletes the plan, the habit log and the meals; the

@@ -363,6 +363,21 @@ CATALOG: dict[str, dict] = {
                       "per_minute": 30, "privacy": "public", "used_for": "nutrition and allergens of food products",
                       "terms": "Open Database License (ODbL): free to use with credit to Open Food Facts.",
                       "health": {"path": "/api/v2/product/3017624010701.json"}, "moved": True},
+    # Food and supplement facts (foodfacts.py): looked up on the Health page; only the words typed go out.
+    "usda_fdc": {"group": "Health", "title": "USDA FoodData Central (food facts)", "hosts": ["https://api.nal.usda.gov"],
+                 "auth": {"type": "header", "header": "X-Api-Key", "secret": "BUDDY_USDA_KEY"}, "cost": 0.0,
+                 "per_minute": 15, "privacy": "public", "no_backup": True,
+                 "used_for": "calories, protein and other nutrients of the foods you look up on the Health page "
+                             "(only the words you type are sent)",
+                 "terms": "Public domain (CC0), from the US Department of Agriculture; the key is a free api.data.gov "
+                          "key.",
+                 "health": {"custom": "foodfacts.check"}, "moved": True},
+    "nih_dsld": {"group": "Health", "title": "NIH supplement labels (DSLD)", "hosts": ["https://api.ods.od.nih.gov"],
+                 "auth": {"type": "none"}, "cost": 0.0, "per_minute": 20, "privacy": "public", "no_backup": True,
+                 "used_for": "what a supplement's label says, ingredient by ingredient, for the products you look "
+                             "up on the Health page (only the words you type are sent)",
+                 "terms": "US government data from the NIH Office of Dietary Supplements, free to use.",
+                 "health": {"path": "/dsld/v9/search-filter?q=vitamin%20d&size=1"}, "moved": True},
     # Home (nest.py): the owner's own thermostat, through Google's Smart Device Management API. Personal: commands
     # and readings about the owner's home, between Buddy and Google (which already holds them).
     "nest": {"group": "Home", "title": "Google Nest (thermostat)",

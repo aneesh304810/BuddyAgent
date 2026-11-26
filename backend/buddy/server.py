@@ -1790,6 +1790,27 @@ async def api_health_lab_file(report_id: int):
                     headers={"Content-Disposition": "inline; filename=report.pdf", "Cache-Control": "no-store"})
 
 
+@app.get("/api/health/facts", dependencies=[Depends(require_admin)])
+async def api_health_facts(kind: str, q: str = "") -> dict:
+    """Public facts the owner looks up: food (USDA), supplement (NIH label database), label (one supplement's
+    label by its number), medicine (openFDA). Only the words typed go out."""
+    from . import foodfacts  # noqa: PLC0415
+    try:
+        if kind == "food":
+            return {"foods": await asyncio.to_thread(foodfacts.foods, memory, q),
+                    "source": "USDA FoodData Central (public domain)"}
+        if kind == "supplement":
+            return {"products": await asyncio.to_thread(foodfacts.supplements, memory, q),
+                    "source": "NIH Office of Dietary Supplements, Dietary Supplement Label Database"}
+        if kind == "label":
+            return await asyncio.to_thread(foodfacts.label, memory, q)
+        if kind == "medicine":
+            return await asyncio.to_thread(foodfacts.medicine, memory, q)
+    except ToolError as e:
+        raise HTTPException(400, str(e)) from None
+    raise HTTPException(400, "unknown kind")
+
+
 @app.get("/api/health/checkups", dependencies=[Depends(require_admin)])
 async def api_health_checkups() -> dict:
     """The screenings that apply to the owner, what to ask about, and where their numbers sit (shown to them only)."""
