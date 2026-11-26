@@ -72,8 +72,9 @@ dependencies {
     implementation("androidx.camera:camera-camera2:1.4.1")
     implementation("androidx.camera:camera-lifecycle:1.4.1")
     implementation("androidx.camera:camera-view:1.4.1")
-    // CameraX hands back its camera as a Guava ListenableFuture but carries that type only at run time.
-    implementation("com.google.guava:listenablefuture:1.0")
+    // CameraX hands back its camera as a Guava ListenableFuture but carries that type only at run time, and another
+    // library already resolves Guava's stand-alone ListenableFuture to its empty placeholder: use Guava itself.
+    implementation("com.google.guava:guava:33.3.1-android")
     implementation("com.google.mlkit:barcode-scanning:17.3.0")
     // Health → Scan food → Dish: ML Kit runs Google's food classifier (assets/food_v1.tflite) on the phone.
     implementation("com.google.mlkit:image-labeling-custom:17.0.3")
