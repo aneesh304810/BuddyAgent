@@ -16,6 +16,7 @@ flowchart LR
         t_recall_memory["recall_memory"]
         t_read_pages["read_pages"]
         t_search_everywhere["search_everywhere"]
+        t_check_reviews["check_reviews"]
     end
     subgraph Modules["Modules"]
         trends_py["trends.py<br/>what people are talking about right now on a topic (AI, markets,…"]
@@ -25,6 +26,7 @@ flowchart LR
         research_py["research.py<br/>a background job that reads, checks and computes"]
         webread_py["webread.py<br/>Read web pages on Buddy's side, so Claude gets the facts instead of…"]
         buddysearch_py["buddysearch.py<br/>one search brain over many providers, so Buddy depends on no single…"]
+        reviews_py["reviews.py<br/>Reviews of one place or product, fetched only when the owner asks…"]
     end
     you --> t_trends
     t_trends --> trends_py
@@ -42,21 +44,29 @@ flowchart LR
     t_read_pages --> webread_py
     you --> t_search_everywhere
     t_search_everywhere --> buddysearch_py
+    you --> t_check_reviews
+    t_check_reviews --> reviews_py
     trends_py --> newsfeed_py
     techradar_py --> trends_py
     social_py --> newsfeed_py
     research_py --> social_py
     research_py --> webread_py
     buddysearch_py --> newsfeed_py
+    buddysearch_py --> reviews_py
     buddysearch_py --> social_py
+    reviews_py --> buddysearch_py
+    reviews_py --> social_py
     db[("Your database<br/>news_feedback, search_cache, search_history, search_kept, tech_radar, trend_counts, trend_topics")]
     trends_py --> db
     techradar_py --> db
     buddysearch_py --> db
+    s_bestbuy["Best Buy Products API<br/>(public data only)"]
+    reviews_py --> s_bestbuy
     s_brave["Brave Search (web and news)<br/>(public data only)"]
     buddysearch_py --> s_brave
     s_google_places["Google Places (restaurants)<br/>(public data only)"]
     buddysearch_py --> s_google_places
+    reviews_py --> s_google_places
     s_nominatim["OpenStreetMap places (Nominatim)<br/>(public data only)"]
     buddysearch_py --> s_nominatim
     s_overpass["OpenStreetMap places by kind (Overpass)<br/>(public data only)"]
@@ -94,6 +104,7 @@ The diagram reads left to right: what you ask, the tools Buddy uses, the modules
 | `recall_memory` | Search what Buddy knows about the user (home, plans, preferences, budget) | - | research.py |
 | `read_pages` | Read up to 3 web pages (links from google_search, web_search or anywhere) for a question: Buddy downloads each page and a free model pulls out only the facts th | - | webread.py |
 | `search_everywhere` | Buddy Search: one search over many providers, chosen by what is asked: web (Brave, Tavily; Google via Serper as fallback), places (Google Places and OpenStreetM | - | buddysearch.py |
+| `check_reviews` | What people say about one place (restaurant, cafe, bar, hotel, spa, shop) or one product, before the owner picks it: Reddit threads, review sites (TripAdvisor,  | place, product | reviews.py |
 
 ## Technical design, module by module
 
@@ -282,8 +293,11 @@ Privacy: providers get the search words and, for places, an area name (never a p
 own things never leaves the server. A summary of web results may use any model in Maestro (public text only, the
 Privacy Gateway checks); a summary that includes the owner's own things uses Claude only.
 
+Places are ranked with their reviews too: the rating pulled towards an ordinary 4.2 when few people gave it
+(reviews.review_score), so a 4.6 from 5,000 beats a 5.0 from 4. Reviews of one result: reviews.py, on request.
+
 Storage, by each provider's terms (POLICY): a link and title are kept for every result; the rest only where the
-terms allow, else held in a short cache. Google Places: only the place ID is kept (Google's terms); Brave: links
+terms allow, else held in a short cache. Google Places: only the place ID is kept, nothing cached (Google's terms); Brave: links
 unless the owner's plan includes storage rights (BUDDY_BRAVE_STORAGE_RIGHTS=1); OpenStreetMap: kept, with its
 attribution (ODbL). The owner's searches are kept until they delete them.
 ```
@@ -291,7 +305,36 @@ attribution (ODbL). The owner's searches are kept until they delete them.
 - Tables: `search_cache`, `search_history`, `search_kept`
 - Outside services: Brave Search (web and news), Google Places (restaurants), OpenStreetMap places (Nominatim), OpenStreetMap places by kind (Overpass), Tavily (research search)
 - Settings: `BUDDY_BRAVE_KEY`, `BUDDY_BRAVE_STORAGE_RIGHTS`, `BUDDY_GOOGLE_PLACES_KEY`, `BUDDY_SEARCH_CAP_`, `BUDDY_SERPER_KEY`, `BUDDY_TAVILY_KEY`
-- Uses: bip_sources.py, brain.py, dealcollector.py, dining.py, gateway.py, library.py, maestro.py, memory.py, newsfeed.py, paperlib.py, social.py, tools.py
+- Uses: bip_sources.py, brain.py, dealcollector.py, dining.py, gateway.py, library.py, maestro.py, memory.py, newsfeed.py, paperlib.py, reviews.py, social.py, tools.py
+
+### reviews.py
+
+```text
+Reviews of one place or product, fetched only when the owner asks (the Reviews button in Buddy Search, or a
+question in chat), so a search doesn't cost a review lookup for every result.
+
+  for_result(memory, "place", "Luca Pizza", area="Hoboken", place_id="ChIJ...", rating=4.6, count=300)
+    -> Google's own reviews (Google Places key and a place ID): up to five, shown word for word with their
+       authors and Google's attribution; never cached, never kept, never given to a model, never mined for
+       complaints (Google Maps Platform terms)
+    -> what people say elsewhere: Reddit threads, review sites (TripAdvisor, Yelp, Time Out, Eater and others for
+       places; Wirecutter, RTINGS, Consumer Reports, CNET and others for products) and complaint threads, as the
+       snippets search results show, each with its link (Serper, else Brave; Reddit's own API when connected)
+    -> Best Buy's customer rating for a product (its official Products API)
+    -> warning signs, by code: a very high rating from few reviews, sources a star or more apart, the same
+       complaint from two or more sources
+    -> pros, cons and catches with their sources: a model in Maestro, from the public snippets only (a snippet
+       that reads like someone's health is left out; with anything personal in them they go to Claude only)
+    -> the owner's own verdicts on things they bought (shopper.py): shown, never sent to any model
+
+No scraping: official APIs and search-result snippets only, never a review site's own pages; Yelp's API is not used.
+Providers get the name and an area name, never a position. The public part is held an hour (a second tap costs
+nothing) and not kept.
+```
+
+- Outside services: Best Buy Products API, Google Places (restaurants)
+- Settings: `BUDDY_BESTBUY_KEY`
+- Uses: buddysearch.py, gateway.py, maestro.py, memory.py, privacygate.py, shopper.py, social.py, tools.py
 
 ## How it connects
 

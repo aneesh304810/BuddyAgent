@@ -15,6 +15,7 @@ const esc = (s) => String(s ?? "").replace(/[&<>"']/g, (c) => ({ "&": "&amp;", "
 const link = (url, text, cls = "") => /^https?:\/\//i.test(String(url || "")) ? `<a class="${cls}" href="${esc(url)}" target="_blank" rel="noopener noreferrer">${esc(text)}</a>` : `<span class="${cls}">${esc(text)}</span>`;
 const ENGINES = [["", "Buddy decides"], ["web", "Web"], ["local", "Places"], ["products", "Products"], ["news", "News"], ["research", "Research"], ["internal", "Your own things"]];
 let engine = storageGet("searchEngine") || "", found = null, busy = false, status = null, showStatus = false, summary = storageGet("searchSummary") === "1", sure = false;
+const reviews = {};  // "engine|index" -> {open, busy, got, failed}
 
 async function api(path, body) {
   const res = await fetch(path, body ? { method: "POST", headers: { Authorization: `Bearer ${token}`, "Content-Type": "application/json" }, body: JSON.stringify(body) }
@@ -32,10 +33,10 @@ function chips() {
 }
 
 const TITLES = { web: "Web", local: "Places", products: "Products and prices", news: "News", research: "Research", internal: "Your own things" };
-function result(r) {
+function result(r, key) {
   const x = r.extra || {}, bits = [];
   if (x.category) bits.push(esc(x.category));
-  if (x.rating != null) bits.push(`★ ${esc(x.rating)}${x.reviews ? ` (${esc(x.reviews)})` : ""}`);
+  if (x.rating != null) bits.push(`★ ${esc(x.rating)}${x.reviews ? ` (${esc(x.reviews)})` : ""}${r.caution ? ` <span class="tag warn">${esc(r.caution)}</span>` : ""}`);
   if (x.open_now === true) bits.push("open now"); else if (x.open_now === false) bits.push("closed now");
   if (x.price != null) bits.push(`<b>$${esc(Number(x.price).toFixed(2))}</b>${x.store ? " at " + esc(x.store) : ""}${x.on_sale ? " · on sale" : ""}`);
   if (x.address) bits.push(esc(x.address));
@@ -47,7 +48,53 @@ function result(r) {
       ${r.found_by.map((s) => `<span class="tag">${esc(s)}</span>`).join("")}${r.corroborated ? `<span class="tag good">found by ${r.found_by.length}</span>` : ""}${r.official ? `<span class="tag good">official source</span>` : ""}</div>
     ${bits.length ? `<div class="meta">${bits.join(" · ")}</div>` : ""}
     ${r.snippet ? `<div class="snip">${esc(r.snippet)}</div>` : ""}
-    ${x.website && x.website !== r.url ? `<div class="meta">${link(x.website, "website")}</div>` : ""}</div>`;
+    ${x.website && x.website !== r.url ? `<div class="meta">${link(x.website, "website")}</div>` : ""}
+    ${r.kind === "place" || r.kind === "product" ? `<div class="meta"><button class="btn" data-rev="${esc(key)}">${reviews[key]?.open ? "Hide reviews" : "Reviews"}</button></div>${reviews[key]?.open ? reviewBox(reviews[key]) : ""}` : ""}</div>`;
+}
+
+// Reviews of one result, fetched on tap (reviews.py): warnings, pros and cons with their sources, Google's own
+// reviews word for word with their authors, what Reddit, review sites and complaint threads say, your own verdicts.
+const VERDICT = { happy: "happy with it", okay: "it was okay", regret: "regretted it" };
+function cites(ns, items) {
+  return ns.map((n) => { const it = items.find((i) => i.n === n); return it ? link(it.link, `[${n}]`) : ""; }).join(" ");
+}
+function reviewBox(st) {
+  if (st.busy) return `<div class="rev muted">Reading reviews…</div>`;
+  if (st.failed) return `<div class="rev err" style="padding:8px 12px">${esc(st.failed)}</div>`;
+  const g = st.got, items = g.items || [];
+  let h = "";
+  if (g.warnings.length) h += `<h3>Warning signs</h3>${g.warnings.map((w) => `<div class="sign">⚠ ${esc(w.text)} ${cites(w.sources, items)}</div>`).join("")}`;
+  const s = g.summary;
+  if (s) {
+    for (const [part, label] of [["pros", "Good"], ["cons", "Not so good"], ["catches", "Catches"]]) {
+      if (s[part] && s[part].length) h += `<h3>${label}</h3><ul>${s[part].map((p) => `<li>${esc(p.text)} ${cites(p.sources, items)}</li>`).join("")}</ul>`;
+    }
+  }
+  if (g.summary_note) h += `<p class="muted">${esc(g.summary_note)}</p>`;
+  if (g.store_rating) h += `<h3>${esc(g.store_rating.source)}</h3><div class="src">★ ${esc(g.store_rating.rating)} from ${esc(g.store_rating.count)} reviews · ${link(g.store_rating.url, g.store_rating.title)}</div>`;
+  if (g.google && g.google.error) h += `<p class="muted">Google: ${esc(g.google.error)}</p>`;
+  else if (g.google && g.google.reviews.length) {
+    h += `<h3>${esc(g.google.attribution)}${g.google.rating ? ` · ★ ${esc(g.google.rating)} from ${esc(g.google.count)}` : ""}</h3>`
+      + g.google.reviews.map((r) => `<div class="gr"><div class="who">${r.rating ? `★ ${esc(r.rating)} · ` : ""}${link(r.author_url, r.author || "A Google user")}${r.when ? ` · ${esc(r.when)}` : ""}</div><div class="gtext">${esc(r.text)}</div></div>`).join("")
+      + `<div class="meta">${link(g.google.url, "All reviews on Google Maps")}</div>`;
+  }
+  if (items.length) h += `<h3>What people say${g.via ? ` (found through ${esc(g.via)}${g.cached ? ", from earlier" : ""})` : ""}</h3>`
+    + items.map((it) => `<div class="src">[${it.n}] <b>${esc(it.from)}</b> ${link(it.link, it.title)}${it.rating ? ` · ★ ${esc(it.rating)}` : ""}<div>${esc(it.says)}</div></div>`).join("");
+  else h += `<p class="muted">${esc(g.note || "Nothing found about it on Reddit, review sites or complaint threads.")}</p>`;
+  if (g.own.length) h += `<h3>Your own verdicts</h3>${g.own.map((o) => `<div class="src">${esc(o.item || o.merchant)} from ${esc(o.merchant)}, ${esc(o.day)}: <b>${esc(VERDICT[o.verdict] || o.verdict)}</b>${o.note ? ` · ${esc(o.note)}` : ""}</div>`).join("")}`;
+  return `<div class="rev">${h}<p class="muted">${esc(g.sent)} Snippets are what search results show; the links go to the full reviews.</p></div>`;
+}
+async function loadReviews(key) {
+  const st = reviews[key] = reviews[key] || {};
+  st.open = !st.open;
+  if (!st.open || st.got || st.busy) { render(); return; }
+  const [e, i] = key.split("|"), r = found.results[e][Number(i)], x = r.extra || {};
+  const q = new URLSearchParams({ kind: r.kind, title: r.title, area: r.kind === "place" ? found.area || "" : "",
+    id: r.provider === "google_places" ? r.source_id || "" : "", rating: x.rating ?? "", reviews: x.reviews ?? "",
+    rated_by: r.kind === "place" ? "Google" : x.store || r.source, summary: "1" });
+  st.busy = true; st.failed = ""; render();
+  try { st.got = await api(`/api/search/reviews?${q}`); } catch (err) { st.failed = err.message; }
+  st.busy = false; render();
 }
 
 function render() {
@@ -62,7 +109,7 @@ function render() {
     html += `<p class="muted">Looked in ${esc(found.engines.map((e) => TITLES[e]).join(", "))}${found.area ? ` around ${esc(found.area)}` : ""} · ${found.providers.filter((p) => p.ok).map((p) => esc(p.title) + (p.cached ? " (kept from earlier)" : "")).join(", ") || "no source answered"} · ${(found.took_ms / 1000).toFixed(1)} s</p>`;
     if (fails.length) html += `<p class="muted">Didn't answer: ${fails.map((p) => `${esc(p.title)} (${esc(p.error)})`).join("; ")}</p>`;
     for (const [e, rs] of Object.entries(found.results)) {
-      html += `<section class="card"><h2>${esc(TITLES[e] || e)} · ${rs.length}</h2>${rs.length ? rs.map(result).join("") : `<p class="muted">Nothing found here.</p>`}</section>`;
+      html += `<section class="card"><h2>${esc(TITLES[e] || e)} · ${rs.length}</h2>${rs.length ? rs.map((r, i) => result(r, `${e}|${i}`)).join("") : `<p class="muted">Nothing found here.</p>`}</section>`;
     }
     if (found.attribution.length) html += `<p class="muted">${found.attribution.map(esc).join(" · ")}</p>`;
     html += `<p class="muted">${esc(found.note)}</p>`;
@@ -72,6 +119,7 @@ function render() {
   $("main").innerHTML = html;
   if ($("status-toggle")) $("status-toggle").onclick = () => { showStatus = !showStatus; if (showStatus && !status) loadStatus(); render(); };
   $("main").querySelectorAll("[data-again]").forEach((b) => b.onclick = () => { $("q").value = b.dataset.again; run(); });
+  $("main").querySelectorAll("[data-rev]").forEach((b) => b.onclick = () => loadReviews(b.dataset.rev));
   $("main").querySelectorAll("[data-forget]").forEach((b) => b.onclick = () => forget(Number(b.dataset.forget)));
   if ($("forget-all")) $("forget-all").onclick = () => { if (!sure) { sure = true; render(); return; } sure = false; forget(0); };
 }
@@ -104,7 +152,7 @@ async function forget(id) {
 async function run() {
   const q = $("q").value.trim();
   if (!q) return;
-  busy = true; render();
+  busy = true; for (const k of Object.keys(reviews)) delete reviews[k]; render();
   try { found = await api(`/api/search?q=${encodeURIComponent(q)}${engine ? `&engines=${engine}` : ""}${summary ? "&summary=1" : ""}`); }
   catch (e) { found = { failed: e.message }; }
   busy = false; status = null; if (showStatus) loadStatus();

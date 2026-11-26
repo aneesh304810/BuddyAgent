@@ -134,7 +134,7 @@ TOOLS = {
     "travel": ("get_ride", "pick_seat", "travel", "transit", "flight_status", "buddy_maps", "weather", "hotel_direct",
                "travel_timing", "commute"),
     "goingout": ("restaurants", "entertainment", "find_places"),
-    "news": ("trending", "trends", "tech_radar", "start_research", "reddit", "search_everywhere"),
+    "news": ("trending", "trends", "tech_radar", "start_research", "reddit", "search_everywhere", "check_reviews"),
     "email": ("packages", "messages", "email_organizer", "life_memory", "important_email", "add_email_rule",
               "email_rules", "search_my_apps", "agenda", "app_connections", "calendar_add"),
     "home_health": ("my_health", "health_info", "health_plan", "thermostat"),

@@ -1911,6 +1911,19 @@ async def api_search(q: str = "", engines: str = "", area: str = "", summary: in
     return found
 
 
+@app.get("/api/search/reviews", dependencies=[Depends(require_admin)])
+async def api_search_reviews(kind: str = "place", title: str = "", area: str = "", id: str = "",  # noqa: A002
+                             rating: str = "", reviews: str = "", rated_by: str = "", summary: int = 1) -> dict:
+    """Reviews of one result, on tap: Google's own reviews (shown, not kept), Reddit, review sites and complaint
+    threads, Best Buy's rating, warning signs, pros and cons with their sources, and the owner's own verdicts."""
+    from . import reviews as rv  # noqa: PLC0415
+    try:
+        return await rv.for_result(memory, kind, title[:120], area[:80], id[:300], rating[:10] or None,
+                                   reviews[:10] or None, rated_by[:40], bool(summary))
+    except ToolError as e:
+        raise HTTPException(400, str(e)) from None
+
+
 @app.get("/api/search/status", dependencies=[Depends(require_admin)])
 async def api_search_status() -> dict:
     """The providers (ready, today's use against its limit, the week's calls, failures and speed, what each may

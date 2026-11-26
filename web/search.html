@@ -88,6 +88,16 @@ table { width:100%; border-collapse:collapse; font-size:13px; }
 th, td { text-align:left; padding:6px 4px; border-top:1px solid var(--line); vertical-align:top; }
 th { color:var(--muted); font-weight:600; }
 .ok { color:var(--good); } .no { color:var(--muted); } .bad { color:var(--bad); }
+.tag.warn { background:transparent; border:1px solid var(--warn); color:var(--warn); }
+.rev { margin:8px 0 2px; padding:10px 12px; border:1px solid var(--line); border-radius:12px; background:var(--bg); }
+.rev h3 { font-size:13px; margin:10px 0 4px; color:var(--muted); font-weight:600; } .rev h3:first-child { margin-top:0; }
+.rev ul { margin:2px 0 2px 18px; padding:0; font-size:14px; } .rev li { margin:2px 0; }
+.rev .sign { color:var(--warn); font-size:14px; margin:2px 0; }
+.rev .gr { padding:6px 0; border-top:1px solid var(--line); font-size:14px; } .rev h3 + .gr { border-top:0; }
+.rev .gr .who { color:var(--muted); font-size:12px; }
+.rev .src { font-size:13px; padding:4px 0; } .rev .src b { color:var(--muted); font-weight:600; }
+.rev .gtext { white-space:pre-line; }
+.rev a { color:var(--accent); }
 </style>
 </head>
 <body>

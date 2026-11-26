@@ -22,8 +22,11 @@ Privacy: providers get the search words and, for places, an area name (never a p
 own things never leaves the server. A summary of web results may use any model in Maestro (public text only, the
 Privacy Gateway checks); a summary that includes the owner's own things uses Claude only.
 
+Places are ranked with their reviews too: the rating pulled towards an ordinary 4.2 when few people gave it
+(reviews.review_score), so a 4.6 from 5,000 beats a 5.0 from 4. Reviews of one result: reviews.py, on request.
+
 Storage, by each provider's terms (POLICY): a link and title are kept for every result; the rest only where the
-terms allow, else held in a short cache. Google Places: only the place ID is kept (Google's terms); Brave: links
+terms allow, else held in a short cache. Google Places: only the place ID is kept, nothing cached (Google's terms); Brave: links
 unless the owner's plan includes storage rights (BUDDY_BRAVE_STORAGE_RIGHTS=1); OpenStreetMap: kept, with its
 attribution (ODbL). The owner's searches are kept until they delete them.
 """
@@ -67,8 +70,8 @@ POLICY = {
     "tavily": {"keep": "links", "cache_s": 86400, "licence": "Tavily terms", "why": "Tavily's terms"},
     "serper": {"keep": "links", "cache_s": 3600, "licence": "Google results via Serper",
                "why": "results come from Google; links only"},
-    "google_places": {"keep": "id", "cache_s": 86400, "licence": "Google Maps Platform terms",
-                      "why": "Google's terms: only the place ID may be kept; the rest is cached briefly"},
+    "google_places": {"keep": "id", "cache_s": 0, "licence": "Google Maps Platform terms",
+                      "why": "Google's terms: only the place ID may be kept, and nothing else cached"},
     "osm": {"keep": "full", "cache_s": 7 * 86400, "licence": "© OpenStreetMap contributors, ODbL",
             "why": "open data (ODbL): kept with its attribution"},
     "shopping": {"keep": "links", "cache_s": 3600, "licence": "each store's terms",
@@ -611,6 +614,8 @@ def rank(per_provider: list[list[Result]], engine: str) -> list[dict]:
         if engine == "news" and _days_old(m["published"]) is not None and _days_old(m["published"]) <= 2:
             m["score"] *= 1.2
         m["corroborated"] = len(m["found_by"]) > 1
+        if engine == "local":
+            _by_reviews(m)
         m["score"] = round(m["score"], 5)
     if engine == "products":  # offers with a price first, cheapest first; then the pages around them
         def priced(m):
@@ -619,6 +624,22 @@ def rank(per_provider: list[list[Result]], engine: str) -> list[dict]:
         return sorted([m for m in out if priced(m)], key=lambda m: m["extra"]["price"]) + \
             sorted([m for m in out if not priced(m)], key=lambda m: -m["score"])
     return sorted(out, key=lambda m: -m["score"])
+
+
+def _by_reviews(m: dict) -> None:
+    """Places: raised or lowered by the review-count-aware rating (a 4.6 from 5,000 beats a 5.0 from 4); a place
+    without a rating counts as ordinary. A very high rating from few reviews is marked."""
+    from .reviews import FEW, review_score  # noqa: PLC0415
+    rated = review_score(m["extra"].get("rating"), m["extra"].get("reviews"))
+    if rated is None:
+        return
+    m["review_score"] = rated
+    m["score"] *= (rated / 4.2) ** 4
+    try:
+        if float(m["extra"]["rating"]) >= FEW[0] and 0 < int(m["extra"].get("reviews") or 0) < FEW[1]:
+            m["caution"] = "few reviews"
+    except (TypeError, ValueError):
+        pass
 
 
 def _days_old(text: str) -> float | None:

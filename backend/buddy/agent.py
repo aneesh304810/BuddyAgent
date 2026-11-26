@@ -58,6 +58,7 @@ from .health_data import HEALTH_INFO_TOOL, MY_HEALTH_TOOL
 from .coach import TOOL as HEALTH_PLAN_TOOL
 from .dining import TOOL as RESTAURANTS_TOOL
 from .buddysearch import TOOL as SEARCH_EVERYWHERE_TOOL
+from .reviews import TOOL as CHECK_REVIEWS_TOOL
 from .events import TOOL as ENTERTAINMENT_TOOL
 from .selfcheck import TOOL as SELF_CHECK_TOOL
 from .market_school import TOOL as MARKET_SCHOOL_TOOL
@@ -892,7 +893,7 @@ class Conversation:
                      RECALL_CONVO_TOOL, CLAUDE_FIX_TOOL, COMMUTE_TOOL, ROUTINE_TOOL, CALENDAR_ADD_TOOL,
                      CONNECTIONS_TOOL, AMAZON_TOOL, MY_HEALTH_TOOL, HEALTH_INFO_TOOL, HEALTH_PLAN_TOOL, RESTAURANTS_TOOL, ENTERTAINMENT_TOOL, SELF_CHECK_TOOL, MARKET_SCHOOL_TOOL, SHOPPING_PROFILE_TOOL, WHEN_TO_BUY_TOOL, DAILY_DEALS_TOOL, PRICE_BOOK_TOOL, DEAL_FORECAST_TOOL, HOTEL_DIRECT_TOOL, SEASONAL_PRICES_TOOL, COMMUNITY_SIGNALS_TOOL, RECOMMENDATIONS_TOOL, INVESTOR_CHECKS_TOOL,
     FUND_HOLDINGS_TOOL, FUTURES_POSITIONING_TOOL, INVESTMENT_JOURNAL_TOOL, PAPER_PORTFOLIO_TOOL, DAY_TRADE_PRACTICE_TOOL, INVESTOR_LIBRARY_TOOL, ALERT_SETTINGS_TOOL, TRAVEL_TIMING_TOOL, MORNING_TUTOR_TOOL, EMAIL_ORGANIZER_TOOL, CANCEL_SUBSCRIPTION_TOOL, LIFE_MEMORY_TOOL, SECURITY_WATCH_TOOL, MODEL_SCOUT_TOOL, TECH_RADAR_TOOL, INTELLIGENCE_TOOL, MAESTRO_TOOL,
-                     THERMOSTAT_TOOL, PHONE_CALL_TOOL, SEARCH_EVERYWHERE_TOOL, modules.TOOL] + glasslink.TOOLS
+                     THERMOSTAT_TOOL, PHONE_CALL_TOOL, SEARCH_EVERYWHERE_TOOL, CHECK_REVIEWS_TOOL, modules.TOOL] + glasslink.TOOLS
         spending += [BROWSE_TOOL] if self.jobs else []  # listed even when the sandbox is down: it says what to fix
         if self.memory.get("forms:phone") != "1":  # the owner's choice: forms always in Buddy's own browser
             spending = [t for t in spending if t.get("name") != "fill_form"]
@@ -1160,6 +1161,9 @@ class Conversation:
         if name == "search_everywhere":  # Buddy Search: providers get the words (and an area name) only
             from . import buddysearch  # noqa: PLC0415
             return await buddysearch.run_tool(self.memory, args)
+        if name == "check_reviews":  # the name and an area name go to the search providers; own verdicts stay here
+            from . import reviews  # noqa: PLC0415
+            return await reviews.run_tool(self.memory, args)
         if name == "restaurants":  # finds and books only through links or an approved call: never on its own
             from . import dining  # noqa: PLC0415
             return await asyncio.to_thread(dining.run_tool, self.memory, args)

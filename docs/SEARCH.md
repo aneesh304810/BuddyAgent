@@ -34,10 +34,44 @@ my email" is Your own things. You can also pick the engine above the results.
   OpenStreetMap's opening hours.
 - **Ranked:** reciprocal rank fusion across the providers, raised for each extra source that found it ("found by
   2"), for official sources (government, universities, the WHO, NIH, CDC, major journals, Reuters, AP) and for news
-  from the last two days. Products: offers with a price first, cheapest first.
+  from the last two days. Places: also by their reviews, the rating pulled towards an ordinary 4.2 when few
+  people gave it, so a 4.6 from 5,000 people ranks above a 5.0 from 4 (a place without a rating counts as
+  ordinary); a very high rating from fewer than 30 reviews is marked "few reviews". Products: offers with a price
+  first, cheapest first.
 - **Short answer** (optional): two to four sentences with numbered sources, from the top results. For web,
   news and research, any model in Maestro (public text only, checked by the Privacy Gateway; the job is
   "Summarise search results"); with your own things, Claude only.
+
+### Reviews
+
+Every place and product result has a **Reviews** button. Reviews are fetched only when you tap it, so a search
+doesn't spend a review lookup on every result. In conversation, ask "what do people say about …" and Buddy uses
+the same check (`check_reviews`) for one or two options you are weighing.
+
+- **Warning signs** (worked out by code, not a model): a very high rating (4.7 or more) from fewer than 30
+  reviews; sources a star or more apart (Google's rating, Best Buy's, and ratings that review sites state in
+  their snippets, such as "4.5/5" or "8/10"); the same complaint from two or more sources (for places: fees and
+  surprise charges, rude or slow service, cleanliness, people falling ill, scams, noise, long waits; for products:
+  breaking or stopping working, returns and warranty trouble, battery, overheating, customer service, quality
+  control).
+- **Good, not so good, and catches:** up to four of each, every point with the numbers of the snippets it rests
+  on, so you can check it. A model in Maestro writes it ("Sum up reviews"), from public snippets only; a snippet
+  that reads like someone's health is left out, and if anything personal is in them they go to Claude only.
+- **Google's own reviews** (with a Google Places key, for a Google Places result): up to five, word for word, with
+  each author and "Reviews from Google", and a link to all of them on Google Maps. As Google's terms ask, they are
+  not cached, not kept, not summarised by any model and not counted for warning signs; each tap uses one of the
+  day's 25 Google Places lookups.
+- **What people say elsewhere:** Reddit threads, review sites (for places TripAdvisor, Yelp, Time Out, Eater, The
+  Infatuation, Michelin, OpenTable and others; for products Wirecutter, RTINGS, Consumer Reports, CNET, The Verge,
+  PCMag and others) and complaint threads, each as the snippet a search shows with its link. Through Serper (three
+  of the day's searches) or, without Serper, Brave Search (two); Reddit's own API when it is connected. For a
+  product, Best Buy's customer rating too (with the Best Buy key).
+- **Your own verdicts:** if you bought something with a similar name and told Buddy how it went (happy, okay or
+  regret), it is shown. It is never sent to any model.
+
+No scraping: Buddy reads only official APIs and the snippets search results show, never a review site's own pages,
+and Yelp's API is not used. Only the name, and for a place an area name, goes to the search providers. What they
+found is held for an hour, so a second tap costs nothing, and then dropped.
 
 ### Costs and limits
 
@@ -68,8 +102,9 @@ cached for a week, an identifying user agent) and shows its attribution.
   ID (Google's terms); Brave: links only, unless your plan includes storage rights
   (`sudo bash /opt/buddy/deploy/set.sh BUDDY_BRAVE_STORAGE_RIGHTS`, value 1); OpenStreetMap: kept, with its
   attribution (ODbL); papers: kept, and also in your paper library; your own things: never copied. Anything else
-  is held in a short cache (Brave and Serper an hour, Tavily and Google Places a day, news 30 minutes) and then
-  dropped. One provider's details are never kept under another's terms.
+  is held in a short cache (Brave and Serper an hour, Tavily a day, news 30 minutes) and then dropped; Google
+  Places answers are not cached at all, as Google's terms ask. One provider's details are never kept under
+  another's terms.
 - Your searches are kept until you delete them (one at a time, or the history, the cache and everything kept, on
   the Search page).
 
