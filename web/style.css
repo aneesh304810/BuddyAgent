@@ -1,11 +1,11 @@
-:root {
-  --bg: #0b0f14;
-  --panel: #131a22;
-  --text: #e6edf3;
-  --muted: #8b98a5;
-  --accent: #36c5f0;
-  --warm: #f5a623;
-  --user: #1f6feb;
+:root {  /* the dark look of the design tokens (tokens.css); index.html pins data-theme="dark" */
+  --bg: var(--b-background);
+  --panel: var(--b-surface);
+  --text: var(--b-text);
+  --muted: var(--b-text-2);
+  --accent: var(--b-primary);
+  --warm: var(--b-speaking);
+  --user: var(--b-primary-soft);
 }
 * { box-sizing: border-box; }
 [hidden] { display: none !important; }
@@ -35,20 +35,20 @@ footer { display: flex; flex-direction: column; align-items: center; gap: 12px; 
 #status { margin: 0; color: var(--muted); font-size: 14px; min-height: 1.4em; text-align: center; }
 #orb {
   width: 96px; height: 96px; border-radius: 50%; border: 0; cursor: pointer;
-  background: radial-gradient(circle at 35% 35%, #5fd8ff, #0b6e99 70%);
-  box-shadow: 0 0 24px rgba(54, 197, 240, .35);
+  background: radial-gradient(circle at 35% 35%, #9BD0B6, #1F6F5C 70%);  /* Buddy green (tokens) */
+  box-shadow: 0 0 24px rgba(117, 185, 154, .35);
   transition: transform .15s;
 }
 #orb:active { transform: scale(.95); }
 #orb.listening { animation: pulse 1.4s ease-in-out infinite; }
 #orb.speaking { background: radial-gradient(circle at 35% 35%, #ffd27a, #b8740a 70%); box-shadow: 0 0 28px rgba(245, 166, 35, .45); }
 @keyframes pulse {
-  0%, 100% { box-shadow: 0 0 18px rgba(54, 197, 240, .35); }
-  50% { box-shadow: 0 0 44px rgba(54, 197, 240, .8); }
+  0%, 100% { box-shadow: 0 0 18px rgba(117, 185, 154, .35); }
+  50% { box-shadow: 0 0 44px rgba(117, 185, 154, .8); }
 }
 .msg.whisper { border-left: 3px solid var(--accent); font-style: italic; }
 .modes { display: flex; gap: 16px; font-size: 14px; }
-select { background: var(--panel); color: var(--text); border: 1px solid #2a3440; border-radius: 6px; padding: 2px 6px; }
+select { background: var(--panel); color: var(--text); border: 1px solid var(--b-border); border-radius: 6px; padding: 2px 6px; }
 .toggle { font-size: 13px; color: var(--muted); display: flex; gap: 6px; align-items: center; }
 
 /* Background job reports */

@@ -221,12 +221,16 @@ class MainActivity : ComponentActivity() {
                 .build()
         )
         prefs = BuddyPrefs(this)
-        Theme.light = prefs.theme == Theme.LIGHT
+        Theme.choice = prefs.theme
+        Theme.light = Theme.isLight(Theme.choice, phoneDark = (resources.configuration.uiMode and
+            android.content.res.Configuration.UI_MODE_NIGHT_MASK) == android.content.res.Configuration.UI_MODE_NIGHT_YES)
         if (prefs.link == null) screen.value = Screen.Settings
         openJobFrom(intent)
         openRideFrom(intent)
         uploadSharedFrom(intent)
         setContent {
+            val phoneDark = androidx.compose.foundation.isSystemInDarkTheme()
+            LaunchedEffect(phoneDark, Theme.choice) { Theme.light = Theme.isLight(Theme.choice, phoneDark) }
             val light = Theme.light
             androidx.compose.runtime.LaunchedEffect(light) {  // dark status-bar icons on the light look
                 androidx.core.view.WindowCompat.getInsetsController(window, window.decorView).apply {
@@ -234,10 +238,13 @@ class MainActivity : ComponentActivity() {
                     isAppearanceLightNavigationBars = light
                 }
             }
+            // Material's own parts (chips, fields, menus) take the same design tokens as Pal.
             val scheme = if (light) lightColorScheme(primary = Accent, background = Ink, surface = Ink,
                 surfaceVariant = Panel, onPrimary = Pal.onChip, onBackground = Pal.text, onSurface = Pal.text,
+                onSurfaceVariant = Pal.dim, secondaryContainer = Pal.placeholder, outline = Pal.track)
+            else darkColorScheme(primary = Accent, background = Ink, surface = Panel, surfaceVariant = Panel,
+                onPrimary = Pal.onChip, onBackground = Pal.text, onSurface = Pal.text, onSurfaceVariant = Pal.dim,
                 secondaryContainer = Pal.placeholder, outline = Pal.track)
-            else darkColorScheme(primary = Accent, background = Ink, surface = Panel)
             MaterialTheme(colorScheme = scheme) {
                 BuddyScreen(
                     prefs = prefs,
@@ -895,13 +902,14 @@ private fun SettingsPanel(
     Column(Modifier.verticalScroll(rememberScrollState()), verticalArrangement = Arrangement.spacedBy(12.dp)) {
         SetupTestCard(prefs.link)
         Text("Look", color = Pal.text, fontSize = 18.sp)
-        Text("Default is the dark look. Light matches the buddylabs.io website: white, with Buddy green.",
+        Text("Buddy follows the phone's light or dark setting unless you pick one here. Server pages follow too.",
             color = Muted, fontSize = 13.sp)
         Row(horizontalArrangement = Arrangement.spacedBy(8.dp)) {
-            listOf(Theme.DEFAULT to "Default (dark)", Theme.LIGHT to "Light").forEach { (value, name) ->
+            listOf(Theme.SYSTEM to "Follow the phone", Theme.LIGHT to "Light", Theme.DARK to "Dark")
+                .forEach { (value, name) ->
                 FilterChip(
-                    selected = (if (Theme.light) Theme.LIGHT else Theme.DEFAULT) == value,
-                    onClick = { prefs.theme = value; Theme.light = value == Theme.LIGHT },
+                    selected = Theme.choice == value || (value == Theme.DARK && Theme.choice == Theme.DEFAULT),
+                    onClick = { prefs.theme = value; Theme.choice = value },
                     label = { Text(name) },
                 )
             }

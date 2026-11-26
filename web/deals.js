@@ -6,8 +6,6 @@
 const params = new URLSearchParams(location.search);
 function storageGet(k) { try { return localStorage.getItem(k); } catch { return null; } }
 function storageSet(k, v) { try { localStorage.setItem(k, v); } catch {} }
-if (params.get("theme")) storageSet("buddyTheme", params.get("theme") === "light" ? "light" : "default");
-if ((params.get("theme") || storageGet("buddyTheme")) === "light") document.documentElement.dataset.theme = "light";
 if (params.get("token")) storageSet("buddyToken", params.get("token"));
 const token = params.get("token") || storageGet("buddyToken") || "";
 if (params.get("token") && storageGet("buddyToken") === token) history.replaceState(null, "", location.pathname);

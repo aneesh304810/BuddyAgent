@@ -58,9 +58,10 @@ class BuddyPrefs(context: Context) {
             ?: if (prefs.getBoolean("earbudMicListenIn", false)) "earbuds" else "auto"
         set(value) = prefs.edit().putString("listenMic", value).apply()
 
-    /** The app's look: "default" (dark) or "light" (like the buddylabs.io website). */
+    /** The app's look: "system" (follow the phone, the default), "light" or "dark" ("default" from earlier
+     *  versions means dark, kept for owners who chose it). */
     var theme: String
-        get() = prefs.getString("theme", Theme.DEFAULT) ?: Theme.DEFAULT
+        get() = prefs.getString("theme", Theme.SYSTEM) ?: Theme.SYSTEM
         set(value) = prefs.edit().putString("theme", value).apply()
 
     /** When earbuds connect: "listen" (Listen-in, say "Hey Buddy" to talk), "talk" or "off". */

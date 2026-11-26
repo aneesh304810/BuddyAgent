@@ -1,7 +1,7 @@
 # Android specification
 
-Status: **specified**; not implemented (Stage 9 waits for approval). Kotlin, Jetpack Compose, Material 3 foundations
-with Buddy's own theme.
+Status: **being implemented** (Stage 9, approved 2026-11-26; `migration-plan.md` lists what is in). Kotlin, Jetpack
+Compose, Material 3 foundations with Buddy's own theme.
 
 ## Theme
 
@@ -9,6 +9,9 @@ with Buddy's own theme.
   composable maps the tokens onto `MaterialTheme` (colour scheme, typography, shapes) and exposes the semantic
   colours (success, warning, critical, info, listening, speaking, thinking, approval) through a `LocalBuddyColors`.
 - Replaces `Pal` in `Theme.kt`. Light and dark follow the system; the Settings choice overrides.
+  *As built (step 3):* `Pal` keeps its names and reads `BuddyLight`/`BuddyDark`, since every screen already draws
+  from it; Settings → Look is Follow the phone (default), Light or Dark, and server pages get `?theme=light|dark`.
+  `BuddyTheme` and `LocalBuddyColors` come with the native Home rebuild (step 5).
 - Typography: Roboto (system), the token scale in sp; `fontFeatureSettings = "tnum"` for numbers.
 
 ## Adaptive navigation

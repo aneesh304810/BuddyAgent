@@ -35,7 +35,7 @@ fun BuddyPage(link: ServerLink?, page: String, query: String = "") {
     val base = Uri.parse(link.baseUrl)
     val light = Theme.light
     val url = link.baseUrl.trimEnd('/') + "/" + page + "?token=" + URLEncoder.encode(link.token, "UTF-8") +
-        "&theme=" + (if (light) "light" else "default") + (if (query.isNotEmpty()) "&$query" else "")
+        "&theme=" + Theme.pageTheme + (if (query.isNotEmpty()) "&$query" else "")
     AndroidView(
         modifier = Modifier.fillMaxSize(),
         factory = { context ->

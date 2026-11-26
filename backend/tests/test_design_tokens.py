@@ -33,3 +33,24 @@ def test_every_text_colour_meets_contrast():
 def test_both_themes_name_the_same_colours():
     t = _tokens()
     assert list(t.COLOURS["light"]) == list(t.COLOURS["dark"])
+
+
+def test_every_server_page_takes_its_colours_from_the_tokens():
+    pages = sorted((REPO / "web").glob("*.html"))
+    assert len(pages) >= 14
+    shared = ("--bg:", "--card:", "--text:", "--muted:", "--accent:", "--line:")
+    for page in pages:
+        html = page.read_text()
+        head = html.split("<style>", 1)[0] if "<style>" in html else html.split("</head>", 1)[0]
+        assert 'href="tokens.css"' in head, page.name
+        if page.name in ("index.html", "glasses.html"):  # always the dark look (the chat shell; the lens preview)
+            assert '<html lang="en" data-theme="dark">' in html, page.name
+            continue
+        assert 'href="theme.css"' in head and '<script src="theme.js"></script>' in head, page.name
+        assert not any(name in html for name in shared), f"{page.name} defines its own shared colours"
+
+
+def test_theme_css_names_only_tokens():
+    css = (REPO / "web" / "theme.css").read_text()
+    values = [d.split(":", 1)[1].strip() for d in css.split("{", 1)[1].split("}")[0].split(";") if ":" in d]
+    assert values and all(v.startswith("var(--b-") for v in values)

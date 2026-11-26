@@ -5,18 +5,15 @@
 <meta name="viewport" content="width=device-width, initial-scale=1">
 <meta name="referrer" content="no-referrer">
 <title>Buddy · Report</title>
+<link rel="icon" href="favicon.svg" type="image/svg+xml">
+<link rel="stylesheet" href="tokens.css">
+<link rel="stylesheet" href="theme.css">
+<script src="theme.js"></script>
 <style>
-:root { --bg:#0e1222; --card:#171c33; --line:#262d4d; --text:#eef1ff; --muted:#9aa3c7; --accent:#7aa2ff;
-  --good:#3ddc97; --warn:#ffb547; --bad:#ff7a7a; --needs:#5b8cff; --wants:#b98cff; --fees:#ff7a7a;
-  --family:#ffb547; --sent:#4cc9f0; --save:#3ddc97; --left:#2c355c;
-  --hover:#1c2240; --tagbg:#26305a; --tagtext:#cfd6ff; --track:#20274a; --tick:#fff; --onaccent:#0b1020; --spent:#3a4680;
-  --shade:rgba(5,8,20,.6); color-scheme:dark; }
-/* Light: the buddylabs.io website's look (white, Buddy green, amber); colours keep 4.5:1 contrast on white */
-html[data-theme=light] { --bg:#ffffff; --card:#f6f4ef; --line:#e6e3dc; --text:#16181d; --muted:#5b616e; --accent:#1f6f5c;
-  --good:#1b7a4b; --warn:#8a5a12; --bad:#b3261e; --needs:#2f62c9; --wants:#7b5cc4; --fees:#b3261e;
-  --family:#c8862a; --sent:#13799a; --save:#1b7a4b; --left:#e6e3dc;
-  --hover:#eef6f3; --tagbg:#e5f2ee; --tagtext:#1f6f5c; --track:#ece9e2; --tick:#16181d; --onaccent:#ffffff; --spent:#9db8ae;
-  --shade:rgba(22,24,29,.35); color-scheme:light; }
+:root { --needs:#5b8cff; --wants:#b98cff; --fees:#ff7a7a; --family:#ffb547; --sent:#4cc9f0; --save:#3ddc97; --left:#2c355c;
+  --spent:#3a4680; }
+html[data-theme=light] { --needs:#2f62c9; --wants:#7b5cc4; --fees:#b3261e; --family:#c8862a; --sent:#13799a; --save:#1b7a4b; --left:#e6e3dc;
+  --spent:#9db8ae; }
 * { box-sizing:border-box; }
 body { margin:0; background:var(--bg); color:var(--text); font:15px/1.45 Roboto, "Segoe UI", system-ui, sans-serif; }
 header { position:sticky; top:0; z-index:5; background:var(--bg); padding:14px 16px 8px; border-bottom:1px solid var(--line); }

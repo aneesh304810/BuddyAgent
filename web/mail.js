@@ -2,8 +2,6 @@
 // and what Buddy does with each kind. Choose how important each group or sender is, and what Buddy takes from it.
 
 const params = new URLSearchParams(location.search);
-if (params.get("theme")) storageSet("buddyTheme", params.get("theme") === "light" ? "light" : "default");
-if ((params.get("theme") || storageGet("buddyTheme")) === "light") document.documentElement.dataset.theme = "light";
 function storageGet(k) { try { return localStorage.getItem(k); } catch { return null; } }
 function storageSet(k, v) { try { localStorage.setItem(k, v); } catch {} }
 if (params.get("token")) storageSet("buddyToken", params.get("token"));

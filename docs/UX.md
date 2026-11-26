@@ -50,8 +50,9 @@ to the conversation.
 ## Parts
 
 - **Icons** are line shapes drawn in the app (Nav.kt), in the theme's colour. No emoji as icons.
-- **Colours** come from `Pal` (Theme.kt) in the app and the matching variables in the web pages. A state is
-  never shown by colour alone: it also has an icon or a word.
+- **Colours** come from the design tokens: `Pal` (Theme.kt) reads `app.buddy.design.BuddyTokens` in the app,
+  and the web pages read `tokens.css` through `theme.css`; one source, `build_tokens.py`. Look: follow the
+  phone, Light or Dark. A state is never shown by colour alone: it also has an icon or a word.
 - **Cards** have rounded corners of 12 to 18 points. **Chips** select a tab or a period.
 - **The prediction card** is the same for investing, flights, hotels and products: the call, the chance or
   the record, one line of why, and a source line with its date.
