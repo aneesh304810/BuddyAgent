@@ -84,6 +84,7 @@ flowchart LR
     prevention_py --> labs_py
     prevention_py --> nhanesref_py
     prevention_py --> oura_py
+    foodfacts_py --> foodverdict_py
     foodfacts_py --> health_data_py
     evidence_py --> paperlib_py
     dietplan_py --> coach_py
@@ -550,7 +551,10 @@ Food, supplement and medicine facts from US government sources, looked up when t
   them), and a link to ODS's fact sheet for it.
 - **Medicines: openFDA's drug labels and recalls**, through health_data.drug and health_data.recalls.
 - **Packs scanned on the phone**: the phone reads the barcode itself (on-device; no photo leaves it) and only the
-  number comes here, to be looked up in USDA's branded foods and in Open Food Facts (Open Database License).
+  number comes here, to be looked up in USDA's branded foods and in Open Food Facts (Open Database License). A barcode
+  neither list has, and a store's own label (meat, deli, bakery or produce weighed or packed in the store, whose number
+  means something only at that store), asks the owner what it is; the food they pick is remembered for that barcode
+  (or that store item) among their checked products, so the next scan needs no lookup at all (`scanned`).
 
 Only the words the owner types go out (a food or product name; for a label, the database's own number); nothing
 about the owner. Public data, so no AI model is involved and nothing is kept but a day's cache of the answers.
@@ -559,7 +563,7 @@ Not medical advice.
 
 - Outside services: Open Food Facts (nutrition)
 - Settings: `BUDDY_USDA_KEY`
-- Uses: gateway.py, health_data.py, memory.py, tools.py
+- Uses: foodverdict.py, gateway.py, health_data.py, memory.py, tools.py
 
 ### evidence.py
 

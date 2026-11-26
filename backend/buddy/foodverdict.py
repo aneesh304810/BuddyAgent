@@ -242,7 +242,8 @@ def judge(memory: Memory, food: dict) -> dict:
 
 
 # --- the products the owner scanned ------------------------------------------------------------------------------
-KEEP = ("id", "name", "kind", "brand", "per100", "portions", "barcode", "ingredients", "allergens", "nova", "additives")
+KEEP = ("id", "name", "kind", "brand", "per100", "portions", "barcode", "ingredients", "allergens", "nova", "additives",
+        "named")
 
 
 def keep(memory: Memory, food: dict, verdict: str) -> int:
@@ -260,6 +261,18 @@ def keep(memory: Memory, food: dict, verdict: str) -> int:
                              json.dumps(slim)[:20000], verdict))
     memory.db.commit()
     return int(cur.lastrowid)
+
+
+def named(memory: Memory, key: str) -> dict | None:
+    """The food the owner picked for a barcode no list had, or for an item on a store's own label (foodfacts.scanned),
+    from their checked products: deleting it there forgets the name."""
+    _ready(memory)
+    for r in memory.db.execute("SELECT food FROM food_scans WHERE barcode = ? ORDER BY at DESC, id DESC",
+                               (str(key or "")[:20],)):
+        food = json.loads(r["food"])
+        if food.get("named"):
+            return food
+    return None
 
 
 def scans(memory: Memory, limit: int = 60) -> list[dict]:

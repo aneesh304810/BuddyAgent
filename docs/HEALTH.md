@@ -195,6 +195,13 @@ sub-tabs under them, and the page remembers where you were.
   your USDA key) and Open Food Facts, and the Health page opens Plan → Food with the matches and the pack's label
   serving, ready to add. Short UPC-E codes on small US packs are written out to their full UPC-A first. No camera?
   Type the numbers under the barcode. The app asks for camera access the first time.
+  - **A barcode no list has, or the store's own label**: fresh produce and smaller brands are often in neither list,
+    and the label a store prints for meat, deli, cheese, bakery or produce weighed or packed there (a UPC starting
+    with 2, carrying that store's item number and the price) is in no list at all, so it isn't looked up anywhere.
+    Either way Buddy asks **What is it?**: type it (e.g. "chicken thighs", "organic blueberries") and pick USDA's
+    match. The pick is kept with the barcode, or with the store's item number whatever the price on the pack, among
+    Products you checked, so the next scan of it is found on your server with no lookup; delete it there to forget
+    it. Works in the Barcode and Groceries modes.
   - **Dish** (the second mode on the same screen): point the camera at a plate and Buddy suggests the three
     likeliest dishes, a few times a second; tap the right one and Plan → Food opens with USDA's matches for it.
     The suggestions come from Google's food classifier (the AIY Vision Classifier Food V1, Apache 2.0, about

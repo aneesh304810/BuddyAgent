@@ -642,9 +642,16 @@ function mealsBySlot(recent) {
 
 // --- Groceries: is this product good for me? One serving judged by the server's code against your own numbers
 // (foodverdict.py); the products you check are kept, so you can look back and compare them on the shelf.
-const groc = { q: "", found: null, busy: false, failed: "", pick: 0, verdict: null, scans: null, compare: new Set(), cmp: null, sure: false };
+const groc = { q: "", found: null, busy: false, failed: "", pick: 0, verdict: null, scans: null, compare: new Set(), cmp: null, sure: false, naming: null };
+// A barcode no list has, or a store's own label (meat, deli, bakery weighed in the store): "What is it?" The food
+// picked is kept with the barcode (or that store item), so the next scan of it finds it on your server.
+const NAMING = {
+  store: "This is the store's own label (for something weighed or packed in the store), so no food list has it. What is it? Type it above, e.g. chicken thighs, and pick the match: Buddy remembers it for this item.",
+  "": "No food list has this barcode (USDA's or Open Food Facts'). What is it? Type it above, e.g. organic blueberries, and pick the match: Buddy remembers it for this barcode.",
+};
 const VERDICT_PILL = { good: "good", sometimes: "warn", skip: "bad" };
 async function grocCheck(food, fromScan = false) {
+  if (groc.naming) { food = { ...food, barcode: groc.naming.key, named: true }; fromScan = groc.naming.fromScan; groc.linked = groc.naming; groc.naming = null; }
   groc.busy = true; groc.failed = ""; scanMeal = null; grocAdd = null; render();
   try { groc.verdict = await api("/api/health/verdict", { food, keep: true }); groc.verdict.food = food; groc.scans = null; }
   catch (e) { groc.failed = e.message; groc.verdict = null; }
@@ -653,9 +660,16 @@ async function grocCheck(food, fromScan = false) {
 }
 async function grocFind(kind, q, fromScan = false) {
   groc.busy = true; groc.failed = ""; groc.found = null; groc.verdict = null; render();
-  try { groc.found = (await api(`/api/health/facts?kind=${kind}&q=${encodeURIComponent(q)}`)).foods || []; }
+  if (kind === "barcode") groc.naming = null;
+  groc.linked = null;
+  let got;
+  try { got = await api(`/api/health/facts?kind=${kind}&q=${encodeURIComponent(q)}`); groc.found = got.foods || []; }
   catch (e) { groc.failed = e.message; groc.busy = false; render(); return; }
   groc.busy = false;
+  if (!groc.found.length && kind === "barcode" && got.key) {
+    groc.naming = { key: got.key, store: got.label === "store", fromScan }; groc.found = null; groc.q = "";
+    render(); const box = $("groc-form") && $("groc-form").q; if (box) box.focus(); return;
+  }
   if (!groc.found.length) { groc.failed = kind === "barcode" ? "That barcode isn't in USDA's or Open Food Facts' lists: look the product up by its name." : "Nothing found: try fewer or plainer words."; render(); return; }
   if (kind === "barcode") { groc.pick = 0; grocCheck(groc.found[0], fromScan); } else render();
 }
@@ -880,8 +894,12 @@ function verdictCard(v) {
 }
 function renderGroceries() {
   if (groc.scans === null && !groc.loadingScans) { groc.loadingScans = true; loadScans().then(() => { groc.loadingScans = false; }); }
-  let body = `<form class="f" id="groc-form"><input class="grow" name="q" maxlength="80" placeholder="A product, e.g. Greek yogurt, oat bread" value="${esc(groc.q)}" aria-label="A product"><button class="btn solid">Check</button></form>
+  const naming = groc.naming;
+  let body = `<form class="f" id="groc-form"><input class="grow" name="q" maxlength="80" placeholder="${naming ? "What is it? e.g. chicken thighs" : "A product, e.g. Greek yogurt, oat bread"}" value="${esc(groc.q)}" aria-label="${naming ? "What you scanned" : "A product"}"><button class="btn solid">Check</button></form>
     <p class="muted" style="margin:6px 0 0">Or scan its barcode with <b>Scan food</b>.</p>`;
+  if (naming && !groc.busy) body += `<p style="margin:10px 0 0">${esc(NAMING[naming.store ? "store" : ""])}</p>
+    ${groc.found && groc.found.length ? `<p class="muted" style="margin:6px 0 2px">Pick the one that matches what you scanned:</p>` : ""}
+    <p style="margin:6px 0 0"><button class="btn" id="groc-unname">Don't remember it</button></p>`;
   if (groc.busy) body += `<p class="muted">Checking…</p>`;
   else if (groc.failed) body += `<p class="err">${esc(groc.failed)}</p>`;
   else if (groc.verdict) {
@@ -927,7 +945,10 @@ function renderGroceries() {
   wireGroceries();
   $("main").querySelectorAll("[data-place-del]").forEach((b) => b.onclick = () => loadPlaces({ action: "forget", id: Number(b.dataset.placeDel) }));
   $("groc-form").onsubmit = (e) => { e.preventDefault(); const q = e.target.q.value.trim(); if (!q) return; groc.q = q; grocFind("food", q); };
-  $("main").querySelectorAll("[data-groc-pick]").forEach((b) => b.onclick = () => { groc.pick = Number(b.dataset.grocPick); grocCheck(groc.found[groc.pick]); });
+  if ($("groc-unname")) $("groc-unname").onclick = () => { groc.naming = null; render(); };
+  $("main").querySelectorAll("[data-groc-pick]").forEach((b) => b.onclick = () => {  // another match for what was named: linked instead
+    groc.pick = Number(b.dataset.grocPick); if (groc.verdict && groc.linked) groc.naming = groc.linked; grocCheck(groc.found[groc.pick]);
+  });
   $("main").querySelectorAll("[data-cmp]").forEach((b) => b.onclick = () => { const id = Number(b.dataset.cmp); groc.compare.has(id) ? groc.compare.delete(id) : groc.compare.add(id); render(); });
   $("main").querySelectorAll("[data-groc-open]").forEach((b) => b.onclick = () => {
     const s = groc.scans.find((x) => x.id === Number(b.dataset.grocOpen)); if (!s) return;
@@ -992,7 +1013,7 @@ async function lookUp(kind, q) {
   render();
   try { facts[slot] = await api(`/api/health/facts?kind=${kind}&q=${encodeURIComponent(q)}`); }
   catch (e) { facts[slot] = { failed: e.message }; }
-  if (kind === "barcode" && facts.food.foods && !facts.food.foods.length) facts.food = { failed: "That barcode isn't in USDA's or Open Food Facts' lists: look the food up by its name." };
+  if (kind === "barcode" && facts.food.foods && !facts.food.foods.length) facts.food = { failed: facts.food.label === "store" ? "That's the store's own label (weighed or packed in the store), so no food list has it: look the food up by its name." : "That barcode isn't in USDA's or Open Food Facts' lists: look the food up by its name." };
   render();
 }
 const searchForm = (kind, placeholder) => `<form class="f" data-fact-form="${kind}"><input class="grow" name="q" maxlength="80" placeholder="${esc(placeholder)}" value="${esc(factQ[kind])}" aria-label="${esc(placeholder)}"><button class="btn solid">Look up</button></form>`;

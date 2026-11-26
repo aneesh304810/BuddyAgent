@@ -9,7 +9,10 @@
   them), and a link to ODS's fact sheet for it.
 - **Medicines: openFDA's drug labels and recalls**, through health_data.drug and health_data.recalls.
 - **Packs scanned on the phone**: the phone reads the barcode itself (on-device; no photo leaves it) and only the
-  number comes here, to be looked up in USDA's branded foods and in Open Food Facts (Open Database License).
+  number comes here, to be looked up in USDA's branded foods and in Open Food Facts (Open Database License). A barcode
+  neither list has, and a store's own label (meat, deli, bakery or produce weighed or packed in the store, whose number
+  means something only at that store), asks the owner what it is; the food they pick is remembered for that barcode
+  (or that store item) among their checked products, so the next scan needs no lookup at all (`scanned`).
 
 Only the words the owner types go out (a food or product name; for a label, the database's own number); nothing
 about the owner. Public data, so no AI model is involved and nothing is kept but a day's cache of the answers.
@@ -147,14 +150,61 @@ def upce_to_upca(code: str) -> str:
     return upca if gtin_ok(upca) else ""
 
 
-def barcode(memory: Memory, code: str, env=None, fetch=None) -> list[dict]:
-    """A pack scanned on the phone: only its barcode number goes out, to USDA's branded foods (when the owner has
-    the key) and to Open Food Facts."""
+def normal_code(code: str) -> str:
+    """The digits of a barcode as the phone read it (a short UPC-E written out as its UPC-A), checked."""
     code = re.sub(r"\D", "", str(code or ""))
     if len(code) == 8 and not gtin_ok(code):
         code = upce_to_upca(code) or code  # a UPC-E: looked up as its UPC-A
     if not gtin_ok(code):
         raise ToolError("That isn't a barcode from a food pack: scan it again, or type the numbers under it.")
+    return code
+
+
+def in_store(code: str) -> str:
+    """A label the store printed itself, for meat, fish, deli, cheese, bakery or produce weighed or packed there: the
+    item it stands for, without the price or weight that follow ('' for a maker's barcode). In the US and Canada these
+    are 12-digit UPC-As starting with 2 (13 digits, 02…, as some phones read them); elsewhere EAN-13s starting 20 to
+    29. No food list has them: the number means something only at that store."""
+    if len(code) == 13 and code.startswith("02"):
+        code = code[1:]
+    if len(code) in (12, 13) and code[0] == "2":
+        return "store-" + code[:6 if len(code) == 12 else 7]
+    return ""
+
+
+def scanned(memory: Memory, code: str, env=None, fetch=None) -> dict:
+    """A barcode the phone read. What the owner named it after an earlier scan (the same barcode, or the same item
+    on a store's own label) is looked up nowhere; a store's own label goes nowhere either, since no list has it; any
+    other barcode goes to USDA and Open Food Facts by the number. `key` is what a name the owner gives it is kept
+    under; `label` is "named", "store" or ""."""
+    from . import foodverdict  # noqa: PLC0415
+    code = normal_code(code)
+    store = in_store(code)
+    key = store or (code[1:] if len(code) == 13 and code.startswith("0") else code)
+    mine = foodverdict.named(memory, key)
+    if mine:
+        return {"foods": [mine], "key": key, "label": "named", "source": "What you named this barcode before"}
+    if store:
+        return {"foods": [], "key": key, "label": "store", "source": "A store's own label: looked up nowhere"}
+    return {"foods": barcode(memory, code, env=env, fetch=fetch), "key": key, "label": "",
+            "source": "USDA FoodData Central and Open Food Facts, by the barcode only"}
+
+
+def _off(memory: Memory, code: str, env=None, fetch=None) -> dict:
+    """Open Food Facts' page for a barcode; {} when it has none (it answers HTTP 404 then)."""
+    try:
+        return gateway.call(memory, "openfoodfacts", f"/api/v2/product/{code}.json", env=env, fetch=fetch,
+                            purpose="food lookup") or {}
+    except gateway.ConnectError as e:
+        if e.status == 404:
+            return {}
+        raise
+
+
+def barcode(memory: Memory, code: str, env=None, fetch=None) -> list[dict]:
+    """A pack scanned on the phone: only its barcode number goes out, to USDA's branded foods (when the owner has
+    the key) and to Open Food Facts."""
+    code = normal_code(code)
     out = []
     if set_up(env):
         got = _cached(f"fdc:gtin:{code}", lambda: gateway.call(memory, USDA, "/fdc/v1/foods/search?" + urllib.parse.urlencode(
@@ -164,8 +214,7 @@ def barcode(memory: Memory, code: str, env=None, fetch=None) -> list[dict]:
                 food = _food(f)
                 if food["per100"]:
                     out.append(food | {"kind": "Branded product (USDA)", "barcode": code})
-    got = _cached(f"off:{code}", lambda: gateway.call(memory, "openfoodfacts", f"/api/v2/product/{code}.json",
-                                                      env=env, fetch=fetch, purpose="food lookup"))
+    got = _cached(f"off:{code}", lambda: _off(memory, code, env=env, fetch=fetch))
     p = (got or {}).get("product") or {}
     n = p.get("nutriments") or {}
     per100 = {ours: round(float(n[theirs]), 2) for theirs, ours in OFF_FIELDS.items()

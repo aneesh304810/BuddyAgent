@@ -162,3 +162,57 @@ def test_a_scanned_pack_sends_only_its_number(tmp_path):
         foodfacts.barcode(Memory(tmp_path / "b.db"), "3017624010700", env=KEY, fetch=fake)
     upce = foodfacts.barcode(Memory(tmp_path / "c.db"), "04252614", env={}, fetch=fake)
     assert upce and "042100005264" in sent[-1]  # a short UPC-E is looked up as its full UPC-A
+
+
+def test_a_barcode_open_food_facts_doesnt_have_is_not_an_error(tmp_path):
+    """Open Food Facts answers HTTP 404 for a product it doesn't have: that's "not found", never the raw reply."""
+    import io
+    import urllib.error
+    foodfacts.CACHE.clear()
+
+    def fake(url, data=None, headers=None):
+        raise urllib.error.HTTPError(url, 404, "Not Found", {}, io.BytesIO(
+            b'{"code": "769197300170", "status": 0, "status_verbose": "product not found"}'))
+    assert foodfacts.barcode(Memory(tmp_path / "b.db"), "769197300170", env={}, fetch=fake) == []
+
+
+def test_a_stores_own_label_is_known_by_its_item_and_sent_nowhere():
+    assert foodfacts.in_store("0207542301835") == "store-207542"  # as the phone read it: 13 digits, 02…
+    assert foodfacts.in_store("207902307835") == "store-207902"   # the same kind of label, another item
+    assert foodfacts.in_store("2012345678903") == "store-2012345"  # EAN-13 20-29, outside the US
+    assert foodfacts.in_store("769197300170") == "" and foodfacts.in_store("036000291452") == ""
+
+
+def test_what_the_owner_names_a_barcode_is_found_on_the_next_scan(tmp_path):
+    from buddy import foodverdict
+    foodfacts.CACHE.clear()
+    memory, sent = Memory(tmp_path / "b.db"), []
+
+    def fake(url, data=None, headers=None):
+        sent.append(url)
+        return json.dumps({"code": "769197300170", "status": 0})
+    chicken = foodfacts.scanned(memory, "0207542301835", env=KEY, fetch=fake)
+    assert chicken == {"foods": [], "key": "store-207542", "label": "store",
+                       "source": "A store's own label: looked up nowhere"} and sent == []
+    berries = foodfacts.scanned(memory, "0769197300170", env={}, fetch=fake)
+    assert berries["foods"] == [] and berries["key"] == "769197300170" and berries["label"] == "" and len(sent) == 1
+    thighs = {"id": 7, "name": "Chicken, thigh, meat and skin, raw", "kind": "USDA basic food",
+              "per100": {"kcal": 221, "protein_g": 17.3, "fat_g": 16.6}, "barcode": "store-207542", "named": True}
+    foodverdict.keep(memory, thighs, "sometimes")
+    again = foodfacts.scanned(memory, "207542309992", env=KEY, fetch=fake)  # another pack: another price, same item
+    assert again["label"] == "named" and again["foods"][0]["name"] == thighs["name"] and len(sent) == 1
+    foodverdict.keep(memory, {"name": "Blueberries, raw", "per100": {"kcal": 57}, "barcode": "769197300170",
+                              "named": True}, "good")
+    assert foodfacts.scanned(memory, "769197300170", env={}, fetch=fake)["foods"][0]["name"] == "Blueberries, raw"
+    assert len(sent) == 1  # named once, looked up nowhere after
+    foodverdict.keep(memory, {"name": "Hazelnut spread", "per100": {"kcal": 539}, "barcode": "3017624010701"}, "skip")
+    assert foodverdict.named(memory, "3017624010701") is None  # a product a list had isn't "named"
+
+
+def test_the_page_endpoint_says_what_to_remember_a_name_under(tmp_path, monkeypatch):
+    from buddy import server
+    monkeypatch.setattr(server, "memory", Memory(tmp_path / "b.db"))
+    monkeypatch.setattr(server, "authorized", lambda t: t == "s3cret")
+    client, auth = TestClient(server.app), {"Authorization": "Bearer s3cret"}
+    got = client.get("/api/health/facts?kind=barcode&q=0207542301835", headers=auth).json()
+    assert got["label"] == "store" and got["key"] == "store-207542" and got["foods"] == []

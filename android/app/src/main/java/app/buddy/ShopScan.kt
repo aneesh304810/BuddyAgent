@@ -13,6 +13,10 @@ import androidx.compose.foundation.layout.padding
 import androidx.compose.foundation.shape.RoundedCornerShape
 import androidx.compose.material3.Button
 import androidx.compose.material3.OutlinedButton
+import androidx.compose.material3.OutlinedTextField
+import androidx.compose.foundation.text.KeyboardActions
+import androidx.compose.foundation.text.KeyboardOptions
+import androidx.compose.ui.text.input.ImeAction
 import androidx.compose.material3.Text
 import androidx.compose.runtime.Composable
 import androidx.compose.runtime.getValue
@@ -44,12 +48,19 @@ import kotlin.math.roundToInt
  * me?" from your server (foodverdict.py), with one tap to add it to your groceries (groceries.py), which ticks off the
  * shopping-list item it matches; the list shows under the camera. A product that's "Better to skip" for you shows a
  * better one you scanned before and waits for "Add anyway". Only the barcode number goes to your server, which looks it
- * up by the number alone; no picture is kept or sent, and no AI model sees any of it.
+ * up by the number alone; no picture is kept or sent, and no AI model sees any of it. A barcode no food list has, or a
+ * store's own label (meat, deli, bakery weighed in the store), asks "What is it?": the food picked is remembered on the
+ * server for that barcode or store item, so the next scan finds it there (foodfacts.scanned).
  */
 data class ShopItem(val id: Int, val text: String)
 
 data class ShopVerdict(val scanId: Int, val name: String, val brand: String, val verdict: String, val headline: String,
                        val numbers: String, val deals: String = "")
+
+/** A barcode no food list has, or a store's own label: [key] is what the owner's name for it is kept under. */
+class Unnamed(val key: String, val store: Boolean) : Exception(
+    if (store) "The store's own label (for something weighed or packed in the store), so no food list has it. What is it?"
+    else "No food list has this barcode (USDA's or Open Food Facts'). What is it?")
 
 data class ShopAdd(val added: Boolean, val already: Boolean, val ticked: String, val warn: String, val better: String,
                    val toBuy: List<ShopItem>, val itemId: Int = 0)
@@ -106,11 +117,25 @@ object GroceryApi {
     suspend fun atStore(link: ServerLink): Boolean = call(link, "/api/health/where").optString("do") == "verdict"
 
     suspend fun check(link: ServerLink, code: String): ShopVerdict {
-        val foods = call(link, "/api/health/facts?kind=barcode&q=" + URLEncoder.encode(code, "UTF-8")).optJSONArray("foods")
+        val o = call(link, "/api/health/facts?kind=barcode&q=" + URLEncoder.encode(code, "UTF-8"))
+        val foods = o.optJSONArray("foods")
         if (foods == null || foods.length() == 0) {
+            val key = o.optString("key")
+            if (key.isNotBlank()) throw Unnamed(key, o.optString("label") == "store")
             error("That barcode isn't in USDA's or Open Food Facts' lists: check it by name on Food → Groceries.")
         }
-        val v = call(link, "/api/health/verdict", JSONObject().put("food", foods.getJSONObject(0)).put("keep", true))
+        return judge(link, foods.getJSONObject(0))
+    }
+
+    /** USDA's foods for the words the owner typed, basic foods first (the server sorts them). */
+    suspend fun foods(link: ServerLink, words: String): List<JSONObject> {
+        val a = call(link, "/api/health/facts?kind=food&q=" + URLEncoder.encode(words, "UTF-8")).optJSONArray("foods")
+        return (0 until minOf(a?.length() ?: 0, 4)).map { a!!.getJSONObject(it) }
+    }
+
+    /** One serving judged by the server and kept with the products the owner checked. */
+    suspend fun judge(link: ServerLink, food: JSONObject): ShopVerdict {
+        val v = call(link, "/api/health/verdict", JSONObject().put("food", food).put("keep", true))
         val per = v.optJSONObject("per_serving") ?: JSONObject()
         fun num(key: String) = per.optDouble(key).takeIf { !it.isNaN() }
         val bits = listOfNotNull(
@@ -152,6 +177,9 @@ class ShopSession(private val link: ServerLink?, private val scope: CoroutineSco
     var readingFor by mutableIntStateOf(0)        // a kitchen item whose pack date the camera is reading
     var dateSeen by mutableStateOf<java.time.LocalDate?>(null)
     var dateSaved by mutableStateOf("")
+    var unnamed by mutableStateOf<Unnamed?>(null)   // a barcode no list has: what is it?
+    var naming by mutableStateOf("")
+    var matches by mutableStateOf<List<JSONObject>>(emptyList())
     private var last = ""
     private var lastAt = 0L
 
@@ -164,7 +192,8 @@ class ShopSession(private val link: ServerLink?, private val scope: CoroutineSco
     fun scanned(code: String) {
         scope.launch {  // on the main thread, one at a time
             val now = SystemClock.elapsedRealtime()
-            if (busy || (code == last && now - lastAt < 8000)) return@launch
+            // the same barcode stays in view while the owner types what it is: asked once
+            if (busy || (code == last && (now - lastAt < 8000 || unnamed != null))) return@launch
             last = code
             lastAt = now
             val link = link ?: run { problem = "Add your Buddy server link in Settings first."; return@launch }
@@ -173,13 +202,54 @@ class ShopSession(private val link: ServerLink?, private val scope: CoroutineSco
             add = null
             readingFor = 0
             dateSaved = ""
+            unnamed = null
+            matches = emptyList()
             runCatching { GroceryApi.check(link, code) }
-                .onSuccess { v ->
-                    verdict = v
-                    val cheaper = runCatching { GroceryApi.deals(link, v.scanId) }.getOrDefault("")
-                    if (cheaper.isNotBlank() && verdict?.scanId == v.scanId) verdict = v.copy(deals = cheaper)
+                .onSuccess { v -> shown(link, v) }
+                .onFailure {
+                    verdict = null
+                    unnamed = it as? Unnamed
+                    if (it !is Unnamed) problem = it.message ?: "Couldn't check it: try again."
+                    naming = ""
                 }
-                .onFailure { verdict = null; problem = it.message ?: "Couldn't check it: try again." }
+            busy = false
+        }
+    }
+
+    private suspend fun shown(link: ServerLink, v: ShopVerdict) {
+        verdict = v
+        val cheaper = runCatching { GroceryApi.deals(link, v.scanId) }.getOrDefault("")
+        if (cheaper.isNotBlank() && verdict?.scanId == v.scanId) verdict = v.copy(deals = cheaper)
+    }
+
+    /** What the owner typed for a barcode no list has: USDA's matches to pick from. */
+    fun findName() {
+        val link = link ?: return
+        val words = naming.trim()
+        if (unnamed == null || words.length < 2) return
+        scope.launch {
+            busy = true
+            problem = ""
+            runCatching { GroceryApi.foods(link, words) }
+                .onSuccess { found ->
+                    matches = found
+                    if (found.isEmpty()) problem = "Nothing found for \"$words\": try fewer or plainer words."
+                }
+                .onFailure { problem = it.message ?: "Couldn't look it up: try again." }
+            busy = false
+        }
+    }
+
+    /** The match the owner picked: judged, and kept with the barcode so the next scan finds it. */
+    fun pick(food: JSONObject) {
+        val link = link ?: return
+        val u = unnamed ?: return
+        scope.launch {
+            busy = true
+            problem = ""
+            runCatching { GroceryApi.judge(link, JSONObject(food.toString()).put("barcode", u.key).put("named", true)) }
+                .onSuccess { v -> unnamed = null; matches = emptyList(); naming = ""; shown(link, v) }
+                .onFailure { problem = it.message ?: "Couldn't check it: try again." }
             busy = false
         }
     }
@@ -226,6 +296,31 @@ fun ShopPanel(s: ShopSession, modifier: Modifier = Modifier) {
     Column(modifier, verticalArrangement = Arrangement.spacedBy(8.dp)) {
         if (s.busy && s.verdict == null) Text("Checking…", color = Pal.dim)
         if (s.problem.isNotEmpty()) Text(s.problem, color = Pal.bad)
+        s.unnamed?.let { u ->
+            Column(
+                Modifier.fillMaxWidth().clip(RoundedCornerShape(14.dp)).background(Pal.panel).padding(12.dp),
+                verticalArrangement = Arrangement.spacedBy(6.dp),
+            ) {
+                Text(u.message.orEmpty(), color = Pal.text)
+                Row(horizontalArrangement = Arrangement.spacedBy(8.dp)) {
+                    OutlinedTextField(
+                        value = s.naming, onValueChange = { s.naming = it.take(80) },
+                        placeholder = { Text(if (u.store) "e.g. chicken thighs" else "e.g. organic blueberries") },
+                        singleLine = true, modifier = Modifier.weight(1f),
+                        keyboardOptions = KeyboardOptions(imeAction = ImeAction.Search),
+                        keyboardActions = KeyboardActions(onSearch = { s.findName() }),
+                    )
+                    Button(onClick = { s.findName() }, enabled = !s.busy && s.naming.trim().length >= 2) { Text("Look up") }
+                }
+                s.matches.forEach { f ->
+                    OutlinedButton(onClick = { s.pick(f) }, enabled = !s.busy, modifier = Modifier.fillMaxWidth()) {
+                        Text(f.optString("name") + f.optString("kind").takeIf { it.isNotBlank() }?.let { " · $it" }.orEmpty())
+                    }
+                }
+                if (s.matches.isNotEmpty()) Text("Pick the one that matches: Buddy remembers it for this " +
+                    (if (u.store) "item." else "barcode."), color = Pal.dim, fontSize = 13.sp)
+            }
+        }
         s.verdict?.let { v ->
             Column(
                 Modifier.fillMaxWidth().clip(RoundedCornerShape(14.dp)).background(Pal.panel).padding(12.dp),
