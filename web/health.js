@@ -18,7 +18,7 @@ const SECTIONS = [
   ["today", "Today", []],
   ["trends", "Trends", [["measures", "Measures"], ["patterns", "Patterns"], ["mood", "Mood"]]],
   ["labs", "Labs", [["results", "Results"], ["add", "Add a report"], ["portals", "Portals"], ["checkups", "Checkups"]]],
-  ["plan", "Plan", [["habits", "Progress"], ["food", "Food"], ["goals", "Goals & habits"]]],
+  ["plan", "Plan", [["habits", "Progress"], ["food", "Food"], ["menu", "Menu"], ["goals", "Goals & habits"]]],
   ["learn", "Learn", [["research", "Research"], ["supplements", "Supplements"], ["medicines", "Medicines"]]],
   ["sources", "Sources", []],
 ];
@@ -428,6 +428,8 @@ function renderFood() {
     kpi(num(f.eaten.protein_g) + " g", t.protein_g ? `of ${num(t.protein_g)} g protein` : "protein noted today")];
   if (f.left.calories != null) k.push(kpi(num(f.left.calories), "calories left"));
   if (f.left.protein_g != null) k.push(kpi(num(f.left.protein_g) + " g", "protein left"));
+  if (f.eaten.fiber_g != null) k.push(kpi(num(Math.round(f.eaten.fiber_g)) + " g", t.fiber_g ? `of ${num(t.fiber_g)} g fibre` : "fibre"));
+  if (f.eaten.sodium_mg != null) k.push(kpi(num(Math.round(f.eaten.sodium_mg)) + " mg", "sodium (under 2,300)"));
   const meals = f.recent.length ? f.recent.map((m) => `<div class="line"><div class="what">${esc(m.what)}<small>${esc(when(m.day))} ${esc(m.at)}</small></div>
       <div class="num">${m.calories == null ? "" : num(m.calories) + " cal"}${m.protein_g == null ? "" : `<small>${num(m.protein_g)} g protein</small>`}</div></div>`).join("")
     : `<p class="muted">No meals noted in the last week.</p>`;
@@ -491,8 +493,10 @@ function wireFoodLookup() {
     const f = facts.food.foods[Number(b.dataset.foodAdd)], g = Number(grams.value);
     if (!(g > 0 && g <= 3000)) { notice("An amount between 1 and 3,000 grams."); return; }
     const label = portion && portion.value && Number(portion.value) === g ? portion.selectedOptions[0].textContent : `${num(g)} g`;
+    const of = (k) => (f.per100[k] == null ? null : Math.round(f.per100[k] * g) / 100);
     act({ action: "meal", what: `${f.name} (${label})`.slice(0, 200), calories: Math.round((f.per100.kcal || 0) * g / 100),
-      protein_g: Math.round((f.per100.protein_g || 0) * g / 100) }, "Added to today's meals.");
+      protein_g: Math.round((f.per100.protein_g || 0) * g / 100), carbs_g: of("carbs_g"), fat_g: of("fat_g"),
+      fiber_g: of("fiber_g"), sodium_mg: of("sodium_mg") }, "Added to today's meals.");
     foodPick = -1; foodGrams = "";
   });
 }
@@ -590,6 +594,66 @@ function renderMedicines() {
   $("main").innerHTML = card("Look up a medicine", searchForm("medicine", "A medicine, e.g. metformin") + body,
     got && got.note ? esc(got.note) : "From openFDA, the US FDA's public drug labels. Only the words you type are sent.");
   wireSearch();
+}
+
+// --- the day's menu: targets worked out by code, meals from the dishes you eat, with USDA's numbers
+let dietData = null, dietEdit = false;
+const dietSwap = { b: 0, l: 0, d: 0, s: 0 };
+async function loadDiet(body) {
+  try {
+    dietData = body ? await api("/api/health/diet", { ...body, swap: dietSwap })
+      : await api(`/api/health/diet?${new URLSearchParams(dietSwap)}`);
+    if (body) { dietEdit = false; notice(dietData.text); }
+  } catch (e) { dietData = dietData || { failed: e.message }; if (body) notice(e.message); }
+  if (body && body.action === "eat") await load();
+  if (showing("plan", "menu")) render();
+}
+function dietPrefs() {
+  const p = dietData.prefs, c = dietData.choices;
+  const box = (name, k, label, on) => `<label class="pick"><input type="checkbox" name="${name}" value="${esc(k)}"${on ? " checked" : ""}> ${esc(label)}</label>`;
+  const sel = (name, options, now) => `<select name="${name}">${Object.entries(options).map(([k, v]) => `<option value="${esc(k)}"${now === k ? " selected" : ""}>${esc(v)}</option>`).join("")}</select>`;
+  return card("Your choices", `<form id="diet-form"><label>Weight goal</label>${sel("goal", c.goals, p.goal)}
+      <label>Besides plant foods, you eat (leave both off for vegetarian)</label>${Object.entries(c.eats).map(([k, v]) => box("eat", k, v, p.eats.includes(k))).join("")}
+      ${Object.entries(c.places).map(([place, title]) => `<label>${esc(title)}, cook from</label>${Object.entries(c.cuisines).map(([k, v]) => box(place, k, v, p.places[place].includes(k))).join("")}`).join("")}
+      <label>Where you are</label>${sel("where", c.where, p.where)}
+      <p style="margin:12px 0 0"><button class="btn solid">Save</button> <button type="button" class="btn" id="diet-cancel">Cancel</button></p></form>`);
+}
+function renderMenu() {
+  if (!dietData) { $("main").innerHTML = `<p class="muted">Loading…</p>`; loadDiet(); return; }
+  if (dietData.failed) { $("main").innerHTML = `<p class="err">${esc(dietData.failed)}</p>`; return; }
+  if (dietEdit) { $("main").innerHTML = dietPrefs(); wireDiet(); return; }
+  const t = dietData.targets, p = dietData.prefs, c = dietData.choices;
+  const row = (label, value, how) => `<div class="line"><div class="what">${esc(label)}<small>${esc(how)}</small></div><div class="num">${value}</div></div>`;
+  const targets = t.calories.value == null
+    ? `<p class="muted">To work out your calories Buddy needs ${esc(t.missing.join(", ") || "a few days of readings")}.</p>`
+    : row("Calories", num(t.calories.value), t.calories.how)
+      + row("Protein", t.protein_g.low == null ? "–" : `${num(t.protein_g.low)}–${num(t.protein_g.high)} g`, t.protein_g.how)
+      + row("Fibre", t.fiber_g.value == null ? "–" : `${num(t.fiber_g.value)} g or more`, t.fiber_g.how)
+      + row("Sodium", "under 2,300 mg", t.sodium_mg.how)
+      + row("Saturated fat", t.sat_fat_g.value == null ? "–" : `${num(t.sat_fat_g.value)} g or less`, t.sat_fat_g.how)
+      + row("Added sugar", "none", t.added_sugar);
+  const meals = dietData.meals.map((m) => card(`${esc(m.name)} · ${esc(m.cuisine)}`,
+    m.items.map((i) => `<div class="line"><div class="what">${esc(i.name)}<small>${esc(i.amount)} · ${num(i.grams)} g${i.added_for ? " · added for protein" : ""}</small></div>
+      <div class="num">${num(Math.round(i.kcal))} kcal<small>${num(Math.round(i.protein_g))} g protein</small></div></div>`).join("")
+    + `<div class="line"><div class="what"><b>Meal</b><small>${num(Math.round(m.totals.carbs_g))} g carbs · ${num(Math.round(m.totals.fat_g))} g fat · ${num(Math.round(m.totals.fiber_g))} g fibre</small></div>
+      <div class="num"><b>${num(Math.round(m.totals.kcal))} kcal</b><small>${num(Math.round(m.totals.protein_g))} g protein</small></div></div>
+      <p style="margin:8px 0 0">${m.options > 1 ? `<button class="btn" data-diet-swap="${m.meal}">Another (${m.options} options)</button> ` : ""}<button class="btn solid" data-diet-eat="${m.meal}">I ate this</button></p>`)).join("");
+  const checks = dietData.checks.map((x) => `<div class="line"><div class="what">${esc(x.what)}<small>target ${num(Math.round(x.target))}</small></div>
+      <div class="num">${num(Math.round(x.got))}</div> <span class="pill ${x.ok ? "good" : "warn"}">${x.ok ? "On target" : "Off"}</span></div>`).join("");
+  $("main").innerHTML = card("Your day's targets", targets + t.notes.map((n) => `<p class="why">${esc(n)}</p>`).join(""))
+    + `<p class="muted" style="margin:0 0 10px">${esc(c.places[p.here])} (${esc(p.here_how)}): ${esc(p.cuisines.map((k) => c.cuisines[k]).join(", "))} · ${esc(c.goals[p.goal])} · ${esc(p.eats.length ? "Also " + p.eats.map((k) => c.eats[k].toLowerCase()).join(", ") : "Vegetarian")} · <button class="btn" id="diet-edit">Change</button></p>`
+    + meals + card("The day", checks + dietData.tips.map((x) => `<p class="why">${esc(x)}</p>`).join(""), esc(`${dietData.source}. ${dietData.note}`));
+  wireDiet();
+}
+function wireDiet() {
+  if ($("diet-form")) $("diet-form").onsubmit = (e) => {
+    e.preventDefault(); const d = new FormData(e.target);
+    loadDiet({ action: "prefs", goal: d.get("goal"), eats: d.getAll("eat"), us: d.getAll("us"), india: d.getAll("india"), where: d.get("where") });
+  };
+  if ($("diet-cancel")) $("diet-cancel").onclick = () => { dietEdit = false; render(); };
+  if ($("diet-edit")) $("diet-edit").onclick = () => { dietEdit = true; render(); };
+  $("main").querySelectorAll("[data-diet-swap]").forEach((b) => b.onclick = () => { dietSwap[b.dataset.dietSwap] += 1; loadDiet(); });
+  $("main").querySelectorAll("[data-diet-eat]").forEach((b) => b.onclick = () => { b.disabled = true; loadDiet({ action: "eat", meal: b.dataset.dietEat }); });
 }
 
 function habitRow(h) {
@@ -754,7 +818,7 @@ const VIEWS = {
   "trends/measures": renderTrends, "trends/patterns": renderPatterns, "trends/mood": moodHistory,
   "labs/results": () => renderLabs("results"), "labs/add": () => renderLabs("add"), "labs/portals": () => renderLabs("portals"),
   "labs/checkups": renderCheckups,
-  "plan/habits": renderHabits, "plan/food": renderFood, "plan/goals": renderPlan,
+  "plan/habits": renderHabits, "plan/food": renderFood, "plan/menu": renderMenu, "plan/goals": renderPlan,
   "learn/research": renderResearch, "learn/supplements": renderSupplements, "learn/medicines": renderMedicines,
 };
 function render() {

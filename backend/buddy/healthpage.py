@@ -76,8 +76,18 @@ def view(memory: Memory, days: int = 30, now: datetime | None = None, env=None) 
     recent = [dict(r) for r in memory.db.execute(
         "SELECT day, at, what, calories, protein_g FROM coach_meals WHERE day >= ? ORDER BY day DESC, at DESC LIMIT 30",
         ((now.date() - timedelta(days=6)).isoformat(),))]
-    diet = plan.get("diet") or {}
+    diet = dict(plan.get("diet") or {})
     eaten = today["eaten"]
+    from . import dietplan  # noqa: PLC0415  targets worked out by code, when the owner set none
+    try:
+        worked = dietplan.targets(memory)
+    except Exception:
+        worked = {}
+    if not coach._num(diet.get("calories")) and (worked.get("calories") or {}).get("value"):
+        diet["calories"] = worked["calories"]["value"]
+    if not coach._num(diet.get("protein_g")) and (worked.get("protein_g") or {}).get("low"):
+        diet["protein_g"] = worked["protein_g"]["low"]
+    extra_targets = {"fiber_g": (worked.get("fiber_g") or {}).get("value"), "sodium_mg": 2300}
 
     def left(key):
         target = coach._num(diet.get(key))
@@ -92,7 +102,8 @@ def view(memory: Memory, days: int = 30, now: datetime | None = None, env=None) 
         "plan": plan or None, "metrics": coach.METRICS,
         "progress": {"week": coach.progress(memory, 7, now)["habits"], "month": coach.progress(memory, 30, now)["habits"],
                      "start": plan.get("start") or {}, "since": plan.get("created_at", "")} if plan else None,
-        "food": {"eaten": eaten, "targets": {k: diet.get(k) for k in ("calories", "protein_g") if diet.get(k)},
+        "food": {"eaten": eaten, "targets": {k: diet.get(k) for k in ("calories", "protein_g") if diet.get(k)} | {
+                     k: v for k, v in extra_targets.items() if v and eaten.get(k) is not None},
                  "left": {"calories": left("calories"), "protein_g": left("protein_g")}, "recent": recent,
                  "note": "Calories and protein are counted only when you type them or add a food you looked up "
                          "(USDA's numbers for the amount you pick): no AI estimates them."},
@@ -112,7 +123,8 @@ def act(memory: Memory, body: dict, env=None, fetch=None) -> dict:
         return {"ok": True, **coach.log_habit(memory, body.get("habit"), body.get("value"), body.get("note") or "",
                                               str(body.get("day") or ""))}
     if action == "meal":
-        got = coach.add_meal(memory, body.get("what"), body.get("calories"), body.get("protein_g"))
+        got = coach.add_meal(memory, body.get("what"), body.get("calories"), body.get("protein_g"),
+                             extra={k: body.get(k) for k in coach.EXTRA})
         return {"ok": True, "calories": got["calories"], "protein_g": got["protein_g"]}
     if action == "plan":
         saved = coach.set_plan(memory, body.get("plan") or {})

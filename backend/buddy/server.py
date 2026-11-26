@@ -1790,6 +1790,42 @@ async def api_health_lab_file(report_id: int):
                     headers={"Content-Disposition": "inline; filename=report.pdf", "Cache-Control": "no-store"})
 
 
+def _swaps(**given) -> dict:
+    return {m: max(0, min(int(v or 0), 50)) for m, v in given.items()}
+
+
+@app.get("/api/health/diet", dependencies=[Depends(require_admin)])
+async def api_health_diet(b: int = 0, l: int = 0, d: int = 0, s: int = 0) -> dict:  # noqa: E741
+    """Today's menu fitted to the owner's targets (code only); b/l/d/s rotate a meal to the next option."""
+    from . import dietplan  # noqa: PLC0415
+    return await asyncio.to_thread(dietplan.menu, memory, None, _swaps(b=b, l=l, d=d, s=s))
+
+
+@app.post("/api/health/diet", dependencies=[Depends(require_admin)])
+async def api_health_diet_act(body: dict) -> dict:
+    """prefs (goal, eats, us and india cuisines, where); eat (meal b/l/d/s, the rotation the page shows)."""
+    from . import dietplan  # noqa: PLC0415
+    action = str(body.get("action") or "")
+    swap = _swaps(**{m: (body.get("swap") or {}).get(m) for m in "blds"})
+    try:
+        if action == "prefs":
+            await asyncio.to_thread(dietplan.set_prefs, memory, str(body.get("goal") or ""), body.get("eats") or [],
+                                    body.get("us") or [], body.get("india") or [], str(body.get("where") or "auto"))
+            text = "Saved."
+        elif action == "eat":
+            menu = await asyncio.to_thread(dietplan.menu, memory, None, swap)
+            meal = next((x for x in menu["meals"] if x["meal"] == body.get("meal")), None)
+            if meal is None:
+                raise ToolError("That meal isn't on today's menu.")
+            await asyncio.to_thread(dietplan.eat, memory, meal)
+            text = f"{meal['name']} added to today's meals."
+        else:
+            raise HTTPException(400, "unknown action")
+    except ToolError as e:
+        raise HTTPException(400, str(e)) from None
+    return {"text": text, **await asyncio.to_thread(dietplan.menu, memory, None, swap)}
+
+
 @app.get("/api/health/research", dependencies=[Depends(require_admin)])
 async def api_health_research(pmid: str = "") -> dict:
     """The research digest (topics, papers by evidence), or one paper's abstract with pmid."""

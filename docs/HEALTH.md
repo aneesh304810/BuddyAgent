@@ -26,7 +26,7 @@ sub-tabs under them, and the page remembers where you were.
 | **Today** | (one page) readings, what they mean, today's habits, how you feel |
 | **Trends** | Measures · Patterns · Mood |
 | **Labs** | Results · Add a report · Portals · Checkups |
-| **Plan** | Progress · Food · Goals & habits |
+| **Plan** | Progress · Food · Menu · Goals & habits |
 | **Learn** | Research · Supplements · Medicines |
 | **Sources** | (one page) each source, and "Read the ring now" |
 
@@ -85,6 +85,33 @@ sub-tabs under them, and the page remembers where you were.
   recalls, from openFDA. Ask your pharmacist or doctor about your own medicines.
 - These lookups send only the words you type (or the database's own label number), nothing about you, and keep a
   day's cache of the answers. No AI model is involved.
+- **Plan → Menu (your daily diet):** targets worked out by code, and a day's menu built from the food you eat.
+  - **Targets**, each with where it comes from: calories from what your devices estimate you burn (7 or more of
+    the last 14 days), or else the Mifflin-St Jeor equation from your weight, height, age and sex times an activity
+    factor from your steps, then your weight goal (keep; lose slowly, 500 less a day but never under 1,500 for men
+    or 1,200 for women; gain slowly, 300 more). Protein 1.2 to 1.6 g per kg (Dietary Guidelines for Americans
+    2025-2030). Fibre 14 g per 1,000 calories (the National Academies; the 2025-2030 guidelines give no number).
+    Sodium under 2,300 mg, saturated fat at most 10% of calories, added sugar none (at most 10 g in a meal), all
+    from the 2025-2030 guidelines. A calorie or protein number you typed in your plan wins. With an A1c in the
+    prediabetes range, or South Asian ancestry, a note on carbs: whole grains over refined, brown rice over white,
+    rice at the portion shown, protein and vegetables at every meal.
+  - **The menu follows where you are.** Kerala food is hard to find in the US, so there the menu uses American
+    (grilled chicken, salads) and Mediterranean dishes; in India, Kerala home food and other Indian dishes
+    (biryani, palak paneer, dal, chana). Each place's list is yours to change. Where you are comes from your
+    phone's last location (only its country is used: India, or the US list anywhere else), or you set it.
+  - **The menu**: breakfast, lunch, dinner and a snack from meal templates in those cuisines, with plant foods
+    always and eggs and fish, chicken or meat if you eat them (leave both off for vegetarian), rotated by date;
+    every place and diet gets all four meals. Every dish is a USDA survey food (FNDDS 2024, `docs/data/dietfoods_build.py`) with
+    USDA's own numbers and household portions, named as USDA names it; avial, thoran, appam, puttu and chapati have
+    no USDA entry, so they aren't in it. Each meal's staple (rice, idli, dosa, quinoa, oatmeal, bread) is scaled to
+    the meal's share of the day; brown rice replaces white with prediabetes-range numbers; protein is topped up at
+    the snack when the day falls short. The day is checked against calories, protein, fibre, sodium and saturated
+    fat. USDA's recipes are salted as people usually cook, so sodium often comes out high: the menu says so.
+  - **Another** shows the next option for a meal; **I ate this** adds the meal to today's meals with all its
+    numbers (calories, protein, carbs, fat, fibre, sodium). Foods added from a lookup keep them too; Plan → Food
+    shows the day's fibre and sodium when meals carry them.
+  - A suggestion from code, not medical advice; home recipes differ from USDA's. A registered dietitian can tailor
+    it (often covered: Labs → Checkups). No AI model is given any of it.
 - **Plan → Goals & habits:** goals, up to eight habits (tracked from the ring or phone with a target, or ticked off
   by you), and food targets. This form replaces the set-up conversation in section 2, and Plan opens on it until
   there is a plan. "Forget my health plan" (pressed twice) deletes the plan, the habit log and the meals; the

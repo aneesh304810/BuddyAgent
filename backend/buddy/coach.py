@@ -44,8 +44,15 @@ CREATE TABLE IF NOT EXISTS coach_meals (         -- meals the owner mentioned, w
 """
 
 
+EXTRA = ("carbs_g", "fat_g", "fiber_g", "sodium_mg")  # kept when a meal comes from a lookup or the day's menu
+
+
 def _ready(memory: Memory) -> None:
     memory.db.executescript(SCHEMA)
+    have = {r[1] for r in memory.db.execute("PRAGMA table_info(coach_meals)")}
+    for column in EXTRA:
+        if column not in have:
+            memory.db.execute(f"ALTER TABLE coach_meals ADD COLUMN {column} REAL")  # nosec B608: fixed names
 
 
 def plan(memory: Memory) -> dict:
@@ -230,16 +237,19 @@ def body(data: dict[str, dict], day: date) -> dict:
 
 
 # --- food -----------------------------------------------------------------------------------------------------
-def add_meal(memory: Memory, what: str, calories=None, protein_g=None, now: datetime | None = None) -> dict:
+def add_meal(memory: Memory, what: str, calories=None, protein_g=None, now: datetime | None = None,
+             extra: dict | None = None) -> dict:
     _ready(memory)
     now = now or local_now()
-    what = " ".join(str(what or "").split())[:200]
+    what = " ".join(str(what or "").split())[:300]
     if not what:
         raise ToolError("Say what was eaten.")
     cal, pro = _num(calories), _num(protein_g)
-    memory.db.execute("INSERT INTO coach_meals (day, at, what, calories, protein_g) VALUES (?, ?, ?, ?, ?)",
+    more = [(_num((extra or {}).get(k)) if (extra or {}).get(k) not in (None, "") else None) for k in EXTRA]
+    memory.db.execute("INSERT INTO coach_meals (day, at, what, calories, protein_g, carbs_g, fat_g, fiber_g, sodium_mg) "
+                      "VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?)",
                       (now.date().isoformat(), now.strftime("%H:%M"), what, round(cal) if cal else None,
-                       round(pro) if pro else None))
+                       round(pro) if pro else None, *[round(v, 1) if v is not None else None for v in more]))
     memory.db.commit()
     return eaten(memory, now.date())
 
@@ -247,9 +257,15 @@ def add_meal(memory: Memory, what: str, calories=None, protein_g=None, now: date
 def eaten(memory: Memory, day: date) -> dict:
     _ready(memory)
     rows = [dict(r) for r in memory.db.execute(
-        "SELECT at, what, calories, protein_g FROM coach_meals WHERE day = ? ORDER BY at", (day.isoformat(),))]
-    return {"meals": rows, "calories": sum(r["calories"] or 0 for r in rows),
-            "protein_g": sum(r["protein_g"] or 0 for r in rows)}
+        "SELECT at, what, calories, protein_g, carbs_g, fat_g, fiber_g, sodium_mg FROM coach_meals WHERE day = ? "
+        "ORDER BY at", (day.isoformat(),))]
+    out = {"meals": rows, "calories": sum(r["calories"] or 0 for r in rows),
+           "protein_g": sum(r["protein_g"] or 0 for r in rows)}
+    for k in EXTRA:  # only meals that came with the number count toward it
+        counted = [r[k] for r in rows if r[k] is not None]
+        out[k] = round(sum(counted), 1) if counted else None
+        out[k + "_meals"] = len(counted)
+    return out
 
 
 def food(memory: Memory, now: datetime | None = None) -> dict:
