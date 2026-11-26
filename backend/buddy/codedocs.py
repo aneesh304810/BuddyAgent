@@ -181,7 +181,7 @@ COMPONENTS = [  # every server module belongs to one feature (tests check none i
       "transcripts.py", "vocabulary.py"]),
     ("Phone calls", "Calls businesses for you after your yes and answers calls: Plivo, Pipecat on your server, "
      "Deepgram, Claude and ElevenLabs; your contacts and meeting proposals",
-     ["calls.py", "contacts.py", "scheduling.py"]),
+     ["calls.py", "contacts.py", "scheduling.py", "receptionist.py"]),
     ("Speaking up on its own: briefing, reminders and alerts", "The morning briefing with news, finance and events "
      "that follows what you talk about; reminders; and alerts whose loudness is learned from your thumbs",
      ["proactive.py", "attention.py", "today.py", "daybrief.py", "commute.py", "organiser.py", "health.py"]),

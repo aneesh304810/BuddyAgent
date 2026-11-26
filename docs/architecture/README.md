@@ -94,7 +94,7 @@ flowchart LR
 | [Buddy Connect](03-buddy-connect.md) | One catalog and one way of calling every outside service: keys, backup hosts, rate limits, the personal-data check, logging and costs | 3 |
 | [Memory](04-memory.md) | What Buddy knows and remembers: facts, the conversation log and its search, the documents library, your taste and daily routine, and connecting what it knows | 9 |
 | [Voice: Talk mode and Listen-in](05-voice.md) | Hearing you (live as you speak through the call engine, or in clips by Whisper on your server or Groq), optional noise removal, knowing when you talk to Buddy, your voice match, how you pause, the words it should hear right, and Listen-in's whispers | 9 |
-| [Phone calls](06-phone-calls.md) | Calls businesses for you after your yes and answers calls: Plivo, Pipecat on your server, Deepgram, Claude and ElevenLabs; your contacts and meeting proposals | 3 |
+| [Phone calls](06-phone-calls.md) | Calls businesses for you after your yes and answers calls: Plivo, Pipecat on your server, Deepgram, Claude and ElevenLabs; your contacts and meeting proposals | 4 |
 | [Speaking up on its own: briefing, reminders and alerts](07-speaking-up-on-its-own.md) | The morning briefing with news, finance and events that follows what you talk about; reminders; and alerts whose loudness is learned from your thumbs | 7 |
 | [Learning: the English and investing tutors](08-learning.md) | The morning investing lesson, the morning English lesson, the evening English review and live tips, and Market school | 3 |
 | [Money](09-money.md) | Bank and card feeds (read-only), bills, the money advisor and review, card choices and benefits, cancelling subscriptions; never moves money | 13 |
@@ -114,4 +114,4 @@ flowchart LR
 | [Insights and costs](23-insights-and-costs.md) | What Buddy spends and how well it does, model by model and service by service, and what makes it feel slow; and the modules: which parts are switched on for this server, and the meter that counts what each one is used for | 5 |
 | [The server and the app](24-the-server-and-the-app.md) | The one server the phone talks to: the chat connection, the app's pages and their data, and the door where a pair of smart glasses joins Buddy's brain | 2 |
 
-24 features, 208 server modules. The app (Kotlin) and the deploy scripts are documented by `python -m buddy.codedocs`.
+24 features, 209 server modules. The app (Kotlin) and the deploy scripts are documented by `python -m buddy.codedocs`.

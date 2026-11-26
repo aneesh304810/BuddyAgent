@@ -215,16 +215,41 @@ says which hearing and voice models it used.
 
 ## 9. Buddy answers the calls you miss
 
-Once set up, a call you don't pick up goes to Buddy instead of your voicemail. Buddy answers like a secretary
-("Hi, you've reached Aneesh's phone, I'm the assistant..."), finds out who's calling and why, and:
-- **a real caller:** takes the message (name, reason, dates, callback number) and tells you in the app; family,
-  doctors, real fraud alerts and "call back today" are marked **urgent**. Callers Buddy knows (from what you've told
-  it, your emails and calendar) hear specific timing from your calendar ("in a meeting until three"); unknown callers
-  hear only general timing. Nobody hears where you are or anything personal;
+Once set up, a call you don't pick up goes to Buddy instead of your voicemail. Buddy answers like a warm,
+experienced executive assistant and says up front that it's your AI assistant ("Hi Priya! This is Buddy, Aneesh's
+AI assistant. Aneesh can't get to the phone right now. What can I do for you?"; unknown callers are asked their
+name). It never claims to be you, and if asked it says honestly that it's an AI. It finds out who's calling and why:
+- **a real caller:** takes the message (name, reason, dates, callback number) and tells you in the app (no
+  notifications); family, doctors, real fraud alerts and "call back today" are marked **urgent**. A **follow-up
+  task** goes in your tasks ("Call Priya back (201...): school pickup", due today when urgent, else tomorrow);
 - **a scam or robocall:** "Not interested, thanks", hangs up, and only counts it ("how did my calls go?" shows today's);
-- **sales:** a short note, low priority.
+- **sales:** a short note, low priority, no task.
 
-If someone asks, Buddy says honestly that it's an AI assistant. At most 30 answered calls a day, 5 minutes each.
+**What a caller hears about your time** is decided by Buddy's code before the AI sees anything (`receptionist.py`):
+| Caller | Hears |
+|---|---|
+| Family (a phone contact you've told Buddy is family: "Priya is my wife") | what's on your calendar and until when, by name |
+| Other phone contacts | what kind of thing ("a meeting", "an appointment") and until when |
+| Anyone else, or a caller ID the carrier marked not verified | only when you're busy and when you're free |
+
+Never where you are, who you're with, or the name of a health, money or legal appointment. **Trips and travel**
+show only as busy, and **your email is never read for a call**, until you tell Buddy what may be shared: "callers can
+know I'm in India from Dec 3 to Dec 14" keeps a sharing note for everyone (or "only my contacts", "only family")
+until that date; "what can callers know?" lists them; "stop sharing that" removes one. Callers can't change any of it.
+
+**Buddy remembers callers** (from their calls, not your email): their earlier messages, follow-ups still open on
+your list, and how they like to be reached ("texts over calls"), so a second call picks up where the first left off.
+Who someone is to you comes only from you ("that number is my brother"), never from what a caller says.
+
+**Putting a caller through:** an urgent call from someone in your contacts. Buddy says "let me try Aneesh for you",
+rings your mobile from its number for under 15 seconds, tells you who and why, and joins you when you press 1 (so
+your voicemail can't take it). No answer: the caller hears the message has been passed on as urgent. Never between
+10 pm and 7 am unless it's family; unknown callers are never put through.
+
+**Free times:** when a caller wants to talk or meet, Buddy offers two of your free times and pencils one in for you
+to confirm; nothing goes into your calendar without your yes.
+
+At most 30 answered calls a day, 5 minutes each. Calls aren't recorded and no transcript is kept: only the message.
 
 **Turn it on:** `calls.sh` prints the codes with your Plivo number. On your phone, dial each and press Call:
 - `**61*1PLIVONUMBER**15#`: when you don't answer within 15 seconds, about 3 rings (a US ring is about 6 seconds;

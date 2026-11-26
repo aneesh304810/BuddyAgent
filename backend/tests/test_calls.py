@@ -189,7 +189,7 @@ def test_prompt_shares_dob_and_insurance_only_for_appointments(tmp_path, env):
 def test_parse_keeps_only_safe_moves():
     got = calls.parse('ok {"say": "Hi", "digits": "1a2#", "action": "transfer_money"}')
     assert got == {"say": "Hi", "digits": "12#", "action": "continue", "outcome": "", "priority": "normal",
-                   "caller": "", "callback": "", "meeting": None}
+                   "caller": "", "callback": "", "meeting": None, "reason": "", "said": "", "prefers": []}
     assert calls.parse("Hello there")["say"] == "Hello there"
 
 
@@ -656,8 +656,9 @@ def test_forwarded_call_is_answered_with_what_buddy_knows(tmp_path, env):
     prompt = calls.system_prompt(m, call)
     assert "couldn't pick up" in prompt and "Dr. Mehta" in prompt and "Verified" in prompt
     assert "Never say where Sam is" in prompt and '"scam"' in prompt and "never like a bot" in prompt
-    assert "Never deny it" in prompt and "This caller is someone Buddy knows, so you may say what Sam is doing" in prompt
-    assert "AI" not in calls.screen_greeting() and "Sam's phone" in calls.screen_greeting()
+    # known only from what Sam told Buddy, not a phone contact: when Sam is busy and free, nothing about what
+    assert "Never deny it" in prompt and "only when Sam is busy and when Sam will be free" in prompt
+    assert "AI assistant" in calls.screen_greeting() and "Sam's phone" in calls.screen_greeting()  # said up front
     unknown = calls.screen_call(m, {"From": "anonymous", "CallUUID": "in-2"})
     assert unknown["number"] == "unknown" and unknown["goal"] == ""
 

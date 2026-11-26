@@ -15,16 +15,20 @@ flowchart LR
         calls_py["calls.py<br/>Phone calls for the owner (Buddy Connect, Calls group)"]
         contacts_py["contacts.py<br/>the owner's phone contacts (names and numbers only, synced by the app…"]
         scheduling_py["scheduling.py<br/>the owner's free time, meeting proposals from calls Buddy answered,…"]
+        receptionist_py["receptionist.py<br/>Buddy as the owner's receptionist on the calls they miss (calls.py…"]
     end
     you --> t_phone_call
     t_phone_call --> calls_py
     you --> t_calendar_add
     t_calendar_add --> scheduling_py
     calls_py --> contacts_py
+    calls_py --> receptionist_py
     calls_py --> scheduling_py
-    db[("Your database<br/>phone_calls, phone_contacts, saved_callers")]
+    receptionist_py --> contacts_py
+    db[("Your database<br/>caller_followups, caller_profiles, phone_calls, phone_contacts, saved_callers, share_notes")]
     calls_py --> db
     contacts_py --> db
+    receptionist_py --> db
     s_elevenlabs["ElevenLabs (Buddy's call voice)<br/>(may see personal data)"]
     calls_py --> s_elevenlabs
     s_plivo["Plivo (phone calls)<br/>(may see personal data)"]
@@ -49,7 +53,7 @@ The diagram reads left to right: what you ask, the tools Buddy uses, the modules
 
 | Tool | What it is for | Actions | Module |
 |---|---|---|---|
-| `phone_call` | Call a business for the user, as their assistant (Buddy Connect: Plivo, with a natural voice) | call, status, forget_caller, contact, voices, set_voice | calls.py |
+| `phone_call` | Call a business for the user, as their assistant (Buddy Connect: Plivo, with a natural voice) | call, status, forget_caller, contact, voices, set_voice, share, shared, unshare, relationship | calls.py |
 | `calendar_add` | Add an event to the user's phone calendar, only after their yes (asked automatically) | proposal, event, free, decline | scheduling.py |
 
 ## Technical design, module by module
@@ -90,7 +94,7 @@ every request there carries the call's random token in its path, and Plivo's own
 - Tables: `phone_calls`
 - Outside services: ElevenLabs (Buddy's call voice), Plivo (phone calls)
 - Settings: `BUDDY_CALLS_PER_DAY`, `BUDDY_CALLS_PUBLIC_URL`, `BUDDY_CALL_BRAIN`, `BUDDY_CALL_DEBUG`, `BUDDY_CALL_LANGUAGES`, `BUDDY_CALL_LANGUAGE_HINTS`, `BUDDY_CALL_PRICE_LINE_MIN`, `BUDDY_CALL_PRICE_LISTEN_MIN`, `BUDDY_CALL_PRICE_VOICE_1K`, `BUDDY_CALL_PRICE_VOICE_1K_FULL`, `BUDDY_CALL_SHOW_MY_NUMBER`, `BUDDY_CALL_STT` and 11 more
-- Uses: commute.py, config.py, contacts.py, gateway.py, memory.py, modules.py, routine.py, scheduling.py, tools.py, travel.py, usage.py
+- Uses: config.py, contacts.py, gateway.py, memory.py, modules.py, receptionist.py, scheduling.py, tools.py, travel.py, usage.py
 
 ### contacts.py
 
@@ -123,6 +127,32 @@ Calendar permission). Buddy never commits the owner's time by itself.
 
 - Settings: `BUDDY_MEETING_HOURS`
 - Uses: connect.py, memory.py, routine.py, tools.py
+
+### receptionist.py
+
+```text
+Buddy as the owner's receptionist on the calls they miss (calls.py answers them): who the caller is to the owner,
+what that caller may be told, what Buddy remembers about them, and what follows the call.
+
+What a caller may hear is decided here, in code, before Claude sees anything (the owner's choices):
+- The calendar, by who's calling. Family (a phone contact the owner told Buddy is family) hears what's on and until
+  when, with its name; other phone contacts hear what kind of thing it is ("a meeting", "an appointment") and until
+  when; anyone else only when the owner is busy and when free. Never where, who with, or the name of a health, money
+  or legal appointment.
+- Travel (flights, hotels, trips) shows only as busy, and the owner's email is never read for a call, until the
+  owner says what may be shared: "callers can know I'm in India from Dec 3 to Dec 14" keeps a sharing note, for
+  everyone, contacts or family, until a date (share_note). Callers can't change any of this.
+- The caller's own history: their past calls Buddy answered, follow-ups still open, how they like to be reached.
+  The relationship comes only from the owner's own data (what they told Buddy), never from what a caller says.
+- A caller ID the carrier marked as not verified is treated as an unknown caller (it may be spoofed).
+
+After a real message: a follow-up task in the owner's tasks ("Call Priya back: school pickup", due today when
+urgent, else tomorrow) and the caller's profile updated. Transfer: only urgent calls from phone contacts, never between
+10 pm and 7 am unless family. Kept on this server; no AI model but Claude (on the call itself) sees any of it.
+```
+
+- Tables: `caller_followups`, `caller_profiles`, `share_notes`
+- Uses: contacts.py, memory.py, organiser.py, tools.py
 
 ## How it connects
 

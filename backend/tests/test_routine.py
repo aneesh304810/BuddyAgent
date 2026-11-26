@@ -105,21 +105,22 @@ def test_screened_call_greets_contacts_by_name_and_saves_important_strangers(tmp
     m = Memory(tmp_path / "b.db")
     contacts.ingest(m, {"contacts": [{"name": "Priya Nair", "numbers": ["2015550111"]}]})
     priya = calls.screen_call(m, {"From": "12015550111", "CallUUID": "c1"})
-    assert calls.screen_greeting(None, priya).startswith("Hi Priya, it's Sam's assistant.")
+    hi = calls.screen_greeting(None, priya)
+    assert "Priya" in hi and "Sam's AI assistant" in hi  # by name, and an AI assistant up front
     prompt = calls.system_prompt(m, priya)
-    assert "Priya Nair, in Sam's contacts" in prompt and "This caller is someone Buddy knows" in prompt
+    assert "Priya Nair, in Sam's contacts" in prompt and "what kind of thing Sam is doing" in prompt
 
     stranger = calls.screen_call(m, {"From": "12015550222", "CallUUID": "c2"})
-    assert calls.screen_greeting(None, stranger).endswith("Who's calling?")
+    assert calls.screen_greeting(None, stranger).endswith("?") and "AI assistant" in calls.screen_greeting(None, stranger)
     prompt = calls.system_prompt(m, stranger)
-    assert "an unknown number" in prompt and "Ask their name early" in prompt
-    assert "Only if the caller were someone Buddy knows" in prompt
+    assert "an unknown number" in prompt and "ask their name early" in prompt
+    assert "only when Sam is busy and when Sam will be free" in prompt
     move = calls.parse(json.dumps({"say": "Thanks", "action": "end", "priority": "normal", "caller": "Raj from Acme",
                                    "outcome": "Wants to reschedule Thursday's demo."}))
     calls.screened(m, stranger, move)
     assert contacts.name_for(m, "2015550222") == ("Raj from Acme", "saved")
     again = calls.screen_call(m, {"From": "12015550222", "CallUUID": "c3"})
-    assert calls.screen_greeting(None, again).startswith("Hi Raj,")
+    assert "Raj" in calls.screen_greeting(None, again)
 
     spam = calls.screen_call(m, {"From": "12015550333", "CallUUID": "c4"})
     calls.screened(m, spam, calls.parse('{"say": "Bye", "action": "end", "priority": "scam", "caller": "IRS"}'))

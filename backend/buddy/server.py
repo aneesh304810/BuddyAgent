@@ -963,6 +963,25 @@ async def call_connect(call_id: int, token: str, request: Request):
     return _xml(calls.connect_xml(call))
 
 
+@app.post("/calls/whisper/{call_id}/{token}")
+async def call_whisper(call_id: int, token: str, request: Request):
+    """A screened call being put through: what the owner hears on picking up (who, why, press 1)."""
+    from . import calls  # noqa: PLC0415
+    call, _form = await _plivo_call(request, call_id, token, "whisper")
+    return _xml(calls.whisper_xml(call))
+
+
+@app.post("/calls/transferred/{call_id}/{token}")
+async def call_transferred(call_id: int, token: str, request: Request):
+    """After trying to put a caller through: goodbye, or that the message was passed on."""
+    from . import calls  # noqa: PLC0415
+    call, form = await _plivo_call(request, call_id, token, "transferred")
+    xml, note = calls.transferred_xml(memory, call, form)
+    if note:
+        await deliver("call", note)
+    return _xml(xml)
+
+
 @app.post("/calls/hangup/{call_id}/{token}")
 async def call_hangup(call_id: int, token: str, request: Request):
     from . import calls  # noqa: PLC0415
