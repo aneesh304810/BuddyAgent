@@ -125,7 +125,7 @@ async function act(body, done) {
 function sources() {
   const s = data.sources;
   return card("Where the numbers come from",
-    `<div class="line"><div class="what">Oura Ring<small>${s.ring.connected ? "Read " + esc(ago(s.ring.read)) : "Not connected: More → Connections → Health → Oura Ring"}</small></div>
+    `<div class="line"><div class="what">Oura Ring<small>${s.ring.connected ? "Read " + esc(ago(s.ring.read)) : "Not connected: Profile → Connections → Health → Oura Ring"}</small></div>
        ${s.ring.connected ? `<button class="btn" id="read">Read the ring now</button>` : ""}</div>
      <div class="line"><div class="what">Phone (Health Connect)<small>${s.phone.read ? "Sent " + esc(ago(s.phone.read)) : "Nothing sent yet"}</small></div></div>`,
     esc(data.privacy.note));
@@ -152,8 +152,8 @@ function syncLine(r) {
 function sourceCard(s) {
   const [word, kind] = STATE[s.state] || [s.state, ""];
   const failed = s.last && !s.last.ok ? `<p class="err" style="padding:4px 0">Last sync failed: ${esc(s.last.error)}</p>` : "";
-  const connect = s.state === "not_set_up" && s.can_disconnect ? `<p class="muted">To connect it: ${s.connector === "mychart" ? "Health → Labs → Portals" : `More → Connections → Health → ${esc(s.title)} → Connect`}.</p>` : "";
-  const expired = s.state === "expired" ? `<p class="err" style="padding:4px 0">${esc(s.expired)}. Connect it again: More → Connections → Health → ${esc(s.title)} → Reconnect.</p>` : "";
+  const connect = s.state === "not_set_up" && s.can_disconnect ? `<p class="muted">To connect it: ${s.connector === "mychart" ? "Health → Labs → Portals" : `Profile → Connections → Health → ${esc(s.title)} → Connect`}.</p>` : "";
+  const expired = s.state === "expired" ? `<p class="err" style="padding:4px 0">${esc(s.expired)}. Connect it again: Profile → Connections → Health → ${esc(s.title)} → Reconnect.</p>` : "";
   const measures = s.measures.map((m) => `<div class="line"><div class="what">${esc(m.label)}<small>${esc(m.how)}${m.loinc ? ` · LOINC ${esc(m.loinc)}` : ""} · ${esc(m.unit_words)}</small></div><span class="muted">${esc(m.days)} days</span></div>`).join("");
   const hist = (s.history || []).map((r) => `<div class="line"><div class="what">${esc(when(r.started_at))} · ${esc(KIND[r.kind] || r.kind)}<small>${r.ok ? `${values(r.records)}, ${esc(r.new_records)} new` : r.finished_at ? "failed: " + esc(r.error) : "running"}</small></div></div>`).join("");
   const ask = (action, label) => srcAsk === `${action}:${s.connector}`

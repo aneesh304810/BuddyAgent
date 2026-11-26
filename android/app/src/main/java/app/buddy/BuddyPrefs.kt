@@ -58,6 +58,11 @@ class BuddyPrefs(context: Context) {
             ?: if (prefs.getBoolean("earbudMicListenIn", false)) "earbuds" else "auto"
         set(value) = prefs.edit().putString("listenMic", value).apply()
 
+    /** The redesign's five destinations (Home, Health, Money, Explore, Profile); off: the earlier five places. */
+    var navV2: Boolean
+        get() = prefs.getBoolean("nav_v2", true)
+        set(value) = prefs.edit().putBoolean("nav_v2", value).apply()
+
     /** The app's look: "system" (follow the phone, the default), "light" or "dark" ("default" from earlier
      *  versions means dark, kept for owners who chose it). */
     var theme: String

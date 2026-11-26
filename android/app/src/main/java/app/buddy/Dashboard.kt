@@ -23,18 +23,21 @@ import androidx.compose.ui.platform.LocalContext
 import androidx.compose.ui.unit.dp
 
 /** Money: accounts and bills, spending, card benefits, investing and your email's groups in one place, as tabs at the
- *  top. The last tab used is remembered. */
+ *  top. The last tab used is remembered. With the redesign's layout ([NavLayout.v2]) Money always opens on Overview
+ *  (accounts and bills) and Email lives in Profile. */
 private val DASHBOARD_TABS = listOf("Accounts & bills", "Spending", "Cards", "Invest", "Email")
+private val MONEY_TABS = listOf("Overview", "Spending", "Cards", "Invest")
 
 @Composable
 fun DashboardScreen(link: ServerLink?, onReports: () -> Unit) {
     val context = LocalContext.current
     val prefs = remember { context.getSharedPreferences("dashboard", Context.MODE_PRIVATE) }
-    var tab by remember { mutableStateOf(prefs.getInt("tab", 1).coerceIn(0, DASHBOARD_TABS.lastIndex)) }
+    val tabs = if (NavLayout.v2) MONEY_TABS else DASHBOARD_TABS
+    var tab by remember { mutableStateOf(if (NavLayout.v2) 0 else prefs.getInt("tab", 1).coerceIn(0, tabs.lastIndex)) }
     Column(Modifier.fillMaxSize()) {
         Row(Modifier.fillMaxWidth().horizontalScroll(rememberScrollState()).padding(bottom = 6.dp),
             horizontalArrangement = Arrangement.spacedBy(8.dp)) {
-            DASHBOARD_TABS.forEachIndexed { i, name ->
+            tabs.forEachIndexed { i, name ->
                 FilterChip(selected = tab == i, onClick = { tab = i; prefs.edit().putInt("tab", i).apply() },
                     label = { Text(name) })
             }

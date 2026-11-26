@@ -55,40 +55,68 @@ import androidx.compose.ui.unit.dp
 import androidx.compose.ui.unit.sp
 
 /**
- * Buddy's navigation: five places in a bar at the bottom, always one tap away.
+ * Buddy's navigation: five destinations in a bar at the bottom (a rail on a wide screen), always one tap away.
+ * The redesign (buddy-redesign/03-ux):
  *
- *   Buddy          the one conversation, and what needs you today
- *   Money          accounts and bills, spending, cards, investing
- *   Trips & Deals  travel and deals, with the buy-now-or-wait calls
- *   Discover       news, intelligence, the library and reports (searches and place picks: ask Buddy)
- *   More           your health, how Buddy runs (Maestro, Connections, Security) and your setup
+ *   Home      the one conversation, what needs you today, and Activity (what Buddy sent on its own: the bell)
+ *   Health    your numbers, the plan, food and labs; no AI model sees it
+ *   Money     Overview (accounts and bills) first, then Spending, Cards, Invest
+ *   Explore   News, Deals, Travel, and Research (Intelligence, Library, Reports)
+ *   Profile   account and settings, AI and privacy (Maestro), connections and email, security
  *
- * Alerts open from the bell in the header on every screen. There is one conversation: on the other four
- * places a microphone button talks to the same Buddy, and the reply shows above it and in the conversation.
- * Icons are drawn here as simple line shapes, so they take the theme's colour and need no icon library.
+ * The earlier five places (Buddy, Money, Trips & Deals, Discover, More) stay for one release behind
+ * Settings → Layout, so the change can be undone on the phone without an app update ([NavLayout.v2]).
+ * There is one conversation: elsewhere a microphone button talks to the same Buddy, and the reply shows above it
+ * and in the conversation. Icons are drawn here as line shapes, in the theme's colour, with no icon library.
  */
-enum class Place(val label: String) {
-    BUDDY("Buddy"), MONEY("Money"), TRIPS("Trips & Deals"), DISCOVER("Discover"), MORE("More")
+object NavLayout {
+    /** True: Home, Health, Money, Explore, Profile. False: the earlier places. Set from Settings → Layout. */
+    var v2 by mutableStateOf(true)
 }
+
+enum class Place(val label: String) {
+    HOME("Home"), HEALTH("Health"), MONEY("Money"), EXPLORE("Explore"), PROFILE("Profile"),
+    BUDDY("Buddy"), TRIPS("Trips & Deals"), DISCOVER("Discover"), MORE("More")
+}
+
+/** The five in the bar, in order. */
+fun places(): List<Place> =
+    if (NavLayout.v2) listOf(Place.HOME, Place.HEALTH, Place.MONEY, Place.EXPLORE, Place.PROFILE)
+    else listOf(Place.BUDDY, Place.MONEY, Place.TRIPS, Place.DISCOVER, Place.MORE)
 
 /** The screen a place opens. */
 fun homeOf(place: Place): Screen = when (place) {
-    Place.BUDDY -> Screen.Talk
+    Place.HOME, Place.BUDDY -> Screen.Talk
+    Place.HEALTH -> Screen.Health
     Place.MONEY -> Screen.Dashboard
+    Place.EXPLORE -> Screen.Explore
+    Place.PROFILE -> Screen.Profile
     Place.TRIPS -> Screen.Trips
     Place.DISCOVER -> Screen.Discover
     Place.MORE -> Screen.More
 }
 
-/** Where Back goes from a screen: null for the five places themselves. */
-fun parentOf(screen: Screen): Screen? = when (screen) {
-    Screen.Talk, Screen.Dashboard, Screen.Trips, Screen.Discover, Screen.More -> null
+/** Where Back goes from a screen: null for the five destinations themselves. */
+fun parentOf(screen: Screen): Screen? = if (NavLayout.v2) when (screen) {
+    Screen.Talk, Screen.Health, Screen.Dashboard, Screen.Explore, Screen.Profile -> null
     Screen.Investments -> Screen.Dashboard
-    Screen.Travel, Screen.Deals -> Screen.Trips
-    Screen.News, Screen.Intelligence, Screen.Library, Screen.Reports -> Screen.Discover
+    Screen.Travel, Screen.Deals, Screen.News, Screen.Intelligence, Screen.Library, Screen.Reports -> Screen.Explore
+    Screen.Trips, Screen.Discover -> Screen.Explore  // the earlier places, if one is reached from an old link
     is Screen.LibraryItem -> Screen.Library
     is Screen.Report -> Screen.Reports
-    Screen.Maestro, Screen.Insights, Screen.Connections, Screen.Security, Screen.Settings, Screen.Health -> Screen.More
+    Screen.Maestro, Screen.Insights, Screen.Connections, Screen.Security, Screen.Settings, Screen.Email,
+    Screen.More -> Screen.Profile
+    Screen.Alerts -> Screen.Talk
+    is Screen.Card -> Screen.Talk
+} else when (screen) {
+    Screen.Talk, Screen.Dashboard, Screen.Trips, Screen.Discover, Screen.More -> null
+    Screen.Investments, Screen.Email -> Screen.Dashboard
+    Screen.Travel, Screen.Deals -> Screen.Trips
+    Screen.News, Screen.Intelligence, Screen.Library, Screen.Reports, Screen.Explore -> Screen.Discover
+    is Screen.LibraryItem -> Screen.Library
+    is Screen.Report -> Screen.Reports
+    Screen.Maestro, Screen.Insights, Screen.Connections, Screen.Security, Screen.Settings, Screen.Health,
+    Screen.Profile -> Screen.More
     Screen.Alerts -> Screen.Talk
     is Screen.Card -> Screen.Talk
 }
@@ -99,12 +127,18 @@ fun placeOf(screen: Screen): Place {
     while (true) at = parentOf(at) ?: break
     return when (at) {
         Screen.Dashboard -> Place.MONEY
+        Screen.Health -> Place.HEALTH
+        Screen.Explore -> Place.EXPLORE
+        Screen.Profile -> Place.PROFILE
         Screen.Trips -> Place.TRIPS
         Screen.Discover -> Place.DISCOVER
         Screen.More -> Place.MORE
-        else -> Place.BUDDY
+        else -> if (NavLayout.v2) Place.HOME else Place.BUDDY
     }
 }
+
+/** Where Settings returns to when it is done. */
+fun settingsParent(): Screen = if (NavLayout.v2) Screen.Profile else Screen.More
 
 fun titleOf(screen: Screen): String = when (screen) {
     Screen.Talk -> "Buddy"
@@ -112,6 +146,9 @@ fun titleOf(screen: Screen): String = when (screen) {
     Screen.Trips -> "Trips & Deals"
     Screen.Discover -> "Discover"
     Screen.More -> "More"
+    Screen.Explore -> "Explore"
+    Screen.Profile -> "Profile"
+    Screen.Email -> "Email"
     Screen.Investments -> "Investing"
     Screen.Travel -> "Travel"
     Screen.Deals -> "Deals"
@@ -129,7 +166,10 @@ fun titleOf(screen: Screen): String = when (screen) {
 }
 
 // --- icons: line shapes on a 24 by 24 grid ------------------------------------------------------------------
-enum class Glyph { BUDDY, MONEY, TRIPS, DISCOVER, MORE, BELL, MIC, STOP, BACK, NEXT, MAESTRO, PLUG, SHIELD, GEAR, PULSE }
+enum class Glyph {
+    BUDDY, MONEY, TRIPS, DISCOVER, MORE, BELL, MIC, STOP, BACK, NEXT, MAESTRO, PLUG, SHIELD, GEAR, PULSE, PERSON,
+    DOC, MAIL
+}
 
 @Composable
 fun GlyphIcon(glyph: Glyph, color: Color, size: Dp = 24.dp, modifier: Modifier = Modifier) {
@@ -183,6 +223,12 @@ private fun DrawScope.draw(glyph: Glyph, color: Color) {
         }
         Glyph.SHIELD -> shape(12f, 3f, 20f, 6f, 20f, 12f, 12f, 21f, 4f, 12f, 4f, 6f, closed = true)
         Glyph.PULSE -> shape(3f, 12f, 8f, 12f, 10f, 6f, 14f, 18f, 16f, 12f, 21f, 12f)
+        Glyph.PERSON -> {
+            drawCircle(color, 4f * u, at(12f, 8f), style = pen)
+            drawArc(color, 180f, 180f, false, at(4f, 15f), Size(16f * u, 12f * u), style = pen)
+        }
+        Glyph.DOC -> { box(5f, 3f, 14f, 18f, 2f); line(9f, 9f, 15f, 9f); line(9f, 13f, 15f, 13f); line(9f, 17f, 13f, 17f) }
+        Glyph.MAIL -> { box(3f, 5f, 18f, 14f, 2f); shape(3.5f, 6.5f, 12f, 13f, 20.5f, 6.5f) }
         Glyph.GEAR -> {
             drawCircle(color, 3f * u, at(12f, 12f), style = pen)
             drawCircle(color, 8f * u, at(12f, 12f), style = pen)
@@ -191,7 +237,10 @@ private fun DrawScope.draw(glyph: Glyph, color: Color) {
 }
 
 private fun glyphOf(place: Place) = when (place) {
-    Place.BUDDY -> Glyph.BUDDY
+    Place.HOME, Place.BUDDY -> Glyph.BUDDY
+    Place.HEALTH -> Glyph.PULSE
+    Place.EXPLORE -> Glyph.DISCOVER
+    Place.PROFILE -> Glyph.PERSON
     Place.MONEY -> Glyph.MONEY
     Place.TRIPS -> Glyph.TRIPS
     Place.DISCOVER -> Glyph.DISCOVER
@@ -204,7 +253,7 @@ fun BottomBar(current: Place, onPick: (Place) -> Unit) {
     Column(Modifier.fillMaxWidth().background(Pal.panel)) {
         Box(Modifier.fillMaxWidth().height(1.dp).background(Pal.track))
         Row(Modifier.fillMaxWidth().padding(horizontal = 4.dp, vertical = 6.dp)) {
-            Place.entries.forEach { place ->
+            places().forEach { place ->
                 val on = place == current
                 val tint = if (on) Pal.link else Pal.dim
                 Column(
@@ -233,7 +282,7 @@ fun SideRail(current: Place, onPick: (Place) -> Unit) {
             Modifier.fillMaxHeight().width(92.dp).background(Pal.panel).padding(vertical = 12.dp, horizontal = 6.dp),
             verticalArrangement = Arrangement.spacedBy(6.dp),
         ) {
-            Place.entries.forEach { place ->
+            places().forEach { place ->
                 val on = place == current
                 val tint = if (on) Pal.link else Pal.dim
                 Column(
@@ -383,6 +432,63 @@ fun MoreScreen(onNavigate: (Screen) -> Unit) {
         MoreGroup("YOUR SETUP") {
             MoreRow(Glyph.BELL, "Alerts", "What Buddy told you, and what may interrupt you") { onNavigate(Screen.Alerts) }
             MoreRow(Glyph.GEAR, "Settings", "Server link, voice, language and the look") { onNavigate(Screen.Settings) }
+        }
+        Spacer(Modifier.height(90.dp))  // room for the microphone button
+    }
+}
+
+/** Explore: what's happening outside, as sections. Research is a short list, so it never adds a second tab row. */
+@Composable
+fun ExploreScreen(link: ServerLink?, onNavigate: (Screen) -> Unit) {
+    PlaceTabs("explore", listOf("News", "Deals", "Travel", "Research")) { tab ->
+        when (tab) {
+            0 -> BuddyPage(link, "news.html")
+            1 -> BuddyPage(link, "deals.html")
+            2 -> TravelScreen(link)
+            else -> Column(Modifier.fillMaxSize().verticalScroll(rememberScrollState())) {
+                MoreGroup("RESEARCH") {
+                    MoreRow(Glyph.DISCOVER, "Intelligence", "Emerging technologies, where they meet, and the evidence") {
+                        onNavigate(Screen.Intelligence)
+                    }
+                    MoreRow(Glyph.DOC, "Library", "What you gave Buddy to read, and what it learned about you") {
+                        onNavigate(Screen.Library)
+                    }
+                    MoreRow(Glyph.DOC, "Reports", "What Buddy's background jobs found, this week first") {
+                        onNavigate(Screen.Reports)
+                    }
+                }
+                Spacer(Modifier.height(90.dp))
+            }
+        }
+    }
+}
+
+/** Profile: you, and how Buddy runs. Opened when needed, so the other four stay about your day. */
+@Composable
+fun ProfileScreen(onNavigate: (Screen) -> Unit) {
+    Column(Modifier.fillMaxSize().verticalScroll(rememberScrollState())) {
+        MoreGroup("ACCOUNT") {
+            MoreRow(Glyph.GEAR, "Account and settings", "Server link, voice, language, the look and the layout") {
+                onNavigate(Screen.Settings)
+            }
+        }
+        MoreGroup("AI AND PRIVACY") {
+            MoreRow(Glyph.MAESTRO, "AI and privacy", "AI models, the Privacy Gateway (who may see what), AI spending") {
+                onNavigate(Screen.Maestro)
+            }
+        }
+        MoreGroup("CONNECTIONS") {
+            MoreRow(Glyph.PLUG, "Connections", "The outside services Buddy uses, and whether each works") {
+                onNavigate(Screen.Connections)
+            }
+            MoreRow(Glyph.MAIL, "Email", "The kinds of email you get, and what Buddy does with each") {
+                onNavigate(Screen.Email)
+            }
+        }
+        MoreGroup("SECURITY") {
+            MoreRow(Glyph.SHIELD, "Security", "The daily threat watch: what is open and what is fixed") {
+                onNavigate(Screen.Security)
+            }
         }
         Spacer(Modifier.height(90.dp))  // room for the microphone button
     }

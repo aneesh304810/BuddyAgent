@@ -10,7 +10,7 @@ ships it (see `07-engineering/migration-plan.md`).
 | 1 | Buddy opens directly into chat | prototyped, tested | prototype-test-results.md: "opens on Home › Conversation" (4 configurations). The current app already opens on the conversation |
 | 2 | Composer immediately accessible | prototyped, tested | "composer and mic visible without scrolling" |
 | 3 | Text and voice interactions work | prototyped, tested (scripted replies) | Voice states listening → thinking → speaking → interrupted; text send. Real voice exists in the app today |
-| 4 | Five destinations, unified experience | prototyped, tested | Every destination renders from the same tokens and components |
+| 4 | Five destinations, unified experience | prototyped, tested; implemented (step 4) | Every destination renders from the same tokens and components |
 | 5 | Existing capabilities accounted for | designed | 02-product/capability-inventory.md maps every capability |
 | 6 | Folded and unfolded layouts | prototyped, tested | All checks run in both shapes |
 | 7 | Light and dark themes | prototyped, tested; implemented (step 3) in the app and on all 14 server pages | All checks run in both themes; contrast report |

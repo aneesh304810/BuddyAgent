@@ -12,10 +12,10 @@ wrong.
 ## The eight rules
 
 1. **Conversation first.** Anything can be asked or done from the conversation. Screens are for looking,
-   not for finding features. There is one conversation, on the Buddy place; the other places have a
+   not for finding features. There is one conversation, on Home; the other destinations have a
    microphone button that talks to the same one.
 2. **One screen, one purpose.** Each screen answers one question, with the most important thing at the top.
-3. **Five places, always reachable.** Nothing used daily is more than two taps away, and the bar is within
+3. **Five destinations, always reachable.** Nothing used daily is more than two taps away, and the bar is within
    thumb reach.
 4. **Answer first, detail on request.** Show the call, then one line of why. Evidence, models and cost open
    on a tap.
@@ -27,18 +27,21 @@ wrong.
 8. **The same parts everywhere.** One card, one chip, one header and one set of colours, so every area
    feels like the same app.
 
-## The five places
+## The five destinations
 
-| Place | What lives there |
+From the redesign (`buddy-redesign/`, migration step 4):
+
+| Destination | What lives there |
 |---|---|
-| **Buddy** | The conversation, and what needs you today |
-| **Money** | Accounts and bills, Spending, Cards, Invest |
-| **Trips & Deals** | Travel and deals, with the buy-now-or-wait calls |
-| **Discover** | News, Intelligence, Library, Reports |
-| **More** | Your health (Health), how Buddy runs (Maestro, Connections, Security) and your setup (Alerts, Settings) |
+| **Home** | The conversation, what needs you today, and Activity (the bell: what Buddy sent on its own) |
+| **Health** | Your numbers, the plan, food and labs. No AI model sees it |
+| **Money** | Opens on Overview (accounts and bills), then Spending, Cards, Invest |
+| **Explore** | News, Deals, Travel, and Research (Intelligence, Library, Reports) |
+| **Profile** | Account and settings, AI and privacy (Maestro), Connections and Email, Security |
 
-Alerts open from the bell in the header on every screen. The phone's Back button goes up one level, then
-to the conversation.
+The bell in the header opens Activity on every screen. The phone's Back button goes up one level, then
+to the conversation. Settings → Layout switches back to the earlier places (Buddy, Money, Trips & Deals,
+Discover, More) for one release, so the change can be undone on the phone.
 
 ## Foundations
 
@@ -59,8 +62,8 @@ to the conversation.
 
 ## What is built, and what is not yet
 
-Built: the bar with the five places, the header with Back and the bell, the microphone on the other places,
-Trips & Deals, Discover and More, Invest as a tab of Money with four tabs of its own (Overview, Trading,
+Built: the bar with the five destinations, the header with Back and the bell, the microphone on the other
+destinations, Explore and Profile (the earlier Trips & Deals, Discover and More behind Settings → Layout), Invest as a tab of Money with four tabs of its own (Overview, Trading,
 Themes, Watchlist), and "For you" in Deals: Buddy's open buy-now-or-wait calls for products, flights and
 hotels in one card shape (the call, the chance, one line of why, then the date of the call and the record
 of calls of its kind). Investment themes use the same card for each evidence pattern that fired.
@@ -78,7 +81,7 @@ Under each reply a small line says how it was answered: which AI answered, wheth
 with a public part, and the tools used. It is built from the calls logged for that turn, and is left out
 when nothing was logged.
 
-On a screen 600 points wide or more (the Fold opened, a tablet) the five places move from the bar at the
+On a screen 600 points wide or more (the Fold opened, a tablet) the five destinations move from the bar at the
 bottom to a rail down the left side, and the buy-now-or-wait cards in Deals sit two across.
 
 Trading also shows the strategy lab: six rule-based strategies that paper-trade every weekday, each with

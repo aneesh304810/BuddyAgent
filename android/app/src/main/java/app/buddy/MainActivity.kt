@@ -150,6 +150,9 @@ sealed interface Screen {
     data object Trips : Screen      // Trips & Deals: travel and deals as tabs (Nav.kt)
     data object Discover : Screen   // News, Intelligence, Library and Reports as tabs (Nav.kt)
     data object More : Screen       // how Buddy runs and your setup (Nav.kt)
+    data object Explore : Screen    // the redesign: News, Deals, Travel, Research (Nav.kt)
+    data object Profile : Screen    // the redesign: account, AI and privacy, connections, security (Nav.kt)
+    data object Email : Screen      // the kinds of email you get and what Buddy does with each (web/mail.html)
     data object Travel : Screen
     data object Connections : Screen
     data class LibraryItem(val id: String) : Screen
@@ -222,6 +225,7 @@ class MainActivity : ComponentActivity() {
         )
         prefs = BuddyPrefs(this)
         Theme.choice = prefs.theme
+        NavLayout.v2 = prefs.navV2
         Theme.light = Theme.isLight(Theme.choice, phoneDark = (resources.configuration.uiMode and
             android.content.res.Configuration.UI_MODE_NIGHT_MASK) == android.content.res.Configuration.UI_MODE_NIGHT_YES)
         if (prefs.link == null) screen.value = Screen.Settings
@@ -390,7 +394,7 @@ private fun BuddyScreen(
 
         when (screen) {
             Screen.Settings -> {
-                SettingsPanel(prefs, onSaveLink, onBattery, batteryOk, onDone = { onNavigate(Screen.More) })
+                SettingsPanel(prefs, onSaveLink, onBattery, batteryOk, onDone = { onNavigate(settingsParent()) })
                 return@Column
             }
             Screen.Reports -> {
@@ -471,6 +475,18 @@ private fun BuddyScreen(
             }
             Screen.More -> {
                 MoreScreen(onNavigate)
+                return@Column
+            }
+            Screen.Explore -> {
+                ExploreScreen(prefs.link, onNavigate)
+                return@Column
+            }
+            Screen.Profile -> {
+                ProfileScreen(onNavigate)
+                return@Column
+            }
+            Screen.Email -> {
+                BuddyPage(prefs.link, "mail.html")
                 return@Column
             }
             Screen.Talk -> Unit
@@ -921,6 +937,14 @@ private fun SettingsPanel(
                     "Experience health. Kept 30 days.", color = Muted, fontSize = 12.sp)
             }
             Switch(checked = diagnosticsOn, onCheckedChange = { diagnosticsOn = it; prefs.diagnostics = it })
+        }
+        Row(verticalAlignment = Alignment.CenterVertically) {
+            Column(Modifier.weight(1f)) {
+                Text("Layout: Home, Health, Money, Explore, Profile", color = Pal.text)
+                Text("The redesign's five destinations. Off goes back to Buddy, Money, Trips & Deals, Discover, More.",
+                    color = Muted, fontSize = 12.sp)
+            }
+            Switch(checked = NavLayout.v2, onCheckedChange = { NavLayout.v2 = it; prefs.navV2 = it })
         }
         Text("Your server", color = Pal.text, fontSize = 18.sp)
         Text(

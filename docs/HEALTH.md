@@ -17,7 +17,7 @@ on your Buddy server. It's coaching, not medical advice.
 
 ## The Health page
 
-**More → Health** in the app (`web/health.html`). It shows your own numbers to you, worked out by fixed rules on
+**Health** in the app's bar (`web/health.html`). It shows your own numbers to you, worked out by fixed rules on
 your server. No AI model is given any of it. Five sections along the top; Trends, Labs and Plan have smaller
 sub-tabs under them, and the page remembers where you were.
 
