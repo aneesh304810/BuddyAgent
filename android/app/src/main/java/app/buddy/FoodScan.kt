@@ -88,7 +88,8 @@ fun HealthScreen(link: ServerLink?) {
         if (link != null) {
             ExtendedFloatingActionButton(
                 onClick = { scan.launch(Intent(context, FoodScanActivity::class.java)) },
-                modifier = Modifier.align(Alignment.BottomEnd).padding(16.dp),
+                // Beside Buddy's microphone button (56 dp in the same corner, 16 dp in), not under it.
+                modifier = Modifier.align(Alignment.BottomEnd).padding(end = 88.dp, bottom = 16.dp),
             ) { Text("Scan food") }
         }
     }
