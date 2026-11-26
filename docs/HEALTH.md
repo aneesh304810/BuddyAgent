@@ -18,26 +18,44 @@ on your Buddy server. It's coaching, not medical advice.
 ## The Health page
 
 **More → Health** in the app (`web/health.html`). It shows your own numbers to you, worked out by fixed rules on
-your server. No AI model is given any of it.
+your server. No AI model is given any of it. Five sections along the top; Trends, Labs and Plan have smaller
+sub-tabs under them, and the page remembers where you were.
+
+| Section | Sub-tabs |
+| --- | --- |
+| **Today** | (one page) readings, what they mean, today's habits, how you feel |
+| **Trends** | Measures · Patterns · Mood |
+| **Labs** | Results · Add a report · Patient portals |
+| **Plan** | Progress · Food · Goals & habits |
+| **Sources** | (one page) each source, and "Read the ring now" |
 
 - **Today:** readiness, sleep, heart rate variability, lowest night heart rate and temperature, what they mean for
-  the day (the same fixed rules the morning line uses), today's habits with an "I did this" button, and when the
-  ring and the phone were last read ("Read the ring now" reads it at once).
-- **Trends:** each measure over 14, 30 or 90 days as a line, with your usual drawn across it (the middle value of
-  the days before this week) and whether the latest day and this week are below, about or above your usual. A
-  usual needs seven earlier days of readings.
-- **Habits:** each habit over the last 7 and 30 days (days done, the rate, the run in a row), and your weekly
-  averages now against when the plan started.
-- **Food:** what you noted today against the plan's calories and protein, and the last week's meals. You type a
-  meal; calories and protein are counted only if you type them, because nothing estimates them any more.
-- **Plan:** goals, up to eight habits (tracked from the ring or phone with a target, or ticked off by you), and
-  food targets. This form replaces the set-up conversation in section 2. "Forget my health plan" (pressed twice)
-  deletes the plan, the habit log and the meals; the readings stay until their time is up (two years).
-- **Patterns (your personal model):** what, in your own days, tends to come before a better or worse next
+  the day (the same fixed rules the morning line uses), today's habits with an "I did this" button, and **How are
+  you today?**: the mood journal's check-in (below).
+- **Trends → Measures:** each measure over 14, 30 or 90 days as a line, with your usual drawn across it (the middle
+  value of the days before this week) and whether the latest day and this week are below, about or above your
+  usual. A usual needs seven earlier days of readings.
+- **Trends → Mood (your journal):** how you feel, in your own words. On Today you pick mood, stress and energy
+  from 1 to 5 (any one is enough), what was going on (work, family, sleep, exercise, illness, travel, money,
+  alcohol, social, alone time) and a short note of your own if you like. Several a day are fine; a day is their
+  average. Trends → Mood shows the last 7 days' averages, what was going on most often, and every entry, each
+  with a delete button, and "Delete every entry" (asked twice). The days also feed Patterns, below, as factors.
+  No AI model is given any of it, the notes least of all; kept as long as the readings (two years). It is not a
+  diagnosis: if you feel low for a long time, or unsafe, talk to a doctor or call or text 988 (the US Suicide &
+  Crisis Lifeline).
+- **Plan → Progress:** each habit over the last 7 and 30 days (days done, the rate, the run in a row), and your
+  weekly averages now against when the plan started.
+- **Plan → Food:** what you noted today against the plan's calories and protein, and the last week's meals. You
+  type a meal; calories and protein are counted only if you type them, because nothing estimates them any more.
+- **Plan → Goals & habits:** goals, up to eight habits (tracked from the ring or phone with a target, or ticked off
+  by you), and food targets. This form replaces the set-up conversation in section 2, and Plan opens on it until
+  there is a plan. "Forget my health plan" (pressed twice) deletes the plan, the habit log and the meals; the
+  readings stay until their time is up (two years).
+- **Trends → Patterns (your personal model):** what, in your own days, tends to come before a better or worse next
   morning. Learned on your server by plain code once a week (Sunday night) or when you press Learn now, from the
-  readings Buddy keeps: the day's steps, active minutes, workouts, WHOOP strain, time under stress and each habit you
-  tick off yourself, that night's bedtime, and the next morning's readiness or recovery, sleep, HRV and resting
-  heart rate.
+  readings Buddy keeps: the day's steps, active minutes, workouts, WHOOP strain, time under stress, your journal's
+  mood, stress and energy, and each habit you tick off yourself, that night's bedtime, and the next morning's
+  readiness or recovery, sleep, HRV and resting heart rate.
   - **Patterns** compare the days above a factor's middle value with the days below (or a habit done with not
     ticked). One is shown only with at least 10 days on each side, a difference of at least a quarter of the
     measure's usual spread, and the same direction in at least 9 of 10 random redraws of the days.
@@ -45,17 +63,17 @@ your server. No AI model is given any of it.
     and tested on the newest 30% it never saw. It counts only if it beats always guessing your average by 5%.
   - Patterns, not causes, and not medical advice. No AI model is given any of it. The last 12 learnings are kept
     (no daily values in them); "Forget what was learned" deletes them.
-- **Labs:** add a lab report's PDF (Quest, Labcorp, or one downloaded from your portal, such as MyChart). The PDF's
+- **Labs → Add a report:** add a lab report's PDF (Quest, Labcorp, or one downloaded from your portal, such as MyChart). The PDF's
   text is taken out in the sandbox and code picks out the tests it knows (about 45 common blood tests: lipids,
   glucose and A1c, thyroid, vitamins, iron, kidney and liver, blood count, electrolytes, hormones, PSA): each
   result, the lab's flag, its reference range and unit. No AI model reads the report. You then see every result
   beside the report's own line, untick anything wrong, correct a number or unit, set the date the sample was taken,
-  and keep the rest; nothing is kept before that. Kept results show by test: the latest, below, within or above the
+  and keep the rest; nothing is kept before that. Kept results show under **Labs → Results**, by test: the latest, below, within or above the
   lab's own range, and the earlier ones with which way it moved. The report is kept (encrypted) so you can open it
   again, until you delete it. Photos and scans can't be read: download the lab's own PDF.
   - **The report goes into your vault** (the library's encrypted store, covered by the backup). It is marked a
     health document: Buddy's library tool never lists, opens or unlocks it for an AI model, and none of its text
-    is taken into the library, so it can't be searched or summarised. You open it from Labs → Reports (and see it
+    is taken into the library, so it can't be searched or summarised. You open it from Labs → Results → Reports (and see it
     in the Library screen). Deleting the report deletes the vault copy too.
   - **When a report prints no range** (and no flag) for a test, Buddy fills in a typical adult range, marked
     "typical": guideline cut-offs where there is one (fasting glucose and A1c: ADA; cholesterol: NCEP; hs-CRP:
@@ -74,7 +92,8 @@ your server. No AI model is given any of it.
   41979-6 calories burned); Oura's HRV is RMSSD, which LOINC's HRV code (SDNN) is not, so it has none. Buttons:
   **Sync now** (Oura), **Delete its data** and **Disconnect** (Oura), each delete or disconnect asked twice. The
   phone's data is turned off on the phone. When Oura stops accepting Buddy's sign-in, the source and the
-  Connections screen say **Sign in again**.
+  Connections screen say **Sign in again**. At the top, when the ring and the phone were last read, with **Read the
+  ring now**.
 
 What it does not do: it gives no advice beyond those fixed rules, and it is not medical advice.
 
@@ -120,7 +139,7 @@ also remove Buddy from MyChart's linked apps to end the access at the health sys
    **Observation.Read (Labs)** and **DiagnosticReport.Read** APIs. SMART on FHIR version R4; **not** a confidential
    client (Buddy uses PKCE); ask for **refresh tokens** if offered, so Buddy can read new results without you signing
    in each time.
-3. Redirect URI: your server's own return page, shown on the Labs tab, `https://<your tailnet name>/connect/mychart/linked`.
+3. Redirect URI: your server's own return page, shown under Labs → Patient portals, `https://<your tailnet name>/connect/mychart/linked`.
 4. Save, mark it ready for production, and copy the **production client ID** (the non-production one works only with
    Epic's test site). On the server: `sudo bash /opt/buddy/deploy/set.sh BUDDY_EPIC_CLIENT_ID` and paste it.
 5. Epic shares a new patient app's client ID with health systems on its own schedule (it can take a day or more), and
@@ -195,7 +214,7 @@ Habits Buddy tracks by itself: **steps**, **sleep hours**, **bedtime** (lights o
   Claude included. If you switch on health ranges on the server, Claude, and only Claude, is told how a measure compares
   with your usual ("sleep: below usual"), never the value (`docs/PRIVACY-GATEWAY.md`).
 - The plan stays until you change it; the habit log and meals as long as the readings (two years).
-- Lab reports and results: until you delete the report (Health → Labs → Delete); results from MyChart until you
+- Lab reports and results: until you delete the report (Health → Labs → Results → Reports → Delete); results from MyChart until you
   delete them (Health → Sources → MyChart → Delete its data). No AI model reads a report or is
   given a result. **Lab ranges** are their own switch, off unless you turn it on, on the server:
   `sudo bash /opt/buddy/deploy/set.sh BUDDY_LAB_RANGES`, then type `on`. When on, Claude and only Claude may be

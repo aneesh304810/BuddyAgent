@@ -43,7 +43,7 @@ SOURCES = {  # connector -> the module that brings its data in, and what it can 
                         "settings (linked apps)."},
     "lab_upload": {"module": "labs", "group": "Health", "sync": False, "disconnect": False,
                    "stop": "Nothing comes in unless you upload a report.",
-                   "fetch": "Upload a report on the Health page's Labs tab."},
+                   "fetch": "Add one under Health → Labs → Add a report."},
 }
 SCHEMA = """
 CREATE TABLE IF NOT EXISTS connect_syncs (       -- each sync of a source of the owner's data: counts, never values

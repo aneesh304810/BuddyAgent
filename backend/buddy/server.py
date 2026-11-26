@@ -1790,6 +1790,34 @@ async def api_health_lab_file(report_id: int):
                     headers={"Content-Disposition": "inline; filename=report.pdf", "Cache-Control": "no-store"})
 
 
+@app.get("/api/health/mood", dependencies=[Depends(require_admin)])
+async def api_health_mood(days: int = 30) -> dict:
+    """The owner's mood and stress journal (their own entries; shown to them only)."""
+    from . import moodlog  # noqa: PLC0415
+    return await asyncio.to_thread(moodlog.view, memory, max(1, min(int(days), 365)))
+
+
+@app.post("/api/health/mood", dependencies=[Depends(require_admin)])
+async def api_health_mood_act(body: dict) -> dict:
+    """add (mood, stress, energy 1-5, tags, note); delete (id); forget (confirm: true)."""
+    from . import moodlog  # noqa: PLC0415
+    action = str(body.get("action") or "add")
+    try:
+        if action == "add":
+            await asyncio.to_thread(moodlog.add, memory, body.get("mood"), body.get("stress"), body.get("energy"),
+                                    body.get("tags") or [], str(body.get("note") or ""), str(body.get("day") or ""))
+            text = "Noted."
+        elif action == "delete":
+            text = await asyncio.to_thread(moodlog.delete, memory, int(body.get("id") or 0))
+        elif action == "forget" and body.get("confirm") is True:
+            text = await asyncio.to_thread(moodlog.forget, memory)
+        else:
+            raise HTTPException(400, "unknown action")
+    except ToolError as e:
+        raise HTTPException(400, str(e)) from None
+    return {"text": text, **await asyncio.to_thread(moodlog.view, memory)}
+
+
 @app.get("/api/health/patterns", dependencies=[Depends(require_admin)])
 async def api_health_patterns() -> dict:
     """What the personal model last learned (patterns and models; no daily values). Shown to the owner only."""

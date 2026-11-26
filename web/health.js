@@ -13,10 +13,66 @@ if (params.get("token") && storageGet("buddyToken") === token) history.replaceSt
 
 const $ = (id) => document.getElementById(id);
 const esc = (s) => String(s ?? "").replace(/[&<>"']/g, (c) => ({ "&": "&amp;", "<": "&lt;", ">": "&gt;", '"': "&quot;", "'": "&#39;" }[c]));
-const TABS = [["today", "Today"], ["trends", "Trends"], ["habits", "Habits"], ["food", "Food"], ["plan", "Plan"], ["patterns", "Patterns"], ["labs", "Labs"], ["sources", "Sources"]];
+// Six sections; the ones with sub-tabs show them as a second, smaller row at the top of the page.
+const SECTIONS = [
+  ["today", "Today", []],
+  ["trends", "Trends", [["measures", "Measures"], ["patterns", "Patterns"], ["mood", "Mood"]]],
+  ["labs", "Labs", [["results", "Results"], ["add", "Add a report"], ["portals", "Patient portals"]]],
+  ["plan", "Plan", [["habits", "Progress"], ["food", "Food"], ["goals", "Goals & habits"]]],
+  ["sources", "Sources", []],
+];
+const TABS = SECTIONS.map(([k, label]) => [k, label]);
+const OLD = { habits: ["plan", "habits"], food: ["plan", "food"], patterns: ["trends", "patterns"] };  // earlier tab names
+const subsOf = (t) => (SECTIONS.find(([k]) => k === t) || [0, 0, []])[2];
+function subOf(t) {
+  const subs = subsOf(t), kept = storageGet("healthSub:" + t);
+  if (subs.some(([k]) => k === kept)) return kept;
+  return t === "plan" && data && !data.plan ? "goals" : (subs[0] || [""])[0];  // no plan yet: open on setting one up
+}
+function showing(t, s) { return tab === t && (!s || subOf(t) === s); }
 let patData = null, patAsk = false, patBusy = false;
+let moodData = null, moodPick = { mood: null, stress: null, energy: null, tags: [] };
+async function loadMood(body) {
+  try { const out = await api("/api/health/mood", body); moodData = out; if (out.text && body) notice(out.text); }
+  catch (e) { moodData = moodData || { failed: e.message }; if (body) notice(e.message); }
+  if (tab === "today" || showing("trends", "mood")) render();
+}
+function moodHistory() {
+  if (!moodData) { $("main").innerHTML = `<p class="muted">Loading…</p>`; loadMood(); return; }
+  if (moodData.failed) { $("main").innerHTML = `<p class="err">${esc(moodData.failed)}</p>`; return; }
+  const k = (label, v) => kpi(v == null ? "–" : esc(v), label);
+  const rows = moodData.entries.map((e) => `<div class="line"><div class="what">${esc(when(e.day))} · mood ${e.mood ?? "–"} · stress ${e.stress ?? "–"} · energy ${e.energy ?? "–"}
+      ${e.tags.length || e.note ? `<small>${esc(e.tags.join(", "))}${e.tags.length && e.note ? " · " : ""}${esc(e.note)}</small>` : ""}</div>
+      <button class="btn danger" data-mood-del="${esc(e.id)}" aria-label="Delete this entry">✕</button></div>`).join("");
+  $("main").innerHTML = `<div class="kpis">${k("Mood, last 7 days", moodData.week.mood)}${k("Stress, last 7 days", moodData.week.stress)}${k("Energy, last 7 days", moodData.week.energy)}</div>`
+    + card("Your entries", rows || `<p class="muted">No entries yet: add one on Today.</p>`,
+      (moodData.tags.length ? "Most often: " + moodData.tags.slice(0, 4).map(([t, n]) => `${esc(t)} (${n})`).join(", ") + ". " : "") + esc(moodData.note))
+    + (rows ? `<p>${sure ? `<button class="btn danger solid" id="mood-forget" data-sure="1">Yes, delete every entry</button>` : `<button class="btn danger" id="mood-forget">Delete every entry</button>`}</p>` : "");
+  $("main").querySelectorAll("[data-mood-del]").forEach((b) => b.onclick = () => loadMood({ action: "delete", id: Number(b.dataset.moodDel) }));
+  if ($("mood-forget")) $("mood-forget").onclick = () => {
+    if (!$("mood-forget").dataset.sure) { sure = true; render(); return; }
+    sure = false; loadMood({ action: "forget", confirm: true });
+  };
+}
+function moodCard() {
+  if (!moodData) { loadMood(); return ""; }
+  if (moodData.failed) return card("How are you today?", `<p class="err">${esc(moodData.failed)}</p>`);
+  const scale = (k, low, high) => `<div class="line" style="flex-wrap:wrap"><div class="what">${k[0].toUpperCase() + k.slice(1)}<small>1 ${low} · 5 ${high}</small></div>
+      <div class="chips" style="overflow:visible">${[1, 2, 3, 4, 5].map((n) => `<button class="chip${moodPick[k] === n ? " on" : ""}" data-mood-k="${k}" data-mood-v="${n}">${n}</button>`).join("")}</div></div>`;
+  const tags = `<div class="chips" style="flex-wrap:wrap;overflow:visible;margin:8px 0">${moodData.choices.map((t) => `<button class="chip${moodPick.tags.includes(t) ? " on" : ""}" data-mood-tag="${esc(t)}">${esc(t)}</button>`).join("")}</div>`;
+  const w = moodData.week, today = moodData.days.find((d) => d.day === moodData.today);
+  const recent = w.mood != null || w.stress != null || w.energy != null
+    ? `Last 7 days: mood ${w.mood ?? "–"} · stress ${w.stress ?? "–"} · energy ${w.energy ?? "–"}${today ? ` · ${today.entries} today` : ""}. Every entry: Trends → Mood.` : "";
+  return card("How are you today?", scale("mood", "low", "great") + scale("stress", "calm", "very stressed") + scale("energy", "drained", "full of energy")
+      + `<p class="muted" style="margin:8px 0 0">What was going on?</p>` + tags
+      + `<input id="mood-note" maxlength="500" placeholder="A note for yourself (optional)" style="width:100%" value="${esc(moodPick.note || "")}">`
+      + `<p><button class="btn solid" id="mood-save">Save</button></p>`
+      + (recent ? `<p class="muted" style="margin:10px 0 0">${esc(recent)}</p>` : ""),
+    esc(moodData.note));
+}
 let srcData = null, srcAsk = "";  // the Sources tab, and the delete or disconnect waiting for a second tap
 let data = null, tab = TABS.some(([k]) => k === storageGet("healthTab")) ? storageGet("healthTab") : "today";
+if (OLD[storageGet("healthTab")]) { [tab] = OLD[storageGet("healthTab")]; storageSet("healthSub:" + tab, OLD[storageGet("healthTab")][1]); }
 let span = ["14", "30", "90"].includes(storageGet("healthDays")) ? storageGet("healthDays") : "30", sure = false;
 
 async function api(path, body) {
@@ -47,6 +103,13 @@ function pill(band, better) {
 function tabs() {
   $("tabs").innerHTML = TABS.map(([k, label]) => `<button class="chip${k === tab ? " on" : ""}" role="tab" aria-selected="${k === tab}" data-tab="${k}">${label}</button>`).join("");
   $("tabs").querySelectorAll("button").forEach((b) => b.onclick = () => { tab = b.dataset.tab; sure = false; storageSet("healthTab", tab); render(); });
+}
+function subTabs() {
+  const subs = subsOf(tab), now = subOf(tab);
+  if (!subs.length) return;
+  $("main").insertAdjacentHTML("afterbegin", `<div class="subtabs" role="tablist">${subs.map(([k, label]) =>
+    `<button class="chip${k === now ? " on" : ""}" role="tab" aria-selected="${k === now}" data-sub="${k}">${label}</button>`).join("")}</div>`);
+  $("main").querySelectorAll("[data-sub]").forEach((b) => b.onclick = () => { storageSet("healthSub:" + tab, b.dataset.sub); sure = false; render(); });
 }
 
 async function act(body, done) {
@@ -106,7 +169,7 @@ function sourceCard(s) {
 function renderSources() {
   if (!srcData) { $("main").innerHTML = `<p class="muted">Loading…</p>`; loadSources(); return; }
   if (srcData.failed) { $("main").innerHTML = `<p class="err">${esc(srcData.failed)}</p>`; return; }
-  $("main").innerHTML = srcData.map(sourceCard).join("") +
+  $("main").innerHTML = (data ? sources() : "") + srcData.map(sourceCard).join("") +
     `<p class="note">Each value is kept with where it came from and how it was obtained: measured by a device, estimated by the maker's software (sleep stages, calories, scores), entered by you, or a lab result. A ring is not a lab. All of it stays on your server, and no AI model is given any of it.</p>`;
   $("main").querySelectorAll("[data-src]").forEach((b) => b.onclick = () => {
     const action = b.dataset.src, conn = b.dataset.conn;
@@ -115,13 +178,14 @@ function renderSources() {
     sourceAct(action, conn, true);
   });
   $("main").querySelectorAll("[data-src-cancel]").forEach((b) => b.onclick = () => { srcAsk = ""; render(); });
+  if ($("read")) $("read").onclick = () => { $("read").disabled = true; $("read").textContent = "Reading…"; act({ action: "read" }, (o) => `Read ${o.days} days from the ring.`); };
 }
 
 // --- Patterns: what, in your own days, tends to come before a better or worse next morning (learned by code)
 async function loadPatterns(body) {
   try { patData = (await api("/api/health/patterns", body)).latest || {}; } catch (e) { patData = { failed: e.message }; }
   patBusy = false;
-  if (tab === "patterns") render();
+  if (showing("trends", "patterns")) render();
 }
 function renderPatterns() {
   if (!patData) { $("main").innerHTML = `<p class="muted">Loading…</p>`; loadPatterns(); return; }
@@ -219,7 +283,7 @@ function draftCard() {
      ${rows || `<p class="muted">No test Buddy knows was found on this report.</p>`}
      <p style="margin:10px 0 0">${d.results.length ? `<button class="btn solid" id="lab-save">Keep the ticked results</button> ` : ""}<button class="btn" id="lab-cancel">Don't keep anything</button></p>`);
 }
-function renderLabs() {
+function renderLabs(part = "results") {
   if (!labData) { $("main").innerHTML = `<p class="muted">Loading…</p>`; loadLabs(); return; }
   if (labData.failed) { $("main").innerHTML = `<p class="err">${esc(labData.failed)}</p>`; return; }
   const upload = card("Add a lab report",
@@ -234,13 +298,14 @@ function renderLabs() {
       <small>${esc(r.file_name)} · ${esc(r.results)} results</small></div>
       ${r.has_file ? `<button class="btn" data-lab-open="${esc(r.id)}">Open</button>` : ""}
       ${labAsk === r.id ? `<button class="btn danger solid" data-lab-delete="${esc(r.id)}" data-sure="1">Yes, delete</button>` : `<button class="btn danger" data-lab-delete="${esc(r.id)}">Delete</button>`}</div>`).join("");
-  $("main").innerHTML = (labDraft ? draftCard() : upload) + portalCard() +
-    card("Your results", results || `<p class="muted">No results kept yet.</p>`,
+  const rangesNote = `<p class="note">Lab ranges for Claude are ${labData.ranges_on ? "on: Claude may be told whether each test is below, within or above the lab's range, never a value" : "off: no AI model is told anything about your lab results"}. Changed only on the server: ${esc(labData.ranges_how)}.</p>`;
+  if (part === "add") { $("main").innerHTML = (labDraft ? draftCard() : upload) + rangesNote; wireLabs(); return; }
+  if (part === "portals") { $("main").innerHTML = portalCard() || `<p class="muted">Loading…</p>`; wirePortals(); return; }
+  $("main").innerHTML = (labDraft ? `<p class="note">A report is waiting for you to check it: Add a report.</p>` : "") +
+    card("Your results", results || `<p class="muted">No results kept yet. Add a report, or connect a patient portal.</p>`,
       "Below, within or above is against the lab's own reference range printed on the report. When a report prints no range, Buddy uses a typical adult range for that test (marked “typical”); labs set their own, so the lab's always wins. Not medical advice: talk to your doctor about any result.") +
-    (reports ? card("Reports", reports) : "") +
-    `<p class="note">Lab ranges for Claude are ${labData.ranges_on ? "on: Claude may be told whether each test is below, within or above the lab's range, never a value" : "off: no AI model is told anything about your lab results"}. Changed only on the server: ${esc(labData.ranges_how)}.</p>`;
+    (reports ? card("Reports", reports) : "") + rangesNote;
   wireLabs();
-  wirePortals();
 }
 function wireLabs() {
   if ($("lab-read")) $("lab-read").onclick = () => {
@@ -266,7 +331,7 @@ function wireLabs() {
       unit: $("main").querySelector(`[data-lab-unit="${i}"]`).value.trim(), keep: $("main").querySelector(`[data-lab-tick="${i}"]`).checked }))
       .filter((r) => r.keep);
     try { const out = await api("/api/health/labs", { action: "save", draft: labDraft.id, results: rows, collected: $("lab-collected").value });
-      labDraft = null; labData = null; srcData = null; notice(out.text); render(); }
+      labDraft = null; labData = null; srcData = null; storageSet("healthSub:labs", "results"); notice(out.text); render(); }
     catch (e) { notice(e.message); }
   };
   $("main").querySelectorAll("[data-lab-delete]").forEach((b) => b.onclick = async () => {
@@ -304,10 +369,10 @@ function renderToday() {
   const means = data.today.means.length ? `<ul style="margin:0;padding-left:18px">${data.today.means.map((m) => `<li>${esc(m)}</li>`).join("")}</ul>`
     : `<p class="muted">Nothing stands out today.</p>`;
   const habits = data.today.habits.length ? data.today.habits.map(habitLine).join("")
-    : `<p class="muted">${data.plan ? "No habits are due today." : "No plan yet. Set one up under Plan and its habits show here."}</p>`;
+    : `<p class="muted">${data.plan ? "No habits are due today." : "No plan yet. Set one up under Plan → Goals & habits and its habits show here."}</p>`;
   $("main").innerHTML = (k.length ? `<div class="kpis">${k.join("")}</div>` : card("Today", `<p class="muted">No readings yet for today or yesterday.</p>`))
     + (k.length ? card("What it means for today", means, "Fixed rules against your own week. Not medical advice.") : "")
-    + card("Today's habits", habits) + sources();
+    + card("Today's habits", habits) + moodCard();
   wire();
 }
 
@@ -338,7 +403,7 @@ function renderTrends() {
 }
 
 function renderHabits() {
-  if (!data.plan) { $("main").innerHTML = card("Habits", `<p class="muted">No plan yet. Set one up under Plan.</p>`); return; }
+  if (!data.plan) { $("main").innerHTML = card("Progress", `<p class="muted">No plan yet. Set one up under Goals & habits.</p>`); return; }
   const rows = (list) => list.map((h) => `<div class="line"><div class="what">${esc(h.habit)}
       <small>${h.of_days ? `${h.done_days} of ${h.of_days} ${h.per}s` : "no readings yet"}${h.streak > 1 ? ` · ${h.streak} in a row` : ""}</small>
       <div class="bar"><i style="width:${h.rate || 0}%"></i></div></div><div class="num">${h.rate == null ? "–" : h.rate + "%"}</div></div>`).join("");
@@ -394,7 +459,7 @@ function renderPlan() {
     "The plan is set here because Buddy no longer discusses health in conversation. It stays on your server.")
     + card("How a habit can be tracked", tracked);
   $("more").onclick = () => { if ($("habits").children.length < 8) $("habits").insertAdjacentHTML("beforeend", habitRow({})); };
-  if ($("forget")) $("forget").onclick = () => { if (!sure) { sure = true; renderPlan(); return; } sure = false; act({ action: "forget" }, "The plan, habit log and meals were deleted."); };
+  if ($("forget")) $("forget").onclick = () => { if (!sure) { sure = true; render(); return; } sure = false; act({ action: "forget" }, "The plan, habit log and meals were deleted."); };
   $("plan").onsubmit = (e) => {
     e.preventDefault();
     const d = new FormData(e.target), diet = {};
@@ -405,14 +470,36 @@ function renderPlan() {
   };
 }
 
+function wireMood() {
+  $("main").querySelectorAll("[data-mood-k]").forEach((b) => b.onclick = () => {
+    const k = b.dataset.moodK, v = Number(b.dataset.moodV); moodPick[k] = moodPick[k] === v ? null : v; render(); });
+  $("main").querySelectorAll("[data-mood-tag]").forEach((b) => b.onclick = () => {
+    const t = b.dataset.moodTag; moodPick.tags = moodPick.tags.includes(t) ? moodPick.tags.filter((x) => x !== t) : [...moodPick.tags, t]; render(); });
+  if ($("mood-note")) $("mood-note").oninput = (e) => { moodPick.note = e.target.value; };
+  if ($("mood-save")) $("mood-save").onclick = () => {
+    const body = { action: "add", ...moodPick, note: $("mood-note").value };
+    moodPick = { mood: null, stress: null, energy: null, tags: [], note: "" };
+    loadMood(body);
+  };
+}
+
 function wire() {
+  wireMood();
   $("main").querySelectorAll("[data-habit]").forEach((b) => b.onclick = () => act({ action: "habit", habit: b.dataset.habit }, "Ticked off."));
   if ($("read")) $("read").onclick = () => { $("read").disabled = true; $("read").textContent = "Reading…"; act({ action: "read" }, (o) => `Read ${o.days} days from the ring.`); };
 }
 
+const VIEWS = {
+  today: renderToday, sources: renderSources,
+  "trends/measures": renderTrends, "trends/patterns": renderPatterns, "trends/mood": moodHistory,
+  "labs/results": () => renderLabs("results"), "labs/add": () => renderLabs("add"), "labs/portals": () => renderLabs("portals"),
+  "plan/habits": renderHabits, "plan/food": renderFood, "plan/goals": renderPlan,
+};
 function render() {
   tabs();
-  ({ today: renderToday, trends: renderTrends, habits: renderHabits, food: renderFood, plan: renderPlan, patterns: renderPatterns, labs: renderLabs, sources: renderSources })[tab]();
+  const view = VIEWS[subsOf(tab).length ? `${tab}/${subOf(tab)}` : tab] || renderToday;
+  view();
+  subTabs();
 }
 
 async function load() {

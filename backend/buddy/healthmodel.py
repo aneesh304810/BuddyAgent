@@ -20,7 +20,7 @@ Two ways, both kept honest:
              only if its error on those days is at least 5% smaller than always guessing the average.
 
 These are patterns in one person's days, not causes, and not medical advice: the page says so. Shown to the owner
-only (Health → Patterns); no AI model is given them (the Privacy Gateway's health rule).
+only (Health → Trends → Patterns); no AI model is given them (the Privacy Gateway's health rule).
 """
 
 import json
@@ -39,7 +39,8 @@ MIN_SHARE, MIN_EFFECT, MIN_GAIN, RIDGE = 0.9, 0.25, 0.05, 1.0
 LATEST_KEY, WEEK_KEY = "healthmodel:latest", "healthmodel:week"
 FACTORS = {  # field on day d -> words
     "steps": "steps", "active_minutes": "active minutes", "workouts": "workouts", "strain": "WHOOP strain",
-    "stress_minutes": "time under stress",
+    "stress_minutes": "time under stress", "mood": "mood (your journal)", "stress": "stress (your journal)",
+    "energy": "energy (your journal)",
 }
 NIGHT = {"bedtime": "a later bedtime"}  # taken from the next morning's row (the night before it)
 OUTCOMES = {  # field on day d+1 -> (words, unit, which way is better)
@@ -78,8 +79,10 @@ def _habits(memory: Memory) -> dict[str, str]:
 
 def table(memory: Memory, days: int = LOOK_BACK) -> list[dict]:
     """One row per day with a next morning: the day's factors, that night's bedtime, the next morning's measures."""
-    from . import coach  # noqa: PLC0415
+    from . import coach, moodlog  # noqa: PLC0415
     data = coach._data(memory, days)
+    for day, felt in moodlog.daily(memory, days).items():  # the journal's day averages, beside the devices' numbers
+        data.setdefault(day, {}).update({k: felt[k] for k in moodlog.SCALES if felt.get(k) is not None})
     habits = _habits(memory)
     ticked: dict[str, set] = {}
     started = ""

@@ -24,6 +24,7 @@ flowchart LR
         fhirlabs_py["fhirlabs.py<br/>Lab results from the owner's patient portals (MyChart and other Epic…"]
         whoop_py["whoop.py<br/>The owner's WHOOP band, through Buddy Connect (Health group) and…"]
         healthmodel_py["healthmodel.py<br/>what, in their own days, tends to come before a better or worse next…"]
+        moodlog_py["moodlog.py<br/>how they feel, in their own words, kept on their server only"]
     end
     you --> t_thermostat
     t_thermostat --> nest_py
@@ -50,7 +51,9 @@ flowchart LR
     fhirlabs_py --> labs_py
     whoop_py --> healthrecords_py
     healthmodel_py --> coach_py
-    db[("Your database<br/>coach_log, coach_meals, health_daily, health_model_runs, health_records, lab_reports, lab_results, oura_daily and more")]
+    healthmodel_py --> moodlog_py
+    moodlog_py --> healthrecords_py
+    db[("Your database<br/>coach_log, coach_meals, health_daily, health_model_runs, health_records, lab_reports, lab_results, mood_log and more")]
     health_data_py --> db
     oura_py --> db
     coach_py --> db
@@ -58,6 +61,7 @@ flowchart LR
     labs_py --> db
     whoop_py --> db
     healthmodel_py --> db
+    moodlog_py --> db
     s_medlineplus["MedlinePlus (NIH health topics)<br/>(public data only)"]
     health_data_py --> s_medlineplus
     s_nest["Google Nest (thermostat)<br/>(may see personal data)"]
@@ -354,11 +358,26 @@ Two ways, both kept honest:
              only if its error on those days is at least 5% smaller than always guessing the average.
 
 These are patterns in one person's days, not causes, and not medical advice: the page says so. Shown to the owner
-only (Health → Patterns); no AI model is given them (the Privacy Gateway's health rule).
+only (Health → Trends → Patterns); no AI model is given them (the Privacy Gateway's health rule).
 ```
 
 - Tables: `health_model_runs`
-- Uses: coach.py, memory.py, tools.py
+- Uses: coach.py, memory.py, moodlog.py, tools.py
+
+### moodlog.py
+
+```text
+The owner's mood and stress journal: how they feel, in their own words, kept on their server only.
+
+Each entry: mood, stress and energy from 1 to 5 (1 low, 5 high), what was going on (fixed tags: work, family, sleep,
+exercise, illness, travel, money, alcohol, social, alone time), and a short note of their own. Several a day are
+fine; a day is the average of its entries. The days feed the personal model (healthmodel.py) as factors: a stressful
+day, then the next morning. No AI model is given any of it, the notes least of all (the Privacy Gateway's health
+rule); kept as long as the other health readings (two years), and deleted entry by entry or all at once.
+```
+
+- Tables: `mood_log`
+- Uses: healthrecords.py, memory.py, tools.py
 
 ## How it connects
 
