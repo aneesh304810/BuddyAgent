@@ -55,7 +55,36 @@ async function load() {
   catch (e) { $("main").innerHTML = `<p class="err">${esc(e.message)}</p>`; }
 }
 
+// In the redesign Invest sits under Money's own row of sections, so it has no second row of tabs: Overview first,
+// with Trading, Themes and Watchlist listed under it ("Also in Invest"), each opened full-page with "‹ Invest"
+// and the phone's Back. ?tabs=1 brings back the row for one release.
+const OLD_TABS = params.get("tabs") === "1";
+const PARTS = [["practice", "Trading", "The strategies in use, closed trades and the strategy lab"],
+  ["themes", "Themes", "Technology themes and the evidence behind each basket"], ["watch", "Watchlist", "The symbols you follow"]];
+function openTab(t, push = true) {
+  tab = t; storageSet("investTab", t);
+  if (push && t !== "strategy") history.pushState({ tab: t }, "");
+  render(); window.scrollTo(0, 0);
+}
+window.addEventListener("popstate", (e) => { if (!OLD_TABS) openTab((e.state && e.state.tab) || "strategy", false); });
+function parts() {
+  if (OLD_TABS) return;
+  if (tab !== "strategy") {
+    $("main").insertAdjacentHTML("afterbegin", `<p><button class="btn" id="part-back">‹ Invest</button></p>`);
+    $("part-back").onclick = () => (history.state && history.state.tab ? history.back() : openTab("strategy", false));
+    return;
+  }
+  $("main").insertAdjacentHTML("beforeend", card("Also in Invest", PARTS.map(([k, name, about]) =>
+    `<button class="part" data-part="${k}"><span><b>${esc(name)}</b><small>${esc(about)}</small></span><span aria-hidden="true">›</span></button>`).join("")));
+  document.querySelectorAll("[data-part]").forEach((b) => b.onclick = () => openTab(b.dataset.part));
+}
+
 function tabs() {
+  if (!OLD_TABS) {  // no row; inside the app the header (title only, hidden there) goes too
+    $("tabs").hidden = true;
+    if (document.documentElement.dataset.embed) document.querySelector("header").hidden = true;
+    return;
+  }
   $("tabs").innerHTML = TABS.map(([k, label]) => `<button class="chip${k === tab ? " on" : ""}" role="tab" aria-selected="${k === tab}" data-tab="${k}">${label}</button>`).join("");
   document.querySelectorAll("[data-tab]").forEach((b) => b.onclick = () => { tab = b.dataset.tab; storageSet("investTab", tab); render(); });
 }
@@ -609,6 +638,7 @@ function overviewTab() {
 function render() {
   tabs();
   $("main").innerHTML = { strategy: overviewTab, practice: practiceTab, themes: themesTab, watch: watchTab }[tab]();
+  parts();
   document.querySelectorAll("[data-sigcat]").forEach((b) => b.onclick = () => switchSignal(b.dataset.sigcat));
   if ($("themes-refresh")) $("themes-refresh").onclick = () => { themesData = null; render(); };
   if ($("practice-refresh")) $("practice-refresh").onclick = () => { practiceData = null; render(); loadPractice(true); };

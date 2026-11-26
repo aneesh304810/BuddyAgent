@@ -63,8 +63,9 @@ Discover, More) for one release, so the change can be undone on the phone.
 ## What is built, and what is not yet
 
 Built: the bar with the five destinations, the header with Back and the bell, the microphone on the other
-destinations, Explore and Profile (the earlier Trips & Deals, Discover and More behind Settings → Layout), Invest as a tab of Money with four tabs of its own (Overview, Trading,
-Themes, Watchlist), and "For you" in Deals: Buddy's open buy-now-or-wait calls for products, flights and
+destinations, Explore and Profile (the earlier Trips & Deals, Discover and More behind Settings → Layout),
+Invest as a section of Money that opens on its Overview and lists Trading, Themes and Watchlist under it (no
+second row of tabs; Health works the same way), and "For you" in Deals: Buddy's open buy-now-or-wait calls for products, flights and
 hotels in one card shape (the call, the chance, one line of why, then the date of the call and the record
 of calls of its kind). Investment themes use the same card for each evidence pattern that fired.
 
