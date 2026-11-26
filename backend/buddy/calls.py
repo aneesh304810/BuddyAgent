@@ -858,7 +858,7 @@ they like to be reached ("text me", "after six is better"), note it.
 Ending the call, like a person: when you are done, say a warm goodbye in one short sentence (for example "Thanks so much for your help, have a great day!") and set "end" in that same reply. You don't hang up yourself: you wait for their goodbye, and if they add something you'll hear it and can carry on. Never end while a question is still open or they are mid-thought. When everything is settled, ask once, naturally, "Anything else I can help with?" (or "Was there anything else?"). When they say no in any form ("I'm good", "no, that's it", "it's fine", "that's all, thanks"), that is their closing: say a short warm goodbye and end in that same reply. Never ask it twice.
 - Scam or robocall: threats (IRS, police, Social Security, arrest), gift cards, crypto or wire payments, "your car's \
 warranty", prizes, "your account is locked", asking for codes, passwords, card or account numbers, pressure to act \
-now, or a recording. Don't argue: "Not interested, thanks. Bye now." and end.
+now, or a recording. Ignore it: say nothing at all (no words, no goodbye) and end at once, priority "scam".
 - Sales or surveys: a quick polite "I'll pass that on", then end.
 "[No one has spoken yet]" means silence after your greeting: say "Hello?" once; if still silent or only a \
 recording plays, end (probably a robocall).
@@ -2003,6 +2003,8 @@ def screen_call(memory: Memory, form: dict, env=None) -> dict | None:
     ours = re.sub(r"\D", "", _env("BUDDY_PLIVO_NUMBER", env))[-10:]
     if ours and re.sub(r"\D", "", str(form.get("From") or ""))[-10:] == ours:
         return None
+    if ignored(memory, form):  # a scam number from before, or labelled spam by the carrier: not picked up
+        return None
     today = local_now().date().isoformat()
     n = memory.db.execute("SELECT COUNT(*) FROM phone_calls WHERE created_at >= ? AND kind = ?",
                           (today, SCREEN)).fetchone()[0]
@@ -2032,8 +2034,9 @@ def screened(memory: Memory, call: dict, move: dict) -> None:
     update(memory, call["id"], who=(move.get("caller") or call["who"])[:80],
            windows=f"{move.get('priority', 'normal')}")
     if move.get("priority") == "scam":
-        key = f"calls:scams:{local_now().date().isoformat()}"
-        memory.set(key, str(int(memory.get(key) or 0) + 1))
+        _count_scam(memory)
+        if call.get("number") and call["number"] != "unknown":
+            mark_scam(memory, call["number"])
     if move.get("meeting") and move.get("priority") != "scam":
         from . import scheduling  # noqa: PLC0415
         scheduling.propose(memory, move["meeting"], move.get("caller") or call["who"], call["number"])
@@ -2102,6 +2105,57 @@ def scams_today(memory: Memory) -> int:
     return int(memory.get(f"calls:scams:{local_now().date().isoformat()}") or 0)
 
 
+SCAM_NUMBERS = "calls:scam_numbers"
+SPAM_LABEL = re.compile(r"\b(scam|spam|fraud|robocall|telemarket\w*)\b", re.I)
+
+
+def _scam_list(memory: Memory) -> list[str]:
+    try:
+        return [str(n) for n in json.loads(memory.get(SCAM_NUMBERS) or "[]")]
+    except ValueError:
+        return []
+
+
+def _count_scam(memory: Memory) -> None:
+    key = f"calls:scams:{local_now().date().isoformat()}"
+    memory.set(key, str(int(memory.get(key) or 0) + 1))
+
+
+def mark_scam(memory: Memory, number: str) -> bool:
+    """A number judged a scam isn't answered again (at most 500 kept; never a phone contact's)."""
+    from . import contacts  # noqa: PLC0415
+    k = contacts.key(number)
+    if len(k) < 7 or contacts.name_for(memory, number)[1] == "contact":
+        return False
+    found = [n for n in _scam_list(memory) if n != k]
+    memory.set(SCAM_NUMBERS, json.dumps((found + [k])[-500:]))
+    return True
+
+
+def not_scam(memory: Memory, number: str) -> bool:
+    """The owner: that number isn't a scam; answer it again."""
+    from . import contacts  # noqa: PLC0415
+    k, found = contacts.key(number), _scam_list(memory)
+    if k not in found:
+        return False
+    memory.set(SCAM_NUMBERS, json.dumps([n for n in found if n != k]))
+    return True
+
+
+def ignored(memory: Memory, form: dict) -> bool:
+    """A forwarded call Buddy won't pick up: a number it hung up on as a scam before (unless it's a phone contact
+    now), or one the carrier's caller name marks as spam or a scam. Counted in the day's tally, nothing else."""
+    from . import contacts  # noqa: PLC0415
+    raw = str(form.get("From") or "")
+    k = contacts.key(raw)
+    blocked = len(k) >= 7 and k in _scam_list(memory) and contacts.name_for(memory, raw)[1] != "contact"
+    labelled = bool(SPAM_LABEL.search(str(form.get("CallerName") or ""))) and contacts.name_for(memory, raw)[1] != "contact"
+    if blocked or labelled:
+        _count_scam(memory)
+        return True
+    return False
+
+
 # --- Insights ---------------------------------------------------------------------------------------------------
 def overview(memory: Memory, since: str) -> dict:
     """For Insights: the calls made since `since`, their minutes and what they cost, part by part."""
@@ -2152,12 +2206,15 @@ TOOL = {
     "the user said callers may be told something ('callers can know I'm in India from Dec 3 to Dec 14': text "
     "'Aneesh is travelling in India from December 3 to 14, back on the 15th', until 2026-12-14; share_with everyone "
     "unless they said contacts or family); shared: list what callers may be told; unshare (id, or none for all). "
-    "Until the user says so, callers hear nothing about trips or travel and Buddy never reads their email for a "
-    "call. relationship (number, relationship): who a caller is to the user ('that's my brother's number'); "
+    "The user's standing permission: whenever they tell you they'll be out of state, abroad or travelling (where "
+    "and when), share it at once for everyone until their last day away, without asking, and say callers will "
+    "hear it. Anything else about trips or travel callers hear only when the user says so, and Buddy never reads "
+    "their email for a call. Scam calls are ignored: Buddy hangs up on them without a word and doesn't answer "
+    "that number again (never a phone contact); not_scam (number) answers it again ('that wasn't a scam').  relationship (number, relationship): who a caller is to the user ('that's my brother's number'); "
     "family may hear calendar names and be put through at night.",
     "input_schema": {"type": "object", "properties": {
         "action": {"type": "string", "enum": ["call", "status", "forget_caller", "contact", "voices", "set_voice",
-                                              "share", "shared", "unshare", "relationship"]},
+                                              "share", "shared", "unshare", "relationship", "not_scam"]},
         "text": {"type": "string", "description": "share: what callers may be told, written as Buddy would say it"},
         "share_with": {"type": "string", "enum": ["everyone", "contacts", "family"],
                        "description": "share: who may hear it"},
@@ -2194,6 +2251,10 @@ async def run_tool(memory: Memory, thrift, args: dict) -> str:
         return await asyncio.to_thread(set_voice, memory, args.get("voice") or "")
     if args.get("action") == "status":
         return status_text(memory)
+    if args.get("action") == "not_scam":
+        number = str(args.get("number") or "")
+        return ("Done: calls from that number will be answered again." if await asyncio.to_thread(
+            not_scam, memory, number) else "That number wasn't blocked.")
     if args.get("action") in ("share", "shared", "unshare", "relationship"):
         from . import receptionist  # noqa: PLC0415
         act = args["action"]

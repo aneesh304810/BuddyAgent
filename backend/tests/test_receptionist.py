@@ -185,3 +185,30 @@ def test_the_owner_tells_buddy_what_callers_may_know(tmp_path, env):
     assert "Removed 1" in asyncio.run(calls.run_tool(m, None, {"action": "unshare"}))
     assert "never trips or email" in asyncio.run(calls.run_tool(m, None, {"action": "shared"}))
     json.dumps(calls.TOOL)  # the tool's schema stays valid JSON
+
+
+def test_scam_calls_are_ignored(tmp_path, env):
+    """A scam gets no words and no goodbye, the owner isn't told, and the number isn't picked up again: never a
+    phone contact's, and the owner can take a number off ("that wasn't a scam")."""
+    m = _owner(tmp_path)
+    scammer = calls.screen_call(m, {"From": "12015550666", "CallUUID": "s1"})
+    assert "Ignore it: say nothing at all" in calls.system_prompt(m, scammer)
+    move = calls.parse('\n## {"action": "end", "priority": "scam", "outcome": "IRS threat"}')
+    assert move["say"] == "" and calls.screen_message(scammer, move) == ""
+    calls.screened(m, scammer, move)
+    assert calls.scams_today(m) == 1 and Organiser(m).open() == []
+    assert calls.screen_call(m, {"From": "+1 (201) 555-0666", "CallUUID": "s2"}) is None  # not picked up again
+    assert calls.scams_today(m) == 2
+    labelled = calls.screen_call(m, {"From": "12015550777", "CallUUID": "s3", "CallerName": "SCAM LIKELY"})
+    assert labelled is None and calls.scams_today(m) == 3
+    dave = calls.screen_call(m, {"From": "12015550122", "CallUUID": "s4"})  # a contact, even if judged a scam once
+    calls.screened(m, dave, move)
+    assert calls.screen_call(m, {"From": "12015550122", "CallUUID": "s5"}) is not None
+    assert "answered again" in asyncio.run(calls.run_tool(m, None, {"action": "not_scam", "number": "201-555-0666"}))
+    assert calls.screen_call(m, {"From": "12015550666", "CallUUID": "s6"}) is not None
+
+
+def test_being_out_of_state_is_shared_with_everyone_once_mentioned():
+    """The owner's standing permission is in the tool's instructions: out of state or travelling, for everyone."""
+    d = calls.TOOL["description"]
+    assert "out of state" in d and "for everyone until their last day away, without asking" in d

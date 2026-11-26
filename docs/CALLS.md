@@ -222,7 +222,12 @@ name). It never claims to be you, and if asked it says honestly that it's an AI.
 - **a real caller:** takes the message (name, reason, dates, callback number) and tells you in the app (no
   notifications); family, doctors, real fraud alerts and "call back today" are marked **urgent**. A **follow-up
   task** goes in your tasks ("Call Priya back (201...): school pickup", due today when urgent, else tomorrow);
-- **a scam or robocall:** "Not interested, thanks", hangs up, and only counts it ("how did my calls go?" shows today's);
+- **a scam or robocall:** ignored. Buddy says nothing, hangs up, doesn't tell you, and only counts it ("how did my
+  calls go?" shows today's). That number isn't picked up again (it hears a busy line), unless it's in your contacts;
+  "that wasn't a scam: 201..." takes it off. A call whose caller name the carrier marks as spam or a scam isn't picked
+  up either. How Buddy tells: threats (IRS, police, Social Security, arrest), gift cards, crypto or wire payments,
+  "your car's warranty", prizes, "your account is locked", asking for codes, passwords, card or account numbers,
+  pressure to act now, a recording, or silence after the greeting;
 - **sales:** a short note, low priority, no task.
 
 **What a caller hears about your time** is decided by Buddy's code before the AI sees anything (`receptionist.py`):
@@ -235,7 +240,8 @@ name). It never claims to be you, and if asked it says honestly that it's an AI.
 Never where you are, who you're with, or the name of a health, money or legal appointment. **Trips and travel**
 show only as busy, and **your email is never read for a call**, until you tell Buddy what may be shared: "callers can
 know I'm in India from Dec 3 to Dec 14" keeps a sharing note for everyone (or "only my contacts", "only family")
-until that date; "what can callers know?" lists them; "stop sharing that" removes one. Callers can't change any of it.
+until that date. Being **out of state, abroad or travelling** is shared with everyone as soon as you mention it to
+Buddy (where and when, until your last day away), without being asked: your standing permission; "what can callers know?" lists them; "stop sharing that" removes one. Callers can't change any of it.
 
 **Buddy remembers callers** (from their calls, not your email): their earlier messages, follow-ups still open on
 your list, and how they like to be reached ("texts over calls"), so a second call picks up where the first left off.
