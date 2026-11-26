@@ -23,6 +23,7 @@ import androidx.health.connect.client.request.AggregateGroupByPeriodRequest
 import androidx.health.connect.client.request.ReadRecordsRequest
 import androidx.health.connect.client.time.TimeRangeFilter
 import java.time.Instant
+import java.time.LocalDateTime
 import java.time.ZoneId
 import kotlin.reflect.KClass
 import kotlinx.coroutines.Dispatchers
@@ -173,10 +174,18 @@ object HealthSync {
             list.forEach { origin(dayOf(it.time), it.metadata.dataOrigin.packageName) }
             latest("body_fat", list.map { it.time to it.percentage.value })
         }
+        // Blood pressure: also every reading with its own local time, so morning and evening stay apart.
+        val bpReadings = JSONArray()
         allowedRecords(BloodPressureRecord::class).also { list ->
             list.forEach { origin(dayOf(it.time), it.metadata.dataOrigin.packageName) }
             latest("bp_systolic", list.map { it.time to it.systolic.inMillimetersOfMercury })
             latest("bp_diastolic", list.map { it.time to it.diastolic.inMillimetersOfMercury })
+            list.sortedBy { it.time }.takeLast(500).forEach {
+                bpReadings.put(JSONObject()
+                    .put("at", LocalDateTime.ofInstant(it.time, ZoneId.systemDefault()).withNano(0).toString())
+                    .put("systolic", it.systolic.inMillimetersOfMercury)
+                    .put("diastolic", it.diastolic.inMillimetersOfMercury))
+            }
         }
         allowedRecords(Vo2MaxRecord::class).also { list ->
             list.forEach { origin(dayOf(it.time), it.metadata.dataOrigin.packageName) }
@@ -187,7 +196,7 @@ object HealthSync {
             apps[d]?.let { row.put("apps", JSONArray(it.take(12))) }
             if (row.length() > 1) out.put(row)
         }
-        return JSONObject().put("days", out)
+        return JSONObject().put("days", out).put("bp_readings", bpReadings)
     }
 
     /** Collect and send to the owner's server. Returns how many days were sent. */

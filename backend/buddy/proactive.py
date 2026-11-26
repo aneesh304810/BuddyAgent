@@ -122,6 +122,12 @@ async def morning_briefing(memory: Memory) -> str:
            f"own): {world['say']}" if world["say"] else ""),
         memory, label="briefing", model=settings.fast_model,  # quick model: a few spoken sentences from given facts
     )
+    try:  # the week's activity targets: said by Buddy's code after the model's part, so no AI model sees them
+        from . import activity  # noqa: PLC0415
+        if spoken and (week_line := await asyncio.to_thread(activity.morning_line, memory)):
+            spoken = f"{spoken} {week_line}"
+    except Exception:
+        log.info("briefing: activity line failed", exc_info=True)
     # spoken || shown: the same words on screen, with the headlines, links and events listed under them
     return f"{spoken} || {spoken}\n\n{world['shown']}" if spoken and world["shown"] else spoken
 

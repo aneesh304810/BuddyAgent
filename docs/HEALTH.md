@@ -36,6 +36,45 @@ sub-tabs under them, and the page remembers where you were.
 - **Trends → Measures:** each measure over 14, 30 or 90 days as a line, with your usual drawn across it (the middle
   value of the days before this week) and whether the latest day and this week are below, about or above your
   usual. A usual needs seven earlier days of readings.
+- **Your health now** (on Today): where you stand, each with its cut-off and source: BMI, waist, the week's home
+  blood pressure, A1c, LDL, the 10-year heart and stroke risk, this week's cardio, strength and sleep. Under it:
+  **To watch** (what's over a line, most urgent first), **What to do** (steps from published guidance: 5 to 10%
+  weight loss when the BMI is over, the DASH way of eating and less salt for blood pressure, the Diabetes
+  Prevention Program's goals for prediabetes, what would lower your heart risk most) and **Tests to ask your doctor
+  about**, only the ones your own numbers call for (the guideline's starting tests when blood pressure is high;
+  liver tests with extra belly fat; a lipid panel and creatinine when the risk estimate needs them; A1c; Lp(a)
+  once). Worked out by Buddy's code; no AI model sees any of it; not medical advice.
+- **Blood pressure** (Today, and Trends → Body & BP): type each reading (top, bottom, pulse), or let your cuff's app
+  send them through Health Connect, each with its own time. Morning (4 am to noon) and evening (5 pm to 4 am) are
+  kept apart. Once there are 6 readings over 3 days, the week's home average is set against the **2025 AHA/ACC
+  guideline** (categories unchanged from 2017: normal under 120/80, elevated 120-129 and under 80, stage 1 130-139
+  or 80-89, stage 2 140/90 or more; at home stage 2 starts at 135/85, which matches 140/90 in the office, per the
+  ACC/AHA table of matching values), with what the guideline says next (stage 1: medicine when the PREVENT risk is
+  7.5% or more, otherwise 3 to 6 months of lifestyle change first; stage 2: medicine), morning against evening, and
+  this week against last. A reading of 180/120 or more is answered at once with the American Heart Association's
+  advice (measure again after 5 minutes; call your doctor; call 911 with chest pain, shortness of breath, back pain,
+  numbness or weakness, a change in vision or trouble speaking). "How to measure" has the AHA's steps.
+- **Trends → Body & BP:** the readings (Delete for a typed one), **weight and waist** (typed in kg or lb, cm or
+  inches, or from a scale through Health Connect; typed wins on a day), BMI against the WHO cut-offs or, with Asian
+  ancestry, the WHO expert consultation's lower ones (overweight from 23, obesity from 27.5), the healthy weight
+  range for your height, waist against the IDF's South Asian cut-off (90 cm men, 80 cm women) or the NIH's (102 and
+  88 cm), waist to height (NICE: under 0.5), and how to measure your waist (NIH). **10-year heart and stroke risk
+  (PREVENT):** the American Heart Association's PREVENT equations (2024; the 2025 blood pressure guideline uses them)
+  from your age and sex, total and HDL cholesterol, kidney function (eGFR worked out from your creatinine with the
+  race-free CKD-EPI 2021 equation), the week's home blood pressure, diabetes, smoking, and blood pressure medicine
+  and statins (two boxes on Labs → Checkups). It shows the risk of a heart attack, stroke or heart failure, and of
+  a heart attack or stroke alone, the guideline's 7.5% line, and what each change alone would do (a top number of
+  120, non-HDL cholesterol of 135, not smoking). Until everything is in, it says what's still needed. For ages 30 to
+  79 without heart disease. Checked against the published example (preventr: 14.7% and 9.2%). **Your targets**
+  for the week, and **Delete everything typed here**.
+- **This week** (Today, and Trends → Body & BP): cardio minutes (Oura's moderate time, and its vigorous time
+  counted double, as the Physical Activity Guidelines count them; the phone's active minutes on days without the
+  ring) against 150 a week, strength sessions against 2 (workouts recorded as strength training, or "I did strength
+  today"), steps against 8,000 a day and sleep against 7 hours, each with how to catch up ("about 25 minutes of brisk
+  walking a day for the next 4 days"), and "go easy today" when readiness or HRV is low. The targets can be changed.
+  **Reminders, not notifications:** the morning briefing ends with what's missing this week (added by Buddy's code
+  after the AI-written part, so no AI model sees your numbers), and the evening check-in says what's still open
+  today.
 - **Trends → Mood (your journal):** how you feel, in your own words. On Today you pick mood, stress and energy
   from 1 to 5 (any one is enough), what was going on (work, family, sleep, exercise, illness, travel, money,
   alcohol, social, alone time) and a short note of your own if you like. Several a day are fine; a day is their
@@ -160,7 +199,8 @@ sub-tabs under them, and the page remembers where you were.
   by you), and food targets. This form replaces the set-up conversation in section 2, and Plan opens on it until
   there is a plan. "Forget my health plan" (pressed twice) deletes the plan, the habit log and the meals; the
   readings stay until you delete them.
-- **Trends → Patterns (your personal model):** what, in your own days, tends to come before a better or worse next
+- **Trends → Patterns (your personal model):** (it also learns from blood pressure, cardio minutes, strength
+  sessions and the meals' sodium, with the next morning's blood pressure as one of the outcomes) what, in your own days, tends to come before a better or worse next
   morning. Learned on your server by plain code once a week (Sunday night) or when you press Learn now, from the
   readings Buddy keeps: the day's steps, active minutes, workouts, WHOOP strain, time under stress, your journal's
   mood, stress and energy, and each habit you tick off yourself, that night's bedtime, and the next morning's

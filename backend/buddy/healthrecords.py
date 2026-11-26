@@ -69,6 +69,9 @@ MEASURES = {  # measure -> (label, UCUM unit, LOINC where it exactly matches, ho
     "readiness": ("Readiness score", "{score}", "", ESTIMATED),
     "sleep_score": ("Sleep score", "{score}", "", ESTIMATED),
     "activity_score": ("Activity score", "{score}", "", ESTIMATED),
+    "moderate_minutes": ("Moderate activity", "min", "", ESTIMATED),
+    "vigorous_minutes": ("Vigorous activity", "min", "", ESTIMATED),
+    "waist_cm": ("Waist", "cm", "", ENTERED),
 }
 FROM = {  # connector -> {its field: (measure, its own unit)}
     "health_connect": {"steps": ("steps", "steps"), "sleep_minutes": ("sleep_minutes", "minutes"),
@@ -92,11 +95,12 @@ FROM = {  # connector -> {its field: (measure, its own unit)}
              "rem_minutes": ("rem_minutes", "minutes"), "sleep_efficiency": ("sleep_efficiency", "%"),
              "hrv": ("hrv", "ms"), "lowest_hr": ("lowest_hr", "bpm"), "avg_sleep_hr": ("avg_sleep_hr", "bpm"),
              "temp_deviation": ("temp_deviation", "°C"), "stress_minutes": ("stress_minutes", "minutes"),
-             "recovery_minutes": ("recovery_minutes", "minutes"), "spo2": ("spo2", "%")},
+             "recovery_minutes": ("recovery_minutes", "minutes"), "spo2": ("spo2", "%"),
+             "moderate_minutes": ("moderate_minutes", "minutes"), "vigorous_minutes": ("vigorous_minutes", "minutes")},
 }
 UNIT_WORDS = {"{steps}/d": "steps a day", "/min": "a minute", "ms": "milliseconds", "Cel": "°C", "%": "%",
               "kcal/d": "kcal a day", "min": "minutes", "{score}": "a score", "kg": "kilograms", "mm[Hg]": "mmHg",
-              "mg/dL": "mg/dL", "mL/(kg.min)": "mL per kg a minute"}  # the UCUM units, said plainly
+              "mg/dL": "mg/dL", "mL/(kg.min)": "mL per kg a minute", "cm": "centimetres"}  # the UCUM units, said plainly
 APPS = {"com.garmin.android.apps.connectmobile": "Garmin Connect", "com.fitbit.FitbitMobile": "Fitbit (and Pixel Watch)",
         "com.google.android.apps.fitness": "Google Fit", "com.sec.android.app.shealth": "Samsung Health",
         "com.ouraring.oura": "Oura", "com.withings.wiscale2": "Withings", "com.google.android.apps.healthdata":

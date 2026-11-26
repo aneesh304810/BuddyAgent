@@ -16,7 +16,7 @@ const esc = (s) => String(s ?? "").replace(/[&<>"']/g, (c) => ({ "&": "&amp;", "
 // Six sections; the ones with sub-tabs show them as a second, smaller row at the top of the page.
 const SECTIONS = [
   ["today", "Today", []],
-  ["trends", "Trends", [["measures", "Measures"], ["patterns", "Patterns"], ["mood", "Mood"]]],
+  ["trends", "Trends", [["measures", "Measures"], ["body", "Body & BP"], ["patterns", "Patterns"], ["mood", "Mood"]]],
   ["labs", "Labs", [["results", "Results"], ["add", "Add a report"], ["portals", "Portals"], ["checkups", "Checkups"]]],
   ["plan", "Plan", [["habits", "Progress"], ["food", "Food"], ["menu", "Menu"], ["goals", "Goals & habits"]]],
   ["learn", "Learn", [["research", "Research"], ["supplements", "Supplements"], ["medicines", "Medicines"]]],
@@ -404,8 +404,97 @@ function renderToday() {
     : `<p class="muted">${data.plan ? "No habits are due today." : "No plan yet. Set one up under Plan → Goals & habits and its habits show here."}</p>`;
   $("main").innerHTML = (k.length ? `<div class="kpis">${k.join("")}</div>` : card("Today", `<p class="muted">No readings yet for today or yesterday.</p>`))
     + (k.length ? card("What it means for today", means, "Fixed rules against your own week. Not medical advice.") : "")
-    + card("Today's habits", habits) + moodCard();
+    + nowCard() + weekCard() + bpQuick() + card("Today's habits", habits) + moodCard();
   wire();
+  wireBody();
+}
+
+// --- your health now, the week's targets, blood pressure, weight and waist (bodylog, prevent, activity, healthnow)
+let bodyData = null, bodyBusy = false, bpSaid = null, bodySure = false;
+async function loadBody(body) {
+  if (body) bodyBusy = true;
+  try { const out = await api("/api/health/body", body); bodyData = out; if (body && body.action === "bp") bpSaid = out.said; }
+  catch (e) { if (body) notice(e.message); else bodyData = bodyData || { failed: e.message }; }
+  bodyBusy = false;
+  if (tab === "today" || showing("trends", "body")) render();
+}
+const LEVEL = { ok: ["OK", "good"], watch: ["Watch", "warn"], act: ["Act", "bad"], none: ["Needs data", ""] };
+const lvl = (l) => { const [t, c] = LEVEL[l] || [l, ""]; return `<span class="pill ${c}">${esc(t)}</span>`; };
+function nowCard() {
+  if (!bodyData) { loadBody(); return card("Your health now", `<p class="muted">Loading…</p>`); }
+  if (bodyData.failed) return "";
+  const n = bodyData.now;
+  const rows = n.rows.map((r) => `<div class="line" style="align-items:flex-start"><div class="what">${esc(r.label)}${r.value ? ` <b>${esc(r.value)}</b>` : ""}<small>${esc(r.detail)}</small></div>${lvl(r.level)}</div>`).join("");
+  const watch = n.watch.length ? `<p style="margin:10px 0 4px"><b>To watch</b></p>${n.watch.map((w) => `<p class="why" style="margin:2px 0">${lvl(w.level)} ${esc(w.label)}: ${esc(w.detail)}</p>`).join("")}` : "";
+  const todo = n.todo.length ? `<p style="margin:10px 0 4px"><b>What to do</b></p>${n.todo.map((t) => `<p class="why" style="margin:2px 0">• ${esc(t.text)} <i>${esc(t.why)}</i></p>`).join("")}` : "";
+  const tests = n.tests.length ? `<details style="margin-top:8px"><summary class="why" style="cursor:pointer">Tests to ask your doctor about (${n.tests.length})</summary>${n.tests.map((t) => `<p class="why" style="margin:4px 0">• ${esc(t.text)} <i>(${esc(t.why)})</i></p>`).join("")}</details>` : "";
+  return card("Your health now", rows + watch + todo + tests + `<p style="margin:10px 0 0"><button class="btn" id="go-body">Blood pressure, weight and risk</button></p>`, esc(n.note));
+}
+function weekCard() {
+  if (!bodyData || bodyData.failed || !bodyData.week.has_data) return "";
+  const w = bodyData.week, ST = { met: ["Done", "good"], on_track: ["On track", "good"], behind: ["Behind", "warn"], open: ["Open", ""], no_data: ["No data", ""] };
+  const rows = w.items.map((i) => { const [t, c] = ST[i.status] || [i.status, ""];
+    const pct = i.key === "sleep" ? (i.goal ? i.done / i.goal : 0) : Math.min(1, i.goal ? i.done / i.goal : 0);
+    return `<div class="line" style="align-items:flex-start"><div class="what">${esc(i.label)} <b>${num(i.done)} of ${num(i.goal)}</b> <small>${esc(i.unit)}</small>
+      <div style="height:6px;background:var(--track);border-radius:3px;margin:4px 0"><div style="height:6px;width:${Math.round(pct * 100)}%;background:var(--accent);border-radius:3px"></div></div>
+      <small>${esc(i.say)}</small>${i.key === "strength" ? `<small><button class="btn" id="strength-log">${i.noted_today ? "Undo: strength today" : "I did strength today"}</button></small>` : ""}</div><span class="pill ${c}">${esc(t)}</span></div>`; }).join("");
+  return card("This week", rows + (w.easy ? `<p class="why">${esc(w.easy)}</p>` : ""), esc(w.note) + " Buddy says what's missing in the morning briefing and the evening check-in.");
+}
+function bpQuick() {
+  const said = bpSaid ? (bpSaid.alert ? `<p class="${bpSaid.level === "crisis" ? "err" : "why"}" style="padding:8px 0;font-weight:600">${esc(bpSaid.alert)}</p>` : `<p class="why">Saved: ${esc(bpSaid.reading.systolic)}/${esc(bpSaid.reading.diastolic)} (${esc(bpSaid.reading.period)}).</p>`) : "";
+  return card("Blood pressure", `<form class="f" id="bp-form"><input class="narrow" name="systolic" inputmode="numeric" placeholder="Top" aria-label="Top number (systolic)" required>
+      <span>/</span><input class="narrow" name="diastolic" inputmode="numeric" placeholder="Bottom" aria-label="Bottom number (diastolic)" required>
+      <input class="narrow" name="pulse" inputmode="numeric" placeholder="Pulse" aria-label="Pulse (optional)"><button class="btn solid"${bodyBusy ? " disabled" : ""}>Save</button></form>${said}`,
+    "Two readings a minute apart, morning and evening. Kept on your server; no AI model sees them.");
+}
+function renderBody() {
+  if (!bodyData) { $("main").innerHTML = `<p class="muted">Loading…</p>`; loadBody(); return; }
+  if (bodyData.failed) { $("main").innerHTML = `<p class="err">${esc(bodyData.failed)}</p>`; return; }
+  const bp = bodyData.bp, b = bodyData.body, r = bodyData.risk, t = bodyData.targets;
+  const wk = bp.week ? `<div class="kpis">${kpi(`${bp.week.systolic}/${bp.week.diastolic}`, "This week's average")}${bp.morning ? kpi(`${bp.morning.systolic}/${bp.morning.diastolic}`, `Mornings (${bp.morning.count})`) : ""}${bp.evening ? kpi(`${bp.evening.systolic}/${bp.evening.diastolic}`, `Evenings (${bp.evening.count})`) : ""}${bp.week.pulse ? kpi(bp.week.pulse, "Pulse") : ""}</div>` : "";
+  const cat = bp.enough ? `<p><b>${esc(bp.category.label)}</b>${bp.change != null ? ` · ${bp.change > 0 ? "+" : ""}${bp.change} on last week (top number)` : ""}</p><p class="why">${esc(bp.next)}</p>${bp.pattern ? `<p class="why">${esc(bp.pattern)}</p>` : ""}<p class="why">${esc(bp.target)}</p>` : `<p class="muted">${esc(bp.needed)}</p>`;
+  const list = bp.readings.map((x) => `<div class="line"><div class="what">${esc(x.systolic)}/${esc(x.diastolic)}${x.pulse ? ` · pulse ${esc(x.pulse)}` : ""}<small>${esc(when(x.at))} ${esc(x.at.slice(11, 16))} · ${esc(x.period)}${x.source === "health_connect" ? " · from your cuff app" : ""}</small></div>${x.source === "typed" ? `<button class="btn" data-bp-del="${x.id}" aria-label="Delete this reading">Delete</button>` : ""}</div>`).join("");
+  const howto = `<details><summary class="why" style="cursor:pointer">How to measure</summary>${bp.how_to.map((h) => `<p class="why" style="margin:2px 0">• ${esc(h)}</p>`).join("")}</details>`;
+  const bpCard = card("Blood pressure", wk + cat + bpQuickForm() + howto + (list ? `<details><summary class="why" style="cursor:pointer">Readings (${bp.readings.length})</summary>${list}</details>` : ""), esc(bp.note));
+  const bmi = b.bmi ? `<p><b>BMI ${esc(b.bmi.value)}</b> · ${esc(b.bmi.label)}</p><p class="why">A healthy weight for your height: ${num(b.bmi.healthy_kg[0])} to ${num(b.bmi.healthy_kg[1])} kg (${esc(b.bmi.why)}).</p>${b.trend ? `<p class="why">${esc(b.trend.text)}</p>` : ""}` : "";
+  const waist = b.waist ? `<p><b>Waist ${num(b.waist.value)} cm</b> · ${esc(b.waist.label)} of ${esc(b.waist.cut)} cm (${esc(b.waist.why)})${b.waist.ratio ? ` · waist to height ${esc(b.waist.ratio.value)}: ${esc(b.waist.ratio.label)}` : ""}</p>` : "";
+  const bodyCard = card("Weight and waist", (b.weight ? `<p>Weight <b>${num(b.weight.value)} kg</b> <span class="muted">${b.weight.day ? esc(when(b.weight.day)) : ""}${b.weight.source === "entered" ? " · typed" : ""}</span></p>` : "") + bmi + waist
+    + (b.missing.length ? `<p class="muted">Still needed: ${esc(b.missing.join("; "))}</p>` : "")
+    + `<form class="f" id="weight-form"><input class="narrow" name="value" inputmode="decimal" placeholder="Weight" aria-label="Weight" required><select name="unit" aria-label="Unit"><option value="kg">kg</option><option value="lb">lb</option></select><button class="btn solid">Save weight</button></form>
+       <form class="f" id="waist-form" style="margin-top:6px"><input class="narrow" name="value" inputmode="decimal" placeholder="Waist" aria-label="Waist" required><select name="unit" aria-label="Unit"><option value="cm">cm</option><option value="in">in</option></select><button class="btn solid">Save waist</button></form>
+       <p class="why">${esc(b.waist_how)}</p>`, esc(b.note));
+  const i = r.inputs || {};
+  const riskBody = r.status === "ok" ? `<div class="kpis">${kpi(`${r.cvd}%`, "Heart attack, stroke or heart failure in 10 years")}${kpi(`${r.ascvd}%`, "Heart attack or stroke")}</div><p><b>${esc(r.label)}</b></p>
+      ${(r.moves || []).map((m) => `<p class="why">• With ${esc(m.if)}: ${esc(m.cvd)}% (${esc(m.less)} less)</p>`).join("")}
+      <details><summary class="why" style="cursor:pointer">What it rests on</summary><p class="why">Age ${esc(i.age)}, ${esc(i.sex)}; total cholesterol ${esc(i.total_c)} and HDL ${esc(i.hdl)} mg/dL (${esc(i.lipids_at)}); top blood pressure number ${esc(i.sbp)} (${esc(i.sbp_how)}); eGFR ${esc(i.egfr)} (${esc(i.egfr_how)}); diabetes ${i.diabetes ? "yes" : "no"}; smoking ${i.smoker ? "yes" : "no"}; blood pressure medicine ${i.bp_meds ? "yes" : "no"}; statin ${i.statin ? "yes" : "no"}${i.asked_meds ? "" : " (tick them on Labs → Checkups if you take them)"}.</p></details>`
+    : `<p class="muted">${esc(r.detail)}</p>`;
+  const riskCard = card("10-year heart and stroke risk (PREVENT)", riskBody, esc(r.note));
+  const tCard = card("Your targets", `<form class="f" id="targets-form"><label class="pick">Cardio <input class="narrow" name="cardio" inputmode="numeric" value="${esc(t.cardio)}"> min a week</label>
+      <label class="pick">Strength <input class="narrow" name="strength" inputmode="numeric" value="${esc(t.strength)}"> a week</label>
+      <label class="pick">Steps <input class="narrow" name="steps" inputmode="numeric" value="${esc(t.steps)}"> a day</label>
+      <label class="pick">Sleep <input class="narrow" name="sleep_h" inputmode="decimal" value="${esc(t.sleep_h)}"> hours</label><button class="btn solid">Save</button></form>`,
+    "Physical Activity Guidelines: 150 to 300 moderate minutes a week (a vigorous minute counts as two), strength on 2 or more days.");
+  $("main").innerHTML = bpCard + bodyCard + riskCard + weekCard() + tCard
+    + `<p><button class="btn danger" id="body-forget">${bodySure ? "Press again to delete them all" : "Delete everything typed here"}</button> <span class="muted">Blood pressure readings, typed weights and waists, risk estimates and strength sessions noted.</span></p>`;
+  wireBody();
+  $("body-forget").onclick = () => { if (!bodySure) { bodySure = true; render(); return; } bodySure = false; loadBody({ action: "forget" }); };
+}
+function bpQuickForm() {
+  return `<form class="f" id="bp-form" style="margin:8px 0"><input class="narrow" name="systolic" inputmode="numeric" placeholder="Top" aria-label="Top number (systolic)" required>
+    <span>/</span><input class="narrow" name="diastolic" inputmode="numeric" placeholder="Bottom" aria-label="Bottom number (diastolic)" required>
+    <input class="narrow" name="pulse" inputmode="numeric" placeholder="Pulse" aria-label="Pulse (optional)"><button class="btn solid"${bodyBusy ? " disabled" : ""}>Save reading</button></form>
+    ${bpSaid && bpSaid.alert ? `<p class="${bpSaid.level === "crisis" ? "err" : "why"}" style="padding:8px 0;font-weight:600">${esc(bpSaid.alert)}</p>` : ""}`;
+}
+function wireBody() {
+  if ($("bp-form")) $("bp-form").onsubmit = (e) => { e.preventDefault(); const d = new FormData(e.target);
+    loadBody({ action: "bp", systolic: d.get("systolic"), diastolic: d.get("diastolic"), pulse: d.get("pulse") }); };
+  for (const what of ["weight", "waist"]) if ($(`${what}-form`)) $(`${what}-form`).onsubmit = (e) => { e.preventDefault(); const d = new FormData(e.target);
+    loadBody({ action: what, value: d.get("value"), unit: d.get("unit") }); };
+  if ($("targets-form")) $("targets-form").onsubmit = (e) => { e.preventDefault(); const d = new FormData(e.target);
+    loadBody({ action: "targets", targets: Object.fromEntries(["cardio", "strength", "steps", "sleep_h"].map((k) => [k, d.get(k)])) }); };
+  if ($("strength-log")) $("strength-log").onclick = () => { const on = !bodyData.week.items.find((i) => i.key === "strength").noted_today; loadBody({ action: "strength", on }); };
+  $("main").querySelectorAll("[data-bp-del]").forEach((b) => b.onclick = () => loadBody({ action: "bp_delete", id: Number(b.dataset.bpDel) }));
+  if ($("go-body")) $("go-body").onclick = () => { tab = "trends"; storageSet("healthTab", "trends"); storageSet("healthSub:trends", "body"); render(); };
 }
 
 function spark(m) {
@@ -817,6 +906,7 @@ function chkForm() {
       <label>In your family (a parent, brother, sister or child)</label>${Object.entries(c.family).map(([k, v]) => box("family", k, v, (p.family || []).includes(k))).join("")}
       <label>You've been told you have</label>${Object.entries(c.conditions).map(([k, v]) => box("conditions", k, v, (p.conditions || []).includes(k))).join("")}
       ${box("postmenopausal", "1", "After menopause (women)", p.postmenopausal)}
+      <label>Medicines (for the heart risk estimate)</label>${box("bp_meds", "1", "Taking blood pressure medicine", p.bp_meds)}${box("statin", "1", "Taking a statin", p.statin)}
       <label>Your health plan (only its kind, for the coverage notes)</label>
       <select name="plan">${Object.entries(c.plans).map(([k, v]) => `<option value="${esc(k)}"${(p.plan || "") === k ? " selected" : ""}>${esc(v)}</option>`).join("")}</select>
       <p style="margin:12px 0 0"><button class="btn solid">Save</button>${chkData.filled ? ` <button type="button" class="btn" id="chk-cancel">Cancel</button>` : ""}</p>
@@ -873,6 +963,7 @@ function wireCheckups() {
     for (const k of ["birth_year", "height_cm", "waist_cm", "sex", "born_high", "smoking", "pack_years", "quit_year", "plan"]) answers[k] = String(d.get(k) ?? "").trim();
     for (const k of ["ancestry", "family", "conditions"]) answers[k] = d.getAll(k);
     answers.postmenopausal = d.get("postmenopausal") === "1";
+    answers.bp_meds = d.get("bp_meds") === "1"; answers.statin = d.get("statin") === "1";
     loadCheckups({ action: "profile", answers });
   };
   if ($("chk-cancel")) $("chk-cancel").onclick = () => { chkEdit = false; render(); };
@@ -910,7 +1001,7 @@ function wire() {
 
 const VIEWS = {
   today: renderToday, sources: renderSources,
-  "trends/measures": renderTrends, "trends/patterns": renderPatterns, "trends/mood": moodHistory,
+  "trends/measures": renderTrends, "trends/body": renderBody, "trends/patterns": renderPatterns, "trends/mood": moodHistory,
   "labs/results": () => renderLabs("results"), "labs/add": () => renderLabs("add"), "labs/portals": () => renderLabs("portals"),
   "labs/checkups": renderCheckups,
   "plan/habits": renderHabits, "plan/food": renderFood, "plan/menu": renderMenu, "plan/goals": renderPlan,

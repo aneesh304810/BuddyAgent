@@ -1843,6 +1843,48 @@ async def api_health_diet_act(body: dict) -> dict:
     return {"text": text, **await asyncio.to_thread(dietplan.menu, memory, None, swap)}
 
 
+def _body_all() -> dict:
+    from . import activity, bodylog, healthnow, prevent  # noqa: PLC0415
+    return {"now": healthnow.view(memory), "bp": bodylog.bp_view(memory), "body": bodylog.body_view(memory),
+            "risk": prevent.estimate(memory, keep=False), "week": activity.week(memory),
+            "targets": activity.targets(memory)}
+
+
+@app.get("/api/health/body", dependencies=[Depends(require_admin)])
+async def api_health_body() -> dict:
+    """Your health now, blood pressure, weight and waist, the PREVENT risk and the week's activity (code only)."""
+    return await asyncio.to_thread(_body_all)
+
+
+@app.post("/api/health/body", dependencies=[Depends(require_admin)])
+async def api_health_body_act(body: dict) -> dict:
+    """bp (systolic, diastolic, pulse), bp_delete (id), weight/waist (value, unit), targets, strength (on: bool)."""
+    from . import activity, bodylog  # noqa: PLC0415
+    action, said = str(body.get("action") or ""), {}
+    try:
+        if action == "bp":
+            said = await asyncio.to_thread(bodylog.add_bp, memory, body.get("systolic"), body.get("diastolic"),
+                                           body.get("pulse"))
+        elif action == "bp_delete":
+            await asyncio.to_thread(bodylog.delete_bp, memory, int(body.get("id") or 0))
+        elif action in ("weight", "waist"):
+            await asyncio.to_thread(bodylog.add_measure, memory, action, body.get("value"), str(body.get("unit") or ""))
+        elif action == "targets":
+            await asyncio.to_thread(activity.set_targets, memory, body.get("targets") or {})
+        elif action == "strength":
+            await asyncio.to_thread(activity.log_strength if body.get("on", True) else activity.unlog_strength, memory)
+        elif action == "forget":
+            said = {"deleted": await asyncio.to_thread(bodylog.forget, memory)}
+        else:
+            raise HTTPException(400, "unknown action")
+    except (ToolError, ValueError) as e:
+        raise HTTPException(400, str(e)) from None
+    if action == "bp":
+        from . import prevent  # noqa: PLC0415  a new week's average may change the estimate: keep today's
+        await asyncio.to_thread(prevent.estimate, memory)
+    return {"said": said, **await asyncio.to_thread(_body_all)}
+
+
 @app.post("/api/health/fit", dependencies=[Depends(require_admin)])
 async def api_health_fit(body: dict) -> dict:
     """Does this food, at this portion, fit the owner's goal and plan? Worked out by code on the server (dietcheck)."""

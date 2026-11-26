@@ -1,7 +1,7 @@
 """The owner's personal health model: what, in their own days, tends to come before a better or worse next day.
 
 Learned on the owner's server by plain code (no AI model, nothing sent anywhere), once a week and when they ask,
-from the readings Buddy keeps (two years: the owner chose to keep health data longer so this has history):
+from the readings Buddy keeps (until the owner deletes them, so this has history to learn from):
 
   what happened on a day   steps, active minutes, workouts, WHOOP strain, time under stress, and each habit of the
                            health plan the owner ticks off themselves (done or not)
@@ -40,7 +40,8 @@ LATEST_KEY, WEEK_KEY = "healthmodel:latest", "healthmodel:week"
 FACTORS = {  # field on day d -> words
     "steps": "steps", "active_minutes": "active minutes", "workouts": "workouts", "strain": "WHOOP strain",
     "stress_minutes": "time under stress", "mood": "mood (your journal)", "stress": "stress (your journal)",
-    "energy": "energy (your journal)",
+    "energy": "energy (your journal)", "cardio_minutes": "cardio minutes", "strength": "a strength session",
+    "sodium_mg": "sodium eaten (meals with numbers)",
 }
 NIGHT = {"bedtime": "a later bedtime"}  # taken from the next morning's row (the night before it)
 OUTCOMES = {  # field on day d+1 -> (words, unit, which way is better)
@@ -48,6 +49,7 @@ OUTCOMES = {  # field on day d+1 -> (words, unit, which way is better)
     "sleep_score": ("sleep score", "points", 1), "sleep_minutes": ("sleep", "minutes", 1),
     "hrv": ("heart rate variability", "ms", 1), "resting_hr": ("resting heart rate", "beats a minute", -1),
     "lowest_hr": ("lowest night heart rate", "beats a minute", -1),
+    "bp_sys_am": ("morning blood pressure (top number)", "mmHg", -1),
 }
 SCHEMA = """
 CREATE TABLE IF NOT EXISTS health_model_runs (   -- what the personal model learned each time (no daily values)
@@ -77,12 +79,26 @@ def _habits(memory: Memory) -> dict[str, str]:
             if h.get("metric") == "manual"}
 
 
+def _sodium(memory: Memory, days: int) -> dict[str, dict]:
+    """Each day's sodium from the meals that came with their numbers (a lookup or the menu)."""
+    from . import coach  # noqa: PLC0415
+    coach._ready(memory)
+    since = (local_now().date() - timedelta(days=days)).isoformat()
+    return {r["day"]: {"sodium_mg": r["mg"]} for r in memory.db.execute(
+        "SELECT day, SUM(sodium_mg) AS mg FROM coach_meals WHERE sodium_mg IS NOT NULL AND day >= ? GROUP BY day",
+        (since,))}
+
+
 def table(memory: Memory, days: int = LOOK_BACK) -> list[dict]:
     """One row per day with a next morning: the day's factors, that night's bedtime, the next morning's measures."""
     from . import coach, moodlog  # noqa: PLC0415
     data = coach._data(memory, days)
     for day, felt in moodlog.daily(memory, days).items():  # the journal's day averages, beside the devices' numbers
         data.setdefault(day, {}).update({k: felt[k] for k in moodlog.SCALES if felt.get(k) is not None})
+    from . import activity, bodylog  # noqa: PLC0415  blood pressure, cardio and strength, and the meals' sodium
+    for source in (bodylog.daily(memory, days), activity.daily(memory, days), _sodium(memory, days)):
+        for day, values in source.items():
+            data.setdefault(day, {}).update({k: v for k, v in values.items() if v is not None})
     habits = _habits(memory)
     ticked: dict[str, set] = {}
     started = ""

@@ -68,8 +68,9 @@ def ingest(memory: Memory, payload: dict) -> int:
 
 
 def _ingest(memory: Memory, payload: dict, got: dict) -> int:
-    from . import healthrecords  # noqa: PLC0415
+    from . import bodylog, healthrecords  # noqa: PLC0415
     _ready(memory)
+    bodylog.ingest_phone(memory, (payload or {}).get("bp_readings"))  # each cuff reading with its own time
     n = 0
     now = datetime.now(timezone.utc).isoformat()
     for d in (payload or {}).get("days") or []:

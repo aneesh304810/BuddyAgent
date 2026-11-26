@@ -41,7 +41,8 @@ FIRST_DAYS = 365  # the first sync reads a year of history (for the personal mod
 SYNC_EVERY_S = 3 * 3600
 FIELDS = ("readiness", "sleep_score", "activity_score", "steps", "active_calories", "total_calories",
           "sleep_minutes", "deep_minutes", "rem_minutes", "sleep_efficiency", "hrv", "lowest_hr", "avg_sleep_hr",
-          "temp_deviation", "stress_minutes", "recovery_minutes", "resilience", "spo2", "bedtime", "wake")
+          "temp_deviation", "stress_minutes", "recovery_minutes", "resilience", "spo2", "bedtime", "wake",
+          "moderate_minutes", "vigorous_minutes")  # Oura's medium- and high-activity time (3-6 and 6+ METs)
 SCHEMA = """
 CREATE TABLE IF NOT EXISTS oura_daily (          -- from the owner's Oura Ring; 90 days
     day TEXT PRIMARY KEY,
@@ -49,6 +50,7 @@ CREATE TABLE IF NOT EXISTS oura_daily (          -- from the owner's Oura Ring; 
     total_calories INTEGER, sleep_minutes INTEGER, deep_minutes INTEGER, rem_minutes INTEGER,
     sleep_efficiency INTEGER, hrv INTEGER, lowest_hr INTEGER, avg_sleep_hr INTEGER, temp_deviation REAL,
     stress_minutes INTEGER, recovery_minutes INTEGER, resilience TEXT, spo2 REAL, bedtime TEXT, wake TEXT,
+    moderate_minutes INTEGER, vigorous_minutes INTEGER,
     workouts TEXT NOT NULL DEFAULT '[]', updated_at TEXT NOT NULL
 );
 """
@@ -57,6 +59,10 @@ _lock = threading.Lock()  # one renewal at a time: a refresh token used twice is
 
 def _ready(memory: Memory) -> None:
     memory.db.executescript(SCHEMA)
+    have = {r[1] for r in memory.db.execute("PRAGMA table_info(oura_daily)")}
+    for column in ("moderate_minutes", "vigorous_minutes"):  # added later: cardio minutes for the week's targets
+        if column not in have:
+            memory.db.execute(f"ALTER TABLE oura_daily ADD COLUMN {column} INTEGER")  # nosec B608: fixed names
 
 
 def _tokens(memory: Memory) -> dict:
@@ -216,7 +222,8 @@ def days_from(records: dict[str, list[dict]]) -> dict[str, dict]:
     for r in records.get("daily_activity", []):
         d = row(r["day"])
         d.update(activity_score=r.get("score"), steps=r.get("steps"), active_calories=r.get("active_calories"),
-                 total_calories=r.get("total_calories"))
+                 total_calories=r.get("total_calories"), moderate_minutes=_min(r.get("medium_activity_time")),
+                 vigorous_minutes=_min(r.get("high_activity_time")))
     for r in records.get("sleep", []):  # the main night only (naps are "sleep" or "late_nap")
         if r.get("type") not in ("long_sleep", None):
             continue

@@ -118,6 +118,8 @@ def save_profile(memory: Memory, answers: dict) -> dict:
         "height_cm": _number(answers.get("height_cm"), 120, 230),
         "waist_cm": _number(answers.get("waist_cm"), 50, 200),
         "plan": answers.get("plan") if answers.get("plan") in PLANS else "",
+        "bp_meds": bool(answers.get("bp_meds")),  # for the PREVENT risk estimate
+        "statin": bool(answers.get("statin")),
     }
     memory.set(PROFILE_KEY, json.dumps(out))
     return out

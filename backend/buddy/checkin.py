@@ -222,6 +222,12 @@ def readback(memory: Memory, a: dict) -> str:
     week = moodlog.view(memory, 7)["week"]
     if week.get("mood") is not None:
         parts.append(f"Your mood this week averages {week['mood']}.")
+    try:  # what's still open on the week's activity targets (code only)
+        from . import activity  # noqa: PLC0415
+        if (still := activity.evening_line(memory)):
+            parts.append(still)
+    except Exception:  # noqa: BLE001
+        pass
     if (a.get("mood") and a["mood"] <= 2) or a.get("people") == "no":
         parts.append("Thanks for telling me. If days like this keep coming, talking to someone you trust or a "
                      "doctor helps, and if you ever feel unsafe, call or text 988 any time.")

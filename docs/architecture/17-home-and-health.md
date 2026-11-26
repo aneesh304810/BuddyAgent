@@ -35,6 +35,10 @@ flowchart LR
         dietcheck_py["dietcheck.py<br/>Does this food fit? Before a looked-up, scanned or phone-named food…"]
         freshness_py["freshness.py<br/>whether the guidelines and tables Buddy's health rules rest on have a…"]
         paperlib_py["paperlib.py<br/>every research paper Buddy finds, from any source, kept with its…"]
+        bodylog_py["bodylog.py<br/>readings typed on the Health page or sent by a cuff or scale app…"]
+        prevent_py["prevent.py<br/>The American Heart Association's PREVENT equations: the 10-year…"]
+        activity_py["activity.py<br/>The week's activity targets, from the Oura Ring first (and the…"]
+        healthnow_py["healthnow.py<br/>one view of where the owner stands, what to watch, what to do and…"]
     end
     you --> t_thermostat
     t_thermostat --> nest_py
@@ -44,6 +48,7 @@ flowchart LR
     t_health_info --> health_data_py
     you --> t_health_plan
     t_health_plan --> coach_py
+    health_data_py --> bodylog_py
     health_data_py --> healthrecords_py
     health_data_py --> oura_py
     oura_py --> healthrecords_py
@@ -61,9 +66,12 @@ flowchart LR
     fhirlabs_py --> healthrecords_py
     fhirlabs_py --> labs_py
     whoop_py --> healthrecords_py
+    healthmodel_py --> activity_py
+    healthmodel_py --> bodylog_py
     healthmodel_py --> coach_py
     healthmodel_py --> moodlog_py
     moodlog_py --> healthrecords_py
+    checkin_py --> activity_py
     checkin_py --> coach_py
     checkin_py --> moodlog_py
     prevention_py --> freshness_py
@@ -83,7 +91,23 @@ flowchart LR
     dietcheck_py --> prevention_py
     freshness_py --> paperlib_py
     freshness_py --> prevention_py
-    db[("Your database<br/>coach_log, coach_meals, evidence_papers, health_daily, health_model_runs, health_records, lab_reports, lab_results and more")]
+    bodylog_py --> activity_py
+    bodylog_py --> dietcheck_py
+    bodylog_py --> dietplan_py
+    bodylog_py --> healthrecords_py
+    bodylog_py --> prevent_py
+    bodylog_py --> prevention_py
+    prevent_py --> bodylog_py
+    prevent_py --> labs_py
+    prevent_py --> prevention_py
+    activity_py --> coach_py
+    activity_py --> health_data_py
+    activity_py --> oura_py
+    healthnow_py --> activity_py
+    healthnow_py --> bodylog_py
+    healthnow_py --> prevent_py
+    healthnow_py --> prevention_py
+    db[("Your database<br/>bp_readings, coach_log, coach_meals, evidence_papers, health_daily, health_model_runs, health_records, lab_reports and more")]
     health_data_py --> db
     oura_py --> db
     coach_py --> db
@@ -94,6 +118,9 @@ flowchart LR
     moodlog_py --> db
     evidence_py --> db
     paperlib_py --> db
+    bodylog_py --> db
+    prevent_py --> db
+    activity_py --> db
     s_medlineplus["MedlinePlus (NIH health topics)<br/>(public data only)"]
     health_data_py --> s_medlineplus
     s_nest["Google Nest (thermostat)<br/>(may see personal data)"]
@@ -170,7 +197,7 @@ medical advice: the tool says so.
 
 - Tables: `health_daily`
 - Outside services: MedlinePlus (NIH health topics), openFDA (medicines), Open Food Facts (nutrition)
-- Uses: connecthub.py, gateway.py, healthrecords.py, memory.py, oura.py, tools.py
+- Uses: bodylog.py, connecthub.py, gateway.py, healthrecords.py, memory.py, oura.py, tools.py
 
 ### oura.py
 
@@ -378,7 +405,7 @@ is simply left empty.
 The owner's personal health model: what, in their own days, tends to come before a better or worse next day.
 
 Learned on the owner's server by plain code (no AI model, nothing sent anywhere), once a week and when they ask,
-from the readings Buddy keeps (two years: the owner chose to keep health data longer so this has history):
+from the readings Buddy keeps (until the owner deletes them, so this has history to learn from):
 
   what happened on a day   steps, active minutes, workouts, WHOOP strain, time under stress, and each habit of the
                            health plan the owner ticks off themselves (done or not)
@@ -401,7 +428,7 @@ only (Health → Trends → Patterns); no AI model is given them (the Privacy Ga
 ```
 
 - Tables: `health_model_runs`
-- Uses: coach.py, memory.py, moodlog.py, tools.py
+- Uses: activity.py, bodylog.py, coach.py, memory.py, moodlog.py, tools.py
 
 ### moodlog.py
 
@@ -442,7 +469,7 @@ Spoken answers pass through a speech recognizer first, like every spoken word (t
 answers go only to the owner's server.
 ```
 
-- Uses: coach.py, memory.py, moodlog.py, privacygate.py, tools.py
+- Uses: activity.py, coach.py, memory.py, moodlog.py, privacygate.py, tools.py
 
 ### prevention.py
 
@@ -646,6 +673,91 @@ sent anywhere from here.
 
 - Tables: `paper_finds`, `papers`
 - Uses: memory.py, tools.py
+
+### bodylog.py
+
+```text
+Blood pressure, weight and waist: readings typed on the Health page or sent by a cuff or scale app through Health
+Connect, each kept with its time until the owner deletes it, and what they say by published cut-offs. Code only:
+no AI model sees any of it.
+
+Blood pressure (the 2025 AHA/ACC guideline; its categories are unchanged from 2017):
+- every reading is kept with its time: morning (4 am to noon), evening (5 pm to 4 am) or other;
+- the last 7 days' home average, once there are enough readings (6, over 3 days), against the categories: normal
+  under 120/80; elevated 120-129 and under 80; stage 1 130-139 or 80-89; stage 2 140/90 or more. A home average
+  of 135/85 matches 140/90 in the office (the ACC/AHA table of matching home and office values, 2017), so
+  stage 2 starts there for home readings;
+- morning against evening, and this week against last;
+- a reading of 180/120 or more is answered at once with the American Heart Association's advice, and a low one
+  (under 90/60) with when to tell a doctor.
+
+Weight and waist: typed ("entered by you") or from a scale. BMI by height, with the WHO cut-offs (25 and 30) and,
+for Asian ancestry, the WHO expert consultation's lower ones (23 and 27.5); waist against the NIH's (over 102 cm
+for men, 88 cm for women) and, for Asian ancestry, the IDF's (90 and 80 cm); and waist to height (NICE: keep it
+under 0.5).
+```
+
+- Tables: `bp_readings`
+- Uses: activity.py, dietcheck.py, dietplan.py, healthrecords.py, memory.py, prevent.py, prevention.py, tools.py
+
+### prevent.py
+
+```text
+The American Heart Association's PREVENT equations: the 10-year chance of cardiovascular disease (heart attack,
+stroke or heart failure) and of atherosclerotic cardiovascular disease (heart attack or stroke), for adults aged 30
+to 79 without heart disease. The 2025 AHA/ACC high blood pressure guideline uses it: with stage 1 high blood
+pressure, medicine is advised at a 10-year PREVENT risk of 7.5% or more.
+
+The base model (Khan SS et al., Circulation 2024;149:430-449): age, total and HDL cholesterol (non-HDL from them),
+systolic blood pressure, diabetes, current smoking, eGFR, blood pressure medicine and statin use. The coefficients
+are the published ones, as carried by the MIT-licensed pyprevent 0.1.7 (its source, src/model_coefficients.rs),
+and this code is checked against its compiled calculator. eGFR is worked out from creatinine with the race-free
+CKD-EPI 2021 equation (Inker LA et al., NEJM 2021).
+
+Inputs come from the owner's own data: age and sex (Checkups), cholesterol, HDL, creatinine and A1c (Labs), the
+week's home blood pressure (Trends → Body & BP), smoking, blood pressure medicine and statin (Checkups). Code only:
+no AI model sees any of it. Each estimate is kept, with what it rested on, until the owner deletes it.
+```
+
+- Tables: `prevent_history`
+- Uses: bodylog.py, labs.py, memory.py, prevention.py, tools.py
+
+### activity.py
+
+```text
+The week's activity targets, from the Oura Ring first (and the phone's Health Connect for what it lacks), and what
+is still missing, said in the morning briefing, the evening check-in and on the Health page (never a notification).
+
+The targets (the owner can change them):
+- cardio: 150 minutes a week of moderate activity, a vigorous minute counted as two (Physical Activity Guidelines
+  for Americans, 2nd edition: 150 to 300 moderate, or 75 to 150 vigorous). Oura's medium-activity time is moderate
+  (3 to 6 METs) and its high-activity time vigorous (6 METs or more), the guideline's own split; without the ring
+  that day, the phone's active minutes count as moderate;
+- strength: 2 sessions a week (the guideline: muscle-strengthening on 2 or more days), from workouts the ring or the
+  phone recorded as strength training, or the owner's own "I did strength today";
+- steps: 8,000 a day; sleep: 7 hours a night (adults 7 or more).
+Code only: no AI model sees any of it; the briefing's line is added by code after the model's part.
+```
+
+- Tables: `strength_log`
+- Uses: coach.py, health_data.py, memory.py, oura.py, tools.py
+
+### healthnow.py
+
+```text
+Your health now: one view of where the owner stands, what to watch, what to do and which tests to ask about,
+from their own numbers and published guidance. Code only: no AI model sees any of it. Not medical advice.
+
+What it reads: weight, BMI and waist (bodylog), the week's home blood pressure (bodylog), A1c and LDL (Labs), the
+PREVENT 10-year risk (prevent), this week's activity and sleep (activity), smoking (Checkups).
+
+The cut-offs it uses: BMI and waist as in bodylog; blood pressure as the 2025 AHA/ACC guideline; A1c by the
+American Diabetes Association (under 5.7% normal, 5.7 to 6.4 prediabetes, 6.5 or more diabetes range); LDL by
+the NCEP ATP III bands (under 100 optimal, 100-129 near optimal, 130-159 borderline high, 160-189 high, 190 or more
+very high); activity by the Physical Activity Guidelines; sleep 7 hours or more.
+```
+
+- Uses: activity.py, bodylog.py, memory.py, prevent.py, prevention.py, tools.py
 
 ## How it connects
 
