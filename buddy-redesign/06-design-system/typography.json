@@ -1,0 +1,54 @@
+{
+  "family": {
+    "web": "Inter, 'Segoe UI', system-ui, sans-serif",
+    "android": "Roboto (system)",
+    "numbers": "tabular-nums"
+  },
+  "scale": {
+    "display": [
+      32,
+      40,
+      500
+    ],
+    "title-1": [
+      24,
+      32,
+      500
+    ],
+    "title-2": [
+      20,
+      28,
+      500
+    ],
+    "title-3": [
+      17,
+      24,
+      500
+    ],
+    "body": [
+      16,
+      24,
+      400
+    ],
+    "body-small": [
+      14,
+      20,
+      400
+    ],
+    "label": [
+      14,
+      20,
+      500
+    ],
+    "caption": [
+      12,
+      16,
+      400
+    ],
+    "overline": [
+      11,
+      16,
+      600
+    ]
+  }
+}

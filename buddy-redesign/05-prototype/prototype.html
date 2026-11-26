@@ -1,0 +1,604 @@
+<title>Buddy Prototype</title>
+<meta name="claude:viewport-fit-sides" content="cover">
+<link rel="preconnect" href="https://fonts.googleapis.com">
+<link rel="preconnect" href="https://fonts.gstatic.com" crossorigin>
+<link rel="stylesheet" href="https://fonts.googleapis.com/css2?family=Inter:wght@400;500;600&display=swap">
+<style>
+/* Layout: a review bench. A control strip on top (device, theme, plan, state), the device below it. Inside the
+   device: Buddy's app shell built only from the shared tokens (../06-design-system/tokens.css, copied here). */
+:root {
+  --b-primary:#1F6F5C; --b-primary-strong:#174E41; --b-on-primary:#FFFFFF; --b-primary-soft:#E3F0EA;
+  --b-background:#F7F8F6; --b-surface:#FFFFFF; --b-surface-2:#F0F3EF; --b-text:#17211D; --b-text-2:#5E6B63;
+  --b-border:#E3E9E4; --b-border-strong:#808C84; --b-success:#1B7A4B; --b-warning:#8A5A12; --b-critical:#B3261E;
+  --b-info:#2F62C9; --b-listening:#0B7A83; --b-speaking:#9A5300; --b-thinking:#6B4FBB; --b-approval:#9C3D6B;
+  --b-success-soft:#E4F3EA; --b-warning-soft:#FBF0DC; --b-critical-soft:#FBE7E5; --b-info-soft:#E7EEFB;
+  --b-approval-soft:#F7E6EF; --b-scrim:#17211D66; --bench:#E9ECE8; --frame:#2A322D;
+  --b-font: Inter, "Segoe UI", system-ui, sans-serif;
+  --b-shadow: 0 4px 12px rgba(23,33,29,.08); --b-shadow-3: 0 12px 32px rgba(23,33,29,.16);
+}
+@media (prefers-color-scheme: dark) { :root:not([data-theme="light"]) {
+  --b-primary:#75B99A; --b-primary-strong:#9BD0B6; --b-on-primary:#0D1A14; --b-primary-soft:#1F3329;
+  --b-background:#101713; --b-surface:#19221C; --b-surface-2:#222D25; --b-text:#F2F5F1; --b-text-2:#A6B1A9;
+  --b-border:#303D34; --b-border-strong:#6E7D74; --b-success:#6FCF97; --b-warning:#F2B65A; --b-critical:#FF8A80;
+  --b-info:#8FB0FF; --b-listening:#5BC8CF; --b-speaking:#F5A85B; --b-thinking:#B9A3FF; --b-approval:#E894BD;
+  --b-success-soft:#1C3326; --b-warning-soft:#3A2E17; --b-critical-soft:#3D2020; --b-info-soft:#1E2A45;
+  --b-approval-soft:#3A2230; --b-scrim:#000000AA; --bench:#0A0F0C; --frame:#3A453E; color-scheme:dark; } }
+:root[data-theme="dark"] {
+  --b-primary:#75B99A; --b-primary-strong:#9BD0B6; --b-on-primary:#0D1A14; --b-primary-soft:#1F3329;
+  --b-background:#101713; --b-surface:#19221C; --b-surface-2:#222D25; --b-text:#F2F5F1; --b-text-2:#A6B1A9;
+  --b-border:#303D34; --b-border-strong:#6E7D74; --b-success:#6FCF97; --b-warning:#F2B65A; --b-critical:#FF8A80;
+  --b-info:#8FB0FF; --b-listening:#5BC8CF; --b-speaking:#F5A85B; --b-thinking:#B9A3FF; --b-approval:#E894BD;
+  --b-success-soft:#1C3326; --b-warning-soft:#3A2E17; --b-critical-soft:#3D2020; --b-info-soft:#1E2A45;
+  --b-approval-soft:#3A2230; --b-scrim:#000000AA; --bench:#0A0F0C; --frame:#3A453E; color-scheme:dark; }
+* { box-sizing:border-box; }
+body { margin:0; background:var(--bench); color:var(--b-text); font:400 15px/1.45 var(--b-font); }
+button, input, select { font:inherit; color:inherit; }
+button { cursor:pointer; }
+:focus-visible { outline:2px solid var(--b-primary); outline-offset:2px; }
+.bench { padding-block:16px 40px; padding-left:max(16px, env(safe-area-inset-left, 0px)); padding-right:max(16px, env(safe-area-inset-right, 0px));
+  display:grid; gap:14px; justify-items:center; }
+.controls { display:flex; flex-wrap:wrap; gap:8px 14px; align-items:center; justify-content:center; max-width:980px; }
+.controls h1 { font:600 15px/1 var(--b-font); margin:0 8px 0 0; display:flex; align-items:center; gap:8px; }
+.seg { display:inline-flex; border:1px solid var(--b-border-strong); border-radius:999px; overflow:hidden; }
+.seg button { border:0; background:transparent; padding:5px 11px; font-size:13px; color:var(--b-text-2); min-height:32px; }
+.seg button[aria-pressed="true"] { background:var(--b-primary); color:var(--b-on-primary); }
+.seg-label { font-size:12px; color:var(--b-text-2); }
+.note { font-size:12.5px; color:var(--b-text-2); text-align:center; max-width:720px; }
+
+/* the device */
+.device { border:10px solid var(--frame); border-radius:34px; overflow:hidden; background:var(--b-background); position:relative;
+  width:412px; max-width:100%; height:860px; box-shadow:var(--b-shadow-3); }
+.device.open { width:900px; height:820px; border-radius:26px; }
+.app { position:absolute; inset:0; display:grid; grid-template-rows:auto 1fr auto; background:var(--b-background); }
+.device.open .app { grid-template-columns:80px 1fr auto; grid-template-rows:1fr; }
+.status { height:26px; display:flex; justify-content:space-between; align-items:center; padding:0 18px; font-size:12px; color:var(--b-text-2); }
+
+/* header and sections */
+.main { display:grid; grid-template-rows:auto auto 1fr auto; min-height:0; min-width:0; }
+.hdr { display:flex; align-items:center; gap:10px; padding:4px 16px 8px; min-height:52px; }
+.hdr h2 { font:500 22px/28px var(--b-font); margin:0; flex:1; min-width:0; }
+.hdr .brand { display:flex; align-items:center; gap:8px; flex:1; }
+.icon-btn { width:44px; height:44px; border-radius:50%; border:0; background:var(--b-surface-2); display:grid; place-items:center; position:relative; flex:none; }
+.icon-btn .count { position:absolute; top:6px; right:6px; min-width:16px; height:16px; border-radius:8px; background:var(--b-approval); color:#fff; font-size:10px; display:grid; place-items:center; padding:0 4px; }
+.pillbtn { border:1px solid var(--b-border-strong); background:var(--b-surface); border-radius:999px; padding:8px 12px; min-height:40px; display:inline-flex; gap:6px; align-items:center; font-size:13.5px; font-weight:500; }
+.segctl { display:flex; gap:6px; padding:0 16px 10px; overflow-x:auto; scrollbar-width:none; }
+.segctl button { flex:none; border:1px solid var(--b-border); background:var(--b-surface); color:var(--b-text-2); border-radius:999px; padding:7px 13px; font-size:13.5px; font-weight:500; min-height:36px; }
+.segctl button[aria-current="page"] { background:var(--b-text); color:var(--b-background); border-color:var(--b-text); }
+.body { overflow:auto; min-height:0; padding:0 16px 16px; display:grid; gap:12px; align-content:start; }
+.device.open .body { padding:0 24px 24px; }
+.banner { display:flex; gap:8px; align-items:center; margin:0; padding:8px 12px; border-radius:12px; background:var(--b-primary-soft); color:var(--b-text); font-size:12.5px; }
+
+/* building blocks */
+.card { background:var(--b-surface); border:1px solid var(--b-border); border-radius:20px; padding:14px 16px; display:grid; gap:8px; min-width:0; }
+.card h3 { font:500 15px/20px var(--b-font); margin:0; display:flex; justify-content:space-between; gap:8px; align-items:baseline; }
+.card h3 small { font-size:12px; color:var(--b-text-2); font-weight:400; }
+.muted { color:var(--b-text-2); font-size:13px; }
+.tiles { display:grid; grid-template-columns:repeat(2, minmax(0, 1fr)); gap:10px; }
+.device.open .tiles { grid-template-columns:repeat(auto-fit, minmax(150px, 1fr)); }
+.tile { background:var(--b-surface); border:1px solid var(--b-border); border-radius:16px; padding:12px; display:grid; gap:2px; }
+.tile b { font:500 22px/28px var(--b-font); font-variant-numeric:tabular-nums; }
+.tile span { font-size:12.5px; color:var(--b-text-2); }
+.row { display:flex; align-items:center; gap:10px; min-height:48px; border-top:1px solid var(--b-border); padding:6px 0; }
+.row:first-of-type { border-top:0; }
+.row .grow { flex:1; min-width:0; }
+.row .grow small { display:block; color:var(--b-text-2); font-size:12.5px; }
+.num { font-variant-numeric:tabular-nums; font-weight:500; white-space:nowrap; }
+.chip { display:inline-flex; align-items:center; gap:4px; font-size:12px; font-weight:500; border-radius:999px; padding:2px 9px; border:1px solid currentColor; white-space:nowrap; }
+.chip.good { color:var(--b-success); background:var(--b-success-soft); border-color:transparent; }
+.chip.warn { color:var(--b-warning); background:var(--b-warning-soft); border-color:transparent; }
+.chip.bad { color:var(--b-critical); background:var(--b-critical-soft); border-color:transparent; }
+.chip.info { color:var(--b-info); background:var(--b-info-soft); border-color:transparent; }
+.chip.appr { color:var(--b-approval); background:var(--b-approval-soft); border-color:transparent; }
+.chip.prem { color:var(--b-primary); background:var(--b-primary-soft); border-color:transparent; }
+.example { font-size:10.5px; font-weight:600; letter-spacing:.06em; text-transform:uppercase; color:var(--b-text-2); }
+.btn { border:0; border-radius:999px; padding:10px 16px; min-height:44px; font-weight:500; background:var(--b-primary); color:var(--b-on-primary); }
+.btn.quiet { background:var(--b-surface-2); color:var(--b-text); }
+.btn.danger { background:var(--b-critical); color:#fff; }
+.btn.line { background:transparent; border:1px solid var(--b-border-strong); color:var(--b-text); }
+.btns { display:flex; flex-wrap:wrap; gap:8px; }
+.bar { height:8px; border-radius:4px; background:var(--b-surface-2); overflow:hidden; }
+.bar i { display:block; height:100%; background:var(--b-primary); border-radius:4px; }
+details.rests { border-top:1px dashed var(--b-border); padding-top:6px; }
+details.rests summary { cursor:pointer; font-size:12.5px; color:var(--b-text-2); list-style:none; display:flex; gap:6px; align-items:center; min-height:32px; }
+details.rests summary::-webkit-details-marker { display:none; }
+details.rests dl { margin:4px 0 0; display:grid; grid-template-columns:auto 1fr; gap:3px 10px; font-size:12.5px; }
+details.rests dt { color:var(--b-text-2); } details.rests dd { margin:0; }
+.qa { display:grid; grid-template-columns:repeat(3, minmax(0, 1fr)); gap:8px; }
+.device.open .qa { grid-template-columns:repeat(3, minmax(0, 1fr)); }
+.qa button { border:1px solid var(--b-border); background:var(--b-surface); border-radius:16px; min-height:64px; display:grid; place-items:center; gap:2px; padding:8px 4px; font-size:12.5px; font-weight:500; }
+.qa button svg { color:var(--b-primary); }
+
+/* conversation */
+.greet { font:500 24px/32px var(--b-font); margin:4px 0 0; }
+.msgs { display:grid; gap:10px; align-content:end; }
+.msg { max-width:86%; padding:10px 13px; border-radius:18px; font-size:14.5px; }
+.msg.me { margin-left:auto; background:var(--b-primary); color:var(--b-on-primary); border-bottom-right-radius:6px; }
+.msg.bud { background:var(--b-surface); border:1px solid var(--b-border); border-bottom-left-radius:6px; }
+.rich { max-width:100%; }
+.composer { padding:8px 12px 10px; display:grid; gap:8px; background:var(--b-background); border-top:1px solid var(--b-border); }
+.suggest { display:flex; gap:6px; overflow-x:auto; scrollbar-width:none; }
+.suggest button { flex:none; border:1px solid var(--b-border); background:var(--b-surface); border-radius:999px; padding:6px 12px; font-size:13px; min-height:36px; }
+.cbox { display:flex; align-items:center; gap:8px; background:var(--b-surface); border:1px solid var(--b-border-strong); border-radius:28px; padding:4px 4px 4px 6px; }
+.cbox input { flex:1; min-width:0; border:0; background:transparent; padding:10px 4px; font-size:15.5px; outline:none; }
+.mic { width:48px; height:48px; border-radius:50%; border:0; background:var(--b-primary); color:var(--b-on-primary); display:grid; place-items:center; flex:none; position:relative; }
+.mic.listening { background:var(--b-listening); } .mic.thinking { background:var(--b-thinking); } .mic.speaking { background:var(--b-speaking); }
+.mic.error { background:var(--b-critical); }
+.mic.listening::after { content:""; position:absolute; inset:-5px; border-radius:50%; border:2px solid var(--b-listening); animation:ring 1.2s ease-out infinite; }
+@keyframes ring { from { transform:scale(.9); opacity:1; } to { transform:scale(1.25); opacity:0; } }
+@media (prefers-reduced-motion: reduce) { .mic.listening::after { animation:none; } }
+.vstate { display:flex; align-items:center; gap:8px; font-size:13px; min-height:28px; }
+.vdot { width:10px; height:10px; border-radius:50%; background:var(--b-border-strong); }
+.vstate.listening .vdot { background:var(--b-listening); } .vstate.thinking .vdot { background:var(--b-thinking); }
+.vstate.speaking .vdot { background:var(--b-speaking); } .vstate.error .vdot, .vstate.interrupted .vdot { background:var(--b-critical); }
+.modes { display:flex; gap:6px; margin-left:auto; }
+.modes button { border:1px solid var(--b-border); background:var(--b-surface); border-radius:999px; padding:3px 9px; font-size:12px; min-height:32px; white-space:nowrap; }
+.vstate > span:nth-child(2) { flex:1; min-width:0; }
+.modes button[aria-pressed="true"] { border-color:var(--b-primary); color:var(--b-primary); background:var(--b-primary-soft); }
+table.cmp { width:100%; border-collapse:collapse; font-size:13px; }
+table.cmp th, table.cmp td { text-align:left; padding:6px 4px; border-top:1px solid var(--b-border); vertical-align:top; }
+table.cmp th { color:var(--b-text-2); font-weight:500; }
+.map { height:120px; border-radius:14px; background:linear-gradient(135deg, var(--b-surface-2) 25%, var(--b-primary-soft) 25% 50%, var(--b-surface-2) 50% 75%, var(--b-primary-soft) 75%); background-size:28px 28px; position:relative; }
+.map i { position:absolute; width:22px; height:22px; border-radius:50% 50% 50% 0; transform:rotate(-45deg); background:var(--b-primary); color:var(--b-on-primary); font:600 11px/22px var(--b-font); text-align:center; }
+.map i span { display:inline-block; transform:rotate(45deg); }
+
+/* approval */
+.approval { border:1.5px solid var(--b-approval); background:var(--b-surface); border-radius:20px; padding:14px 16px; display:grid; gap:8px; }
+.approval .what { font:500 17px/24px var(--b-font); }
+.approval dl { margin:0; display:grid; grid-template-columns:auto 1fr; gap:4px 12px; font-size:13.5px; }
+.approval dt { color:var(--b-text-2); } .approval dd { margin:0; font-variant-numeric:tabular-nums; }
+
+/* navigation */
+.nav { display:grid; grid-template-columns:repeat(5, 1fr); background:var(--b-surface); border-top:1px solid var(--b-border); padding:6px 4px 10px; }
+.nav button { border:0; background:transparent; display:grid; justify-items:center; gap:3px; font-size:11.5px; font-weight:500; color:var(--b-text-2); min-height:56px; padding:4px 0; }
+.nav button .pip { width:56px; height:30px; border-radius:15px; display:grid; place-items:center; }
+.nav button[aria-current="page"] { color:var(--b-text); }
+.nav button[aria-current="page"] .pip { background:var(--b-primary-soft); color:var(--b-primary); }
+.device.open .nav { grid-template-columns:1fr; grid-template-rows:repeat(5, auto); align-content:start; border-top:0; border-right:1px solid var(--b-border); padding:12px 4px; gap:8px; grid-row:1; grid-column:1; }
+.device.open .main { grid-column:2; grid-row:1; }
+.side { display:none; }
+.device.open .side { display:grid; grid-column:3; grid-row:1; width:360px; border-left:1px solid var(--b-border); background:var(--b-surface); grid-template-rows:auto 1fr; min-height:0; }
+.side .sbody { overflow:auto; padding:0 16px 16px; display:grid; gap:12px; align-content:start; }
+.side .shdr { display:flex; align-items:center; gap:8px; padding:14px 16px 10px; }
+.side .shdr h3 { font:500 17px/24px var(--b-font); margin:0; flex:1; }
+
+/* sheets (folded) */
+.scrim { position:absolute; inset:0; background:var(--b-scrim); display:flex; align-items:flex-end; z-index:5; }
+.sheet { width:100%; max-height:88%; background:var(--b-surface); border-radius:24px 24px 0 0; display:grid; grid-template-rows:auto 1fr; box-shadow:var(--b-shadow-3); }
+.sheet .grab { width:36px; height:4px; border-radius:2px; background:var(--b-border-strong); margin:8px auto 0; }
+.sheet .shdr { display:flex; align-items:center; gap:8px; padding:8px 16px 6px; }
+.sheet .shdr h3 { font:500 17px/24px var(--b-font); margin:0; flex:1; }
+.sheet .sbody { overflow:auto; padding:0 16px 20px; display:grid; gap:12px; align-content:start; }
+.field { display:grid; gap:4px; font-size:13px; color:var(--b-text-2); }
+.field input, .field select { border:1px solid var(--b-border-strong); background:var(--b-surface); border-radius:12px; padding:10px 12px; font-size:16px; color:var(--b-text); min-height:48px; }
+.fields { display:grid; grid-template-columns:repeat(3, minmax(0, 1fr)); gap:8px; }
+.cam { height:200px; border-radius:16px; background:linear-gradient(135deg, #26302A, #151B17); display:grid; place-items:center; color:#DCE3DE; font-size:13px; position:relative; }
+.cam::after { content:""; position:absolute; inset:46px 60px; border:2px solid rgba(255,255,255,.75); border-radius:12px; }
+.toast { position:absolute; left:50%; bottom:110px; transform:translateX(-50%); background:var(--b-text); color:var(--b-background); padding:10px 16px; border-radius:14px; font-size:13.5px; z-index:9; max-width:86%; box-shadow:var(--b-shadow-3); }
+.skel { height:64px; border-radius:16px; background:linear-gradient(90deg, var(--b-surface-2), var(--b-surface), var(--b-surface-2)); background-size:200% 100%; animation:sh 1.2s linear infinite; }
+@keyframes sh { to { background-position:-200% 0; } }
+@media (prefers-reduced-motion: reduce) { .skel { animation:none; } }
+.empty { text-align:center; padding:28px 12px; display:grid; gap:10px; justify-items:center; }
+.empty svg { color:var(--b-text-2); }
+.spark { width:100%; height:44px; }
+.spark path { fill:none; stroke:var(--b-primary); stroke-width:2; }
+.spark .b { stroke:var(--b-thinking); stroke-dasharray:4 3; }
+.lock { color:var(--b-primary); }
+.sr { position:absolute; width:1px; height:1px; overflow:hidden; clip:rect(0 0 0 0); }
+@media (max-width:440px) { .device { border-width:0; border-radius:0; width:100%; height:100svh; } .bench { padding:0; } .controls, .note { padding:8px 12px 0; } }
+</style>
+
+<div class="bench">
+  <div class="controls" role="toolbar" aria-label="Prototype controls">
+    <h1><svg width="22" height="22" viewBox="0 0 96 96" aria-hidden="true"><g fill="none" stroke="var(--b-primary)" stroke-width="10" stroke-linecap="round"><path d="M30 14V70"/><circle cx="50" cy="56" r="20"/><path d="M30 70L21 83"/></g></svg>Buddy prototype</h1>
+    <span class="seg-label">Fold</span><span class="seg" data-ctl="device"><button data-v="folded">Folded</button><button data-v="open">Open</button></span>
+    <span class="seg-label">Theme</span><span class="seg" data-ctl="theme"><button data-v="light">Light</button><button data-v="dark">Dark</button></span>
+    <span class="seg-label">Plan</span><span class="seg" data-ctl="plan"><button data-v="free">Free</button><button data-v="premium">Premium</button></span>
+    <span class="seg-label">State</span><span class="seg" data-ctl="state"><button data-v="normal">Normal</button><button data-v="loading">Loading</button><button data-v="empty">Empty</button><button data-v="error">Error</button></span>
+  </div>
+  <div class="device" id="device"><div class="app" id="app"></div></div>
+  <p class="note">A working prototype with example data (marked "Example"). Nothing is sent anywhere: replies are scripted.
+    Try the quick actions, the suggestions above the message box, the microphone, and "pay my card bill".
+    <span id="taps" class="sr" aria-live="polite"></span></p>
+</div>
+
+<script>
+(() => {
+"use strict";
+// ---------------------------------------------------------------- icons (24 px line icons, one stroke style)
+const P = {
+  home: "M4 11l8-7 8 7v8a1 1 0 0 1-1 1h-4v-6H9v6H5a1 1 0 0 1-1-1z",
+  health: "M3 12h4l2-5 4 10 2-5h6",
+  money: "M3 7h18v12H3zM3 11h18M16 15h2",
+  explore: "M12 3a9 9 0 1 0 0 18 9 9 0 0 0 0-18zM15.5 8.5l-2 5-5 2 2-5z",
+  profile: "M12 12a4 4 0 1 0 0-8 4 4 0 0 0 0 8zM4 20c1.5-3.5 4.5-5 8-5s6.5 1.5 8 5",
+  mic: "M12 3a3 3 0 0 0-3 3v6a3 3 0 0 0 6 0V6a3 3 0 0 0-3-3zM5 11a7 7 0 0 0 14 0M12 18v3",
+  send: "M4 12l16-8-6 16-2-7z",
+  plus: "M12 5v14M5 12h14",
+  bell: "M6 10a6 6 0 0 1 12 0v5l2 2H4l2-2zM10 20h4",
+  scan: "M4 8V5h3M17 5h3v3M20 16v3h-3M7 19H4v-3M7 12h10",
+  meal: "M7 3v8M5 3v5a2 2 0 0 0 4 0V3M7 11v10M16 3c-2 2-2 6 0 8v10",
+  heart: "M12 20s-7-4.5-7-10a4 4 0 0 1 7-2 4 4 0 0 1 7 2c0 5.5-7 10-7 10z",
+  bill: "M6 3h12v18l-3-2-3 2-3-2-3 2zM9 8h6M9 12h6",
+  tag: "M3 12V4h8l10 10-8 8zM7.5 7.5h.01",
+  close: "M6 6l12 12M18 6L6 18",
+  back: "M15 5l-7 7 7 7",
+  lock: "M6 11h12v9H6zM9 11V8a3 3 0 0 1 6 0v3",
+  chev: "M9 6l6 6-6 6",
+  search: "M11 4a7 7 0 1 0 0 14 7 7 0 0 0 0-14zM20 20l-4-4",
+  stop: "M7 7h10v10H7z",
+  info: "M12 8h.01M11 12h1v5h1M12 3a9 9 0 1 0 0 18 9 9 0 0 0 0-18z",
+  history: "M4 12a8 8 0 1 0 2.3-5.6M4 4v4h4M12 8v4l3 2",
+  spark: "M12 3l2 6 6 2-6 2-2 6-2-6-6-2 6-2z",
+};
+const ic = (name, size = 22) => `<svg width="${size}" height="${size}" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.8" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true"><path d="${P[name]}"/></svg>`;
+const mark = (size = 28) => `<svg width="${size}" height="${size}" viewBox="0 0 96 96" aria-hidden="true"><g fill="none" stroke="var(--b-primary)" stroke-width="10" stroke-linecap="round" stroke-linejoin="round"><path d="M30 14V70"/><circle cx="50" cy="56" r="20"/><path d="M30 70L21 83"/></g></svg>`;
+const wordmark = (h = 20) => `<svg height="${h}" viewBox="0 0 220 92" aria-label="buddy" role="img"><g fill="none" stroke="var(--b-text)" stroke-width="9" stroke-linecap="round" stroke-linejoin="round"><path d="M10 12V64"/><circle cx="26" cy="48" r="16"/><path d="M54 32V48a14 14 0 0 0 28 0M82 32V64"/><circle cx="110" cy="48" r="16"/><path d="M126 12V64"/><circle cx="154" cy="48" r="16"/><path d="M170 12V64"/><path d="M182 32V48a14 14 0 0 0 28 0M210 32V70a14 14 0 0 1 -14 14H190"/></g></svg>`;
+const esc = (s) => String(s ?? "").replace(/[&<>"']/g, (c) => ({ "&": "&amp;", "<": "&lt;", ">": "&gt;", '"': "&quot;", "'": "&#39;" }[c]));
+
+// ---------------------------------------------------------------- state
+function storage(k, v) { try { if (v === undefined) return localStorage.getItem(k); localStorage.setItem(k, v); } catch { return null; } }
+const hostTheme = document.documentElement.dataset.theme;
+const S = {
+  device: storage("bp.device") || (window.innerWidth >= 960 ? "open" : "folded"),
+  theme: hostTheme || (matchMedia("(prefers-color-scheme: dark)").matches ? "dark" : "light"),
+  plan: "free", state: "normal", dest: "home",
+  section: { home: "chat", health: "today", money: "overview", explore: "foryou", profile: "account" },
+  messages: [], voice: "idle", mode: "talk", handsfree: false, sheet: null, panel: null, toast: "",
+  slot: slotNow(), meals: [
+    { slot: "breakfast", what: "Italian bread (2 × 1 slice)", kcal: 160, protein: 6 },
+    { slot: "breakfast", what: "Eggs (2 × 1 large)", kcal: 143, protein: 13 } ],
+  bpToday: null, scans: [], compare: [], approvals: [], done: [], confirmDelete: 0, taps: 0,
+};
+S.approvals.push({ id: "a1", what: "Pay your card bill", amount: "$412.30", to: "Card ending 4821", from: "Checking ending 0917",
+  when: "Today, as soon as you approve", risk: "Leaves $3,798.25 in checking. The bill is due Friday; paying today avoids interest.",
+  source: "Card statement email, Nov 21; bank feed, today 7:02 am" });
+function slotNow() { const m = new Date().getHours() * 60 + new Date().getMinutes();
+  return m >= 240 && m < 660 ? "breakfast" : m < 900 && m >= 660 ? "lunch" : (m >= 900 && m < 1050) || m < 240 ? "snack" : "dinner"; }
+
+// ---------------------------------------------------------------- example data
+const PRODUCTS = {
+  bread: { name: "Italian bread", brand: "Example bakery", serving: "1 slice (32 g)", kcal: 80, protein: 3, fibre: 0.5, sodium: 150, sat: 0.1, sugar: 1,
+    verdict: "sometimes", head: "Fine sometimes", good: ["Low in saturated fat: 0.1 g. Good with your LDL of 141 mg/dL"],
+    watch: [["Refined flour comes first: with your A1c of 5.9%, whole grains keep blood sugar steadier", true], ["Ultra-processed (NOVA 4), with 2 additives", false]],
+    why: [["Rule", "FDA 5/20 rule; ADA Standards of Care (whole grains)"], ["Your numbers", "LDL 141 mg/dL and A1c 5.9%, lab report of Oct 1"], ["Label", "Open Food Facts, per 32 g slice"], ["Confidence", "High for the label; processing group from Open Food Facts"]] },
+  oats: { name: "Rolled oats", brand: "Example brand", serving: "1/2 cup (40 g)", kcal: 150, protein: 5, fibre: 4, sodium: 0, sat: 0.5, sugar: 0,
+    verdict: "good", head: "Good for you", good: ["A good source of fibre: 4 g, 14% of a day", "Low in sodium. Good with your blood pressure", "Whole grain first", "Unprocessed (NOVA 1)"], watch: [],
+    why: [["Rule", "FDA nutrient content claims (10 to 19% = good source)"], ["Your numbers", "Blood pressure averaging 136/86 over 30 days"], ["Label", "Open Food Facts, per 40 g"], ["Confidence", "High"]] },
+};
+const PLACES = [
+  { n: 1, name: "Saffron Courtyard", rating: 4.6, reviews: 2140, dist: "0.4 mi", open: "Open until 10 pm", why: "Matches your taste for Hyderabadi dum biryani; mid-range", good: "Generous portions; goat biryani praised", watch: "Service charge added for 6 or more" },
+  { n: 2, name: "Kerala Kitchen Table", rating: 4.5, reviews: 880, dist: "1.1 mi", open: "Open until 9:30 pm", why: "Malabar biryani, close to the Kerala food you like", good: "Fresh parotta; quick lunch", watch: "Few seats; queue after 7 pm" },
+  { n: 3, name: "Dum House", rating: 4.8, reviews: 26, dist: "0.7 mi", open: "Closed now, opens 5 pm", why: "Highly rated but new", good: "Praised spice level", watch: "4.8 from only 26 reviews: could be new or padded" },
+];
+
+// ---------------------------------------------------------------- rendering helpers
+const sec = () => S.section[S.dest];
+const card = (title, body, small = "") => `<section class="card"><h3>${title}${small ? `<small>${small}</small>` : ""}</h3>${body}</section>`;
+const tile = (v, l) => `<div class="tile"><b>${v}</b><span>${l}</span></div>`;
+const row = (title, sub, right = "", act = "") => `<div class="row"${act ? ` data-act="${act}" role="button" tabindex="0" style="cursor:pointer"` : ""}><div class="grow">${title}${sub ? `<small>${sub}</small>` : ""}</div>${right}</div>`;
+const rests = (pairs, label = "What this rests on") => `<details class="rests"><summary>${ic("info", 16)} ${label}</summary><dl>${pairs.map(([k, v]) => `<dt>${esc(k)}</dt><dd>${esc(v)}</dd>`).join("")}</dl></details>`;
+const spark = (pts, pts2) => { const path = (a) => a.map((v, i) => `${i ? "L" : "M"}${(i / (a.length - 1) * 100).toFixed(1)} ${(40 - (v - Math.min(...a, ...(pts2 || []))) / (Math.max(...a, ...(pts2 || [])) - Math.min(...a, ...(pts2 || [])) || 1) * 36).toFixed(1)}`).join(" ");
+  return `<svg class="spark" viewBox="0 0 100 44" preserveAspectRatio="none" aria-hidden="true"><path d="${path(pts)}" vector-effect="non-scaling-stroke"/>${pts2 ? `<path class="b" d="${path(pts2)}" vector-effect="non-scaling-stroke"/>` : ""}</svg>`; };
+const premium = (what) => S.plan === "premium" ? "" : `<div class="row"><div class="grow"><span class="chip prem">${ic("spark", 12)} Premium</span> ${esc(what)}<small>Free plan: the basics are here; Premium adds more.</small></div><button class="btn line" data-act="sheet:plans">See plans</button></div>`;
+
+function stateBody(dest) {
+  if (S.state === "loading") return `<div class="skel" aria-label="Loading"></div><div class="skel"></div><div class="skel" style="height:120px"></div>`;
+  if (S.state === "error") return `<div class="card empty" role="alert">${ic("info", 30)}<b>Couldn't reach your Buddy server</b><span class="muted">Your phone is online, but the server didn't answer in 15 seconds. Nothing was lost.</span><div class="btns"><button class="btn" data-act="state:normal">Try again</button><button class="btn quiet" data-act="go:profile:connections">Check the connection</button></div></div>`;
+  const E = { home: ["Say hello to Buddy", "Ask anything, or try a suggestion below. Buddy keeps your conversations on your own server.", ""],
+    health: ["Nothing logged yet", "Log a meal or a blood pressure reading, or connect your ring or phone health data.", "sheet:bp|Log blood pressure"],
+    money: ["Connect your bank to begin", "Balances, bills and spending appear once a bank is linked. Buddy can read; it never moves money without your approval.", "go:profile:connections|Connect a bank"],
+    explore: ["Pick topics you care about", "News, deals and research follow your topics. Choose a few to start.", "toast:Topics picker (not in this prototype)|Choose topics"],
+    profile: ["", "", ""] }[dest];
+  if (S.state === "empty" && E[0]) { const [a, l] = (E[2] || "").split("|");
+    return `<div class="card empty">${ic(dest === "money" ? "money" : dest === "health" ? "health" : dest === "explore" ? "explore" : "spark", 30)}<b>${E[0]}</b><span class="muted">${E[1]}</span>${a ? `<button class="btn" data-act="${a}">${l}</button>` : ""}</div>`; }
+  return null;
+}
+
+// ---------------------------------------------------------------- HOME
+function home() {
+  if (sec() === "activity") return activity();
+  const st = stateBody("home");
+  if (st) return S.state === "empty" ? `<p class="greet">${greeting()}</p>${st}` : st;
+  if (S.messages.length) return `<div class="msgs" id="msgs">${S.messages.map(msgHtml).join("")}</div>`;
+  const ap = S.approvals[0], open = S.device === "open";  // open Fold: Today and approvals live in the side panel
+  const quick = `<div class="qa" role="group" aria-label="Quick actions">
+      <button data-act="sheet:meal" data-qa="meal">${ic("meal")}Log a meal</button>
+      <button data-act="sheet:bp" data-qa="bp">${ic("heart")}Log BP</button>
+      <button data-act="sheet:scan" data-qa="scan">${ic("scan")}Scan food</button>
+      <button data-act="go:money:spending" data-qa="spending">${ic("money")}Spending</button>
+      <button data-act="go:money:bills" data-qa="bills">${ic("bill")}Bills</button>
+      <button data-act="go:explore:deals" data-qa="deals">${ic("tag")}Deals</button>
+    </div>`;
+  return `<p class="greet">${greeting()}</p>${quick}
+    ${ap && !open ? approvalCard(ap, true) : ""}
+    ${open ? "" : `<section class="card" aria-label="Today"><h3>Today <small>${new Date().toLocaleDateString(undefined, { weekday: "long", month: "short", day: "numeric" })} · <span class="example">Example</span></small></h3>
+      ${row("Dentist at 3:30 pm", "Leave by 3:05 pm; traffic is light")}
+      ${row("Card bill $412.30 due Friday", "From your statement email", ap ? `<span class="chip appr">Waiting for you</span>` : "")}
+      ${row("Rain after 5 pm", "Take an umbrella for the walk home")}
+      ${row(`<span class="chip good">${ic("lock", 12)} From Health</span> Blood pressure not logged this morning`, "Shown by Health on your phone; not shared with any AI", `<button class="btn line" data-act="sheet:bp">Log</button>`)}
+    </section>`}
+    ${card("Recent", row("Price drop: noise-cancelling headphones", "Now $279, down $40 · Explore › Deals", ic("chev", 18), "go:explore:deals")
+      + row("Report ready: November spending", "Money › Overview › Reports", ic("chev", 18), "go:money:overview")
+      + row("Reminder: renew passport", "Set by you on Nov 2", ""), `<span class="example">Example</span>`)}`;
+}
+function greeting() { const h = new Date().getHours(); return h < 12 ? "Good morning" : h < 18 ? "Good afternoon" : "Good evening"; }
+function activity() {
+  const ap = S.approvals;
+  return card("Waiting for you", ap.length ? ap.map((a) => approvalCard(a, true)).join("") : `<p class="muted">Nothing is waiting for your approval.</p>`)
+    + card("Alerts", row("Flight UA 214 is on time", "Today 7:58 am · Travel") + row("Headphones dropped $40", "Yesterday · Deals") + row("Server security check: nothing open", "Yesterday · Security"), "Buddy's messages collect here; no notifications for new features")
+    + card("Done for you", (S.done.length ? S.done.map((d) => row(esc(d.what), esc(d.detail), `<span class="chip ${d.ok ? "good" : "bad"}">${d.ok ? "Approved" : "Not done"}</span>`)).join("") : `<p class="muted">Approved actions and their records appear here.</p>`))
+    + card("History", row("Best biryani nearby", "Yesterday, 7:12 pm · 3 picks") + row("Compare two coffee machines", "Mon · comparison") + row("November spending", "Sun · report"));
+}
+function approvalCard(a, compact) {
+  return `<section class="approval" aria-label="Approval needed"><span class="chip appr">${ic("lock", 12)} Needs your approval</span>
+    <div class="what">${esc(a.what)}: <span class="num">${esc(a.amount)}</span></div>
+    <dl><dt>To</dt><dd>${esc(a.to)}</dd><dt>From</dt><dd>${esc(a.from)}</dd><dt>When</dt><dd>${esc(a.when)}</dd>${compact ? "" : `<dt>Risk</dt><dd>${esc(a.risk)}</dd>`}</dl>
+    ${compact ? "" : rests([["Source", a.source], ["Rule", "Buddy never pays, transfers or cancels without your yes. The server runs exactly this action, once."], ["Confidence", "Amount read from the statement; matches the card issuer's balance"]], "Sources and rules")}
+    <div class="btns">${compact ? `<button class="btn" data-act="review:${a.id}">Review</button>` : `<button class="btn" data-act="approve:${a.id}">Approve ${esc(a.amount)}</button><button class="btn quiet" data-act="reject:${a.id}">Reject</button><button class="btn line" data-act="sheet:close">Cancel</button>`}</div></section>`;
+}
+function msgHtml(m) {
+  if (m.who === "me") return `<div class="msg me">${esc(m.text)}</div>`;
+  return `<div class="msg bud${m.card ? " rich" : ""}">${m.text ? `<div>${esc(m.text)}</div>` : ""}${m.card ? richCard(m.card) : ""}</div>`;
+}
+function richCard(c) {
+  if (c.type === "places") return `<div style="display:grid;gap:8px;margin-top:8px"><div class="map" aria-label="Map of three places">${PLACES.map((p, i) => `<i style="left:${[22, 58, 40][i]}%;top:${[30, 50, 18][i]}%"><span>${p.n}</span></i>`).join("")}</div>
+    ${PLACES.map((p) => `<div class="row" data-act="panel:place:${p.n}" role="button" tabindex="0" style="cursor:pointer"><div class="grow"><b>${p.n}. ${esc(p.name)}</b> <span class="example">Example</span><small>★ ${p.rating} (${p.reviews.toLocaleString()}) · ${p.dist} · ${esc(p.open)}</small><small>${esc(p.why)}</small>${p.reviews < 30 ? `<span class="chip warn">Few reviews</span>` : ""}</div>${ic("chev", 18)}</div>`).join("")}
+    ${rests([["Searched", "Google Places and OpenStreetMap, around your neighbourhood (never your exact position)"], ["Ranked", "Review-aware rating, then your taste"], ["Reviews", "Reddit, review sites and complaint threads for the top three"], ["As of", "Today 7:12 pm"]])}</div>`;
+  if (c.type === "compare") return `<div style="margin-top:8px;overflow-x:auto"><table class="cmp"><tr><th></th><th>Headphones A</th><th>Headphones B</th></tr>
+    <tr><th>Price now</th><td class="num">$279</td><td class="num">$329</td></tr><tr><th>Battery</th><td>30 h</td><td>24 h</td></tr><tr><th>Reviews</th><td>4.6 (12k)</td><td>4.7 (3k)</td></tr>
+    <tr><th>Watch</th><td>Hinge cracks reported by 2 sources</td><td>None found</td></tr><tr><th>Better for you</th><td></td><td><span class="chip good">B, if comfort matters</span></td></tr></table>
+    ${rests([["Prices", "Best Buy, Google Shopping, your price book; today"], ["Reviews", "RTINGS and Wirecutter snippets, Reddit"], ["Confidence", "Medium: battery figures are the makers' own"]])}<p class="example">Example</p></div>`;
+  if (c.type === "deal") return `<div style="margin-top:8px;display:grid;gap:6px"><b>Espresso machine · $449 at Example Store</b><span class="muted">Lowest in 90 days; usually $529. Buddy's price model expects no lower before Black Friday week.</span>${spark([529, 529, 499, 519, 529, 489, 509, 449])}
+    <div class="btns"><button class="btn line" data-act="toast:Watching the price; Buddy will tell you in Activity">Watch price</button><button class="btn quiet" data-act="go:explore:deals">Open in Deals</button></div>${rests([["Prices", "3 stores and your price book, 90 days"], ["Prediction", "Seasonal pattern from your price book; medium confidence"]])}<p class="example">Example</p></div>`;
+  if (c.type === "money") return `<div style="margin-top:8px;display:grid;gap:6px"><div class="tiles">${tile("$1,842", "spent this month")}${tile("$258", "left of your budget")}</div><span class="muted">Dining is $96 above last month; groceries are down $41.</span><button class="btn" data-act="go:money:spending">Open Spending</button>${rests([["Source", "Your bank feed, today 7:02 am"], ["Shown to", "You; worked out on your server. Personal details go to Claude only."]])}<p class="example">Example</p></div>`;
+  if (c.type === "approval") return approvalCard(S.approvals.find((a) => a.id === c.id) || S.approvals[0] || {}, false);
+  if (c.type === "health") return `<div style="margin-top:8px;display:grid;gap:8px"><span class="chip good">${ic("lock", 12)} Health stays in Health</span><span class="muted">I don't take health information in the conversation: no AI model sees it. Log it in Health, where your server works it out by rules.</span><div class="btns"><button class="btn" data-act="go:health:today">Open Health</button><button class="btn quiet" data-act="sheet:bp">Log BP</button><button class="btn quiet" data-act="sheet:meal">Log a meal</button></div></div>`;
+  if (c.type === "news") return `<div style="margin-top:8px">${row("Grid-scale batteries pass gas peakers in two US markets", "Reuters · 2 h ago")}${row("New small modular reactor licence filed", "Company filing · today")}<button class="btn quiet" data-act="go:explore:news">Open News</button><p class="example">Example</p></div>`;
+  return "";
+}
+
+// ---------------------------------------------------------------- HEALTH
+function health() {
+  const st = stateBody("health"); if (st) return st;
+  const s = sec();
+  if (s === "today") {
+    const meals = ["breakfast", "lunch", "snack", "dinner"].map((sl) => { const ms = S.meals.filter((m) => m.slot === sl);
+      return row(sl[0].toUpperCase() + sl.slice(1), ms.length ? ms.map((m) => esc(m.what)).join(", ") : "Not logged", ms.length ? `<span class="num">${ms.reduce((a, m) => a + m.kcal, 0)} kcal</span>` : `<button class="btn line" data-act="meal:${sl}">Log</button>`); }).join("");
+    return `<div class="tiles">${tile("82", "Readiness")}${tile("7 h 10 m", "Sleep")}${tile(S.bpToday ? `${S.bpToday.s}/${S.bpToday.d}` : "Not yet", "Blood pressure this morning")}${tile("7,420", "Steps, 7-day average")}</div>
+      ${S.bpToday ? "" : `<button class="btn" data-act="sheet:bp" data-qa="bp-today">${ic("heart", 18)} Log blood pressure</button>`}
+      ${card("Your health now", row(`<span class="chip warn">Watch</span> LDL cholesterol 141 mg/dL`, "Above 130: saturated fat counts more in your food checks") + row(`<span class="chip warn">Watch</span> Home BP averaging 136/86`, "Stage 2 range at home is 135/85 or more; 6 readings over 3 days") + row(`<span class="chip good">OK</span> Sleep and readiness`, "Within your usual for 14 days")
+        + rests([["Rules", "2025 AHA/ACC blood pressure guideline; ACC/AHA cholesterol guideline"], ["Your data", "Lab report Oct 1; 31 home readings, Nov 1 to 26"], ["Worked out by", "Buddy's rules on your server. No AI model sees it."], ["Not", "medical advice"]]), "<span class='example'>Example</span>")}
+      ${card("Today's meals", meals + `<button class="btn quiet" data-act="go:health:food">Open Food</button>`, `${S.meals.reduce((a, m) => a + m.kcal, 0)} of 2,620 kcal`)}
+      ${card("This week", `<div class="muted">Cardio 95 of 150 minutes</div><div class="bar"><i style="width:63%"></i></div><div class="muted">Strength 1 of 2 sessions</div><div class="bar"><i style="width:50%"></i></div><div class="muted">Steps 7,420 of 8,000 a day</div><div class="bar"><i style="width:93%"></i></div>`, "from your ring")}`;
+  }
+  if (s === "food") {
+    return `<div class="btns"><button class="btn" data-act="sheet:meal">${ic("plus", 18)} Log a meal</button><button class="btn quiet" data-act="sheet:scan">${ic("scan", 18)} Scan</button></div>
+      ${card("Today by meal", ["breakfast", "lunch", "snack", "dinner"].map((sl) => { const ms = S.meals.filter((m) => m.slot === sl);
+        return row(`<b>${sl[0].toUpperCase() + sl.slice(1)}</b>`, ms.map((m) => `${esc(m.what)} · ${m.kcal} kcal`).join("<br>") || "Not logged", ms.length ? `<span class="num">${ms.reduce((a, m) => a + m.protein, 0)} g protein</span>` : ""); }).join(""))}
+      ${card("Groceries you checked", (S.scans.length ? S.scans : ["oats", "bread"]).map((k) => { const p = PRODUCTS[k]; return row(`<span class="chip ${p.verdict === "good" ? "good" : "warn"}">${p.head}</span> ${esc(p.name)}`, p.serving, ic("chev", 18), "sheet:verdict:" + k); }).join("")
+        + `<button class="btn line" data-act="sheet:compare">Compare side by side</button>`)}
+      ${card("Day menu and targets", row("2,620 kcal · 101 g protein · 37 g fibre", "Worked out from your weight, height, age and activity (Mifflin-St Jeor, DGA 2025-2030)") + row("Kerala breakfast: puttu, kadala curry", "From your menu choices"))}`;
+  }
+  if (s === "body") return `${card("Blood pressure", `${spark([138, 136, 139, 135, 134, 137, 133, 136, 132, 135], [126, 125, 128, 124, 123, 126, 122, 125, 121, 124])}<div class="muted">Solid: morning · dashed: evening · last 10 days</div>`
+      + row("Morning average 135/86", "Evening 124/80 · 31 readings this month") + rests([["Guideline", "2025 AHA/ACC: home stage 2 from 135/85"], ["Readings", "Your cuff through Health Connect and typed entries"]]), "<button class='btn line' data-act='sheet:bp'>Log</button>")}
+    <div class="tiles">${tile("79.5 kg", "Weight · BMI 24.5 (Asian cut-off: overweight from 23)")}${tile("94 cm", "Waist · above 90 cm (IDF South Asian)")}</div>
+    ${card("10-year heart and stroke risk", `<div class="tiles">${tile("6.1%", "Total cardiovascular (PREVENT)")}${tile("3.8%", "Atherosclerotic")}</div><span class="muted">Lowering LDL to 100 would bring the total to about 5.2%.</span>` + rests([["Equation", "AHA PREVENT base model, 2024"], ["Inputs", "Age, sex, cholesterol, blood pressure, eGFR from creatinine (CKD-EPI 2021), medicines"], ["Confidence", "A population estimate, not a diagnosis"]]), "<span class='example'>Example</span>")}
+    ${card("Sleep, readiness and recovery", row("Sleep 7 h 10 m · score 81", "Usual for you") + row("HRV 38 ms", "Slightly above your usual") + row("Mood this week 3.8 of 5", "From your evening check-ins"))}`;
+  if (s === "labs") return `${card("Latest results", row("LDL cholesterol", "Oct 1 · reference under 100", `<span class="chip warn">141 mg/dL</span>`) + row("HbA1c", "Oct 1 · prediabetes 5.7 to 6.4", `<span class="chip warn">5.9%</span>`) + row("Creatinine", "Oct 1", `<span class="chip good">1.0 mg/dL</span>`), "<span class='example'>Example</span>")}
+    <div class="btns"><button class="btn" data-act="toast:Pick a lab PDF (not in this prototype)">Add a report</button><button class="btn quiet" data-act="toast:MyChart sign-in opens in your browser">Patient portals</button></div>
+    ${card("Checkups for you", row("Colorectal cancer screening", "Due: age 45 and over (USPSTF)", `<span class="chip warn">Due</span>`) + row("Blood pressure check", "Done: you log twice a day", `<span class="chip good">Up to date</span>`))}`;
+  return `${card("Research on your topics", row("Sodium reduction and home blood pressure: new trial", "PubMed · randomised trial · Nov 18") + row("Paper library", "214 papers kept · search", ic("chev", 18)), "<span class='example'>Example</span>")}
+    ${card("Supplements and medicines", `<div class="cbox"><input aria-label="Look up a supplement or medicine" placeholder="A supplement or medicine"><button class="btn" data-act="toast:Looked up on NIH ODS and openFDA (not in this prototype)">Look up</button></div>`)}
+    ${card("Are Buddy's rules up to date?", row("2026 ACC/AHA cholesterol guideline", "Newer than Buddy's rules: under review", `<span class="chip info">Review</span>`))}`;
+}
+
+// ---------------------------------------------------------------- MONEY
+function money() {
+  const st = stateBody("money"); if (st) return st;
+  const s = sec();
+  if (s === "overview") return `<div class="tiles">${tile("$4,210.55", "Checking")}${tile("$1,842", "Spent this month")}${tile("$412.30", "Card bill due Fri")}${tile("$8,940", "Savings")}</div>
+    ${card("This month", `<div class="bar"><i style="width:88%"></i></div><div class="muted">$1,842 of a $2,100 suggested budget · 4 days left</div>`, "<span class='example'>Example</span>")}
+    ${card("Bills coming up", row("Card bill", "Due Friday · statement email", `<span class="num">$412.30</span>`, "review:a1") + row("Internet", "Dec 2 · autopay", `<span class="num">$65.00</span>`) + `<button class="btn quiet" data-act="go:money:bills">All bills</button>`)}
+    ${card("Reports", row("November spending", "Ready today", ic("chev", 18)) + row("Card rewards this year", "$318 earned · $42 missed", ic("chev", 18)))}`;
+  if (s === "spending") return `${card("By category", [["Groceries", 412, 70], ["Dining", 296, 55], ["Transport", 188, 35], ["Shopping", 260, 48], ["Bills", 520, 90]].map(([c, v, w]) => `<div class="row"><div class="grow">${c}<div class="bar"><i style="width:${w}%"></i></div></div><span class="num">$${v}</span></div>`).join(""), "this month · <span class='example'>Example</span>")}
+    ${card("Waste and leaks", row("Streaming service unused for 60 days", "$15.49 a month", `<button class="btn line" data-act="cancelsub">Cancel</button>`) + row("Foreign transaction fees", "$11.20 this month · use your no-fee card abroad"))}
+    ${card("Transfers", row("Sent to a friend (Zelle)", "Nov 22", `<span class="num">$60.00</span>`))}`;
+  if (s === "bills") return `${card("Bills and subscriptions", row("Card bill", "Due Friday", `<span class="num">$412.30</span>`, "review:a1") + row("Internet", "Dec 2 · autopay", `<span class="num">$65.00</span>`) + row("Phone", "Dec 5", `<span class="num">$45.00</span>`) + row("Streaming", "Monthly · unused 60 days", `<button class="btn line" data-act="cancelsub">Cancel</button>`), "<span class='example'>Example</span>")}<p class="muted">Paying or cancelling always shows an approval first.</p>`;
+  if (s === "cards") return `${card("Best card for each category", row("Groceries", "Card A · 4%") + row("Dining", "Card A · 3%") + row("Travel abroad", "Card B · no foreign fee"), "<span class='example'>Example</span>")}${card("Missed rewards", row("$42 this year", "Mostly groceries paid with Card C"))}`;
+  return `<div class="banner">${ic("lock", 16)} Buddy researches and practises with paper money. It never trades for you.</div>
+    ${card("Watchlist", row("Example Energy Co.", "Up 2.1% today", spark([10, 11, 10.5, 11.2, 11.8, 12.1, 12.4])) + row("Example Chip Maker", "Down 0.8% today", spark([22, 21.5, 21.8, 21.1, 20.9, 21.2, 20.8])), "<span class='example'>Example</span>")}
+    ${card("Paper trading", row("Practice book", "+3.2% this month vs market +1.9%") + premium("Advanced strategy research"))}`;
+}
+
+// ---------------------------------------------------------------- EXPLORE
+function explore() {
+  const st = stateBody("explore"); if (st) return st;
+  const s = sec();
+  if (s === "foryou") return `${card("For you", row("Grid-scale batteries pass gas peakers in two US markets", "Energy storage · Reuters · 2 h ago", ic("chev", 18)) + row("Espresso machine at its lowest in 90 days", "$449 · Deals", ic("chev", 18), "go:explore:deals") + row("An industry may be forming: AI-designed proteins", "Intelligence · 14 sources this week", ic("chev", 18), "go:explore:research") + row("Your flight to Kochi on Dec 18", "Fares on your route dropped 6%", ic("chev", 18), "go:explore:travel"), "<span class='example'>Example</span>")}`;
+  if (s === "news") return `<div class="segctl" style="padding:0">${["All", "Energy", "AI", "Markets", "Kerala"].map((t, i) => `<button ${i ? "" : 'aria-current="page"'}>${t}</button>`).join("")}</div>
+    ${card("Today", row("Grid-scale batteries pass gas peakers in two US markets", "Reuters · 2 h ago") + row("New small modular reactor licence filed", "Company filing · today") + row("Open-weight models close the gap on reasoning tests", "Research paper · yesterday"), "<span class='example'>Example</span>")}`;
+  if (s === "deals") return `${card("Watching", row("Espresso machine", "$449 now · lowest in 90 days", spark([529, 529, 499, 519, 529, 489, 509, 449])) + row("Noise-cancelling headphones", "$279 · down $40", spark([319, 319, 299, 309, 279])), "<span class='example'>Example</span>")}
+    ${card("Predicted", row("TVs", "Usually lowest the week of Black Friday") + row("Flights to Kochi", "Cheapest 6 to 8 weeks before") + rests([["Model", "Seasonal patterns learned from your price book"], ["Confidence", "Medium; 2 years of prices"]]))}`;
+  if (s === "travel") return `${card("Your trips", row("Kochi, Dec 18 to Jan 4", "Flight booked by you · seat 32A", ic("chev", 18)), "<span class='example'>Example</span>")}${card("Search flights and hotels", `<div class="fields"><label class="field">From<input value="EWR"></label><label class="field">To<input value="COK"></label><label class="field">When<input value="Dec 18"></label></div><button class="btn" data-act="toast:Searching (not in this prototype)">Search</button>`)}`;
+  return `${card("Intelligence", row("AI-designed proteins: an industry may be forming", "14 sources this week · papers, grants, filings") + row("Small modular reactors: convergence with grid storage", "Evidence up 3 stages") + premium("Full convergence maps and predictions"), "<span class='example'>Example</span>")}
+    ${card("Library and reports", row("Your library", "126 files · uploaded or shared", ic("chev", 18)) + row("Reports Buddy wrote", "18 reports", ic("chev", 18)))}`;
+}
+
+// ---------------------------------------------------------------- PROFILE
+function profile() {
+  const s = sec();
+  if (s === "account") return `${card("Your account", row("Your name", "you@example.com") + row("Plan", S.plan === "premium" ? "Premium" : "Free", `<button class="btn line" data-act="sheet:plans">Compare plans</button>`))}
+    ${card("This month's use", `<div class="muted">AI requests ${S.plan === "premium" ? "312 of 5,000" : "312 of 500"}</div><div class="bar"><i style="width:${S.plan === "premium" ? 6 : 62}%"></i></div><div class="muted">Search and research ${S.plan === "premium" ? "41 of 600" : "41 of 60"}</div><div class="bar"><i style="width:${S.plan === "premium" ? 7 : 68}%"></i></div>`, "<span class='example'>Example limits</span>")}
+    ${card("Preferences", row("Voice", "Talk mode, hands-free off", ic("chev", 18)) + row("Language", "English; Malayalam understood", ic("chev", 18)) + row("Appearance", "Follows your phone", ic("chev", 18)) + row("Notifications", "Off for new features; Activity collects Buddy's messages", ic("chev", 18)) + row("What Buddy knows about you", "Taste, routines, memory: view and edit", ic("chev", 18)))}`;
+  if (s === "ai") return `${card("Buddy Maestro", row("Claude", "Conversation and personal tasks", `<span class="chip good">Connected</span>`) + row("Free models", "Public text only: headlines, labels", `<span class="chip good">On</span>`) + row("Add a provider", "", ic("chev", 18), "toast:Provider set-up (keys are entered on your server)"))}
+    ${card("The privacy rule", row(`${ic("lock", 14)} Health`, "No AI model, Claude included") + row("Personal details", "Claude only") + row("Public text", "Any model you allow"))}
+    ${card("AI spending this month", `<div class="tiles">${tile("$6.40", "Spent")}${tile("$20", "Your cap")}</div>`, "<span class='example'>Example</span>")}`;
+  if (s === "connections") return card("Buddy Connect", row("Bank (read-only)", "Last read 7:02 am", `<span class="chip good">Working</span>`) + row("Oura Ring", "Health: sleep, readiness", `<span class="chip good">Working</span>`) + row("Gmail", "Read-only", `<span class="chip good">Working</span>`) + row("Google Places", "Needs a key", `<span class="chip warn">Set up</span>`, "toast:Keys are entered on your server, never in chat") + row("Add a service", "Official APIs only", ic("chev", 18)), "<span class='example'>Example</span>");
+  if (s === "privacy") return `${card("Privacy Gateway", row("Health information", "Never sent to any AI model") + row("Personal details", "Claude only") + row("Last 7 days", "1,204 requests checked · 3 held back", ic("chev", 18)))}
+    ${card("Your data", row("Data sources", "12 connected · delete or disconnect each", ic("chev", 18)) + row("Export everything", "A file of all your data", `<button class="btn line" data-act="sheet:export">Export</button>`) + row("Delete everything", "Your data, on this server, for good", `<button class="btn line" style="color:var(--b-critical);border-color:var(--b-critical)" data-act="sheet:delete">Delete</button>`))}
+    <p class="muted">Privacy, security, export and deletion are in every plan.</p>`;
+  return `${card("Security watch", `<div class="tiles">${tile("0", "Critical or high open")}${tile("2", "Low open")}</div>` + row("Last check", "Today 4:00 am · 46 checks", ic("chev", 18)), "<span class='example'>Example</span>")}${card("Sign-in and devices", row("This phone", "Signed in · fingerprint") + row("Server link", "Encrypted (Tailscale)"))}`;
+}
+
+// ---------------------------------------------------------------- sheets and side panel
+function sheetContent() {
+  const sh = S.sheet || ""; const [kind, arg] = sh.split(":");
+  if (kind === "bp") return ["Log blood pressure", `<div class="fields"><label class="field">Top<input id="bp-s" inputmode="numeric" value="128"></label><label class="field">Bottom<input id="bp-d" inputmode="numeric" value="82"></label><label class="field">Pulse<input id="bp-p" inputmode="numeric" value="68"></label></div>
+      <label class="field">When<select><option>This morning (before medicines)</option><option>This evening</option></select></label>
+      <button class="btn" data-act="savebp" data-qa="save-bp">Save reading</button><p class="muted">${ic("lock", 14)} Stays on your server. Worked out by rules; no AI model sees it.</p>`];
+  if (kind === "meal") return ["Log a meal", `<div class="segctl" style="padding:0">${["breakfast", "lunch", "snack", "dinner"].map((s) => `<button data-act="slot:${s}" ${s === S.slot ? 'aria-current="page"' : ""}>${s[0].toUpperCase() + s.slice(1)}</button>`).join("")}</div>
+      <div class="cbox"><input id="food-q" value="Italian bread" aria-label="Search a food"><button class="btn quiet" data-act="sheet:scan">${ic("scan", 18)}</button></div>
+      <div class="row"><div class="grow"><b>Italian bread</b><small>Example bakery · 80 kcal a slice</small></div></div>
+      <div class="fields"><label class="field">How many<input id="howmany" inputmode="decimal" value="3"></label><label class="field" style="grid-column:span 2">Portion<select><option>1 slice (32 g)</option><option>Grams</option></select></label></div>
+      <div class="card" style="background:var(--b-warning-soft);border-color:transparent"><span class="chip warn">Fits, with care</span><span class="muted">Refined flour first: with your A1c of 5.9%, pair it with eggs or dal.</span>${rests(PRODUCTS.bread.why)}</div>
+      <button class="btn" data-act="addmeal" data-qa="add-meal">Add 3 × 1 slice to ${S.slot}</button>`];
+  if (kind === "scan") return ["Scan food", `<div class="cam">Point at the barcode or the plate</div><div class="segctl" style="padding:0"><button aria-current="page">Barcode</button><button>Dish</button></div>
+      <p class="muted">Simulate a scan:</p><div class="btns"><button class="btn" data-act="scanned:bread" data-qa="scan-bread">Italian bread</button><button class="btn quiet" data-act="scanned:oats" data-qa="scan-oats">Rolled oats</button></div>
+      <p class="muted">${ic("lock", 14)} Only the barcode number goes to your server; the camera image stays on the phone.</p>`];
+  if (kind === "verdict") { const p = PRODUCTS[arg];
+    return [p.name, `<span class="chip ${p.verdict === "good" ? "good" : "warn"}" style="font-size:14px;padding:4px 12px">${p.head}</span><div class="muted">${esc(p.brand)} · a serving: ${esc(p.serving)} · ${p.kcal} kcal · ${p.protein} g protein · ${p.fibre} g fibre · ${p.sodium} mg sodium</div>
+      ${p.good.length ? `<b>Good</b><ul style="margin:0;padding-left:18px">${p.good.map((g) => `<li>${esc(g)}</li>`).join("")}</ul>` : ""}
+      ${p.watch.length ? `<b>Watch</b><ul style="margin:0;padding-left:18px">${p.watch.map(([w, mine]) => `<li>${esc(w)}${mine ? ` <span class="chip warn">for you</span>` : ""}</li>`).join("")}</ul>` : ""}
+      ${rests(p.why)}<div class="btns"><button class="btn" data-act="sheet:meal">Add to a meal</button><button class="btn quiet" data-act="sheet:compare" data-qa="compare">Compare</button></div><p class="example">Example</p>`]; }
+  if (kind === "compare") return ["Side by side", `<div style="overflow-x:auto"><table class="cmp"><tr><th></th><th>Rolled oats <span class="chip good">Better for you</span></th><th>Italian bread</th></tr>
+      ${[["Verdict", "Good for you", "Fine sometimes"], ["A serving", "40 g", "32 g"], ["Calories", "150", "80"], ["Protein", "5 g", "3 g"], ["Fibre", "4 g", "0.5 g"], ["Sodium", "0 mg", "150 mg"], ["Processing", "NOVA 1", "NOVA 4"]].map(([k, a, b]) => `<tr><th>${k}</th><td>${a}</td><td>${b}</td></tr>`).join("")}</table></div>
+      <p class="muted">Per serving, as each label gives it: servings differ in size.</p>`];
+  if (kind === "plans") return ["Free and Premium", `<table class="cmp"><tr><th></th><th>Free</th><th>Premium</th></tr>
+      ${[["Conversation and voice", "Yes", "Yes"], ["AI use", "Everyday", "Higher limits"], ["Research and intelligence", "Basic", "Advanced, with reports"], ["Integrations", "Essential", "Expanded"], ["Workflows and monitoring", "–", "Yes"], ["Privacy, security, export, deletion", "Yes", "Yes"]].map(([k, a, b]) => `<tr><th>${k}</th><td>${a}</td><td>${b}</td></tr>`).join("")}</table>
+      <p class="muted">Prices are set at launch. Privacy, security and deleting your data are never paid features.</p>
+      <button class="btn" data-act="upgrade">${S.plan === "premium" ? "You're on Premium" : "Upgrade to Premium"}</button>`];
+  if (kind === "export") return ["Export your data", `<p class="muted">A file with your conversations, money records, health records, documents and settings. It is made on your server and downloaded to this phone.</p><button class="btn" data-act="toast:Preparing your export. It appears in Activity when ready">Prepare export</button>`];
+  if (kind === "delete") return ["Delete everything", `<p>This deletes your data on your server: conversations, money, health, documents and connections. It can't be undone.</p>
+      <button class="btn danger" data-act="delete">${S.confirmDelete ? "Press again to delete for good" : "Delete everything"}</button><button class="btn quiet" data-act="sheet:close">Keep my data</button>`];
+  if (kind === "review") { const a = S.approvals.find((x) => x.id === arg); return ["Approve this?", a ? approvalCard(a, false) : `<p class="muted">Already handled.</p>`]; }
+  if (kind === "place") { const p = PLACES.find((x) => String(x.n) === arg);
+    return [p.name, `<div class="map"><i style="left:45%;top:40%"><span>${p.n}</span></i></div><div class="muted">★ ${p.rating} from ${p.reviews.toLocaleString()} reviews · ${p.dist} · ${esc(p.open)}</div><b>Why it suits you</b><span>${esc(p.why)}</span><b>Reviewers praise</b><span>${esc(p.good)}</span><b>Watch</b><span>${esc(p.watch)}</span>
+      <div class="btns"><button class="btn" data-act="toast:Booking links: OpenTable, the restaurant's site; or Buddy calls after your yes">Book a table</button><button class="btn quiet" data-act="toast:Opens Google Maps">Directions</button></div>${rests([["Reviews", "Reddit, 3 review sites, complaint threads"], ["As of", "Today 7:12 pm"]])}<p class="example">Example</p>`]; }
+  return ["", ""];
+}
+function sidePanel() {
+  if (S.sheet) { const [t, b] = sheetContent(); return `<div class="shdr"><h3>${t}</h3><button class="icon-btn" data-act="sheet:close" aria-label="Close">${ic("close", 18)}</button></div><div class="sbody">${b}</div>`; }
+  const ctx = { home: ["Today", () => `${card("Today", row("Dentist at 3:30 pm", "Leave by 3:05 pm") + row("Card bill $412.30 due Friday", "From your statement email") + row("Rain after 5 pm", "Take an umbrella") + row(`<span class="chip good">${ic("lock", 12)} From Health</span> Blood pressure not logged this morning`, "Shown by Health; not shared with any AI", `<button class="btn line" data-act="sheet:bp">Log</button>`), "<span class='example'>Example</span>")}${S.approvals.map((a) => approvalCard(a, true)).join("")}${card("Recent", row("Price drop: headphones", "$279") + row("Report ready: November spending", ""))}`],
+    health: ["Privacy and sources", () => card("Where the numbers come from", row("Oura Ring", "Read 7:02 am") + row("Health Connect (cuff, scale)", "Sent 7:40 am") + row("Lab reports", "1 report · Oct 1") + row("Typed by you", "Meals, readings")) + `<p class="muted">${ic("lock", 14)} Health stays on your server. No AI model sees it.</p>`],
+    money: ["Details", () => `<p class="muted">Pick a bill, transaction or holding to see its details here.</p>${approvalCard(S.approvals[0] || S.approvals[0], true) || ""}`],
+    explore: ["Details", () => `<p class="muted">Pick an article, deal or trip to read it here.</p>`],
+    profile: ["Help", () => `<p class="muted">Keys for outside services are entered on your server, never in the app or the chat.</p>`] }[S.dest];
+  return `<div class="shdr"><h3>${ctx[0]}</h3></div><div class="sbody">${S.dest === "money" && !S.approvals.length ? `<p class="muted">Pick a bill, transaction or holding to see its details here.</p>` : ctx[1]()}</div>`;
+}
+
+// ---------------------------------------------------------------- shell
+const DEST = [["home", "Home", "home"], ["health", "Health", "health"], ["money", "Money", "money"], ["explore", "Explore", "explore"], ["profile", "Profile", "profile"]];
+const SECTIONS = { home: [["chat", "Conversation"], ["activity", "Activity"]], health: [["today", "Today"], ["food", "Food"], ["body", "Body"], ["labs", "Labs"], ["library", "Library"]],
+  money: [["overview", "Overview"], ["spending", "Spending"], ["bills", "Bills"], ["cards", "Cards"], ["invest", "Invest"]],
+  explore: [["foryou", "For you"], ["news", "News"], ["deals", "Deals"], ["travel", "Travel"], ["research", "Research"]],
+  profile: [["account", "Account"], ["ai", "AI"], ["connections", "Connections"], ["privacy", "Privacy"], ["security", "Security"]] };
+function header() {
+  const n = S.approvals.length;
+  if (S.dest === "home") return `<div class="hdr"><div class="brand">${mark(26)}${wordmark(18)}</div>
+    ${S.messages.length ? `<button class="icon-btn" data-act="newchat" aria-label="New conversation">${ic("plus", 20)}</button>` : ""}
+    <button class="icon-btn" data-act="go:home:activity" aria-label="Activity, ${n} waiting">${ic("bell", 20)}${n ? `<span class="count">${n}</span>` : ""}</button></div>`;
+  const title = { health: "Health", money: "Money", explore: "Explore", profile: "Profile" }[S.dest];
+  const actions = S.dest === "health" ? `<button class="pillbtn" data-act="sheet:bp" data-qa="hdr-bp">${ic("heart", 16)} BP</button><button class="pillbtn" data-act="sheet:scan">${ic("scan", 16)} Scan</button>`
+    : S.dest === "money" || S.dest === "explore" ? `<button class="icon-btn" data-act="toast:Search (not in this prototype)" aria-label="Search">${ic("search", 20)}</button>` : "";
+  return `<div class="hdr"><h2>${title}</h2>${actions}</div>`;
+}
+function composer() {
+  if (S.dest !== "home" || sec() !== "chat") return "";
+  const v = S.state === "error" ? "error" : S.voice;
+  const label = { idle: S.mode === "talk" ? "Tap the mic or your earbud to talk" : "Listening to the room for \"Hey Buddy\"", listening: "Listening…", thinking: "Thinking…", speaking: "Speaking. Tap to interrupt", interrupted: "Stopped. Listening again…", error: "Couldn't reach your server. Tap to try again" }[v];
+  return `<div class="composer">
+    ${S.messages.length ? "" : `<div class="suggest" aria-label="Suggestions">${["Best biryani nearby", "Compare these two headphones", "Find a deal on an espresso machine", "Review my spending", "Pay my card bill"].map((t) => `<button data-act="say:${t}">${t}</button>`).join("")}</div>`}
+    <div class="vstate ${v}" role="status" aria-live="polite"><span class="vdot"></span><span>${label}</span>
+      <span class="modes"><button aria-pressed="${S.mode === "talk"}" data-act="mode:talk">Talk</button><button aria-pressed="${S.mode === "listen"}" data-act="mode:listen">Listen-in</button><button aria-pressed="${S.handsfree}" data-act="handsfree">Hands-free</button></span></div>
+    <form class="cbox" data-form="send"><button type="button" class="icon-btn" style="width:40px;height:40px" data-act="toast:Attach a file or photo; it lands in your Library" aria-label="Attach">${ic("plus", 20)}</button>
+      <input id="composer" placeholder="Ask Buddy anything" aria-label="Message Buddy" autocomplete="off">
+      <button type="submit" class="mic ${v}" data-act="mic" data-qa="mic" aria-label="${v === "idle" ? "Talk to Buddy" : "Stop"}">${ic(v === "listening" || v === "speaking" ? "stop" : "mic", 22)}</button></form></div>`;
+}
+function render() {
+  document.documentElement.dataset.theme = S.theme;
+  const dev = document.getElementById("device"); dev.className = "device" + (S.device === "open" ? " open" : "");
+  const open = S.device === "open";
+  const bodies = { home, health, money, explore, profile };
+  const subs = SECTIONS[S.dest];
+  const banner = S.dest === "health" ? `<div class="banner" role="note">${ic("lock", 16)} Health stays on your server. No AI model sees it.</div>` : "";
+  const nav = `<nav class="nav" aria-label="Destinations">${DEST.map(([k, l, i]) => `<button data-act="nav:${k}" data-qa="nav-${k}" ${k === S.dest ? 'aria-current="page"' : ""}><span class="pip">${ic(i)}</span>${l}</button>`).join("")}</nav>`;
+  const main = `<div class="main">${header()}${S.dest === "home" && S.messages.length && sec() === "chat" ? "<div></div>" : `<div class="segctl" role="tablist">${subs.map(([k, l]) => `<button role="tab" data-act="section:${k}" data-qa="sec-${k}" ${k === sec() ? 'aria-current="page" aria-selected="true"' : 'aria-selected="false"'}>${l}</button>`).join("")}</div>`}
+    <div class="body" id="body">${banner}${bodies[S.dest]()}</div>${composer()}</div>`;
+  const sheet = !open && S.sheet ? (() => { const [t, b] = sheetContent(); return `<div class="scrim" data-act="scrim"><div class="sheet" role="dialog" aria-modal="true" aria-label="${esc(t)}"><div class="grab"></div><div class="shdr"><h3>${t}</h3><button class="icon-btn" data-act="sheet:close" aria-label="Close">${ic("close", 18)}</button></div><div class="sbody">${b}</div></div></div>`; })() : "";
+  document.getElementById("app").innerHTML = open ? `${nav}${main}<aside class="side" aria-label="Details">${sidePanel()}</aside>${S.toast ? `<div class="toast" role="status">${esc(S.toast)}</div>` : ""}`
+    : `<div class="status"><span>9:41</span><span>5G · 82%</span></div>${main}${nav}${sheet}${S.toast ? `<div class="toast" role="status">${esc(S.toast)}</div>` : ""}`;
+  document.querySelectorAll("[data-ctl]").forEach((g) => g.querySelectorAll("button").forEach((b) => b.setAttribute("aria-pressed", String(S[g.dataset.ctl] === b.dataset.v))));
+  const msgs = document.getElementById("body"); if (msgs && S.messages.length && S.dest === "home") msgs.scrollTop = msgs.scrollHeight;
+  document.getElementById("taps").textContent = `Taps in the app: ${S.taps}`;
+  window.__proto = { state: S, taps: S.taps };
+}
+
+// ---------------------------------------------------------------- behaviour
+let toastTimer;
+function toast(t) { S.toast = t; clearTimeout(toastTimer); toastTimer = setTimeout(() => { S.toast = ""; render(); }, 2600); }
+function reply(text) {
+  const t = text.toLowerCase();
+  if (/blood pressure|\bbp\b|cholesterol|weight|calorie|ate |meal|sugar level|heart|health|medicine/.test(t)) return { who: "bud", card: { type: "health" } };
+  if (/pay|transfer|card bill/.test(t)) { if (!S.approvals.length) S.approvals.push({ ...APPROVAL0, id: "a" + Date.now() }); return { who: "bud", text: "Here is exactly what I'll do. Nothing happens until you approve.", card: { type: "approval", id: S.approvals[0].id } }; }
+  if (/biryani|restaurant|dinner|lunch place|eat out|food near/.test(t)) return { who: "bud", text: "Three picks near you, best reviewed first, checked against your taste:", card: { type: "places" } };
+  if (/compare/.test(t)) return { who: "bud", text: "Side by side, with what reviewers flag:", card: { type: "compare" } };
+  if (/deal|price|cheap/.test(t)) return { who: "bud", text: "Best price I found, with its history:", card: { type: "deal" } };
+  if (/spend|budget|money/.test(t)) return { who: "bud", text: "Your spending, from Money:", card: { type: "money" } };
+  if (/news/.test(t)) return { who: "bud", text: "Top stories on your topics:", card: { type: "news" } };
+  return { who: "bud", text: "Here's your day: a dentist appointment at 3:30 pm, your card bill is due Friday, and rain after 5 pm. Anything you'd like me to handle?" };
+}
+const APPROVAL0 = { ...S.approvals[0] };
+function say(text) { S.messages.push({ who: "me", text }); S.voice = "thinking"; render(); setTimeout(() => { S.messages.push(reply(text)); S.voice = "idle"; render(); }, 450); }
+function mic() {
+  if (S.state === "error") { S.state = "normal"; S.voice = "idle"; render(); return; }
+  if (S.voice === "speaking") { S.voice = "interrupted"; render(); setTimeout(() => { S.voice = "listening"; render(); }, 700); return; }
+  if (S.voice !== "idle" && S.voice !== "interrupted") { S.voice = "idle"; render(); return; }
+  S.voice = "listening"; render();
+  setTimeout(() => { if (S.voice !== "listening") return; S.messages.push({ who: "me", text: "What's on today?" }); S.voice = "thinking"; render();
+    setTimeout(() => { S.messages.push(reply("today")); S.voice = "speaking"; render();
+      setTimeout(() => { if (S.voice === "speaking") { S.voice = S.handsfree ? "listening" : "idle"; render(); } }, 1800); }, 700); }, 1300);
+}
+function act(a, el) {
+  const [k, x, y] = a.split(":");
+  if (k === "nav") { if (S.dest === x && x === "home") S.section.home = "chat"; S.dest = x; S.sheet = null; }
+  else if (k === "section") { S.section[S.dest] = x; }
+  else if (k === "go") { S.dest = x; S.section[x] = y; S.sheet = null; }
+  else if (k === "sheet") { if (x === "close") { S.sheet = null; S.confirmDelete = 0; } else S.sheet = [x, y].filter(Boolean).join(":"); }
+  else if (k === "scrim") { S.sheet = null; S.confirmDelete = 0; }
+  else if (k === "slot") { S.slot = x; }
+  else if (k === "meal") { S.slot = x; S.sheet = "meal"; }
+  else if (k === "addmeal") { const n = Number((document.getElementById("howmany") || {}).value) || 1; S.meals.push({ slot: S.slot, what: `Italian bread (${n} × 1 slice)`, kcal: 80 * n, protein: 3 * n }); S.sheet = null; toast(`Added to ${S.slot}: ${80 * n} kcal`); }
+  else if (k === "savebp") { const s = (document.getElementById("bp-s") || {}).value || "128", d = (document.getElementById("bp-d") || {}).value || "82"; S.bpToday = { s, d }; S.sheet = null; toast(`Logged ${s}/${d} this morning`); }
+  else if (k === "scanned") { if (!S.scans.includes(x)) S.scans.unshift(x); S.sheet = "verdict:" + x; }
+  else if (k === "say") { S.dest = "home"; S.section.home = "chat"; say(a.slice(4)); return; }
+  else if (k === "mic") { mic(); return; }
+  else if (k === "mode") { S.mode = x; }
+  else if (k === "handsfree") { S.handsfree = !S.handsfree; }
+  else if (k === "newchat") { S.messages = []; S.voice = "idle"; }
+  else if (k === "review") { S.sheet = "review:" + x; }
+  else if (k === "approve" || k === "reject") { const ap = S.approvals.find((v) => v.id === x); S.approvals = S.approvals.filter((v) => v.id !== x);
+    if (ap) S.done.unshift({ what: `${ap.what} ${ap.amount}`, detail: k === "approve" ? "Approved by you just now · recorded" : "Rejected by you · nothing was paid", ok: k === "approve" });
+    S.sheet = null; if (S.dest === "home" && S.messages.length) S.messages.push({ who: "bud", text: k === "approve" ? `Done: paid ${ap ? ap.amount : ""} to the card ending 4821. Recorded in Activity.` : "Okay, nothing was paid." });
+    toast(k === "approve" ? "Approved. The server ran exactly this action once" : "Rejected. Nothing happened"); }
+  else if (k === "cancelsub") { S.approvals.unshift({ id: "s1", what: "Cancel the streaming subscription", amount: "$15.49 a month", to: "Example Streaming", from: "Card ending 4821", when: "Today; access ends Dec 14", risk: "You lose access at the end of the billing period.", source: "Card statement; unused 60 days per the provider's app" }); S.sheet = "review:s1"; }
+  else if (k === "upgrade") { S.plan = "premium"; S.sheet = null; toast("Premium is on (prototype: no payment taken)"); }
+  else if (k === "delete") { if (!S.confirmDelete) { S.confirmDelete = 1; } else { S.confirmDelete = 0; S.sheet = null; toast("Prototype: nothing was deleted"); } }
+  else if (k === "state") { S.state = x; }
+  else if (k === "toast") { toast(a.slice(6)); }
+  else if (k === "panel") { S.sheet = x + ":" + y; }
+  render();
+}
+document.addEventListener("click", (e) => {
+  const ctl = e.target.closest("[data-ctl] button");
+  if (ctl) { const g = ctl.closest("[data-ctl]").dataset.ctl; S[g] = ctl.dataset.v; if (g === "device") storage("bp.device", S.device); render(); return; }
+  const el = e.target.closest("[data-act]"); if (!el) return;
+  if (el.dataset.act === "scrim" && e.target !== el) return;  // a tap inside the sheet is not a tap on the scrim
+  if (el.dataset.act === "mic" && (document.getElementById("composer") || {}).value) return;  // the form sends it
+  e.preventDefault(); S.taps++; act(el.dataset.act, el);
+});
+document.addEventListener("keydown", (e) => { if ((e.key === "Enter" || e.key === " ") && e.target.matches(".row[data-act]")) { e.preventDefault(); e.target.click(); } if (e.key === "Escape" && S.sheet) { S.sheet = null; render(); } });
+document.addEventListener("submit", (e) => { e.preventDefault(); const i = document.getElementById("composer"); const t = (i && i.value || "").trim(); if (t) { S.taps++; say(t); } else { S.taps++; mic(); } });
+window.__protoReset = () => { S.taps = 0; render(); };
+render();
+})();
+</script>
