@@ -161,6 +161,25 @@ def test_missing_numbers_and_the_endpoint(tmp_path, monkeypatch):
                        headers=auth).status_code == 400
 
 
+def test_allergies_are_set_on_the_page_and_cleared_there(tmp_path, monkeypatch):
+    from buddy import server
+    m = Memory(tmp_path / "b.db")
+    _me(m)
+    monkeypatch.setattr(server, "memory", m)
+    monkeypatch.setattr(server, "authorized", lambda t: t == "s3cret")
+    client, auth = TestClient(server.app), {"Authorization": "Bearer s3cret"}
+    plan = {"goals": ["Eat well"], "habits": [{"text": "Walk", "metric": "steps", "target": 8000}],
+            "diet": {"allergies": "  Shellfish,   peanuts " + "x" * 300, "avoid": "maida"}}
+    assert client.post("/api/health/page", json={"action": "plan", "plan": plan}, headers=auth).status_code == 200
+    saved = coach.plan(m)["diet"]
+    assert saved["allergies"].startswith("Shellfish, peanuts x") and len(saved["allergies"]) == 200
+    assert dietcheck.check(m, "Prawn curry", {"kcal": 150}, 200)["verdict"] == "stop"
+    plan["diet"] = {"allergies": "", "avoid": "maida"}
+    client.post("/api/health/page", json={"action": "plan", "plan": plan}, headers=auth)
+    assert "allergies" not in coach.plan(m)["diet"]
+    assert dietcheck.check(m, "Prawn curry", {"kcal": 150}, 200)["verdict"] == "fits"
+
+
 def test_a_meal_keeps_its_saturated_fat_and_sugar(tmp_path):
     m = Memory(tmp_path / "b.db")
     day = coach.add_meal(m, "Pizza (2 slices)", 532, 22, extra={"sat_fat_g": 9, "sugar_g": 7.2, "added_sugar_g": 1})

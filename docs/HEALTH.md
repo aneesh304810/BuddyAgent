@@ -68,7 +68,7 @@ sub-tabs under them, and the page remembers where you were.
   - **Does it fit?** Pick a food and its portion, and before you tap Add Buddy's code checks it against your own
     plan: **Fits your plan**, **Fits, with care** (with what to watch) or **Not for you** (it's on your allergy
     list). It checks:
-    - *your allergies and foods to avoid* (from your plan), against the food's name, its ingredients where USDA or
+    - *your allergies and foods to avoid* (typed on Plan → Goals & habits), against the food's name, its ingredients where USDA or
       Open Food Facts list them, and a pack's allergen list, with the words that give each away ("dairy" finds
       paneer, ghee and whey; peanut butter and coconut milk aren't dairy); and your vegetarian or no-egg menu;
     - *your goal*: today's calories after it against your target, and how much of the day it is in one go. Beside

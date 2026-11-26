@@ -91,8 +91,9 @@ def set_plan(memory: Memory, args: dict) -> dict:
                        "days": h.get("days") if h.get("days") in ("daily", "weekdays") else "daily"})
     if not goals or not habits:
         raise ToolError("A plan needs at least one goal and one habit.")
-    diet = {k: v for k, v in (args.get("diet") or {}).items()
+    diet = {k: (" ".join(v.split())[:200] if isinstance(v, str) else v) for k, v in (args.get("diet") or {}).items()
             if k in ("style", "calories", "protein_g", "avoid", "allergies", "notes") and v not in (None, "", [])}
+    diet = {k: v for k, v in diet.items() if v not in ("", [])}
     old = plan(memory)
     saved = {"goals": goals, "habits": habits, "diet": diet, "why": str(args.get("why") or "")[:300],
              "created_at": old.get("created_at") or local_now().date().isoformat(),

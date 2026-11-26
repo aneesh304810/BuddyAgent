@@ -472,6 +472,7 @@ function renderFood() {
 // --- facts looked up on request (USDA foods, NIH supplement labels, openFDA medicines): only the words typed go out
 const facts = { food: null, supplement: null, label: null, medicine: null }, factQ = { food: "", supplement: "", medicine: "" };
 let foodPick = -1, foodGrams = "";
+const listText = (v) => (Array.isArray(v) ? v.join(", ") : String(v ?? ""));
 // Does it fit? The server's code checks the picked food at this portion against the goal, the guidelines, your labs
 // and your allergies (dietcheck.py), before it is added.
 const fits = {};
@@ -735,6 +736,9 @@ function renderPlan() {
       <div class="f"><input class="narrow" name="calories" inputmode="numeric" placeholder="Calories" aria-label="Calories a day" value="${esc(p.diet.calories ?? "")}">
         <input class="narrow" name="protein_g" inputmode="numeric" placeholder="Protein g" aria-label="Protein grams a day" value="${esc(p.diet.protein_g ?? "")}">
         <input class="grow" name="style" placeholder="Way of eating (e.g. vegetarian)" aria-label="Way of eating" value="${esc(p.diet.style ?? "")}" maxlength="80"></div>
+      <label>Allergies and foods to avoid (each food you look up or scan is checked against them)</label>
+      <div class="f"><input class="grow" name="allergies" placeholder="Allergies, e.g. peanuts, shellfish" aria-label="Allergies" value="${esc(listText(p.diet.allergies))}" maxlength="200">
+        <input class="grow" name="avoid" placeholder="Foods to avoid, e.g. maida, fried food" aria-label="Foods to avoid" value="${esc(listText(p.diet.avoid))}" maxlength="200"></div>
       <div class="f" style="margin-top:12px"><button class="btn solid">Save the plan</button>
         ${data.plan ? `<button type="button" class="btn danger" id="forget">${sure ? "Press again to delete the plan, habit log and meals" : "Forget my health plan"}</button>` : ""}</div></form>`,
     "The plan is set here because Buddy no longer discusses health in conversation. It stays on your server.")
@@ -745,6 +749,7 @@ function renderPlan() {
     e.preventDefault();
     const d = new FormData(e.target), diet = {};
     for (const k of ["calories", "protein_g", "style"]) if (String(d.get(k) || "").trim()) diet[k] = String(d.get(k)).trim();
+    for (const k of ["allergies", "avoid"]) diet[k] = String(d.get(k) || "").trim();  // sent even when emptied, to clear it
     const habits = [...$("habits").querySelectorAll(".habit")].map((row) => Object.fromEntries(["text", "metric", "target", "days"].map((k) => [k, row.querySelector(`[name=${k}]`).value.trim()])))
       .filter((h) => h.text);
     act({ action: "plan", plan: { goals: String(d.get("goals") || "").split("\n").map((g) => g.trim()).filter(Boolean), habits, diet: { ...p.diet, ...diet } } }, "Plan saved.");
