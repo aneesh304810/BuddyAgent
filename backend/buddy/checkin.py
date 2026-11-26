@@ -234,6 +234,12 @@ def readback(memory: Memory, a: dict) -> str:
             parts.append(missing)
     except Exception:  # noqa: BLE001
         pass
+    try:  # what went over on fats, sodium, added sugar or ultra-processed food today (code only)
+        from . import scanmeal  # noqa: PLC0415
+        if (over := scanmeal.evening_line(memory)):
+            parts.append(over)
+    except Exception:  # noqa: BLE001
+        pass
     if (a.get("mood") and a["mood"] <= 2) or a.get("people") == "no":
         parts.append("Thanks for telling me. If days like this keep coming, talking to someone you trust or a "
                      "doctor helps, and if you ever feel unsafe, call or text 988 any time.")

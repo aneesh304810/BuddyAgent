@@ -462,7 +462,7 @@ function renderToday() {
     : `<p class="muted">${data.plan ? "No habits are due today." : "No plan yet. Set one up under Plan → Goals & habits and its habits show here."}</p>`;
   $("main").innerHTML = (k.length ? `<div class="kpis">${k.join("")}</div>` : card("Today", `<p class="muted">No readings yet for today or yesterday.</p>`))
     + (k.length ? card("What it means for today", means, "Fixed rules against your own week. Not medical advice.") : "")
-    + nowCard() + weekCard() + bpQuick() + card("Today's habits", habits) + moodCard();
+    + foodTodayCard() + nowCard() + weekCard() + bpQuick() + card("Today's habits", habits) + moodCard();
   wire();
   wireBody();
 }
@@ -643,19 +643,121 @@ function mealsBySlot(recent) {
 // (foodverdict.py); the products you check are kept, so you can look back and compare them on the shelf.
 const groc = { q: "", found: null, busy: false, failed: "", pick: 0, verdict: null, scans: null, compare: new Set(), cmp: null, sure: false };
 const VERDICT_PILL = { good: "good", sometimes: "warn", skip: "bad" };
-async function grocCheck(food) {
-  groc.busy = true; groc.failed = ""; render();
+async function grocCheck(food, fromScan = false) {
+  groc.busy = true; groc.failed = ""; scanMeal = null; render();
   try { groc.verdict = await api("/api/health/verdict", { food, keep: true }); groc.verdict.food = food; groc.scans = null; }
   catch (e) { groc.failed = e.message; groc.verdict = null; }
   groc.busy = false; render(); loadScans();
+  if (fromScan && groc.verdict && groc.verdict.id) afterScan(groc.verdict.id);
 }
-async function grocFind(kind, q) {
+async function grocFind(kind, q, fromScan = false) {
   groc.busy = true; groc.failed = ""; groc.found = null; groc.verdict = null; render();
   try { groc.found = (await api(`/api/health/facts?kind=${kind}&q=${encodeURIComponent(q)}`)).foods || []; }
   catch (e) { groc.failed = e.message; groc.busy = false; render(); return; }
   groc.busy = false;
   if (!groc.found.length) { groc.failed = kind === "barcode" ? "That barcode isn't in USDA's or Open Food Facts' lists: look the product up by its name." : "Nothing found: try fewer or plainer words."; render(); return; }
-  if (kind === "barcode") { groc.pick = 0; grocCheck(groc.found[0]); } else render();
+  if (kind === "barcode") { groc.pick = 0; grocCheck(groc.found[0], fromScan); } else render();
+}
+
+// --- a scan into the day's meals, by time and place (scanmeal.py) ----------------------------------------------
+// At home, work or a place you eat it's noted in the meal for the time of day (Undo, and − / + for servings); at
+// one of your stores it's shopping (the verdict only); anywhere else the page asks once, and can remember the
+// place. Where the phone is is compared on your server, and the comparison sends the position nowhere.
+let scanMeal = null, ontrackData = null, ontrackBusy = false, foodPlaces = null;
+async function loadPlaces(body) {
+  try { foodPlaces = (await api("/api/health/where", body)).places || []; } catch (e) { foodPlaces = []; notice(e.message); }
+  if (showing("plan", "groceries")) render();
+}
+function placesCard() {
+  if (foodPlaces === null) { foodPlaces = []; loadPlaces(); return ""; }
+  if (!foodPlaces.length) return "";
+  return card("Places you marked", foodPlaces.map((p) => `<div class="line"><div class="what">${esc(p.name)}<small>${p.kind === "store" ? "A store: scans there are shopping" : "You eat here: scans there are meals"}</small></div>
+    <button class="btn" data-place-del="${p.id}" aria-label="Forget ${esc(p.name)}">✕</button></div>`).join(""),
+    "Kept on your server until you delete them, to tell eating from shopping when you scan. Home and work come from your phone's location.");
+}
+async function afterScan(id) {
+  scanMeal = { busy: true, id }; render();
+  let w;
+  try { w = await api("/api/health/where"); } catch (e) { scanMeal = { failed: e.message, id }; render(); return; }
+  if (w.do === "log") return logScan(id, w);
+  scanMeal = { where: w, id }; render();
+}
+async function logScan(id, w, servings = 1) {
+  scanMeal = { busy: true, where: w, id }; render();
+  try { scanMeal = { done: await api("/api/health/scans", { action: "eat", id, servings }), where: w, id }; }
+  catch (e) { scanMeal = { failed: e.message, where: w, id }; }
+  ontrackData = null; render(); load();
+}
+async function scanMealAct(body) {
+  const m = scanMeal;
+  try {
+    const out = await api("/api/health/scans", body);
+    scanMeal = body.action === "uneat" ? { where: m.where, id: m.id, undone: true, ontrack: out.ontrack } : { done: out, where: m.where, id: m.id };
+  } catch (e) { notice(e.message); }
+  ontrackData = null; render(); load();
+}
+async function rememberPlace(kind) {  // true when the place was remembered
+  if (!($("scan-keep") && $("scan-keep").checked)) return false;
+  try { foodPlaces = (await api("/api/health/where", { action: "remember", kind, name: ($("scan-name").value || "").trim() })).places; notice("Remembered this place."); return true; }
+  catch (e) { notice(e.message); return false; }
+}
+function ontrackBlock(o) {
+  if (!o) return "";
+  if (!o.meals) return `<p class="muted">No meals noted today yet: scan a food, or note one on Food.</p>`;
+  const head = o.on_track ? `<p style="margin:6px 0"><span class="pill good">On track</span> Nothing over so far today.</p>`
+    : `<ul style="margin:6px 0;padding-left:18px">${o.lines.map((l) => `<li>${esc(l)}</li>`).join("")}</ul>`;
+  const advice = o.advice.map((a) => `<p style="margin:6px 0 0"><b>${esc(a)}</b></p>`).join("");
+  const n = o.next_meal, t = n && n.totals;
+  const next = n ? `<div class="line" style="align-items:flex-start"><div class="what">A lighter ${esc(n.slot)} from your menu
+    <small>${esc(n.items)} · ${num(t.kcal)} kcal, ${num(t.fat_g)} g fat, ${num(t.sat_fat_g)} g saturated fat, ${num(Math.round(t.sodium_mg))} mg sodium${n.fits ? "" : " · still more than what's left today: a smaller portion"}</small></div></div>` : "";
+  const rows = o.rows.map((r) => `<div class="line"><div class="what">${esc(r.what)}<small>${esc(r.how)}${r.counted < r.of ? ` · counted from ${r.counted} of ${r.of} meals (meals typed without numbers aren't)` : ""}</small></div>
+    <span class="pill ${r.state === "over" ? "bad" : r.state === "ok" ? "good" : "warn"}">${num(r.got)} / ${num(r.limit)} ${esc(r.unit)}</span></div>`).join("");
+  return head + advice + next + rows;
+}
+function foodTodayCard() {
+  if (!ontrackData && !ontrackBusy) {
+    ontrackBusy = true;
+    api("/api/health/ontrack").then((o) => { ontrackData = o; }).catch((e) => { ontrackData = { failed: e.message }; })
+      .finally(() => { ontrackBusy = false; if (tab === "today") render(); });
+  }
+  if (!ontrackData) return card("Food today", `<p class="muted">Loading…</p>`);
+  if (ontrackData.failed) return "";
+  return card("Food today", ontrackBlock(ontrackData), esc(ontrackData.note));
+}
+function mealBox() {
+  const m = scanMeal;
+  if (!m) return "";
+  const box = (inner) => `<div style="margin-top:12px;padding-top:10px;border-top:1px solid var(--line)">${inner}</div>`;
+  if (m.busy) return box(`<p class="muted" style="margin:0">Adding it to your meals…</p>`);
+  if (m.failed) return box(`<p class="err" style="margin:0">${esc(m.failed)}</p>`);
+  const w = m.where || {};
+  if (m.done) {
+    const d = m.done;
+    return box(`<p style="margin:0"><span class="pill good">Added to ${esc(d.slot)}</span> ${esc(d.what)}</p>
+      <div class="f" style="margin-top:8px;align-items:center"><button class="btn" data-serv="-0.5" aria-label="Half a serving less"${d.servings <= 0.5 ? " disabled" : ""}>−</button>
+      <span>${num(d.servings)} serving${d.servings === 1 ? "" : "s"}</span><button class="btn" data-serv="0.5" aria-label="Half a serving more">+</button>
+      <button class="btn danger" id="scan-undo">Undo</button></div>
+      <p class="why">${esc(w.why || "")} The meal is picked by the time of day; change it on Food.</p>${ontrackBlock(d.ontrack)}`);
+  }
+  if (m.undone) return box(`<p style="margin:0">Taken off your meals.</p><p><button class="btn" id="scan-eat">Add it again</button></p>`);
+  if (m.shopped) return box(`<p style="margin:0">Not added: shopping.</p><p><button class="btn" id="scan-eat">I'm eating it after all</button></p>`);
+  if (w.do === "verdict") return box(`<p style="margin:0">${esc(w.why)}</p><p><button class="btn" id="scan-eat">I'm eating it</button></p>`);
+  return box(`<p style="margin:0 0 8px">${esc(w.why)}</p>
+    <div class="f"><button class="btn solid" id="scan-eat">Eating now</button><button class="btn" id="scan-shop">Just buying</button></div>
+    ${w.can_remember ? `<label class="pick" style="margin-top:8px"><input type="checkbox" id="scan-keep"> Remember this place</label>
+      <input id="scan-name" maxlength="60" placeholder="Its name, e.g. Costco or the office canteen" aria-label="The place's name" style="margin-top:6px;width:100%">` : ""}`);
+}
+function wireScanMeal() {
+  const m = scanMeal;
+  if (!m) return;
+  if ($("scan-eat")) $("scan-eat").onclick = async () => {
+    const kept = await rememberPlace("eat");
+    logScan(m.id, { ...(m.where || {}), why: kept ? "Remembered: scans here are meals." : "You said you're eating it." });
+  };
+  if ($("scan-shop")) $("scan-shop").onclick = async () => { await rememberPlace("store"); scanMeal = { ...m, shopped: true }; render(); };
+  if ($("scan-undo")) $("scan-undo").onclick = () => scanMealAct({ action: "uneat", meal: m.done.meal_id });
+  $("main").querySelectorAll("[data-serv]").forEach((b) => b.onclick = () =>
+    scanMealAct({ action: "recount", meal: m.done.meal_id, servings: Math.max(0.5, m.done.servings + Number(b.dataset.serv)) }));
 }
 async function loadScans() {
   try { groc.scans = (await api("/api/health/scans")).scans; } catch (e) { groc.scans = []; notice(e.message); }
@@ -686,7 +788,7 @@ function renderGroceries() {
   else if (groc.failed) body += `<p class="err">${esc(groc.failed)}</p>`;
   else if (groc.verdict) {
     const v = groc.verdict;
-    body += verdictCard(v) + `<div class="f" style="margin-top:10px"><button class="btn solid" id="groc-eat">Add to a meal</button>
+    body += verdictCard(v) + mealBox() + `<div class="f" style="margin-top:10px">${scanMeal ? "" : `<button class="btn solid" id="groc-eat">Add to a meal</button>`}
       ${v.id ? `<button class="btn${groc.compare.has(v.id) ? " on" : ""}" data-cmp="${v.id}">${groc.compare.has(v.id) ? "In the comparison" : "Compare"}</button>` : ""}</div>`;
     if (groc.found && groc.found.length > 1) body += `<p class="muted" style="margin:10px 0 2px">Other matches:</p>` + groc.found.map((f, i) => i === groc.pick ? "" :
       `<div class="line"><div class="what">${esc(f.name)}<small>${esc(f.kind)}${f.brand ? " · " + esc(f.brand) : ""}</small></div><button class="btn" data-groc-pick="${i}">Check this</button></div>`).join("");
@@ -716,7 +818,10 @@ function renderGroceries() {
       + `<div class="f" style="margin-top:10px"><button class="btn solid" id="cmp-go"${groc.compare.size < 2 ? " disabled" : ""}>Compare ${groc.compare.size || ""} side by side</button>
          <button class="btn danger" id="groc-forget">${groc.sure ? "Press again to delete all" : "Delete all"}</button></div>`,
     "Kept on your server until you delete them, and judged again with your newest numbers each time you look.");
+  html += placesCard();
   $("main").innerHTML = html;
+  wireScanMeal();
+  $("main").querySelectorAll("[data-place-del]").forEach((b) => b.onclick = () => loadPlaces({ action: "forget", id: Number(b.dataset.placeDel) }));
   $("groc-form").onsubmit = (e) => { e.preventDefault(); const q = e.target.q.value.trim(); if (!q) return; groc.q = q; grocFind("food", q); };
   $("main").querySelectorAll("[data-groc-pick]").forEach((b) => b.onclick = () => { groc.pick = Number(b.dataset.grocPick); grocCheck(groc.found[groc.pick]); });
   $("main").querySelectorAll("[data-cmp]").forEach((b) => b.onclick = () => { const id = Number(b.dataset.cmp); groc.compare.has(id) ? groc.compare.delete(id) : groc.compare.add(id); render(); });
@@ -1225,8 +1330,9 @@ async function load() {
   catch (e) { tabs(); $("main").innerHTML = `<p class="err">${esc(e.message)}</p>`; }
 }
 // The app's "Scan food" opens this page with the barcode it read, or the dish the owner tapped, on the phone: a
-// barcode shows "Good for me?" on Plan → Groceries first (adding it to a meal is a tap away); a dish shows its
-// matches on Plan → Food. Only the number or the dish's name came from the phone; never a picture.
+// barcode shows "Good for me?" on Food → Groceries and, at home, work or a place you eat, is noted in the meal for
+// the time of day (afterScan); a dish shows its matches on Food (one tap adds it, with its portion). Only the
+// number or the dish's name came from the phone; never a picture.
 const scanned = (() => {  // read from the address as it arrived (the token line above may have cleared it since)
   const code = (params.get("scanbarcode") || "").replace(/\D/g, "");
   const dish = (params.get("scandish") || "").replace(/[^\p{L}\p{N} '&(),.-]/gu, "").trim().slice(0, 60);
@@ -1241,6 +1347,6 @@ const scanned = (() => {  // read from the address as it arrived (the token line
 })();
 load().then(() => {
   if (!scanned) return;
-  if (scanned.kind === "barcode") grocFind("barcode", scanned.q);
+  if (scanned.kind === "barcode") grocFind("barcode", scanned.q, true);
   else { factQ.food = scanned.q; lookUp(scanned.kind, scanned.q); }
 });

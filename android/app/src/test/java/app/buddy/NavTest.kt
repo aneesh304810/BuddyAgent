@@ -53,12 +53,17 @@ class NavTest {
     @Test
     fun quickActionsOpenTheirSection() {
         NavLayout.v2 = true
-        val opened = Quick.entries.associateWith { q -> var to: Screen? = null; openQuick(q) { to = it }; to }
-        assertEquals(Screen.Health, opened[Quick.BP])
-        assertEquals(Screen.Dashboard, opened[Quick.SPENDING])
-        assertEquals(Screen.Explore, opened[Quick.DEALS])
-        assertEquals("scan", Jump.health)  // the last Health one asked to open the scanner
-        assertEquals(1, Jump.explore)
+        fun open(q: Quick): Screen? {
+            Jump.health = null; Jump.money = null; Jump.explore = null
+            var to: Screen? = null
+            openQuick(q) { to = it }
+            return to
+        }
+        assertEquals(Quick.SCAN, Quick.entries.first())  // used most: first
+        assertEquals(Screen.Health, open(Quick.SCAN)); assertEquals("scan", Jump.health)
+        assertEquals(Screen.Health, open(Quick.BP)); assertEquals("bp", Jump.health)
+        assertEquals(Screen.Dashboard, open(Quick.SPENDING)); assertEquals(1, Jump.money)
+        assertEquals(Screen.Explore, open(Quick.DEALS)); assertEquals(1, Jump.explore)
         Jump.health = null; Jump.money = null; Jump.explore = null
     }
 

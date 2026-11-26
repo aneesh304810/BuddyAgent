@@ -130,6 +130,24 @@ sub-tabs under them, and the page remembers where you were.
   two or more and **Compare** shows them side by side per serving with the better one for you marked. No AI model
   sees any of it; not medical advice. No AI estimates them. Food lookups need a free api.data.gov key, set once on the
   server: `sudo bash /opt/buddy/deploy/set.sh BUDDY_USDA_KEY` (sign up at api.data.gov; Buddy can't do it for you).
+- **Scan food, everywhere, into the day's meals** (`scanmeal.py`): **Scan food** sits beside the microphone on every
+  screen, in Home's message box, first among Home's quick actions, and at the bottom of Health. A pack's barcode shows
+  "Good for me?" and then, by **time and place**:
+  - at home or work (learned from your phone's location), or a place you marked as somewhere you eat: it's noted in
+    the meal for the time of day (one label serving; − and + change the servings; Undo takes it off);
+  - at a place you marked as a store: shopping, so the verdict only ("I'm eating it" notes it anyway);
+  - anywhere else, or when the phone hasn't shared where it is in the last 20 minutes: "Eating now" or "Just
+    buying", with "Remember this place" (and its name) so it's asked once.
+  The app shares where the phone is as a scan starts (only with Settings → Share my location on); the server
+  compares it with your places, and the comparison sends the position nowhere. A dish the scanner suggests opens its
+  matches on Food, where one tap adds it with its portion.
+- **Off track on fats and unhealthy food** (code only, not medical advice): after each scan, on **Health → Today**
+  ("Food today"), and in the evening check-in, Buddy checks today's meals against your numbers: saturated fat at
+  most 10% of calories, fat at most 35% (the National Academies' range is 20 to 35%), sodium under 2,300 mg, at most
+  10 g of added sugar in a meal, and two or more ultra-processed (NOVA 4) foods. Through the day a limit is "ahead of
+  pace" when what's eaten passes the share the meals so far usually carry (a quarter by breakfast, three fifths by
+  lunch); nine tenths is "close". Then it says what to keep the next meal under, and picks the lightest of your day
+  menu's options for that meal on what's over. Only meals noted with numbers count, and the card says how many did.
   - **Does it fit?** Pick a food and its portion, and before you tap Add Buddy's code checks it against your own
     plan: **Fits your plan**, **Fits, with care** (with what to watch) or **Not for you** (it's on your allergy
     list). It checks:

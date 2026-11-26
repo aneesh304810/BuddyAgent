@@ -32,7 +32,7 @@ import androidx.compose.ui.unit.sp
  * reminders and bills sit in a panel beside the conversation instead.
  */
 enum class Quick(val label: String, val glyph: Glyph) {
-    MEAL("Log a meal", Glyph.MEAL), BP("Log BP", Glyph.PULSE), SCAN("Scan food", Glyph.SCAN),
+    SCAN("Scan food", Glyph.SCAN), MEAL("Log a meal", Glyph.MEAL), BP("Log BP", Glyph.PULSE),
     SPENDING("Spending", Glyph.MONEY), BILLS("Bills", Glyph.DOC), DEALS("Deals", Glyph.TAG)
 }
 

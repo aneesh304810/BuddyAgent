@@ -95,3 +95,14 @@ def _serper_not_paused():
     social._fails.clear()
     social._paused_until.clear()
     yield
+
+
+@pytest.fixture(autouse=True)
+def _daytime_check_in(monkeypatch):
+    """The evening check-in is offered from 6 pm by the real clock, which made conversation tests fail when run in
+    the evening: tests see midday unless they set their own time (test_checkin does)."""
+    from datetime import datetime
+
+    from buddy import checkin
+
+    monkeypatch.setattr(checkin, "local_now", lambda: datetime(2026, 11, 26, 12, 0))

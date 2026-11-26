@@ -10,6 +10,10 @@ import androidx.activity.ComponentActivity
 import androidx.activity.compose.rememberLauncherForActivityResult
 import androidx.activity.compose.setContent
 import androidx.activity.result.contract.ActivityResultContracts
+import androidx.compose.foundation.layout.width
+import androidx.compose.foundation.layout.heightIn
+import androidx.compose.foundation.layout.Spacer
+import androidx.activity.result.ActivityResult
 import androidx.camera.core.CameraSelector
 import androidx.camera.core.ExperimentalGetImage
 import androidx.camera.core.ImageAnalysis
@@ -69,41 +73,78 @@ import java.util.concurrent.atomic.AtomicReference
  */
 @Composable
 fun HealthScreen(link: ServerLink?) {
-    val context = LocalContext.current
-    // A quick action on Home (Home.kt) opens a section (?section=food, bp) or the scanner straight away.
+    // From elsewhere: a quick action on Home (Home.kt) opens a section (?section=food, bp) or the scanner, and a scan
+    // made on another screen arrives with what it read (scanbarcode=…, scandish=…).
     val jump = remember { Jump.health.also { Jump.health = null } }
-    var query by remember { mutableStateOf(if (jump != null && jump != "scan") "section=$jump" else "") }
-    val scan = rememberLauncherForActivityResult(ActivityResultContracts.StartActivityForResult()) { result ->
-        val code = result.data?.getStringExtra(FoodScanActivity.BARCODE)
-        val dish = result.data?.getStringExtra(FoodScanActivity.DISH)
-        if (result.resultCode == Activity.RESULT_OK) {
-            // A new address each time, so scanning the same thing twice still looks it up again.
-            val stamp = "&t=" + System.currentTimeMillis()
-            when {
-                !code.isNullOrBlank() -> query = "scanbarcode=" + URLEncoder.encode(code, "UTF-8") + stamp
-                !dish.isNullOrBlank() -> query = "scandish=" + URLEncoder.encode(dish, "UTF-8") + stamp
-            }
-        }
+    var query by remember {
+        mutableStateOf(when {
+            jump == null || jump == "scan" -> ""
+            jump.startsWith("scan") -> jump
+            else -> "section=$jump"
+        })
     }
-    LaunchedEffect(jump) { if (jump == "scan" && link != null) scan.launch(Intent(context, FoodScanActivity::class.java)) }
-    Box(Modifier.fillMaxSize()) {
-        key(query) { BuddyPage(link, "health.html", query) }
-        if (link != null && NavLayout.v2) {
-            // The redesign: Log BP and Scan food in place of the microphone (no health goes to the conversation).
-            Row(Modifier.align(Alignment.BottomEnd).padding(16.dp), horizontalArrangement = Arrangement.spacedBy(10.dp)) {
-                ExtendedFloatingActionButton(onClick = {
-                    query = "section=bp&t=" + System.currentTimeMillis()
-                }) { Text("Log BP") }
-                ExtendedFloatingActionButton(onClick = { scan.launch(Intent(context, FoodScanActivity::class.java)) }) {
+    val scan = rememberFoodScanner { query = it }
+    LaunchedEffect(jump) { if (jump == "scan" && link != null) scan() }
+    if (link != null && NavLayout.v2) {
+        // The redesign: Scan food (used most) and Log BP in a row under the page, so they never cover it, in place
+        // of the microphone (health isn't spoken into the conversation).
+        Column(Modifier.fillMaxSize()) {
+            Box(Modifier.weight(1f).fillMaxWidth()) { key(query) { BuddyPage(link, "health.html", query) } }
+            Row(Modifier.fillMaxWidth().padding(top = 8.dp, bottom = 8.dp), horizontalArrangement = Arrangement.spacedBy(10.dp)) {
+                Button(onClick = scan, modifier = Modifier.weight(1f).heightIn(min = 48.dp)) {
+                    GlyphIcon(Glyph.SCAN, Pal.onChip, 18.dp)
+                    Spacer(Modifier.width(8.dp))
                     Text("Scan food")
                 }
+                OutlinedButton(onClick = { query = "section=bp&t=" + System.currentTimeMillis() },
+                    modifier = Modifier.weight(1f).heightIn(min = 48.dp)) {
+                    GlyphIcon(Glyph.PULSE, Pal.link, 18.dp)
+                    Spacer(Modifier.width(8.dp))
+                    Text("Log BP", color = Pal.link)
+                }
             }
-        } else if (link != null) {
+        }
+        return
+    }
+    Box(Modifier.fillMaxSize()) {
+        key(query) { BuddyPage(link, "health.html", query) }
+        if (link != null) {
             ExtendedFloatingActionButton(
-                onClick = { scan.launch(Intent(context, FoodScanActivity::class.java)) },
+                onClick = scan,
                 // Beside Buddy's microphone button (56 dp in the same corner, 16 dp in), not under it.
                 modifier = Modifier.align(Alignment.BottomEnd).padding(end = 88.dp, bottom = 16.dp),
+                containerColor = Pal.accent, contentColor = Pal.onChip,
             ) { Text("Scan food") }
+        }
+    }
+}
+
+/** What the Health page needs from a scan: the barcode read, or the dish tapped (null when cancelled). A new address
+ *  each time, so scanning the same thing twice still looks it up again. */
+fun scanQuery(result: ActivityResult): String? {
+    if (result.resultCode != Activity.RESULT_OK) return null
+    val code = result.data?.getStringExtra(FoodScanActivity.BARCODE)
+    val dish = result.data?.getStringExtra(FoodScanActivity.DISH)
+    val stamp = "&t=" + System.currentTimeMillis()
+    return when {
+        !code.isNullOrBlank() -> "scanbarcode=" + URLEncoder.encode(code, "UTF-8") + stamp
+        !dish.isNullOrBlank() -> "scandish=" + URLEncoder.encode(dish, "UTF-8") + stamp
+        else -> null
+    }
+}
+
+/** Opens the scanner; [onResult] gets what it read. The phone shares where it is as the scan starts (when sharing is
+ *  on in Settings), so the server can tell eating from shopping (scanmeal.py). */
+@Composable
+fun rememberFoodScanner(onResult: (String) -> Unit): () -> Unit {
+    val context = LocalContext.current
+    val launcher = rememberLauncherForActivityResult(ActivityResultContracts.StartActivityForResult()) { result ->
+        scanQuery(result)?.let(onResult)
+    }
+    return remember(launcher) {
+        {
+            LocationShare.maybeSend(context, force = true)
+            launcher.launch(Intent(context, FoodScanActivity::class.java))
         }
     }
 }

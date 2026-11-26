@@ -40,6 +40,7 @@ flowchart LR
         activity_py["activity.py<br/>The week's activity targets, from the Oura Ring first (and the…"]
         healthnow_py["healthnow.py<br/>one view of where the owner stands, what to watch, what to do and…"]
         foodverdict_py["foodverdict.py<br/>Is this product good for me? A verdict on a food or a scanned pack,…"]
+        scanmeal_py["scanmeal.py<br/>A scanned food into the day's meals, by time and place, and whether…"]
     end
     you --> t_thermostat
     t_thermostat --> nest_py
@@ -75,6 +76,7 @@ flowchart LR
     checkin_py --> activity_py
     checkin_py --> coach_py
     checkin_py --> moodlog_py
+    checkin_py --> scanmeal_py
     prevention_py --> freshness_py
     prevention_py --> healthrecords_py
     prevention_py --> labs_py
@@ -113,7 +115,10 @@ flowchart LR
     foodverdict_py --> dietplan_py
     foodverdict_py --> prevent_py
     foodverdict_py --> prevention_py
-    db[("Your database<br/>bp_readings, coach_log, coach_meals, evidence_papers, food_scans, health_daily, health_model_runs, health_records and more")]
+    scanmeal_py --> coach_py
+    scanmeal_py --> dietplan_py
+    scanmeal_py --> foodverdict_py
+    db[("Your database<br/>bp_readings, coach_log, coach_meals, evidence_papers, food_places, food_scans, health_daily, health_model_runs and more")]
     health_data_py --> db
     oura_py --> db
     coach_py --> db
@@ -128,6 +133,7 @@ flowchart LR
     prevent_py --> db
     activity_py --> db
     foodverdict_py --> db
+    scanmeal_py --> db
     s_medlineplus["MedlinePlus (NIH health topics)<br/>(public data only)"]
     health_data_py --> s_medlineplus
     s_nest["Google Nest (thermostat)<br/>(may see personal data)"]
@@ -476,7 +482,7 @@ Spoken answers pass through a speech recognizer first, like every spoken word (t
 answers go only to the owner's server.
 ```
 
-- Uses: activity.py, coach.py, memory.py, moodlog.py, privacygate.py, tools.py
+- Uses: activity.py, coach.py, memory.py, moodlog.py, privacygate.py, scanmeal.py, tools.py
 
 ### prevention.py
 
@@ -790,6 +796,38 @@ them; each is judged again when looked at, so a new lab result changes the verdi
 
 - Tables: `food_scans`
 - Uses: coach.py, dietcheck.py, dietplan.py, memory.py, prevent.py, prevention.py, tools.py
+
+### scanmeal.py
+
+```text
+A scanned food into the day's meals, by time and place, and whether the day is on track. Code only.
+
+  where(memory)            -> {do: log | verdict | ask, place, why, slot}
+  eat(memory, scan_id, n)  -> the meal noted (n label servings) and the day's check
+  ontrack(memory)          -> today's fat, saturated fat, sodium, added sugar and ultra-processed foods against the
+                              owner's targets, what to change, and a lighter next meal from the day's menus
+
+Eating or shopping: the phone's last shared position (location.py; the app shares it as a scan starts) is compared,
+on the server, with home and work (learned by maps.py) and the places the owner marked once: a store (scans there
+are shopping: the verdict only) or a place they eat (scans there are meals). Anywhere else, or with no position from
+the last 20 minutes, the page asks. The comparison sends the position nowhere (sharing a location names its street
+through OpenStreetMap, as location.py always has).
+
+The day's check (dietplan.targets for the numbers):
+- saturated fat: at most 10% of calories (Dietary Guidelines 2025-2030)
+- fat: at most 35% of calories (the National Academies' range for fat, 20 to 35%)
+- sodium: under 2,300 mg (Dietary Guidelines 2025-2030)
+- added sugar: at most 10 g in a meal (Dietary Guidelines 2025-2030)
+- ultra-processed (NOVA 4) foods scanned and eaten today, two or more
+Nine tenths of a limit is "close". Through the day a limit is "ahead of pace" when what's eaten passes the share
+of the day's food the meals so far usually carry (dietplan.SHARE: breakfast a quarter, lunch to three fifths, the
+snack to seven tenths, then dinner), with a little room. Only meals that came with the number count, and the page
+says how many did.
+No AI model is given any of it (health information, privacygate.py).
+```
+
+- Tables: `food_places`, `scan_meals`
+- Uses: coach.py, dietplan.py, foodverdict.py, location.py, maps.py, memory.py, tools.py
 
 ## How it connects
 

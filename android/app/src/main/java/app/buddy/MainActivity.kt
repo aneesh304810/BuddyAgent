@@ -27,6 +27,8 @@ import androidx.compose.ui.draw.alpha
 import androidx.compose.ui.draw.clip
 import androidx.compose.ui.draw.scale
 import androidx.compose.ui.res.painterResource
+import androidx.compose.ui.semantics.semantics
+import androidx.compose.ui.semantics.contentDescription
 import androidx.compose.ui.text.LinkAnnotation
 import androidx.compose.ui.text.SpanStyle
 import androidx.compose.ui.text.TextLinkStyles
@@ -245,10 +247,12 @@ class MainActivity : ComponentActivity() {
             // Material's own parts (chips, fields, menus) take the same design tokens as Pal.
             val scheme = if (light) lightColorScheme(primary = Accent, background = Ink, surface = Ink,
                 surfaceVariant = Panel, onPrimary = Pal.onChip, onBackground = Pal.text, onSurface = Pal.text,
-                onSurfaceVariant = Pal.dim, secondaryContainer = Pal.placeholder, outline = Pal.track)
+                onSurfaceVariant = Pal.dim, secondaryContainer = Pal.placeholder, onSecondaryContainer = Pal.text,
+                primaryContainer = Pal.placeholder, onPrimaryContainer = Pal.link, outline = Pal.track)
             else darkColorScheme(primary = Accent, background = Ink, surface = Panel, surfaceVariant = Panel,
                 onPrimary = Pal.onChip, onBackground = Pal.text, onSurface = Pal.text, onSurfaceVariant = Pal.dim,
-                secondaryContainer = Pal.placeholder, outline = Pal.track)
+                secondaryContainer = Pal.placeholder, onSecondaryContainer = Pal.text,
+                primaryContainer = Pal.placeholder, onPrimaryContainer = Pal.link, outline = Pal.track)
             MaterialTheme(colorScheme = scheme) {
                 BuddyScreen(
                     prefs = prefs,
@@ -364,6 +368,8 @@ private fun BuddyScreen(
     // One header, the screen, then the bar with the five places (Nav.kt). The conversation lives on the Buddy
     // place only; on every other screen a microphone button talks to the same conversation.
     // On a wide screen (the Fold opened, a tablet) the five places move to a rail on the left side.
+    // Scan food from any screen: what it read opens Health, which notes it by time and place (scanmeal.py).
+    val scanFood = rememberFoodScanner { read -> Jump.health = read; onNavigate(Screen.Health) }
     BoxWithConstraints(Modifier.fillMaxSize().background(Ink).safeDrawingPadding()) {
     val wide = maxWidth >= 600.dp
     val sidePanel = maxWidth >= 840.dp  // the open Fold: Home's panel beside the conversation
@@ -505,7 +511,7 @@ private fun BuddyScreen(
                 Column(Modifier.weight(1f).fillMaxHeight()) {
                     Transcript(ui.lines, Modifier.weight(1f), { onNavigate(Screen.Insights) },
                         { onNavigate(Screen.Card(it)) }) { onNavigate(Screen.Report(it)) }
-                    Controls(ui, prefs)
+                    Controls(ui, prefs, scanFood)
                 }
                 Spacer(Modifier.width(16.dp))
                 Column(Modifier.width(340.dp).fillMaxHeight().verticalScroll(rememberScrollState())
@@ -522,12 +528,13 @@ private fun BuddyScreen(
                 onNavigate(Screen.Report(it))
             }
             ui.approval?.let { question -> ApprovalCard(question) }
-            Controls(ui, prefs)
+            Controls(ui, prefs, scanFood)
         }
           }
           // Health keeps its own Log BP and Scan food buttons instead: health isn't spoken into the conversation.
           if (screen != Screen.Talk && screen != Screen.Settings && !(NavLayout.v2 && screen == Screen.Health)) {
-              TalkAnywhere(ui, Modifier.align(Alignment.BottomEnd).padding(16.dp))
+              TalkAnywhere(ui, Modifier.align(Alignment.BottomEnd).padding(16.dp),
+                  onScan = if (screen != Screen.Health) scanFood else null)
           }
         }
         if (!wide) BottomBar(placeOf(screen)) { onNavigate(homeOf(it)) }
@@ -767,7 +774,7 @@ private fun Thumbs(rating: Int?, onRate: (Int?) -> Unit) {
 
 /** The bottom bar: mode and hands-free on one slim line, then typing and the mic. */
 @Composable
-private fun Controls(ui: UiState, prefs: BuddyPrefs) {
+private fun Controls(ui: UiState, prefs: BuddyPrefs, onScan: () -> Unit) {
     val service = BuddyService.instance
     var handsFree by remember { mutableStateOf(prefs.handsFree) }
     var roomLanguage by remember { mutableStateOf(prefs.roomLanguage) }
@@ -851,6 +858,12 @@ private fun Controls(ui: UiState, prefs: BuddyPrefs) {
                 Modifier.size(44.dp).clip(CircleShape).background(Panel).clickable { pickFiles.launch(arrayOf("*/*")) },
                 contentAlignment = Alignment.Center,
             ) { Text("📎", fontSize = 20.sp) }
+            Spacer(Modifier.width(8.dp))
+            Box(  // Scan food: a pack's barcode or a dish, noted in the meal for the time (Health)
+                Modifier.size(44.dp).clip(CircleShape).background(Panel).clickable(onClick = onScan)
+                    .semantics { contentDescription = "Scan food" },
+                contentAlignment = Alignment.Center,
+            ) { GlyphIcon(Glyph.SCAN, Pal.text, 20.dp) }
             Spacer(Modifier.width(8.dp))
             OutlinedTextField(
                 value = typed,

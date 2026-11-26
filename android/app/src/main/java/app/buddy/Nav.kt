@@ -3,6 +3,7 @@ package app.buddy
 import android.content.Context
 import androidx.compose.foundation.Canvas
 import androidx.compose.foundation.background
+import androidx.compose.foundation.border
 import androidx.compose.foundation.clickable
 import androidx.compose.foundation.horizontalScroll
 import androidx.compose.foundation.layout.Arrangement
@@ -326,7 +327,7 @@ fun RoundIconButton(glyph: Glyph, label: String, onClick: () -> Unit) {
 
 /** Talk to Buddy from any place: the same conversation. The reply shows above the button and in the conversation. */
 @Composable
-fun TalkAnywhere(ui: UiState, modifier: Modifier = Modifier) {
+fun TalkAnywhere(ui: UiState, modifier: Modifier = Modifier, onScan: (() -> Unit)? = null) {
     val service = BuddyService.instance
     val last = ui.lines.lastOrNull { it.from == Speaker.BUDDY }?.text.orEmpty()
     val busy = ui.listening || ui.thinking || ui.speaking
@@ -348,6 +349,14 @@ fun TalkAnywhere(ui: UiState, modifier: Modifier = Modifier) {
             Text(status, color = Pal.text, fontSize = 14.sp, maxLines = 3, overflow = TextOverflow.Ellipsis,
                 modifier = Modifier.widthIn(max = 260.dp).clip(RoundedCornerShape(16.dp)).background(Pal.panel)
                     .padding(horizontal = 14.dp, vertical = 10.dp))
+            Spacer(Modifier.width(10.dp))
+        }
+        if (onScan != null) {  // Scan food, used most, one tap from every screen (the result opens Health)
+            Box(
+                Modifier.size(48.dp).clip(CircleShape).background(Pal.panel).border(1.dp, Pal.track, CircleShape)
+                    .clickable(role = Role.Button, onClick = onScan).semantics { contentDescription = "Scan food" },
+                contentAlignment = Alignment.Center,
+            ) { GlyphIcon(Glyph.SCAN, Pal.link, 22.dp) }
             Spacer(Modifier.width(10.dp))
         }
         Box(

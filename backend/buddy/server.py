@@ -1900,6 +1900,39 @@ async def api_health_verdict(body: dict) -> dict:
     return got
 
 
+@app.get("/api/health/where", dependencies=[Depends(require_admin)])
+async def api_health_where() -> dict:
+    """After a scan: eating (log it) or shopping (the verdict only), by where the phone is, compared on the server
+    with home, work and the places the owner marked (scanmeal). The comparison sends the position nowhere."""
+    from . import scanmeal  # noqa: PLC0415
+    return await asyncio.to_thread(scanmeal.where, memory) | {"places": await asyncio.to_thread(scanmeal.places, memory)}
+
+
+@app.post("/api/health/where", dependencies=[Depends(require_admin)])
+async def api_health_where_act(body: dict) -> dict:
+    """remember (kind store|eat, name): mark where the phone is now; forget (id, or all)."""
+    from . import scanmeal  # noqa: PLC0415
+    action = str(body.get("action") or "")
+    try:
+        if action == "remember":
+            return {"places": await asyncio.to_thread(scanmeal.remember, memory, str(body.get("kind") or ""),
+                                                       str(body.get("name") or ""))}
+        if action == "forget":
+            await asyncio.to_thread(scanmeal.forget_place, memory, int(body.get("id") or 0) or None)
+            return {"places": await asyncio.to_thread(scanmeal.places, memory)}
+    except ToolError as e:
+        raise HTTPException(400, str(e)) from None
+    raise HTTPException(400, "unknown action")
+
+
+@app.get("/api/health/ontrack", dependencies=[Depends(require_admin)])
+async def api_health_ontrack() -> dict:
+    """Today's fat, saturated fat, sodium, added sugar and ultra-processed foods against the owner's limits, what to
+    change, and a lighter next meal from the day's menus. Code only (scanmeal)."""
+    from . import scanmeal  # noqa: PLC0415
+    return await asyncio.to_thread(scanmeal.ontrack, memory)
+
+
 @app.get("/api/health/scans", dependencies=[Depends(require_admin)])
 async def api_health_scans() -> dict:
     """The products the owner scanned, each judged again with today's numbers."""
@@ -1909,13 +1942,19 @@ async def api_health_scans() -> dict:
 
 @app.post("/api/health/scans", dependencies=[Depends(require_admin)])
 async def api_health_scans_act(body: dict) -> dict:
-    """compare (ids), delete (id) or forget (all)."""
-    from . import foodverdict  # noqa: PLC0415
+    """compare (ids), delete (id) or forget (all); eat (id, servings), uneat (meal), recount (meal, servings)."""
+    from . import foodverdict, scanmeal  # noqa: PLC0415
     action = str(body.get("action") or "")
     try:
         if action == "compare":
             ids = [int(i) for i in body.get("ids") or [] if str(i).isdigit()][:6]
             return await asyncio.to_thread(foodverdict.compare, memory, ids)
+        if action == "eat":  # a scan noted as eaten (label servings), in the meal for the time of day
+            return await asyncio.to_thread(scanmeal.eat, memory, int(body.get("id") or 0), body.get("servings") or 1)
+        if action == "uneat":
+            return await asyncio.to_thread(scanmeal.uneat, memory, int(body.get("meal") or 0))
+        if action == "recount":
+            return await asyncio.to_thread(scanmeal.recount, memory, int(body.get("meal") or 0), body.get("servings") or 1)
         if action in ("delete", "forget"):
             n = await asyncio.to_thread(foodverdict.forget, memory, int(body.get("id") or 0) if action == "delete" else None)
             return {"deleted": n, "scans": await asyncio.to_thread(foodverdict.scans, memory)}
