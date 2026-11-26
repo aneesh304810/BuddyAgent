@@ -13,7 +13,8 @@ if (params.get("token") && storageGet("buddyToken") === token) history.replaceSt
 
 const $ = (id) => document.getElementById(id);
 const esc = (s) => String(s ?? "").replace(/[&<>"']/g, (c) => ({ "&": "&amp;", "<": "&lt;", ">": "&gt;", '"': "&quot;", "'": "&#39;" }[c]));
-const TABS = [["today", "Today"], ["trends", "Trends"], ["habits", "Habits"], ["food", "Food"], ["plan", "Plan"], ["labs", "Labs"], ["sources", "Sources"]];
+const TABS = [["today", "Today"], ["trends", "Trends"], ["habits", "Habits"], ["food", "Food"], ["plan", "Plan"], ["patterns", "Patterns"], ["labs", "Labs"], ["sources", "Sources"]];
+let patData = null, patAsk = false, patBusy = false;
 let srcData = null, srcAsk = "";  // the Sources tab, and the delete or disconnect waiting for a second tap
 let data = null, tab = TABS.some(([k]) => k === storageGet("healthTab")) ? storageGet("healthTab") : "today";
 let span = ["14", "30", "90"].includes(storageGet("healthDays")) ? storageGet("healthDays") : "30", sure = false;
@@ -114,6 +115,37 @@ function renderSources() {
     sourceAct(action, conn, true);
   });
   $("main").querySelectorAll("[data-src-cancel]").forEach((b) => b.onclick = () => { srcAsk = ""; render(); });
+}
+
+// --- Patterns: what, in your own days, tends to come before a better or worse next morning (learned by code)
+async function loadPatterns(body) {
+  try { patData = (await api("/api/health/patterns", body)).latest || {}; } catch (e) { patData = { failed: e.message }; }
+  patBusy = false;
+  if (tab === "patterns") render();
+}
+function renderPatterns() {
+  if (!patData) { $("main").innerHTML = `<p class="muted">Loading…</p>`; loadPatterns(); return; }
+  if (patData.failed) { $("main").innerHTML = `<p class="err">${esc(patData.failed)}</p>`; return; }
+  const p = patData;
+  const learnBtn = `<button class="btn solid" id="pat-learn"${patBusy ? " disabled" : ""}>${patBusy ? "Learning…" : "Learn now"}</button>`;
+  if (!p.at) { $("main").innerHTML = card("Patterns in your days", `<p class="muted">Nothing learned yet. Buddy learns once a week (Sunday night) from the readings it keeps, or now.</p><p>${learnBtn}</p>`); wirePatterns(); return; }
+  const rows = (p.patterns || []).map((x) => `<div class="line"><div class="what">${esc(x.text)}</div><span class="pill ${x.better ? "good" : "warn"}">${x.better ? "better" : "worse"}</span></div>`).join("");
+  const models = (p.models || []).map((x) => `<div class="line"><div class="what">${esc(x.text)}
+      ${x.passed ? `<small>What weighs most: ${x.weights.filter((w) => Math.abs(w.per_spread) >= 0.05).slice(0, 3).map((w) => `more ${esc(w.factor)} → ${w.per_spread > 0 ? "higher" : "lower"}`).join("; ")}</small>` : ""}</div>
+      <span class="pill ${x.passed ? "good" : ""}">${x.passed ? "counts" : "not yet"}</span></div>`).join("");
+  $("main").innerHTML = card("What tends to come before your next morning",
+      (p.needs ? `<p class="muted">${esc(p.needs)}</p>` : "") + (rows || `<p class="muted">No pattern clears the bar yet: at least 10 days on each side, a real difference, and the same way in 9 of 10 redraws.</p>`),
+      `Learned ${esc(ago(p.at))} from ${esc(p.days)} days. ${esc(p.note)}`) +
+    (models ? card("Can your next morning be predicted?", models, "A small model of your factors, learned on your older days and tested on the newest ones it never saw. It counts only if it beats always guessing your average by 5% or more.") : "") +
+    `<p>${learnBtn} ${patAsk ? `<button class="btn danger solid" id="pat-forget" data-sure="1">Yes, forget it</button>` : `<button class="btn danger" id="pat-forget">Forget what was learned</button>`}</p>`;
+  wirePatterns();
+}
+function wirePatterns() {
+  if ($("pat-learn")) $("pat-learn").onclick = () => { patBusy = true; render(); loadPatterns({ action: "learn" }); };
+  if ($("pat-forget")) $("pat-forget").onclick = () => {
+    if (!$("pat-forget").dataset.sure) { patAsk = true; render(); return; }
+    patAsk = false; loadPatterns({ action: "forget", confirm: true });
+  };
 }
 
 // --- Labs: a report is read by code on your server (never an AI), you check every result, then it is kept
@@ -380,7 +412,7 @@ function wire() {
 
 function render() {
   tabs();
-  ({ today: renderToday, trends: renderTrends, habits: renderHabits, food: renderFood, plan: renderPlan, labs: renderLabs, sources: renderSources })[tab]();
+  ({ today: renderToday, trends: renderTrends, habits: renderHabits, food: renderFood, plan: renderPlan, patterns: renderPatterns, labs: renderLabs, sources: renderSources })[tab]();
 }
 
 async function load() {

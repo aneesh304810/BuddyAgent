@@ -1790,6 +1790,26 @@ async def api_health_lab_file(report_id: int):
                     headers={"Content-Disposition": "inline; filename=report.pdf", "Cache-Control": "no-store"})
 
 
+@app.get("/api/health/patterns", dependencies=[Depends(require_admin)])
+async def api_health_patterns() -> dict:
+    """What the personal model last learned (patterns and models; no daily values). Shown to the owner only."""
+    from . import healthmodel  # noqa: PLC0415
+    return {"latest": healthmodel.latest(memory)}
+
+
+@app.post("/api/health/patterns", dependencies=[Depends(require_admin)])
+async def api_health_patterns_act(body: dict) -> dict:
+    """learn: now; forget (confirm: true): every run kept."""
+    from . import healthmodel  # noqa: PLC0415
+    action = str(body.get("action") or "")
+    if action == "learn":
+        return {"latest": await asyncio.to_thread(healthmodel.learn, memory)}
+    if action == "forget" and body.get("confirm") is True:
+        await asyncio.to_thread(healthmodel.forget, memory)
+        return {"latest": {}, "text": "Forgot what was learned. It learns again on Sunday night, or when you ask."}
+    raise HTTPException(400, "unknown action")
+
+
 @app.get("/api/health/sources", dependencies=[Depends(require_admin)])
 async def api_health_sources() -> dict:
     """Where the owner's health data comes from: each source's state, syncs, what it sends and how it's obtained."""

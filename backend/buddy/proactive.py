@@ -559,6 +559,11 @@ async def run(memory: Memory, deliver: Deliver, connected=None) -> None:
                     await asyncio.to_thread(coach.prune, memory)
                     from . import labs  # noqa: PLC0415  lab reports read but never confirmed
                     await asyncio.to_thread(labs.drop_expired, memory)
+                    from . import healthmodel  # noqa: PLC0415  the personal model, once a week (code only)
+                    if healthmodel.due(memory):
+                        got = await asyncio.to_thread(healthmodel.learn, memory)
+                        log.info("health patterns: %d days, %d patterns, %d models", got["days"],
+                                 len(got["patterns"]), len(got["models"]))
                 from . import fhirlabs, whoop  # noqa: PLC0415  portals once a day; WHOOP every 3 hours
                 await asyncio.to_thread(fhirlabs.sync_if_due, memory)
                 await asyncio.to_thread(whoop.sync_if_due, memory)

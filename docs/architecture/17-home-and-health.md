@@ -23,6 +23,7 @@ flowchart LR
         labs_py["labs.py<br/>reports the owner uploads (Quest, Labcorp, a hospital portal's PDF),…"]
         fhirlabs_py["fhirlabs.py<br/>Lab results from the owner's patient portals (MyChart and other Epic…"]
         whoop_py["whoop.py<br/>The owner's WHOOP band, through Buddy Connect (Health group) and…"]
+        healthmodel_py["healthmodel.py<br/>what, in their own days, tends to come before a better or worse next…"]
     end
     you --> t_thermostat
     t_thermostat --> nest_py
@@ -48,13 +49,15 @@ flowchart LR
     fhirlabs_py --> healthrecords_py
     fhirlabs_py --> labs_py
     whoop_py --> healthrecords_py
-    db[("Your database<br/>coach_log, coach_meals, health_daily, health_records, lab_reports, lab_results, oura_daily, whoop_daily")]
+    healthmodel_py --> coach_py
+    db[("Your database<br/>coach_log, coach_meals, health_daily, health_model_runs, health_records, lab_reports, lab_results, oura_daily and more")]
     health_data_py --> db
     oura_py --> db
     coach_py --> db
     healthrecords_py --> db
     labs_py --> db
     whoop_py --> db
+    healthmodel_py --> db
     s_medlineplus["MedlinePlus (NIH health topics)<br/>(public data only)"]
     health_data_py --> s_medlineplus
     s_nest["Google Nest (thermostat)<br/>(may see personal data)"]
@@ -325,6 +328,37 @@ is simply left empty.
 - Tables: `whoop_daily`
 - Settings: `BUDDY_WHOOP_CLIENT_ID`, `BUDDY_WHOOP_CLIENT_SECRET`, `BUDDY_WHOOP_REDIRECT`
 - Uses: connecthub.py, gateway.py, healthrecords.py, memory.py, tools.py
+
+### healthmodel.py
+
+```text
+The owner's personal health model: what, in their own days, tends to come before a better or worse next day.
+
+Learned on the owner's server by plain code (no AI model, nothing sent anywhere), once a week and when they ask,
+from the readings Buddy keeps (two years: the owner chose to keep health data longer so this has history):
+
+  what happened on a day   steps, active minutes, workouts, WHOOP strain, time under stress, and each habit of the
+                           health plan the owner ticks off themselves (done or not)
+  that night               bedtime (later or earlier)
+  the next morning         readiness (Oura), recovery (WHOOP), sleep score, sleep time, HRV, resting heart rate,
+                           lowest night heart rate
+
+Two ways, both kept honest:
+  Patterns   for each factor and next-morning measure: the days above the factor's middle value against the days
+             below (or, for a habit, done against not ticked), the difference in the next morning's average, and how
+             often that difference keeps its direction when the days are drawn again at random (200 times). A pattern
+             is shown only with at least 10 days on each side, a difference of at least a quarter of the measure's
+             usual spread, and the same direction in at least 90% of the redraws.
+  A model    for each next-morning measure with at least 60 days: a small linear model (ridge regression) of the
+             factors, learned on the oldest 70% of days and tested on the newest 30%, which it never saw. It counts
+             only if its error on those days is at least 5% smaller than always guessing the average.
+
+These are patterns in one person's days, not causes, and not medical advice: the page says so. Shown to the owner
+only (Health → Patterns); no AI model is given them (the Privacy Gateway's health rule).
+```
+
+- Tables: `health_model_runs`
+- Uses: coach.py, memory.py, tools.py
 
 ## How it connects
 

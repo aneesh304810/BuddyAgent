@@ -33,6 +33,18 @@ your server. No AI model is given any of it.
 - **Plan:** goals, up to eight habits (tracked from the ring or phone with a target, or ticked off by you), and
   food targets. This form replaces the set-up conversation in section 2. "Forget my health plan" (pressed twice)
   deletes the plan, the habit log and the meals; the readings stay until their time is up (two years).
+- **Patterns (your personal model):** what, in your own days, tends to come before a better or worse next
+  morning. Learned on your server by plain code once a week (Sunday night) or when you press Learn now, from the
+  readings Buddy keeps: the day's steps, active minutes, workouts, WHOOP strain, time under stress and each habit you
+  tick off yourself, that night's bedtime, and the next morning's readiness or recovery, sleep, HRV and resting
+  heart rate.
+  - **Patterns** compare the days above a factor's middle value with the days below (or a habit done with not
+    ticked). One is shown only with at least 10 days on each side, a difference of at least a quarter of the
+    measure's usual spread, and the same direction in at least 9 of 10 random redraws of the days.
+  - **A model** per next-morning measure, once there are 60 days: a small linear model learned on your older days
+    and tested on the newest 30% it never saw. It counts only if it beats always guessing your average by 5%.
+  - Patterns, not causes, and not medical advice. No AI model is given any of it. The last 12 learnings are kept
+    (no daily values in them); "Forget what was learned" deletes them.
 - **Labs:** add a lab report's PDF (Quest, Labcorp, or one downloaded from your portal, such as MyChart). The PDF's
   text is taken out in the sandbox and code picks out the tests it knows (about 45 common blood tests: lipids,
   glucose and A1c, thyroid, vitamins, iron, kidney and liver, blood count, electrolytes, hormones, PSA): each
