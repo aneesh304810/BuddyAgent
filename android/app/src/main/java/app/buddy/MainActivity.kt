@@ -244,15 +244,7 @@ class MainActivity : ComponentActivity() {
                     isAppearanceLightNavigationBars = light
                 }
             }
-            // Material's own parts (chips, fields, menus) take the same design tokens as Pal.
-            val scheme = if (light) lightColorScheme(primary = Accent, background = Ink, surface = Ink,
-                surfaceVariant = Panel, onPrimary = Pal.onChip, onBackground = Pal.text, onSurface = Pal.text,
-                onSurfaceVariant = Pal.dim, secondaryContainer = Pal.placeholder, onSecondaryContainer = Pal.text,
-                primaryContainer = Pal.placeholder, onPrimaryContainer = Pal.link, outline = Pal.track)
-            else darkColorScheme(primary = Accent, background = Ink, surface = Panel, surfaceVariant = Panel,
-                onPrimary = Pal.onChip, onBackground = Pal.text, onSurface = Pal.text, onSurfaceVariant = Pal.dim,
-                secondaryContainer = Pal.placeholder, onSecondaryContainer = Pal.text,
-                primaryContainer = Pal.placeholder, onPrimaryContainer = Pal.link, outline = Pal.track)
+            val scheme = buddyColorScheme()  // Material's parts in the same tokens as Pal (Theme.kt)
             MaterialTheme(colorScheme = scheme) {
                 BuddyScreen(
                     prefs = prefs,

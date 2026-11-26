@@ -150,8 +150,10 @@ def _scan(memory: Memory, scan_id: int) -> dict:
     return json.loads(row["food"]) | {"_name": row["name"]}
 
 
-def eat(memory: Memory, scan_id: int, servings: float = 1.0, now: datetime | None = None, slot: str = "") -> dict:
-    """Note a scanned product as eaten: label servings x the label's numbers, in the meal for the time of day."""
+def eat(memory: Memory, scan_id: int, servings: float = 1.0, now: datetime | None = None, slot: str = "",
+        food: dict | None = None) -> dict:
+    """Note a scanned product as eaten: label servings x the label's numbers, in the meal for the time of day.
+    food: the label to use (My kitchen keeps its own copy, groceries.py); else the scan's."""
     from . import coach, foodverdict  # noqa: PLC0415
     try:
         servings = float(servings)
@@ -159,7 +161,7 @@ def eat(memory: Memory, scan_id: int, servings: float = 1.0, now: datetime | Non
         servings = 1.0
     if not 0 < servings <= 20:
         raise ToolError("How many servings? Between a quarter and 20.")
-    food = _scan(memory, scan_id)
+    food = food or _scan(memory, scan_id)
     per100 = food.get("per100") if isinstance(food.get("per100"), dict) else {}
     if not isinstance(per100.get("kcal"), (int, float)):
         raise ToolError("This product has no nutrition numbers, so it can't be counted: note it on Food by hand.")
@@ -302,7 +304,7 @@ def ontrack(memory: Memory, now: datetime | None = None) -> dict:
     if len(upf) >= 2:
         lines.append(f"{len(upf)} ultra-processed foods today (NOVA 4): swap one for something whole tomorrow.")
     nxt = NEXT.get(slot, "") if any(m["slot"] == slot for m in meals) else slot
-    advice, suggestion = [], None
+    advice, suggestion, pantry = [], None, []
     if strained and nxt:
         keep = [f"{next(w for k, w, _ in WATCH if k == key).lower()} under {left[key]:g} "
                 f"{next(u for k, _, u in WATCH if k == key)}" for key in strained if left[key] > 0]
@@ -311,9 +313,15 @@ def ontrack(memory: Memory, now: datetime | None = None) -> dict:
         else:
             advice.append(f"For {nxt}: vegetables, beans or lean protein, nothing fried, little cheese or butter.")
         suggestion = _next_meal(memory, nxt, left, strained)
+        try:  # foods already in the kitchen whose serving fits what's left (groceries.py)
+            from . import groceries  # noqa: PLC0415
+            pantry = groceries.from_kitchen(memory, left, strained)
+        except Exception:  # noqa: BLE001
+            pantry = []
     elif strained:
         advice.append("Tomorrow's menu (Food → Menu) keeps the day within your numbers.")
-    return {"on_track": not lines, "lines": lines, "advice": advice, "next_meal": suggestion, "rows": rows,
+    return {"on_track": not lines, "lines": lines, "advice": advice, "next_meal": suggestion, "from_kitchen": pantry,
+            "rows": rows,
             "meals": len(meals), "ultra_processed": len(upf), "sugary_meals": len(sugary), "slot": slot,
             "calories": t["calories"], "note": NOTE}
 

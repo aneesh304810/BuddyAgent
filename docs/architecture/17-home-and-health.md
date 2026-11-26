@@ -41,6 +41,7 @@ flowchart LR
         healthnow_py["healthnow.py<br/>one view of where the owner stands, what to watch, what to do and…"]
         foodverdict_py["foodverdict.py<br/>Is this product good for me? A verdict on a food or a scanned pack,…"]
         scanmeal_py["scanmeal.py<br/>A scanned food into the day's meals, by time and place, and whether…"]
+        groceries_py["groceries.py<br/>the shopping list, ticked off as you scan, and My kitchen, what you…"]
     end
     you --> t_thermostat
     t_thermostat --> nest_py
@@ -118,6 +119,10 @@ flowchart LR
     scanmeal_py --> coach_py
     scanmeal_py --> dietplan_py
     scanmeal_py --> foodverdict_py
+    scanmeal_py --> groceries_py
+    groceries_py --> coach_py
+    groceries_py --> foodverdict_py
+    groceries_py --> scanmeal_py
     db[("Your database<br/>bp_readings, coach_log, coach_meals, evidence_papers, food_places, food_scans, health_daily, health_model_runs and more")]
     health_data_py --> db
     oura_py --> db
@@ -134,6 +139,7 @@ flowchart LR
     activity_py --> db
     foodverdict_py --> db
     scanmeal_py --> db
+    groceries_py --> db
     s_medlineplus["MedlinePlus (NIH health topics)<br/>(public data only)"]
     health_data_py --> s_medlineplus
     s_nest["Google Nest (thermostat)<br/>(may see personal data)"]
@@ -827,7 +833,32 @@ No AI model is given any of it (health information, privacygate.py).
 ```
 
 - Tables: `food_places`, `scan_meals`
-- Uses: coach.py, dietplan.py, foodverdict.py, location.py, maps.py, memory.py, tools.py
+- Uses: coach.py, dietplan.py, foodverdict.py, groceries.py, location.py, maps.py, memory.py, tools.py
+
+### groceries.py
+
+```text
+Groceries: the shopping list, ticked off as you scan, and My kitchen, what you bought and are going to eat. Code only.
+
+  to_buy(memory)                    -> the shopping list: the organiser's "shopping" list, the same one Buddy fills
+                                       when you say "add eggs to my shopping list"
+  keep(memory, scan_id, anyway)     -> a scanned product into My kitchen, ticking off the shopping-list item it
+                                       matches. One that's "Better to skip" for the owner waits for "anyway", with a
+                                       better one they scanned before when there is one
+  ate(memory, item_id)              -> one serving into the meal for the time of day (scanmeal.eat); the product stays
+                                       until the owner taps Finished (a pack lasts many meals)
+  note_eaten(memory, scan_id)       -> a scan noted as a meal at home that's in the kitchen keeps the kitchen in step
+  from_kitchen(memory, left, keys)  -> kitchen foods whose serving fits what's left today, for the next-meal hint
+
+A scan matches a list item when every word of the item (a plural s aside) is in the product's name or brand:
+"greek yogurt" ticks off "Fage Total 0% Greek Yogurt". The kitchen keeps each product's label as it was scanned, so
+deleting it from "Products you checked" doesn't empty the kitchen. Kept on the server until finished or deleted. No
+AI model is given the kitchen (health information); the shopping list is the organiser's, which the conversation
+already reads.
+```
+
+- Tables: `kitchen`
+- Uses: coach.py, foodverdict.py, memory.py, organiser.py, scanmeal.py, tools.py
 
 ## How it connects
 

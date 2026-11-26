@@ -10,6 +10,9 @@ import androidx.activity.ComponentActivity
 import androidx.activity.compose.rememberLauncherForActivityResult
 import androidx.activity.compose.setContent
 import androidx.activity.result.contract.ActivityResultContracts
+import kotlinx.coroutines.delay
+import androidx.compose.runtime.rememberCoroutineScope
+import androidx.compose.material3.MaterialTheme
 import androidx.compose.foundation.layout.width
 import androidx.compose.foundation.layout.heightIn
 import androidx.compose.foundation.layout.Spacer
@@ -79,7 +82,7 @@ fun HealthScreen(link: ServerLink?) {
     var query by remember {
         mutableStateOf(when {
             jump == null || jump == "scan" -> ""
-            jump.startsWith("scan") -> jump
+            jump.startsWith("scan") || jump.startsWith("section=") -> jump
             else -> "section=$jump"
         })
     }
@@ -125,10 +128,12 @@ fun scanQuery(result: ActivityResult): String? {
     if (result.resultCode != Activity.RESULT_OK) return null
     val code = result.data?.getStringExtra(FoodScanActivity.BARCODE)
     val dish = result.data?.getStringExtra(FoodScanActivity.DISH)
+    val shopped = result.data?.getStringExtra(FoodScanActivity.GROCERIES)
     val stamp = "&t=" + System.currentTimeMillis()
     return when {
         !code.isNullOrBlank() -> "scanbarcode=" + URLEncoder.encode(code, "UTF-8") + stamp
         !dish.isNullOrBlank() -> "scandish=" + URLEncoder.encode(dish, "UTF-8") + stamp
+        !shopped.isNullOrBlank() -> "section=groceries" + stamp
         else -> null
     }
 }
@@ -158,6 +163,7 @@ class FoodScanActivity : ComponentActivity() {
     companion object {
         const val BARCODE = "barcode"
         const val DISH = "dish"
+        const val GROCERIES = "groceries"  // in: open in Groceries mode; out: a shopping trip ended (open Groceries)
     }
 
     private val done = AtomicBoolean(false)
@@ -170,14 +176,20 @@ class FoodScanActivity : ComponentActivity() {
 
     override fun onCreate(savedInstanceState: Bundle?) {
         super.onCreate(savedInstanceState)
+        val link = BuddyPrefs(this).link
+        val shopping = intent.getBooleanExtra(GROCERIES, false)
         setContent {
-            ScanScreen(onCode = { finishWith(BARCODE, it) }, onDish = { finishWith(DISH, it) }, onCancel = { finish() })
+            MaterialTheme(colorScheme = buddyColorScheme()) {
+                ScanScreen(link, shopping, onCode = { finishWith(BARCODE, it) }, onDish = { finishWith(DISH, it) },
+                    onCancel = { finish() }, onShopDone = { finishWith(GROCERIES, "1") })
+            }
         }
     }
 }
 
 @Composable
-private fun ScanScreen(onCode: (String) -> Unit, onDish: (String) -> Unit, onCancel: () -> Unit) {
+private fun ScanScreen(link: ServerLink?, startShopping: Boolean, onCode: (String) -> Unit, onDish: (String) -> Unit,
+                       onCancel: () -> Unit, onShopDone: () -> Unit) {
     val context = LocalContext.current
     var allowed by remember {
         mutableStateOf(ContextCompat.checkSelfPermission(context, Manifest.permission.CAMERA) ==
@@ -188,7 +200,21 @@ private fun ScanScreen(onCode: (String) -> Unit, onDish: (String) -> Unit, onCan
         allowed = ok
         asked = true
     }
-    var dishMode by remember { mutableStateOf(false) }
+    // Barcode (look one up), Dish (suggest what's on the plate) or Groceries (shopping: the camera stays open, ShopScan.kt)
+    var mode by remember { mutableStateOf(if (startShopping) GROCERIES_MODE else "barcode") }
+    var picked by remember { mutableStateOf(startShopping) }
+    val dishMode = mode == "dish"
+    val shopMode = mode == GROCERIES_MODE
+    val scope = rememberCoroutineScope()
+    val shop = remember { ShopSession(link, scope) }
+    LaunchedEffect(Unit) {  // at a store you marked, open in Groceries mode (the phone's place went to the server)
+        if (link != null && !startShopping) {
+            delay(1500)
+            if (!picked && runCatching { GroceryApi.atStore(link) }.getOrDefault(false)) mode = GROCERIES_MODE
+        }
+    }
+    LaunchedEffect(shopMode) { if (shopMode) shop.load() }
+    val readCode: (String) -> Unit = { code -> if (shopMode) shop.scanned(code) else onCode(code) }
     var typed by remember { mutableStateOf("") }
     var guesses by remember { mutableStateOf(listOf<Guess>()) }
     var problem by remember { mutableStateOf("") }
@@ -198,42 +224,47 @@ private fun ScanScreen(onCode: (String) -> Unit, onDish: (String) -> Unit, onCan
     var said by remember { mutableStateOf("") }
     var showTaught by remember { mutableStateOf(false) }
     Column(
-        Modifier.fillMaxSize().background(Color(0xFF0E1222)).safeDrawingPadding().padding(16.dp),
+        Modifier.fillMaxSize().background(Pal.bg).safeDrawingPadding().padding(16.dp),
         verticalArrangement = Arrangement.spacedBy(10.dp),
     ) {
         Row(horizontalArrangement = Arrangement.spacedBy(8.dp)) {
-            FilterChip(selected = !dishMode, onClick = { dishMode = false; typed = "" }, label = { Text("Barcode") })
-            FilterChip(selected = dishMode, onClick = { dishMode = true; typed = ""; guesses = emptyList(); said = "" },
+            FilterChip(selected = mode == "barcode", onClick = { mode = "barcode"; picked = true; typed = "" },
+                label = { Text("Barcode") })
+            FilterChip(selected = dishMode, onClick = { mode = "dish"; picked = true; typed = ""; guesses = emptyList(); said = "" },
                 label = { Text("Dish") })
+            FilterChip(selected = shopMode, onClick = { mode = GROCERIES_MODE; picked = true; typed = "" },
+                label = { Text("Groceries") })
         }
         Text(
             if (dishMode) "Point at the plate and tap the dish it is. Suggestions are made on your phone; no " +
                 "picture is kept or sent. It doesn't know dosa, appam, avial, thoran or chapati until you teach it: " +
                 "type the name and tap Teach, from 3 to 5 sides."
+            else if (shopMode) "Shopping: scan each product. Buddy says if it's good for you, and Add puts it in your " +
+                "groceries and ticks it off your list. Only the barcode number is looked up; no picture is kept or sent."
             else "Point at the pack's barcode. Read on your phone; only the number is looked up. No picture is " +
                 "kept or sent.",
-            color = Color(0xFFB8BED0),
+            color = Pal.dim,
         )
         if (allowed) {
-            key(dishMode) {
+            key(mode) {
                 if (dishMode) {
                     DishCamera(book, latest, onGuesses = { guesses = it }, onProblem = { problem = it },
                         modifier = Modifier.fillMaxWidth().weight(1f))
                 } else {
-                    BarcodeCamera(onCode, Modifier.fillMaxWidth().weight(1f))
+                    BarcodeCamera(readCode, Modifier.fillMaxWidth().weight(1f))
                 }
             }
         } else {
             Box(Modifier.fillMaxWidth().weight(1f), contentAlignment = Alignment.Center) {
                 Column(horizontalAlignment = Alignment.CenterHorizontally) {
                     Text(if (asked) "Camera access is off: type it below instead, or allow it in Settings."
-                         else "Buddy needs the camera for this.", color = Color.White)
+                         else "Buddy needs the camera for this.", color = Pal.text)
                     if (!asked) Button(onClick = { ask.launch(Manifest.permission.CAMERA) }) { Text("Allow camera") }
                 }
             }
         }
         if (dishMode) {
-            if (problem.isNotEmpty()) Text(problem, color = Color(0xFFFFB4A9))
+            if (problem.isNotEmpty()) Text(problem, color = Pal.bad)
             Column(verticalArrangement = Arrangement.spacedBy(4.dp)) {
                 guesses.forEach { g ->
                     OutlinedButton(onClick = { onDish(g.name) }, modifier = Modifier.fillMaxWidth()) {
@@ -242,6 +273,7 @@ private fun ScanScreen(onCode: (String) -> Unit, onDish: (String) -> Unit, onCan
                 }
             }
         }
+        if (shopMode) ShopPanel(shop, Modifier.fillMaxWidth())
         OutlinedTextField(
             value = typed,
             onValueChange = { v -> typed = if (dishMode) v.take(60) else v.filter { it.isDigit() }.take(14) },
@@ -250,7 +282,7 @@ private fun ScanScreen(onCode: (String) -> Unit, onDish: (String) -> Unit, onCan
         )
         Row(horizontalArrangement = Arrangement.spacedBy(8.dp)) {
             Button(
-                onClick = { if (dishMode) onDish(typed) else onCode(typed) },
+                onClick = { if (dishMode) onDish(typed) else if (shopMode) { shop.scanned(typed); typed = "" } else onCode(typed) },
                 enabled = if (dishMode) typed.trim().length >= 2 else typed.length >= 8,
             ) { Text("Look up") }
             if (dishMode) {
@@ -268,25 +300,28 @@ private fun ScanScreen(onCode: (String) -> Unit, onDish: (String) -> Unit, onCan
                     enabled = allowed && typed.trim().length >= 2,
                 ) { Text("Teach") }
             }
-            OutlinedButton(onClick = onCancel) { Text("Cancel") }
+            if (shopMode && shop.added > 0) Button(onClick = onShopDone) { Text("Done") }
+            else OutlinedButton(onClick = onCancel) { Text(if (shopMode) "Done" else "Cancel") }
         }
-        if (dishMode && said.isNotEmpty()) Text(said, color = Color(0xFFB8BED0))
+        if (dishMode && said.isNotEmpty()) Text(said, color = Pal.dim)
         if (dishMode && taught.isNotEmpty()) {
             TextButton(onClick = { showTaught = !showTaught }) { Text("Dishes you taught (${taught.size})") }
             if (showTaught) {
                 taught.forEach { (name, views) ->
                     Row(verticalAlignment = Alignment.CenterVertically) {
-                        Text("$name · $views view${if (views == 1) "" else "s"}", color = Color.White,
+                        Text("$name · $views view${if (views == 1) "" else "s"}", color = Pal.text,
                             modifier = Modifier.weight(1f))
                         TextButton(onClick = { book.forget(name); taught = book.names() }) { Text("Forget") }
                     }
                 }
                 Text("Kept on this phone only, as numbers that describe each view, not pictures.",
-                    color = Color(0xFFB8BED0))
+                    color = Pal.dim)
             }
         }
     }
 }
+
+private const val GROCERIES_MODE = "groceries"
 
 /** A suggestion for the dish in view: from the dishes the owner taught, or from Google's food classifier. */
 private data class Guess(val name: String, val score: Float, val taught: Boolean)

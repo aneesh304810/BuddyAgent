@@ -141,6 +141,18 @@ sub-tabs under them, and the page remembers where you were.
   The app shares where the phone is as a scan starts (only with Settings → Share my location on); the server
   compares it with your places, and the comparison sends the position nowhere. A dish the scanner suggests opens its
   matches on Food, where one tap adds it with its portion.
+- **Groceries: shopping list and My kitchen** (`groceries.py`, `ShopScan.kt`). Food → Groceries has **To buy** (your
+  "shopping" list, the same one Buddy fills when you say "add eggs to my shopping list") and **My kitchen** (what you
+  bought and are going to eat). The scanner has a **Groceries** mode for shopping (it opens in it by itself at a store
+  you marked): the camera stays open; each product shows "Good for me?" with **Add to my groceries**, one tap, which
+  puts it in My kitchen and ticks off the list item it matches (every word of the item in the product's name: "greek
+  yogurt" ticks off "Fage Total 0% Greek Yogurt"); the list shows under the camera, and Done opens Groceries. A product
+  that's **Better to skip** for you waits for "Add anyway" and shows a better one you scanned before (same kind, a
+  better verdict). In My kitchen, **Ate it** notes a serving in the meal for the time of day and the product stays
+  until **Finished**; scanning a kitchen product at home notes it the same way and keeps the count. When you're off
+  track, the next-meal hint names kitchen foods whose serving fits what's left today. **Bought** ticks an item off by
+  hand (it goes in by its name, without numbers). Kept on your server until finished or deleted; no AI model sees the
+  kitchen.
 - **Off track on fats and unhealthy food** (code only, not medical advice): after each scan, on **Health → Today**
   ("Food today"), and in the evening check-in, Buddy checks today's meals against your numbers: saturated fat at
   most 10% of calories, fat at most 35% (the National Academies' range is 20 to 35%), sodium under 2,300 mg, at most

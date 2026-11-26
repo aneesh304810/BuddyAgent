@@ -1925,6 +1925,38 @@ async def api_health_where_act(body: dict) -> dict:
     raise HTTPException(400, "unknown action")
 
 
+@app.get("/api/health/groceries", dependencies=[Depends(require_admin)])
+async def api_health_groceries() -> dict:
+    """The shopping list (the organiser's "shopping" list) and My kitchen, judged again with today's numbers."""
+    from . import groceries  # noqa: PLC0415
+    return {"to_buy": await asyncio.to_thread(groceries.to_buy, memory),
+            "kitchen": await asyncio.to_thread(groceries.kitchen, memory), "note": groceries.NOTE}
+
+
+@app.post("/api/health/groceries", dependencies=[Depends(require_admin)])
+async def api_health_groceries_act(body: dict) -> dict:
+    """buy (text), unbuy (id), bought (id: ticked by hand); keep (scan, anyway): a scan into My kitchen, ticking
+    off the list; ate (id): a serving into the meal for the time; finished (id)."""
+    from . import groceries  # noqa: PLC0415
+    action, n = str(body.get("action") or ""), int(body.get("id") or 0)
+    try:
+        if action == "buy":
+            return {"to_buy": await asyncio.to_thread(groceries.add_buy, memory, str(body.get("text") or ""))}
+        if action == "unbuy":
+            return {"to_buy": await asyncio.to_thread(groceries.remove_buy, memory, n)}
+        if action == "bought":
+            return await asyncio.to_thread(groceries.bought, memory, n)
+        if action == "keep":
+            return await asyncio.to_thread(groceries.keep, memory, int(body.get("scan") or 0), bool(body.get("anyway")))
+        if action == "ate":
+            return await asyncio.to_thread(groceries.ate, memory, n)
+        if action == "finished":
+            return {"kitchen": await asyncio.to_thread(groceries.finish, memory, n)}
+    except ToolError as e:
+        raise HTTPException(400, str(e)) from None
+    raise HTTPException(400, "unknown action")
+
+
 @app.get("/api/health/ontrack", dependencies=[Depends(require_admin)])
 async def api_health_ontrack() -> dict:
     """Today's fat, saturated fat, sodium, added sugar and ultra-processed foods against the owner's limits, what to
@@ -1943,14 +1975,15 @@ async def api_health_scans() -> dict:
 @app.post("/api/health/scans", dependencies=[Depends(require_admin)])
 async def api_health_scans_act(body: dict) -> dict:
     """compare (ids), delete (id) or forget (all); eat (id, servings), uneat (meal), recount (meal, servings)."""
-    from . import foodverdict, scanmeal  # noqa: PLC0415
+    from . import foodverdict, groceries, scanmeal  # noqa: PLC0415
     action = str(body.get("action") or "")
     try:
         if action == "compare":
             ids = [int(i) for i in body.get("ids") or [] if str(i).isdigit()][:6]
             return await asyncio.to_thread(foodverdict.compare, memory, ids)
         if action == "eat":  # a scan noted as eaten (label servings), in the meal for the time of day
-            return await asyncio.to_thread(scanmeal.eat, memory, int(body.get("id") or 0), body.get("servings") or 1)
+            got = await asyncio.to_thread(scanmeal.eat, memory, int(body.get("id") or 0), body.get("servings") or 1)
+            return got | {"from_kitchen": await asyncio.to_thread(groceries.note_eaten, memory, int(body.get("id") or 0))}
         if action == "uneat":
             return await asyncio.to_thread(scanmeal.uneat, memory, int(body.get("meal") or 0))
         if action == "recount":

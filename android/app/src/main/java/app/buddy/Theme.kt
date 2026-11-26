@@ -3,6 +3,9 @@ package app.buddy
 import androidx.compose.runtime.getValue
 import androidx.compose.runtime.mutableStateOf
 import androidx.compose.runtime.setValue
+import androidx.compose.material3.ColorScheme
+import androidx.compose.material3.darkColorScheme
+import androidx.compose.material3.lightColorScheme
 import androidx.compose.ui.graphics.Color
 import androidx.compose.ui.graphics.toArgb
 import app.buddy.design.BuddyDark
@@ -34,6 +37,16 @@ object Theme {
     /** The name server pages understand (`?theme=`). */
     val pageTheme get() = if (light) LIGHT else DARK
 }
+
+/** Material's own parts (chips, fields, buttons, menus) in the same design tokens as [Pal], for every screen. */
+fun buddyColorScheme(): ColorScheme = if (Theme.light) lightColorScheme(primary = Pal.accent, background = Pal.bg,
+    surface = Pal.bg, surfaceVariant = Pal.panel, onPrimary = Pal.onChip, onBackground = Pal.text, onSurface = Pal.text,
+    onSurfaceVariant = Pal.dim, secondaryContainer = Pal.placeholder, onSecondaryContainer = Pal.text,
+    primaryContainer = Pal.placeholder, onPrimaryContainer = Pal.link, outline = Pal.track)
+else darkColorScheme(primary = Pal.accent, background = Pal.bg, surface = Pal.panel, surfaceVariant = Pal.panel,
+    onPrimary = Pal.onChip, onBackground = Pal.text, onSurface = Pal.text, onSurfaceVariant = Pal.dim,
+    secondaryContainer = Pal.placeholder, onSecondaryContainer = Pal.text,
+    primaryContainer = Pal.placeholder, onPrimaryContainer = Pal.link, outline = Pal.track)
 
 object Pal {
     private fun pick(dark: Color, light: Color) = if (Theme.light) light else dark

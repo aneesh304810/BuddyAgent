@@ -644,7 +644,7 @@ function mealsBySlot(recent) {
 const groc = { q: "", found: null, busy: false, failed: "", pick: 0, verdict: null, scans: null, compare: new Set(), cmp: null, sure: false };
 const VERDICT_PILL = { good: "good", sometimes: "warn", skip: "bad" };
 async function grocCheck(food, fromScan = false) {
-  groc.busy = true; groc.failed = ""; scanMeal = null; render();
+  groc.busy = true; groc.failed = ""; scanMeal = null; grocAdd = null; render();
   try { groc.verdict = await api("/api/health/verdict", { food, keep: true }); groc.verdict.food = food; groc.scans = null; }
   catch (e) { groc.failed = e.message; groc.verdict = null; }
   groc.busy = false; render(); loadScans();
@@ -668,6 +668,59 @@ async function loadPlaces(body) {
   try { foodPlaces = (await api("/api/health/where", body)).places || []; } catch (e) { foodPlaces = []; notice(e.message); }
   if (showing("plan", "groceries")) render();
 }
+// --- the shopping list and My kitchen (groceries.py) --------------------------------------------------------------
+// The list is your "shopping" list (the same one Buddy fills when you say "add eggs to my shopping list"); a scan
+// you add ticks off the item it matches and goes into My kitchen, where "Ate it" notes a serving in the meal for
+// the time of day and the product stays until Finished.
+let grocList = null, grocAdd = null;
+async function loadGroceries(body) {
+  try {
+    const out = await api("/api/health/groceries", body);
+    grocList = { ...(grocList || {}), ...(out.to_buy ? { to_buy: out.to_buy } : {}), ...(out.kitchen ? { kitchen: out.kitchen } : {}), ...(out.note ? { note: out.note } : {}) };
+    return out;
+  } catch (e) { notice(e.message); grocList = grocList || { to_buy: [], kitchen: [] }; return null; }
+  finally { if (showing("plan", "groceries")) render(); }
+}
+async function keepGroc(id, anyway) {
+  const out = await loadGroceries({ action: "keep", scan: id, anyway });
+  if (out) { grocAdd = out; render(); }
+}
+function grocAddBox() {
+  const a = grocAdd;
+  if (!a) return "";
+  if (a.added) return `<p style="margin:10px 0 0"><span class="pill good">${a.already ? "One more in your kitchen" : "In your kitchen"}</span> ${esc(a.name)}${a.ticked ? ` · ticked off <b>${esc(a.ticked)}</b>` : ""}</p>`;
+  const w = a.warn, b = w.better;
+  return `<div style="margin-top:12px;padding-top:10px;border-top:1px solid var(--line)"><p style="margin:0"><span class="pill bad">${esc(w.headline.split(":")[0])}</span> for you${w.why.length ? ": " + esc(w.why.join(" ")) : "."}</p>
+    ${b ? `<p style="margin:8px 0 0">Better for you, scanned before: <b>${esc(b.name)}</b>${b.brand ? ` (${esc(b.brand)})` : ""} <span class="pill ${VERDICT_PILL[b.verdict]}">${esc(b.headline.split(":")[0])}</span></p>` : ""}
+    <div class="f" style="margin-top:8px">${b ? `<button class="btn solid" data-groc-open="${b.id}">See it</button>` : ""}<button class="btn" id="groc-anyway">Add anyway</button></div></div>`;
+}
+function toBuyCard() {
+  const t = grocList.to_buy || [];
+  return card("To buy", `<form class="f" id="buy-form"><input class="grow" name="text" maxlength="120" placeholder="e.g. Greek yogurt, oats, eggs" aria-label="Something to buy"><button class="btn solid">Add</button></form>
+    ${t.length ? t.map((x) => `<div class="line"><div class="what">${esc(x.text)}</div><div class="f" style="gap:6px;flex-wrap:nowrap"><button class="btn" data-bought="${x.id}">Bought</button><button class="btn" data-unbuy="${x.id}" aria-label="Take ${esc(x.text)} off the list">✕</button></div></div>`).join("")
+      : `<p class="muted">Nothing to buy. Add it here, or tell Buddy "add eggs to my shopping list".</p>`}`,
+    "Scanning a product and tapping Add to my groceries ticks off the item it matches.");
+}
+function kitchenCard() {
+  const k = grocList.kitchen || [];
+  return card("My kitchen", k.length ? k.map((x) => `<div class="line" style="align-items:flex-start"><div class="what">${x.verdict ? `<span class="pill ${VERDICT_PILL[x.verdict]}">${esc(x.headline.split(":")[0])}</span> ` : ""}${esc(x.name)}
+      <small>${[x.brand, x.packs > 1 ? `${x.packs} packs` : "", x.serving ? `a serving: ${x.serving}` : "no label numbers", x.eaten ? `eaten ${x.eaten} time${x.eaten === 1 ? "" : "s"}` : ""].filter(Boolean).map(esc).join(" · ")}</small></div>
+      <div class="f" style="gap:6px;flex-wrap:nowrap"><button class="btn solid" data-ate="${x.id}">Ate it</button><button class="btn" data-finished="${x.id}">Finished</button></div></div>`).join("")
+    : `<p class="muted">Nothing yet. In a store, scan a product and tap <b>Add to my groceries</b>.</p>`, esc(grocList.note || ""));
+}
+function wireGroceries() {
+  if ($("groc-keep")) $("groc-keep").onclick = () => keepGroc(groc.verdict.id, false);
+  if ($("groc-anyway")) $("groc-anyway").onclick = () => keepGroc(groc.verdict.id, true);
+  if ($("buy-form")) $("buy-form").onsubmit = (e) => { e.preventDefault(); const text = e.target.text.value.trim(); if (text) loadGroceries({ action: "buy", text }); };
+  $("main").querySelectorAll("[data-unbuy]").forEach((b) => b.onclick = () => loadGroceries({ action: "unbuy", id: Number(b.dataset.unbuy) }));
+  $("main").querySelectorAll("[data-bought]").forEach((b) => b.onclick = () => loadGroceries({ action: "bought", id: Number(b.dataset.bought) }));
+  $("main").querySelectorAll("[data-finished]").forEach((b) => b.onclick = () => loadGroceries({ action: "finished", id: Number(b.dataset.finished) }));
+  $("main").querySelectorAll("[data-ate]").forEach((b) => b.onclick = async () => {
+    const out = await loadGroceries({ action: "ate", id: Number(b.dataset.ate) });
+    if (out) { notice(`Added to ${out.slot}: ${out.what}`); ontrackData = null; load(); }
+  });
+}
+
 function placesCard() {
   if (foodPlaces === null) { foodPlaces = []; loadPlaces(); return ""; }
   if (!foodPlaces.length) return "";
@@ -712,7 +765,8 @@ function ontrackBlock(o) {
     <small>${esc(n.items)} · ${num(t.kcal)} kcal, ${num(t.fat_g)} g fat, ${num(t.sat_fat_g)} g saturated fat, ${num(Math.round(t.sodium_mg))} mg sodium${n.fits ? "" : " · still more than what's left today: a smaller portion"}</small></div></div>` : "";
   const rows = o.rows.map((r) => `<div class="line"><div class="what">${esc(r.what)}<small>${esc(r.how)}${r.counted < r.of ? ` · counted from ${r.counted} of ${r.of} meals (meals typed without numbers aren't)` : ""}</small></div>
     <span class="pill ${r.state === "over" ? "bad" : r.state === "ok" ? "good" : "warn"}">${num(r.got)} / ${num(r.limit)} ${esc(r.unit)}</span></div>`).join("");
-  return head + advice + next + rows;
+  const pantry = (o.from_kitchen || []).length ? `<p style="margin:6px 0 0">From your kitchen: ${o.from_kitchen.map((k) => `<b>${esc(k.name)}</b> (${esc(k.serving)}: ${num(k.numbers.sat_fat_g ?? 0)} g saturated fat, ${num(Math.round(k.numbers.sodium_mg ?? 0))} mg sodium)`).join(", ")}</p>` : "";
+  return head + advice + pantry + next + rows;
 }
 function foodTodayCard() {
   if (!ontrackData && !ontrackBusy) {
@@ -733,7 +787,7 @@ function mealBox() {
   const w = m.where || {};
   if (m.done) {
     const d = m.done;
-    return box(`<p style="margin:0"><span class="pill good">Added to ${esc(d.slot)}</span> ${esc(d.what)}</p>
+    return box(`<p style="margin:0"><span class="pill good">Added to ${esc(d.slot)}</span> ${esc(d.what)}${d.from_kitchen ? ` <span class="pill">from your kitchen</span>` : ""}</p>
       <div class="f" style="margin-top:8px;align-items:center"><button class="btn" data-serv="-0.5" aria-label="Half a serving less"${d.servings <= 0.5 ? " disabled" : ""}>−</button>
       <span>${num(d.servings)} serving${d.servings === 1 ? "" : "s"}</span><button class="btn" data-serv="0.5" aria-label="Half a serving more">+</button>
       <button class="btn danger" id="scan-undo">Undo</button></div>
@@ -788,7 +842,8 @@ function renderGroceries() {
   else if (groc.failed) body += `<p class="err">${esc(groc.failed)}</p>`;
   else if (groc.verdict) {
     const v = groc.verdict;
-    body += verdictCard(v) + mealBox() + `<div class="f" style="margin-top:10px">${scanMeal ? "" : `<button class="btn solid" id="groc-eat">Add to a meal</button>`}
+    const shopping = scanMeal && !scanMeal.done && !scanMeal.busy;  // at a store, or "Just buying"
+    body += verdictCard(v) + mealBox() + grocAddBox() + `<div class="f" style="margin-top:10px">${v.id && !(grocAdd && grocAdd.added) ? `<button class="btn${shopping || !scanMeal ? " solid" : ""}" id="groc-keep">Add to my groceries</button>` : ""}${scanMeal ? "" : `<button class="btn" id="groc-eat">Add to a meal</button>`}
       ${v.id ? `<button class="btn${groc.compare.has(v.id) ? " on" : ""}" data-cmp="${v.id}">${groc.compare.has(v.id) ? "In the comparison" : "Compare"}</button>` : ""}</div>`;
     if (groc.found && groc.found.length > 1) body += `<p class="muted" style="margin:10px 0 2px">Other matches:</p>` + groc.found.map((f, i) => i === groc.pick ? "" :
       `<div class="line"><div class="what">${esc(f.name)}<small>${esc(f.kind)}${f.brand ? " · " + esc(f.brand) : ""}</small></div><button class="btn" data-groc-pick="${i}">Check this</button></div>`).join("");
@@ -796,6 +851,8 @@ function renderGroceries() {
     body += groc.found.map((f, i) => `<div class="line"><div class="what">${esc(f.name)}<small>${esc(f.kind)}${f.brand ? " · " + esc(f.brand) : ""}</small></div><button class="btn" data-groc-pick="${i}">Check</button></div>`).join("");
   }
   let html = card("Good for me?", body, "Judged per serving by Buddy's code from the label, your labs, blood pressure, allergies and goal. No AI model sees it.");
+  if (grocList === null) { grocList = { to_buy: [], kitchen: [] }; loadGroceries(); }
+  html += toBuyCard() + kitchenCard();
   if (groc.cmp) {
     const ps = groc.cmp.products, rows = [["Verdict", (p) => `<span class="pill ${VERDICT_PILL[p.verdict]}">${esc(p.headline.split(":")[0])}</span>`],
       ["A serving", (p) => esc(p.serving.label)], ["Calories", (p) => num(p.per_serving.kcal)],
@@ -821,13 +878,14 @@ function renderGroceries() {
   html += placesCard();
   $("main").innerHTML = html;
   wireScanMeal();
+  wireGroceries();
   $("main").querySelectorAll("[data-place-del]").forEach((b) => b.onclick = () => loadPlaces({ action: "forget", id: Number(b.dataset.placeDel) }));
   $("groc-form").onsubmit = (e) => { e.preventDefault(); const q = e.target.q.value.trim(); if (!q) return; groc.q = q; grocFind("food", q); };
   $("main").querySelectorAll("[data-groc-pick]").forEach((b) => b.onclick = () => { groc.pick = Number(b.dataset.grocPick); grocCheck(groc.found[groc.pick]); });
   $("main").querySelectorAll("[data-cmp]").forEach((b) => b.onclick = () => { const id = Number(b.dataset.cmp); groc.compare.has(id) ? groc.compare.delete(id) : groc.compare.add(id); render(); });
   $("main").querySelectorAll("[data-groc-open]").forEach((b) => b.onclick = () => {
     const s = groc.scans.find((x) => x.id === Number(b.dataset.grocOpen)); if (!s) return;
-    groc.verdict = { ...s, food: s.food }; groc.found = null; groc.failed = ""; render(); window.scrollTo(0, 0);
+    groc.verdict = { ...s, food: s.food }; groc.found = null; groc.failed = ""; grocAdd = null; scanMeal = null; render(); window.scrollTo(0, 0);
   });
   $("main").querySelectorAll("[data-groc-del]").forEach((b) => b.onclick = async () => {
     try { groc.scans = (await api("/api/health/scans", { action: "delete", id: Number(b.dataset.grocDel) })).scans; groc.compare.delete(Number(b.dataset.grocDel)); }
