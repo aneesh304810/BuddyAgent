@@ -50,6 +50,9 @@ android {
     buildFeatures {
         compose = true
     }
+    androidResources {
+        noCompress += "tflite"  // ML Kit reads the dish model straight from the app, so it must stay uncompressed
+    }
 }
 
 dependencies {
@@ -70,6 +73,8 @@ dependencies {
     implementation("androidx.camera:camera-lifecycle:1.4.1")
     implementation("androidx.camera:camera-view:1.4.1")
     implementation("com.google.mlkit:barcode-scanning:17.3.0")
+    // Health → Scan food → Dish: ML Kit runs Google's food classifier (assets/food_v1.tflite) on the phone.
+    implementation("com.google.mlkit:image-labeling-custom:17.0.3")
 
     testImplementation("junit:junit:4.13.2")
 }

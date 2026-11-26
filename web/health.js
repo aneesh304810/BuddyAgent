@@ -863,16 +863,18 @@ async function load() {
   try { data = await api(`/api/health/page?days=${span}`); render(); }
   catch (e) { tabs(); $("main").innerHTML = `<p class="err">${esc(e.message)}</p>`; }
 }
-// The app's "Scan food" opens this page with the barcode it read on the phone: show its matches on Plan → Food.
+// The app's "Scan food" opens this page with the barcode it read, or the dish the owner tapped, on the phone: show
+// the matches on Plan → Food. Only the number or the dish's name came from the phone; never a picture.
 const scanned = (() => {  // read from the address as it arrived (the token line above may have cleared it since)
   const code = (params.get("scanbarcode") || "").replace(/\D/g, "");
-  if (!code) return "";
+  const dish = (params.get("scandish") || "").replace(/[^\p{L}\p{N} '&(),.-]/gu, "").trim().slice(0, 60);
+  if (!code && !dish) return null;
   const rest = new URLSearchParams(location.search);
-  if (rest.has("scanbarcode")) {  // a reload doesn't look it up again
-    rest.delete("scanbarcode"); rest.delete("t");
+  if (rest.has("scanbarcode") || rest.has("scandish")) {  // a reload doesn't look it up again
+    rest.delete("scanbarcode"); rest.delete("scandish"); rest.delete("t");
     history.replaceState(null, "", location.pathname + (String(rest) ? `?${rest}` : ""));
   }
   tab = "plan"; storageSet("healthTab", "plan"); storageSet("healthSub:plan", "food");
-  return code;
+  return code ? { kind: "barcode", q: code } : { kind: "food", q: dish };
 })();
-load().then(() => { if (scanned) { factQ.food = scanned; lookUp("barcode", scanned); } });
+load().then(() => { if (scanned) { factQ.food = scanned.q; lookUp(scanned.kind, scanned.q); } });

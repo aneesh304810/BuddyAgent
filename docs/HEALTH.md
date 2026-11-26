@@ -71,8 +71,15 @@ sub-tabs under them, and the page remembers where you were.
   your USDA key) and Open Food Facts, and the Health page opens Plan → Food with the matches and the pack's label
   serving, ready to add. Short UPC-E codes on small US packs are written out to their full UPC-A first. No camera?
   Type the numbers under the barcode. The app asks for camera access the first time.
-  - **Cooked dishes from a photo** come next: a recognition model that runs on the phone (Google's food
-    classifier, Apache 2.0), checked first on South Indian dishes; the photo will never leave the phone.
+  - **Dish** (the second mode on the same screen): point the camera at a plate and Buddy suggests the three
+    likeliest dishes, a few times a second; tap the right one and Plan → Food opens with USDA's matches for it.
+    The suggestions come from Google's food classifier (the AIY Vision Classifier Food V1, Apache 2.0, about
+    2,000 dishes), which runs on the phone through ML Kit and works offline. No picture is kept or sent: only the
+    dish's name you tap goes to your server, and from there to USDA as a food lookup. It knows idli, sambar, upma,
+    puttu, idiyappam, biryani, palak paneer, chana masala, rajma, chicken curry, fish fry, Greek salad, hummus,
+    falafel, tabbouleh and many more, but not dosa, appam, avial, thoran, rasam, pongal, uttapam, chapati, naan,
+    grilled chicken, oatmeal or quinoa: type those in the box under the camera. A suggestion is a guess, so the
+    meal is only added when you pick it and its portion.
 - **Learn → Research:** new studies on the topics you choose, strongest evidence first, from PubMed (the US
   National Library of Medicine). Ready-made topics: longevity research (the journals Nature Aging, Aging Cell and
   GeroScience, and work from the National Institute on Aging, the Buck Institute and AFAR), South Asian heart and
