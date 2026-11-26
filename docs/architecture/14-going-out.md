@@ -91,5 +91,5 @@ position.
 ## How it connects
 
 - Relies on: Buddy Connect; Claude: the brain; Making and doing things; Memory; News, trends and research; Travel and getting around
-- Relied on by: Claude: the brain; Speaking up on its own: briefing, reminders and alerts
+- Relied on by: Claude: the brain; News, trends and research; Speaking up on its own: briefing, reminders and alerts
 

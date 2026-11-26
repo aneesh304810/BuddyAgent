@@ -47,6 +47,8 @@ JOBS = {  # name -> (title, what it does, in use today?)
     "extract": ("Find the companies in a record", "the companies a headline names and the relationships it states; up to 100 a night", True),
     "analyse": ("Analyse a company or theme", "compares the evidence for and against; on request", False),
     "deep": ("Hard research questions", "long questions that need the strongest model; on request", False),
+    "summarise_search": ("Summarise search results", "a short answer, with numbered sources, from public search "
+                         "results (Buddy Search); on request. Your own files and messages: Claude only", True),
 }
 CLAUDE = {"claude:fast": ("fast_model", "Claude, cheap model"), "claude:chat": ("chat_model", "Claude, mid model"),
           "claude:deep": ("model", "Claude, strongest model")}

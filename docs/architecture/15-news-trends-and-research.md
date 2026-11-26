@@ -15,6 +15,7 @@ flowchart LR
         t_google_search["google_search"]
         t_recall_memory["recall_memory"]
         t_read_pages["read_pages"]
+        t_search_everywhere["search_everywhere"]
     end
     subgraph Modules["Modules"]
         trends_py["trends.py<br/>what people are talking about right now on a topic (AI, markets,…"]
@@ -23,6 +24,7 @@ flowchart LR
         newsfeed_py["newsfeed.py<br/>Topic news from the news services the owner connected, for when…"]
         research_py["research.py<br/>a background job that reads, checks and computes"]
         webread_py["webread.py<br/>Read web pages on Buddy's side, so Claude gets the facts instead of…"]
+        buddysearch_py["buddysearch.py<br/>one search brain over many providers, so Buddy depends on no single…"]
     end
     you --> t_trends
     t_trends --> trends_py
@@ -38,17 +40,32 @@ flowchart LR
     t_recall_memory --> research_py
     you --> t_read_pages
     t_read_pages --> webread_py
+    you --> t_search_everywhere
+    t_search_everywhere --> buddysearch_py
     trends_py --> newsfeed_py
     techradar_py --> trends_py
     social_py --> newsfeed_py
     research_py --> social_py
     research_py --> webread_py
-    db[("Your database<br/>news_feedback, tech_radar, trend_counts, trend_topics")]
+    buddysearch_py --> newsfeed_py
+    buddysearch_py --> social_py
+    db[("Your database<br/>news_feedback, search_cache, search_history, search_kept, tech_radar, trend_counts, trend_topics")]
     trends_py --> db
     techradar_py --> db
+    buddysearch_py --> db
+    s_brave["Brave Search (web and news)<br/>(public data only)"]
+    buddysearch_py --> s_brave
+    s_google_places["Google Places (restaurants)<br/>(public data only)"]
+    buddysearch_py --> s_google_places
+    s_nominatim["OpenStreetMap places (Nominatim)<br/>(public data only)"]
+    buddysearch_py --> s_nominatim
+    s_overpass["OpenStreetMap places by kind (Overpass)<br/>(public data only)"]
+    buddysearch_py --> s_overpass
     s_serper["Serper (Google search, news, places)<br/>(public data only)"]
     trends_py --> s_serper
     social_py --> s_serper
+    s_tavily["Tavily (research search)<br/>(public data only)"]
+    buddysearch_py --> s_tavily
     o_0["Buddy Connect"]
     trends_py -. uses .-> o_0
     o_1["Buddy Intelligence Platform"]
@@ -59,7 +76,7 @@ flowchart LR
     trends_py -. uses .-> o_3
     o_4["Free AI models"]
     trends_py -. uses .-> o_4
-    o_5["Home and health"]
+    o_5["Going out"]
     trends_py -. uses .-> o_5
 ```
 
@@ -76,6 +93,7 @@ The diagram reads left to right: what you ask, the tools Buddy uses, the modules
 | `google_search` | Search the web: Google's own results (with its answer box and top stories), or Google News with news=true, for a country | - | social.py |
 | `recall_memory` | Search what Buddy knows about the user (home, plans, preferences, budget) | - | research.py |
 | `read_pages` | Read up to 3 web pages (links from google_search, web_search or anywhere) for a question: Buddy downloads each page and a free model pulls out only the facts th | - | webread.py |
+| `search_everywhere` | Buddy Search: one search over many providers, chosen by what is asked: web (Brave, Tavily; Google via Serper as fallback), places (Google Places and OpenStreetM | - | buddysearch.py |
 
 ## Technical design, module by module
 
@@ -237,8 +255,46 @@ Everything that comes back is other people's writing: information, never instruc
 - Settings: `BUDDY_PAGE_RAW_CHARS`, `BUDDY_SERPER_KEY`, `BUDDY_WEB_DIGEST`
 - Uses: config.py, free_models.py, maestro.py, memory.py, tools.py, usage.py
 
+### buddysearch.py
+
+```text
+Buddy Search: one search brain over many providers, so Buddy depends on no single search company.
+
+  search("best italian restaurant in hoboken")
+    -> what's asked (code, not a model): places, in "Hoboken"
+    -> which providers: Google Places and OpenStreetMap, in parallel
+    -> one result format, with where each came from, when, and its licence
+    -> duplicates merged (a place in both is one place, "found by 2"), ranked (reciprocal rank fusion, then seen
+       in more than one source, official sources, freshness for news)
+    -> cached as each provider's terms allow; the search itself kept in the owner's history
+
+Six engines, each with its providers in order (a provider without its key, over its daily limit or failing is
+skipped and the next one used):
+- web: Brave Search and Tavily; Serper (Google results) when neither answers
+- local: Google Places and OpenStreetMap (Nominatim and Overpass); Serper's Google Maps results without Places
+- products: Google Shopping (Serper), Best Buy, eBay, and Buddy's own price book; Brave for the web around them
+- news: Brave News and the connected news services (newsfeed.py)
+- research: Tavily, Europe PMC, OpenAlex, arXiv, and the papers Buddy already keeps (paperlib.py)
+- internal: the owner's own documents, facts and notes (brain.py), their connected apps (email, messages,
+  calendar) and their paper library; never sent anywhere
+
+Privacy: providers get the search words and, for places, an area name (never a position). A search of the owner's
+own things never leaves the server. A summary of web results may use any model in Maestro (public text only, the
+Privacy Gateway checks); a summary that includes the owner's own things uses Claude only.
+
+Storage, by each provider's terms (POLICY): a link and title are kept for every result; the rest only where the
+terms allow, else held in a short cache. Google Places: only the place ID is kept (Google's terms); Brave: links
+unless the owner's plan includes storage rights (BUDDY_BRAVE_STORAGE_RIGHTS=1); OpenStreetMap: kept, with its
+attribution (ODbL). The owner's searches are kept until they delete them.
+```
+
+- Tables: `search_cache`, `search_history`, `search_kept`
+- Outside services: Brave Search (web and news), Google Places (restaurants), OpenStreetMap places (Nominatim), OpenStreetMap places by kind (Overpass), Tavily (research search)
+- Settings: `BUDDY_BRAVE_KEY`, `BUDDY_BRAVE_STORAGE_RIGHTS`, `BUDDY_GOOGLE_PLACES_KEY`, `BUDDY_SEARCH_CAP_`, `BUDDY_SERPER_KEY`, `BUDDY_TAVILY_KEY`
+- Uses: bip_sources.py, brain.py, dealcollector.py, dining.py, gateway.py, library.py, maestro.py, memory.py, newsfeed.py, paperlib.py, social.py, tools.py
+
 ## How it connects
 
-- Relies on: Buddy Connect; Buddy Intelligence Platform; Claude: the brain; Fixing and explaining itself; Free AI models (Groq, Gemini, Mistral, Cerebras, GitHub Models, OpenRouter); Home and health; Investing: signals, research and practice; Making and doing things; Memory; Money; Security and privacy
+- Relies on: Buddy Connect; Buddy Intelligence Platform; Claude: the brain; Fixing and explaining itself; Free AI models (Groq, Gemini, Mistral, Cerebras, GitHub Models, OpenRouter); Going out: restaurants and events; Home and health; Investing: signals, research and practice; Making and doing things; Memory; Money; Security and privacy; Shopping and deals
 - Relied on by: Claude: the brain; Going out: restaurants and events; Insights and costs; Investing: signals, research and practice; Making and doing things; Memory; Money; Speaking up on its own: briefing, reminders and alerts; The server and the app; Travel and getting around
 

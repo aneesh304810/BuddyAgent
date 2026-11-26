@@ -365,5 +365,5 @@ price book shows the item. Refreshed once a month (code only; no AI, no cost). O
 ## How it connects
 
 - Relies on: Buddy Connect; Buddy Intelligence Platform; Claude: the brain; Email, messages and apps; Investing: signals, research and practice; Learning: the English and investing tutors; Making and doing things; Memory; Money; The price book, pattern learning and trained models; Travel and getting around
-- Relied on by: Buddy Intelligence Platform; Claude: the brain; Email, messages and apps; Investing: signals, research and practice; Making and doing things; Speaking up on its own: briefing, reminders and alerts; The price book, pattern learning and trained models; The server and the app; Travel and getting around
+- Relied on by: Buddy Intelligence Platform; Claude: the brain; Email, messages and apps; Investing: signals, research and practice; Making and doing things; News, trends and research; Speaking up on its own: briefing, reminders and alerts; The price book, pattern learning and trained models; The server and the app; Travel and getting around
 

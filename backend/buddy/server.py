@@ -1898,6 +1898,37 @@ async def api_health_fit(body: dict) -> dict:
         raise HTTPException(400, str(e)) from None
 
 
+@app.get("/api/search", dependencies=[Depends(require_admin)])
+async def api_search(q: str = "", engines: str = "", area: str = "", summary: int = 0) -> dict:
+    """Buddy Search: one query, the right providers, merged and ranked results with their sources."""
+    from . import buddysearch  # noqa: PLC0415
+    try:
+        found = await buddysearch.search(memory, q[:300], [e for e in engines.split(",") if e] or None, area[:80])
+    except ToolError as e:
+        raise HTTPException(400, str(e)) from None
+    if summary:
+        found["summary"] = await buddysearch.summarise(memory, found)
+    return found
+
+
+@app.get("/api/search/status", dependencies=[Depends(require_admin)])
+async def api_search_status() -> dict:
+    """The providers (ready, today's use against its limit, the week's calls, failures and speed, what each may
+    keep and why) and the search history."""
+    from . import buddysearch  # noqa: PLC0415
+    return await asyncio.to_thread(buddysearch.status, memory)
+
+
+@app.post("/api/search", dependencies=[Depends(require_admin)])
+async def api_search_act(body: dict) -> dict:
+    """forget: one search by its id, or (no id) the whole history, cache and kept results."""
+    from . import buddysearch  # noqa: PLC0415
+    if str(body.get("action") or "") != "forget":
+        raise HTTPException(400, "unknown action")
+    n = await asyncio.to_thread(buddysearch.forget, memory, int(body.get("id") or 0) or None)
+    return {"deleted": n, **await asyncio.to_thread(buddysearch.status, memory)}
+
+
 @app.get("/api/papers", dependencies=[Depends(require_admin)])
 async def api_papers(q: str = "", source: str = "", offset: int = 0) -> dict:
     """The paper library: every research paper Buddy found, from every source, kept until the owner deletes it."""

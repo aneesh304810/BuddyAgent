@@ -60,7 +60,7 @@ import androidx.compose.ui.unit.sp
  *   Buddy          the one conversation, and what needs you today
  *   Money          accounts and bills, spending, cards, investing
  *   Trips & Deals  travel and deals, with the buy-now-or-wait calls
- *   Discover       news, intelligence, the library and reports
+ *   Discover       search (Buddy Search), news, intelligence, the library and reports
  *   More           your health, how Buddy runs (Maestro, Connections, Security) and your setup
  *
  * Alerts open from the bell in the header on every screen. There is one conversation: on the other four
@@ -330,11 +330,13 @@ fun TripsScreen(link: ServerLink?) {
 
 @Composable
 fun DiscoverScreen(link: ServerLink?, onNavigate: (Screen) -> Unit) {
-    PlaceTabs("discover", listOf("News", "Intelligence", "Library", "Reports")) { tab ->
+    // "discover2": Search came first, so the tab remembered under the old order starts afresh.
+    PlaceTabs("discover2", listOf("Search", "News", "Intelligence", "Library", "Reports")) { tab ->
         when (tab) {
-            0 -> BuddyPage(link, "news.html")
-            1 -> BuddyPage(link, "intel.html")
-            2 -> LibraryScreen(link) { onNavigate(Screen.LibraryItem(it)) }
+            0 -> BuddyPage(link, "search.html")
+            1 -> BuddyPage(link, "news.html")
+            2 -> BuddyPage(link, "intel.html")
+            3 -> LibraryScreen(link) { onNavigate(Screen.LibraryItem(it)) }
             else -> ReportsScreen(link) { onNavigate(Screen.Report(it)) }
         }
     }

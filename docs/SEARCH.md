@@ -1,5 +1,86 @@
 # Search: better sources, cleaner data, lower cost
 
+## Buddy Search: one search over everything
+
+One search over many providers, so Buddy depends on no single search company. Ask in plain words; Buddy works out
+where to look, asks the right providers at the same time, merges what they found and shows where each result came
+from. In the app: **Discover → Search**. In conversation: ask Buddy to search, and it uses the same engine
+(`search_everywhere`).
+
+### What it searches
+
+| Engine | Providers (in order) | Needs |
+|---|---|---|
+| Web | Brave Search and Tavily together; Google (Serper) when neither answers | Brave and/or Tavily key; Serper key for the fallback |
+| Places | Google Places and OpenStreetMap together (Google Maps through Serper without a Places key) | Places key (optional); OpenStreetMap needs none |
+| Products and prices | Google Shopping (Serper), Best Buy, eBay, your own price book, and Brave for the pages around them | the store keys you already set |
+| News | Brave News and your connected news services | Brave key; news services as set up |
+| Research | Tavily, Europe PMC, OpenAlex, arXiv, and your paper library | Tavily key; the others need none |
+| Your own things | Your documents, what Buddy remembers, email, messages and calendar from your connected apps, your saved papers | nothing; never leaves your server |
+
+Buddy decides from the words: "Italian restaurant in Hoboken" is Places in Hoboken; "cheapest iPhone 16" is
+Products; "latest market news" is News and Web; "research on longevity" is Research and Web; "the Etihad booking in
+my email" is Your own things. You can also pick the engine above the results.
+
+### How results are put together
+
+- **Together:** the chosen providers are asked at the same time; one that is slow (15 s), failing or out of today's
+  allowance is skipped and its engine's fallback used.
+- **One form:** every result has its title, link, snippet, date, the provider that found it, and for places the
+  address, rating, hours and phone, for products the price and store.
+- **Merged:** the same page (however it was linked: tracking parameters, `www.` and fragments ignored), the same
+  place (its name and position within about 100 m, or its name and street) or the same paper (its PubMed number,
+  DOI or arXiv number) is one result. Each source fills what the others lacked: Google's rating beside
+  OpenStreetMap's opening hours.
+- **Ranked:** reciprocal rank fusion across the providers, raised for each extra source that found it ("found by
+  2"), for official sources (government, universities, the WHO, NIH, CDC, major journals, Reuters, AP) and for news
+  from the last two days. Products: offers with a price first, cheapest first.
+- **Short answer** (optional): two to four sentences with numbered sources, from the top results. For web,
+  news and research, any model in Maestro (public text only, checked by the Privacy Gateway; the job is
+  "Summarise search results"); with your own things, Claude only.
+
+### Costs and limits
+
+Each paid provider has a daily allowance that spreads its free monthly use over the month (Brave 40, Tavily 30,
+Google Places 25, Serper 60 searches a day); past it, that provider is skipped until tomorrow. Change one with
+`sudo bash /opt/buddy/deploy/set.sh BUDDY_SEARCH_CAP_BRAVE` (or `_TAVILY`, `_GOOGLE_PLACES`, `_SERPER`). The
+Search page's **Providers** table shows each one: ready or needing a key, today's use against its allowance, the
+week's searches, failures and speed, and what it may keep.
+
+### Keys
+
+Sign up yourself (Buddy can't): Brave Search API at brave.com/search/api, Tavily at tavily.com. Then, on the
+server:
+
+```
+sudo bash /opt/buddy/deploy/set.sh BUDDY_BRAVE_KEY
+sudo bash /opt/buddy/deploy/set.sh BUDDY_TAVILY_KEY
+```
+
+OpenStreetMap needs no key; Buddy follows its usage policy (at most one Nominatim request a second, every answer
+cached for a week, an identifying user agent) and shows its attribution.
+
+### Privacy and what is kept
+
+- Providers get your search words and, for places, an area name (a town or the neighbourhood the phone last
+  shared), never your position. A search of your own things never leaves your server.
+- What is kept follows each provider's terms: a link and title for every web result; Google Places: only the place
+  ID (Google's terms); Brave: links only, unless your plan includes storage rights
+  (`sudo bash /opt/buddy/deploy/set.sh BUDDY_BRAVE_STORAGE_RIGHTS`, value 1); OpenStreetMap: kept, with its
+  attribution (ODbL); papers: kept, and also in your paper library; your own things: never copied. Anything else
+  is held in a short cache (Brave and Serper an hour, Tavily and Google Places a day, news 30 minutes) and then
+  dropped. One provider's details are never kept under another's terms.
+- Your searches are kept until you delete them (one at a time, or the history, the cache and everything kept, on
+  the Search page).
+
+### Not in this version
+
+Exa (semantic search) was left out for now; scheduled searches, monitoring and reports by search agents are the
+next phase.
+
+## The sources Buddy Search and the agents draw on
+
+
 Buddy picks the cheapest source that gives a good answer. Compact sources return clean
 results (titles, snippets, scores, links) instead of whole pages, so Claude reads a few
 hundred tokens instead of tens of thousands: better data for less money.
