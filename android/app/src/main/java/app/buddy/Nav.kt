@@ -60,7 +60,7 @@ import androidx.compose.ui.unit.sp
  *   Buddy          the one conversation, and what needs you today
  *   Money          accounts and bills, spending, cards, investing
  *   Trips & Deals  travel and deals, with the buy-now-or-wait calls
- *   Discover       search (Buddy Search), news, intelligence, the library and reports
+ *   Discover       news, intelligence, the library and reports (searches and place picks: ask Buddy)
  *   More           your health, how Buddy runs (Maestro, Connections, Security) and your setup
  *
  * Alerts open from the bell in the header on every screen. There is one conversation: on the other four
