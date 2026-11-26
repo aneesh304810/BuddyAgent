@@ -68,6 +68,10 @@ Themes, Watchlist), and "For you" in Deals: Buddy's open buy-now-or-wait calls f
 hotels in one card shape (the call, the chance, one line of why, then the date of the call and the record
 of calls of its kind). Investment themes use the same card for each evidence pattern that fired.
 
+Home's quick actions sit above the conversation: Log a meal, Log BP, Scan food, Spending, Bills and Deals, each
+one tap to its section (health ones open the Health page there; no AI model is involved). On the open Fold they
+move, with anything waiting for a yes and the Today strip, to a panel beside the conversation.
+
 The Today strip sits above the conversation: the next reminder or appointment, and the next bill or card
 payment due within seven days, each with where it came from. It shows nothing when there is nothing. The
 bell carries the number of alerts sent since Alerts was last opened; silenced kinds are not counted. Both

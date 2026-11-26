@@ -79,6 +79,14 @@ let srcData = null, srcAsk = "";  // the Sources tab, and the delete or disconne
 let data = null, tab = TABS.some(([k]) => k === storageGet("healthTab")) ? storageGet("healthTab") : "today";
 if (OLD[storageGet("healthTab")]) { [tab] = OLD[storageGet("healthTab")]; storageSet("healthSub:" + tab, OLD[storageGet("healthTab")][1]); }
 let span = ["14", "30", "90"].includes(storageGet("healthDays")) ? storageGet("healthDays") : "30", sure = false;
+// A section the app asks for (Home's quick actions; the redesign's section names): ?section=food opens Plan → Food.
+const OPEN = { today: ["today"], food: ["plan", "food"], groceries: ["plan", "groceries"], bp: ["trends", "body"],
+  body: ["trends", "body"], labs: ["labs", "results"], library: ["learn", "research"] };
+if (OPEN[params.get("section")]) {
+  const [t, sub] = OPEN[params.get("section")];
+  tab = t; storageSet("healthTab", t);
+  if (sub) storageSet("healthSub:" + t, sub);
+}
 
 async function api(path, body) {
   const res = await fetch(path, body ? { method: "POST", headers: { Authorization: `Bearer ${token}`, "Content-Type": "application/json" }, body: JSON.stringify(body) }

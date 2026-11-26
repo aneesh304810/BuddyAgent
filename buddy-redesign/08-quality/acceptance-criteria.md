@@ -15,7 +15,7 @@ ships it (see `07-engineering/migration-plan.md`).
 | 6 | Folded and unfolded layouts | prototyped, tested | All checks run in both shapes |
 | 7 | Light and dark themes | prototyped, tested; implemented (step 3) in the app and on all 14 server pages | All checks run in both themes; contrast report |
 | 8 | At most two levels of navigation | prototyped, tested | "two levels: every destination has 2 to 5 sections" |
-| 9 | Daily tasks in two taps or fewer | prototyped, tested | Meal 1, BP 1, today's health 1, scan 1, bills 1, news 1, approval 1, spending 2 |
+| 9 | Daily tasks in two taps or fewer | prototyped, tested; implemented (step 5: Home's quick actions); to measure on the device | Meal 1, BP 1, today's health 1, scan 1, bills 1, news 1, approval 1, spending 2 |
 | 10 | Native and web share foundations | designed; tokens implemented (step 1) | One token source generating CSS and Kotlin; web-spec.md, android-spec.md |
 | 11 | Accessibility validated | partly: contrast tested; targets and labels designed | contrast-report.md (50/50); screen-reader pass on the real app is pending |
 | 12 | Health isolated from general AI | implemented today; prototyped; tested in the prototype | `privacygate.py` blocks health for every model today; the prototype turns health typed in the conversation away |

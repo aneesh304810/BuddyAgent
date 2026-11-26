@@ -70,7 +70,9 @@ import java.util.concurrent.atomic.AtomicReference
 @Composable
 fun HealthScreen(link: ServerLink?) {
     val context = LocalContext.current
-    var query by remember { mutableStateOf("") }
+    // A quick action on Home (Home.kt) opens a section (?section=food, bp) or the scanner straight away.
+    val jump = remember { Jump.health.also { Jump.health = null } }
+    var query by remember { mutableStateOf(if (jump != null && jump != "scan") "section=$jump" else "") }
     val scan = rememberLauncherForActivityResult(ActivityResultContracts.StartActivityForResult()) { result ->
         val code = result.data?.getStringExtra(FoodScanActivity.BARCODE)
         val dish = result.data?.getStringExtra(FoodScanActivity.DISH)
@@ -83,6 +85,7 @@ fun HealthScreen(link: ServerLink?) {
             }
         }
     }
+    LaunchedEffect(jump) { if (jump == "scan" && link != null) scan.launch(Intent(context, FoodScanActivity::class.java)) }
     Box(Modifier.fillMaxSize()) {
         key(query) { BuddyPage(link, "health.html", query) }
         if (link != null) {

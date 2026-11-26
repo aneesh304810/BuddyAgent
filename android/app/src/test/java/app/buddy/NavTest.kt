@@ -51,6 +51,18 @@ class NavTest {
     }
 
     @Test
+    fun quickActionsOpenTheirSection() {
+        NavLayout.v2 = true
+        val opened = Quick.entries.associateWith { q -> var to: Screen? = null; openQuick(q) { to = it }; to }
+        assertEquals(Screen.Health, opened[Quick.BP])
+        assertEquals(Screen.Dashboard, opened[Quick.SPENDING])
+        assertEquals(Screen.Explore, opened[Quick.DEALS])
+        assertEquals("scan", Jump.health)  // the last Health one asked to open the scanner
+        assertEquals(1, Jump.explore)
+        Jump.health = null; Jump.money = null; Jump.explore = null
+    }
+
+    @Test
     fun theEarlierPlacesStayBehindTheSwitch() {
         NavLayout.v2 = false
         assertEquals(listOf("Buddy", "Money", "Trips & Deals", "Discover", "More"), places().map { it.label })

@@ -168,7 +168,7 @@ fun titleOf(screen: Screen): String = when (screen) {
 // --- icons: line shapes on a 24 by 24 grid ------------------------------------------------------------------
 enum class Glyph {
     BUDDY, MONEY, TRIPS, DISCOVER, MORE, BELL, MIC, STOP, BACK, NEXT, MAESTRO, PLUG, SHIELD, GEAR, PULSE, PERSON,
-    DOC, MAIL
+    DOC, MAIL, MEAL, SCAN, TAG
 }
 
 @Composable
@@ -229,6 +229,16 @@ private fun DrawScope.draw(glyph: Glyph, color: Color) {
         }
         Glyph.DOC -> { box(5f, 3f, 14f, 18f, 2f); line(9f, 9f, 15f, 9f); line(9f, 13f, 15f, 13f); line(9f, 17f, 13f, 17f) }
         Glyph.MAIL -> { box(3f, 5f, 18f, 14f, 2f); shape(3.5f, 6.5f, 12f, 13f, 20.5f, 6.5f) }
+        Glyph.MEAL -> { shape(5f, 3f, 5f, 8f, 9f, 8f, 9f, 3f); line(7f, 8f, 7f, 21f); shape(17f, 21f, 17f, 3f, 14f, 10f, 17f, 12f) }
+        Glyph.SCAN -> {
+            shape(3f, 8f, 3f, 3f, 8f, 3f); shape(16f, 3f, 21f, 3f, 21f, 8f)
+            shape(21f, 16f, 21f, 21f, 16f, 21f); shape(8f, 21f, 3f, 21f, 3f, 16f)
+            line(8f, 8f, 8f, 16f); line(12f, 8f, 12f, 16f); line(16f, 8f, 16f, 16f)
+        }
+        Glyph.TAG -> {
+            shape(3f, 12f, 12f, 3f, 21f, 3f, 21f, 12f, 12f, 21f, closed = true)
+            drawCircle(color, 1.5f * u, at(16.5f, 7.5f))
+        }
         Glyph.GEAR -> {
             drawCircle(color, 3f * u, at(12f, 12f), style = pen)
             drawCircle(color, 8f * u, at(12f, 12f), style = pen)
@@ -352,10 +362,10 @@ fun TalkAnywhere(ui: UiState, modifier: Modifier = Modifier) {
 // --- the places that are new --------------------------------------------------------------------------------
 /** Tabs at the top of a place; the last one used is remembered. */
 @Composable
-fun PlaceTabs(name: String, tabs: List<String>, content: @Composable (Int) -> Unit) {
+fun PlaceTabs(name: String, tabs: List<String>, start: Int? = null, content: @Composable (Int) -> Unit) {
     val context = LocalContext.current
     val prefs = remember { context.getSharedPreferences("place_$name", Context.MODE_PRIVATE) }
-    var tab by remember { mutableStateOf(prefs.getInt("tab", 0).coerceIn(0, tabs.lastIndex)) }
+    var tab by remember { mutableStateOf((start ?: prefs.getInt("tab", 0)).coerceIn(0, tabs.lastIndex)) }
     Column(Modifier.fillMaxSize()) {
         Row(Modifier.fillMaxWidth().horizontalScroll(rememberScrollState()).padding(bottom = 6.dp),
             horizontalArrangement = Arrangement.spacedBy(8.dp)) {
@@ -440,7 +450,8 @@ fun MoreScreen(onNavigate: (Screen) -> Unit) {
 /** Explore: what's happening outside, as sections. Research is a short list, so it never adds a second tab row. */
 @Composable
 fun ExploreScreen(link: ServerLink?, onNavigate: (Screen) -> Unit) {
-    PlaceTabs("explore", listOf("News", "Deals", "Travel", "Research")) { tab ->
+    val start = remember { Jump.explore.also { Jump.explore = null } }  // a quick action on Home (Home.kt)
+    PlaceTabs("explore", listOf("News", "Deals", "Travel", "Research"), start) { tab ->
         when (tab) {
             0 -> BuddyPage(link, "news.html")
             1 -> BuddyPage(link, "deals.html")

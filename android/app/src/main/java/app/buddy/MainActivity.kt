@@ -366,6 +366,7 @@ private fun BuddyScreen(
     // On a wide screen (the Fold opened, a tablet) the five places move to a rail on the left side.
     BoxWithConstraints(Modifier.fillMaxSize().background(Ink).safeDrawingPadding()) {
     val wide = maxWidth >= 600.dp
+    val sidePanel = maxWidth >= 840.dp  // the open Fold: Home's panel beside the conversation
     Row(Modifier.fillMaxSize()) {
     if (wide) SideRail(placeOf(screen)) { onNavigate(homeOf(it)) }
     Column(Modifier.weight(1f).fillMaxHeight()) {
@@ -496,12 +497,33 @@ private fun BuddyScreen(
             Button(onClick = onStart, modifier = Modifier.fillMaxWidth()) { Text("Start Buddy") }
         }
 
-        TodayStrip(today) { onNavigate(Screen.Dashboard) }
-        Transcript(ui.lines, Modifier.weight(1f), { onNavigate(Screen.Insights) }, { onNavigate(Screen.Card(it)) }) {
-            onNavigate(Screen.Report(it))
+        val quick: (Quick) -> Unit = { openQuick(it, onNavigate) }
+        if (NavLayout.v2 && sidePanel) {
+            // The open Fold: the conversation and composer on the left; quick actions, anything waiting for a
+            // yes, and today's reminders and bills on the right (Home.kt).
+            Row(Modifier.weight(1f).fillMaxWidth()) {
+                Column(Modifier.weight(1f).fillMaxHeight()) {
+                    Transcript(ui.lines, Modifier.weight(1f), { onNavigate(Screen.Insights) },
+                        { onNavigate(Screen.Card(it)) }) { onNavigate(Screen.Report(it)) }
+                    Controls(ui, prefs)
+                }
+                Spacer(Modifier.width(16.dp))
+                Column(Modifier.width(340.dp).fillMaxHeight().verticalScroll(rememberScrollState())
+                    .padding(bottom = 16.dp), verticalArrangement = Arrangement.spacedBy(12.dp)) {
+                    QuickActions(grid = true, onPick = quick)
+                    ui.approval?.let { question -> ApprovalCard(question) }
+                    TodayStrip(today) { onNavigate(Screen.Dashboard) }
+                }
+            }
+        } else {
+            if (NavLayout.v2) QuickActions(grid = false, onPick = quick)  // Home: one tap to the six things done most
+            TodayStrip(today) { onNavigate(Screen.Dashboard) }
+            Transcript(ui.lines, Modifier.weight(1f), { onNavigate(Screen.Insights) }, { onNavigate(Screen.Card(it)) }) {
+                onNavigate(Screen.Report(it))
+            }
+            ui.approval?.let { question -> ApprovalCard(question) }
+            Controls(ui, prefs)
         }
-        ui.approval?.let { question -> ApprovalCard(question) }
-        Controls(ui, prefs)
           }
           if (screen != Screen.Talk && screen != Screen.Settings) {
               TalkAnywhere(ui, Modifier.align(Alignment.BottomEnd).padding(16.dp))

@@ -33,7 +33,10 @@ fun DashboardScreen(link: ServerLink?, onReports: () -> Unit) {
     val context = LocalContext.current
     val prefs = remember { context.getSharedPreferences("dashboard", Context.MODE_PRIVATE) }
     val tabs = if (NavLayout.v2) MONEY_TABS else DASHBOARD_TABS
-    var tab by remember { mutableStateOf(if (NavLayout.v2) 0 else prefs.getInt("tab", 1).coerceIn(0, tabs.lastIndex)) }
+    val jump = remember { Jump.money.also { Jump.money = null } }  // a quick action on Home (Home.kt)
+    var tab by remember {
+        mutableStateOf((jump ?: if (NavLayout.v2) 0 else prefs.getInt("tab", 1)).coerceIn(0, tabs.lastIndex))
+    }
     Column(Modifier.fillMaxSize()) {
         Row(Modifier.fillMaxWidth().horizontalScroll(rememberScrollState()).padding(bottom = 6.dp),
             horizontalArrangement = Arrangement.spacedBy(8.dp)) {
