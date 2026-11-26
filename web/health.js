@@ -17,7 +17,7 @@ const esc = (s) => String(s ?? "").replace(/[&<>"']/g, (c) => ({ "&": "&amp;", "
 const SECTIONS = [
   ["today", "Today", []],
   ["trends", "Trends", [["measures", "Measures"], ["patterns", "Patterns"], ["mood", "Mood"]]],
-  ["labs", "Labs", [["results", "Results"], ["add", "Add a report"], ["portals", "Patient portals"]]],
+  ["labs", "Labs", [["results", "Results"], ["add", "Add a report"], ["portals", "Portals"], ["checkups", "Checkups"]]],
   ["plan", "Plan", [["habits", "Progress"], ["food", "Food"], ["goals", "Goals & habits"]]],
   ["sources", "Sources", []],
 ];
@@ -147,7 +147,7 @@ function syncLine(r) {
 function sourceCard(s) {
   const [word, kind] = STATE[s.state] || [s.state, ""];
   const failed = s.last && !s.last.ok ? `<p class="err" style="padding:4px 0">Last sync failed: ${esc(s.last.error)}</p>` : "";
-  const connect = s.state === "not_set_up" && s.can_disconnect ? `<p class="muted">To connect it: ${s.connector === "mychart" ? "Health → Labs → Patient portals" : `More → Connections → Health → ${esc(s.title)} → Connect`}.</p>` : "";
+  const connect = s.state === "not_set_up" && s.can_disconnect ? `<p class="muted">To connect it: ${s.connector === "mychart" ? "Health → Labs → Portals" : `More → Connections → Health → ${esc(s.title)} → Connect`}.</p>` : "";
   const expired = s.state === "expired" ? `<p class="err" style="padding:4px 0">${esc(s.expired)}. Connect it again: More → Connections → Health → ${esc(s.title)} → Reconnect.</p>` : "";
   const measures = s.measures.map((m) => `<div class="line"><div class="what">${esc(m.label)}<small>${esc(m.how)}${m.loinc ? ` · LOINC ${esc(m.loinc)}` : ""} · ${esc(m.unit_words)}</small></div><span class="muted">${esc(m.days)} days</span></div>`).join("");
   const hist = (s.history || []).map((r) => `<div class="line"><div class="what">${esc(when(r.started_at))} · ${esc(KIND[r.kind] || r.kind)}<small>${r.ok ? `${values(r.records)}, ${esc(r.new_records)} new` : r.finished_at ? "failed: " + esc(r.error) : "running"}</small></div></div>`).join("");
@@ -470,6 +470,108 @@ function renderPlan() {
   };
 }
 
+// --- Checkups: the screenings for you (fixed rules on your answers), what to ask about, and where your numbers sit
+let chkData = null, chkEdit = false, chkAsk = false;
+async function loadCheckups(body) {
+  try { const out = await api("/api/health/checkups", body); chkData = out; if (body) { chkEdit = false; notice(out.text); } }
+  catch (e) { chkData = chkData || { failed: e.message }; if (body) notice(e.message); }
+  if (showing("labs", "checkups")) render();
+}
+const CHK_STATUS = { due: ["Due", "warn"], ok: ["Up to date", "good"], decide: ["Your choice", ""], ask: ["Ask", ""],
+  optional: ["Optional", ""], not_needed: ["Not needed", "good"], first: ["A1c first", ""] };
+const chkPill = (s) => { const [t, c] = CHK_STATUS[s] || [s, ""]; return `<span class="pill ${c}">${esc(t)}</span>`; };
+function chkForm() {
+  const p = { ...chkData.suggested, ...chkData.profile }, c = chkData.choices;
+  const box = (name, value, label, on) => `<label class="pick"><input type="checkbox" name="${name}" value="${esc(value)}"${on ? " checked" : ""}> ${esc(label)}</label>`;
+  const radio = (name, value, label) => `<label class="pick"><input type="radio" name="${name}" value="${esc(value)}"${(p[name] || "") === value ? " checked" : ""}> ${esc(label)}</label>`;
+  const groups = [["South Asian", ["south_asian"]], ["East and Southeast Asian", ["east_asian", "southeast_asian", "asian"]], ["Other", null]];
+  const anc = groups.map(([title, keys]) => `<p class="why">${title}</p>` + c.ancestry.filter((a) => keys ? keys.includes(a.group)
+    : !["south_asian", "east_asian", "southeast_asian", "asian"].includes(a.group)).map((a) => box("ancestry", a.key, a.label, (p.ancestry || []).includes(a.key))).join("")).join("");
+  return card(chkData.filled ? "About you" : "A few answers first",
+    `<form id="chk-form">
+      <p class="muted" style="margin:0">Screenings depend on age, sex, ancestry and family history. ${Object.keys(chkData.suggested || {}).length ? "Age, sex and height are filled in from your Oura profile: check them." : ""}</p>
+      <div class="f" style="align-items:flex-end"><label style="flex:1">Birth year<input name="birth_year" inputmode="numeric" maxlength="4" value="${esc(p.birth_year ?? "")}" style="width:100%"></label>
+        <label style="flex:1">Height (cm)<input name="height_cm" inputmode="decimal" value="${esc(p.height_cm ?? "")}" style="width:100%"></label>
+        <label style="flex:1">Waist (cm, if known)<input name="waist_cm" inputmode="decimal" value="${esc(p.waist_cm ?? "")}" style="width:100%"></label></div>
+      <label>Sex at birth (the screening rules use it)</label>${radio("sex", "male", "Male")}${radio("sex", "female", "Female")}
+      <label>Ancestry (pick all that apply)</label>${anc}
+      <label>Born in, or lived over a year in, a country where hepatitis B or TB is common (most of Asia, India and China included; Africa; the Pacific Islands; parts of South America and Eastern Europe)</label>
+      ${radio("born_high", "yes", "Yes")}${radio("born_high", "no", "No")}
+      <label>Smoking</label>${radio("smoking", "never", "Never")}${radio("smoking", "former", "Used to")}${radio("smoking", "current", "Now")}
+      <div class="f" style="align-items:flex-end"><label style="flex:1">Pack-years, if ever (packs a day × years)<input name="pack_years" inputmode="decimal" value="${esc(p.pack_years ?? "")}" style="width:100%"></label>
+        <label style="flex:1">Year you quit<input name="quit_year" inputmode="numeric" maxlength="4" value="${esc(p.quit_year ?? "")}" style="width:100%"></label></div>
+      <label>In your family (a parent, brother, sister or child)</label>${Object.entries(c.family).map(([k, v]) => box("family", k, v, (p.family || []).includes(k))).join("")}
+      <label>You've been told you have</label>${Object.entries(c.conditions).map(([k, v]) => box("conditions", k, v, (p.conditions || []).includes(k))).join("")}
+      ${box("postmenopausal", "1", "After menopause (women)", p.postmenopausal)}
+      <label>Your health plan (only its kind, for the coverage notes)</label>
+      <select name="plan">${Object.entries(c.plans).map(([k, v]) => `<option value="${esc(k)}"${(p.plan || "") === k ? " selected" : ""}>${esc(v)}</option>`).join("")}</select>
+      <p style="margin:12px 0 0"><button class="btn solid">Save</button>${chkData.filled ? ` <button type="button" class="btn" id="chk-cancel">Cancel</button>` : ""}</p>
+    </form>`, "Kept on your server only; no AI model is given any of it.");
+}
+function chkItem(i) {
+  const methods = Object.entries(i.methods || {});
+  const when = i.last ? `Last ${esc(i.last)}${i.next ? ` · next ${esc(i.next)}` : ""}` : (i.once ? "Once" : esc(i.often));
+  return `<div class="line" style="align-items:flex-start"><div class="what">${esc(i.title)}<small>${esc(i.test)}</small><small>${when}</small>
+      <details><summary class="why" style="cursor:pointer">Details</summary>
+        ${i.why.map((w) => `<p class="why">${esc(w)}</p>`).join("")}
+        <p class="why">${esc(i.often)}. ${esc(i.cover_text)}. <a href="${esc(i.url)}" target="_blank" rel="noopener">The guideline</a>${i.grade ? ` (grade ${esc(i.grade)})` : ""}.</p>
+        ${i.how ? `<p class="why">Last done: ${esc(i.last)} (${esc(i.how)}).</p>` : ""}
+        <div class="f"><input type="month" data-chk-month="${esc(i.key)}" aria-label="Month it was done">
+        ${methods.length ? `<select data-chk-method="${esc(i.key)}" aria-label="Which test">${methods.map(([k, v]) => `<option value="${esc(k)}">${esc(v)}</option>`).join("")}</select>` : ""}
+        <button class="btn" data-chk-done="${esc(i.key)}">I had it then</button>${i.last && !String(i.how).startsWith("from") ? ` <button class="btn" data-chk-undo="${esc(i.key)}">Clear</button>` : ""}</div></details></div>
+    ${chkPill(i.status)}</div>`;
+}
+function chkCompare(cmp) {
+  if (!cmp.rows.length) return "";
+  const n = (rank) => rank <= 2 ? "under 5" : rank >= 98 ? "over 95" : String(rank);
+  const first = cmp.rows.find((r) => r.asian || r.all), who = (side) => first && first[side] ? first[side].who.replace(/^US /, "") : "";
+  const rows = cmp.rows.map((r) => `<div class="line"><div class="what">${esc(r.label)} · ${num(r.value)} ${esc(r.unit)}<small>${esc(r.when)}</small></div>
+      <div class="num">${r.asian ? `${n(r.asian.rank)}<small>Asian</small>` : ""}</div><div class="num">${r.all ? `${n(r.all.rank)}<small>all US</small>` : ""}</div></div>`).join("");
+  return card("Compared with others",
+    `<p class="why" style="margin:0 0 4px">How many in 100 have a lower value: ${first && first.asian ? `US ${esc(who("asian"))}, and ` : ""}all US ${esc(who("all").replace(/ of Asian ancestry$/, ""))}.</p>` + rows
+      + cmp.cutoffs.map((c) => `<p class="why">${esc(c)}</p>`).join(""), esc(cmp.note));
+}
+function renderCheckups() {
+  if (!chkData) { $("main").innerHTML = `<p class="muted">Loading…</p>`; loadCheckups(); return; }
+  if (chkData.failed) { $("main").innerHTML = `<p class="err">${esc(chkData.failed)}</p>`; return; }
+  if (!chkData.filled || chkEdit) { $("main").innerHTML = chkForm(); wireCheckups(); return; }
+  const p = chkData.profile, age = new Date().getFullYear() - p.birth_year;
+  const anc = chkData.choices.ancestry.filter((a) => (p.ancestry || []).includes(a.key)).map((a) => a.label).join(", ");
+  const due = chkData.items.filter((i) => i.status === "due").length;
+  const asks = chkData.asks.map((a) => `<div class="line" style="align-items:flex-start"><div class="what">${esc(a.title)}<p class="why">${esc(a.text)}</p><small>${esc(a.source)}</small></div>${chkPill(a.status)}</div>`).join("");
+  $("main").innerHTML = `<p class="muted" style="margin:0 0 10px">About you: ${esc(age)}, ${esc(p.sex)}${anc ? ", " + esc(anc) : ""} · <button class="btn" id="chk-edit">Change</button></p>`
+    + (due ? card(`Due · ${due}`, chkData.items.filter((i) => i.status === "due").map(chkItem).join("")) : "")
+    + (chkData.items.some((i) => i.status === "decide" || i.status === "ask") ? card("To talk over with your doctor", chkData.items.filter((i) => i.status === "decide" || i.status === "ask").map(chkItem).join("")) : "")
+    + (chkData.items.some((i) => i.status === "ok") ? card("Up to date", chkData.items.filter((i) => i.status === "ok").map(chkItem).join("")) : "")
+    + card("Lp(a), glucose sensor, DNA: worth it?", asks)
+    + chkCompare(chkData.compare)
+    + `<p class="note">${esc(chkData.note)}</p>`
+    + `<p>${chkAsk ? `<button class="btn danger solid" id="chk-forget" data-sure="1">Yes, delete my answers</button>` : `<button class="btn danger" id="chk-forget">Delete my answers</button>`}</p>`;
+  wireCheckups();
+}
+function wireCheckups() {
+  if ($("chk-form")) $("chk-form").onsubmit = (e) => {
+    e.preventDefault();
+    const d = new FormData(e.target), answers = {};
+    for (const k of ["birth_year", "height_cm", "waist_cm", "sex", "born_high", "smoking", "pack_years", "quit_year", "plan"]) answers[k] = String(d.get(k) ?? "").trim();
+    for (const k of ["ancestry", "family", "conditions"]) answers[k] = d.getAll(k);
+    answers.postmenopausal = d.get("postmenopausal") === "1";
+    loadCheckups({ action: "profile", answers });
+  };
+  if ($("chk-cancel")) $("chk-cancel").onclick = () => { chkEdit = false; render(); };
+  if ($("chk-edit")) $("chk-edit").onclick = () => { chkEdit = true; render(); };
+  $("main").querySelectorAll("[data-chk-done]").forEach((b) => b.onclick = () => {
+    const k = b.dataset.chkDone, month = $("main").querySelector(`[data-chk-month="${k}"]`).value;
+    const m = $("main").querySelector(`[data-chk-method="${k}"]`);
+    loadCheckups({ action: "done", key: k, month, method: m ? m.value : "" });
+  });
+  $("main").querySelectorAll("[data-chk-undo]").forEach((b) => b.onclick = () => loadCheckups({ action: "undo", key: b.dataset.chkUndo }));
+  if ($("chk-forget")) $("chk-forget").onclick = () => {
+    if (!$("chk-forget").dataset.sure) { chkAsk = true; render(); return; }
+    chkAsk = false; loadCheckups({ action: "forget", confirm: true });
+  };
+}
+
 function wireMood() {
   $("main").querySelectorAll("[data-mood-k]").forEach((b) => b.onclick = () => {
     const k = b.dataset.moodK, v = Number(b.dataset.moodV); moodPick[k] = moodPick[k] === v ? null : v; render(); });
@@ -493,6 +595,7 @@ const VIEWS = {
   today: renderToday, sources: renderSources,
   "trends/measures": renderTrends, "trends/patterns": renderPatterns, "trends/mood": moodHistory,
   "labs/results": () => renderLabs("results"), "labs/add": () => renderLabs("add"), "labs/portals": () => renderLabs("portals"),
+  "labs/checkups": renderCheckups,
   "plan/habits": renderHabits, "plan/food": renderFood, "plan/goals": renderPlan,
 };
 function render() {

@@ -1790,6 +1790,36 @@ async def api_health_lab_file(report_id: int):
                     headers={"Content-Disposition": "inline; filename=report.pdf", "Cache-Control": "no-store"})
 
 
+@app.get("/api/health/checkups", dependencies=[Depends(require_admin)])
+async def api_health_checkups() -> dict:
+    """The screenings that apply to the owner, what to ask about, and where their numbers sit (shown to them only)."""
+    from . import prevention  # noqa: PLC0415
+    return await asyncio.to_thread(prevention.view, memory)
+
+
+@app.post("/api/health/checkups", dependencies=[Depends(require_admin)])
+async def api_health_checkups_act(body: dict) -> dict:
+    """profile (the owner's answers); done (key, month YYYY-MM, method); undo (key); forget (confirm: true)."""
+    from . import prevention  # noqa: PLC0415
+    action = str(body.get("action") or "")
+    try:
+        if action == "profile":
+            await asyncio.to_thread(prevention.save_profile, memory, body.get("answers") or {})
+            text = "Saved."
+        elif action == "done":
+            text = await asyncio.to_thread(prevention.mark_done, memory, str(body.get("key") or ""),
+                                           str(body.get("month") or ""), str(body.get("method") or ""))
+        elif action == "undo":
+            text = await asyncio.to_thread(prevention.unmark, memory, str(body.get("key") or ""))
+        elif action == "forget" and body.get("confirm") is True:
+            text = await asyncio.to_thread(prevention.forget, memory)
+        else:
+            raise HTTPException(400, "unknown action")
+    except ToolError as e:
+        raise HTTPException(400, str(e)) from None
+    return {"text": text, **await asyncio.to_thread(prevention.view, memory)}
+
+
 @app.get("/api/health/mood", dependencies=[Depends(require_admin)])
 async def api_health_mood(days: int = 30) -> dict:
     """The owner's mood and stress journal (their own entries; shown to them only)."""

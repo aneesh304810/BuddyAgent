@@ -25,7 +25,7 @@ sub-tabs under them, and the page remembers where you were.
 | --- | --- |
 | **Today** | (one page) readings, what they mean, today's habits, how you feel |
 | **Trends** | Measures · Patterns · Mood |
-| **Labs** | Results · Add a report · Patient portals |
+| **Labs** | Results · Add a report · Portals · Checkups |
 | **Plan** | Progress · Food · Goals & habits |
 | **Sources** | (one page) each source, and "Read the ring now" |
 
@@ -82,6 +82,44 @@ sub-tabs under them, and the page remembers where you were.
     HDL, PSA) only when your sex is known from the Oura profile. No typical range is guessed for tests where labs
     disagree too much (TSH, free T4, ALT, insulin, cortisol, testosterone). The lab's printed range always wins.
 
+- **Labs → Checkups:** which screenings apply to you, by fixed rules, from a few answers you give once: birth
+  year, sex at birth, ancestry (pick all that apply: Indian, with Kerala, other South India and elsewhere in India
+  apart; Pakistani, Bangladeshi, Sri Lankan, Nepali; Chinese, Japanese, Korean; Filipino, Vietnamese; and others),
+  whether you were born in or lived over a year in a country where hepatitis B or TB is common, smoking, family
+  history, conditions you've been told you have, height, waist, and the kind of health plan you have (only its kind;
+  no insurer, member number or money). Age, sex and height are offered from the Oura profile for you to check.
+  - **The screenings** are the US Preventive Services Task Force's A and B recommendations for adults (and its C for
+    prostate, shown as a choice to make with your doctor): blood pressure, diabetes and prediabetes, cholesterol,
+    colorectal, lung, breast and cervical cancer, abdominal aortic aneurysm, BRCA risk, osteoporosis, hepatitis B
+    and C, HIV, latent TB, the questions asked at a checkup (depression, anxiety, alcohol, drugs, smoking), help to
+    stop smoking, diet and activity coaching, and falls. Each says why it applies to you, how often, the
+    guideline's link and grade, and a coverage note, grouped as **Due**, **To talk over with your doctor** and
+    **Up to date**.
+  - **Ancestry changes the rules where the guidelines do:** the task force screens Asian Americans for diabetes from
+    a BMI of 23 instead of 25 (marked "often $0; ask your plan first", since that comes from its notes, not its
+    grade); the ADA tests every adult from 35 and counts Asian, Black, Hispanic, Native American and Pacific
+    Islander ancestry as a risk factor; the ACC/AHA cholesterol guideline counts South Asian ancestry as a risk
+    enhancer for starting a statin; and being born in most of Asia (India and China included) brings in hepatitis
+    B and TB screening. With Kerala picked, the diabetes line adds that about 1 in 4 adults there had diabetes in
+    India's ICMR-INDIAB study (Lancet Diabetes & Endocrinology, 2023), against 11.4% across India.
+  - **When it was last done:** a matching lab result fills it in (A1c or glucose, cholesterol, PSA); otherwise you
+    note the month under Details (and which test, for colorectal and cervical, since that sets the next one).
+  - **Lp(a), glucose sensor, DNA: worth it?** Lipoprotein(a) once (more often high with South Asian ancestry; a
+    high result is a risk enhancer). A glucose sensor (CGM): worth asking about only with an A1c or glucose in the
+    diabetes range; optional and paid by you in the prediabetes range, where the proven step is a lifestyle
+    programme and a yearly A1c; not needed when normal; an A1c comes first. Genetic testing: worth asking about with
+    breast or ovarian cancer in the family (or Ashkenazi ancestry), colon or uterine cancer before 50 in the family,
+    or an LDL of 190 or more; otherwise not needed, and Buddy doesn't take DNA files.
+  - **Compared with others:** how many in 100 US adults of your sex and age have a lower BMI, waist, blood
+    pressure, A1c, cholesterol or glucose than yours, among those of Asian ancestry and among everyone, from the
+    CDC's NHANES survey (2017–March 2020 and 2021–2023, weighted). NHANES can't split Indian from Chinese
+    ancestry. With Asian ancestry it also gives the WHO's Asian BMI action points (23 and 27.5) and the
+    International Diabetes Federation's waist line (90 cm for men, 80 cm for women).
+  - Coverage notes are general: under the ACA most non-grandfathered private plans cover A and B screenings
+    in-network at $0; Medicare and Medicaid have their own lists. Ask your plan before you book. Buddy never orders
+    a test, books a visit or contacts a doctor, and this is not medical advice. Your answers stay on your server,
+    no AI model is given them, and "Delete my answers" (asked twice) deletes them and the dates you noted.
+
 - **Sources:** where your health data comes from. For each source (the phone's Health Connect, the Oura Ring):
   whether it works, when it last synced and what kind of sync that was (the first one, an update, sent by the
   phone, or one you asked for), how many values came and how many were new, a failed sync with its error, the
@@ -125,7 +163,7 @@ no Oura reading for a day. Built from WHOOP's published API and tested against a
 
 ## Lab results from MyChart (patient portals)
 
-Health → Labs → **Patient portals (MyChart)**: find your health system in Epic's public list, tap **Sign in**, sign
+Health → Labs → **Portals** (MyChart): find your health system in Epic's public list, tap **Sign in**, sign
 in at your health system, and allow Buddy to read your results. Buddy reads your lab results (read only) right away
 and then once a day, and they join your results beside uploaded reports, each with the health system's own test
 code (LOINC), unit, reference range and flag. Results with no number (a "negative", a comment) are not kept. Tests
@@ -139,7 +177,7 @@ also remove Buddy from MyChart's linked apps to end the access at the health sys
    **Observation.Read (Labs)** and **DiagnosticReport.Read** APIs. SMART on FHIR version R4; **not** a confidential
    client (Buddy uses PKCE); ask for **refresh tokens** if offered, so Buddy can read new results without you signing
    in each time.
-3. Redirect URI: your server's own return page, shown under Labs → Patient portals, `https://<your tailnet name>/connect/mychart/linked`.
+3. Redirect URI: your server's own return page, shown under Labs → Portals, `https://<your tailnet name>/connect/mychart/linked`.
 4. Save, mark it ready for production, and copy the **production client ID** (the non-production one works only with
    Epic's test site). On the server: `sudo bash /opt/buddy/deploy/set.sh BUDDY_EPIC_CLIENT_ID` and paste it.
 5. Epic shares a new patient app's client ID with health systems on its own schedule (it can take a day or more), and

@@ -134,7 +134,7 @@ def start_link(memory: Memory, env=None, base: str = "", name: str = "", fetch=N
     if not base:
         last = max(orgs.values(), key=lambda o: o.get("chosen_at", ""), default=None)
         if not last:
-            raise gateway.ConnectError(NAME, "Choose your health system first: Health → Labs → Patient portals.")
+            raise gateway.ConnectError(NAME, "Choose your health system first: Health → Labs → Portals.")
         base, name = last["base"], last.get("name", "")
     base = _base(base)
     back = redirect_uri(memory)
@@ -207,7 +207,7 @@ def _access(memory: Memory, base: str, env=None, fetch=None) -> str:
         connecthub.set_expired(memory, NAME, f"{org.get('name') or 'The health system'} needs you to sign in again "
                                              "to read new results (it gave Buddy no lasting sign-in)")
         raise gateway.ConnectError(NAME, f"Sign in to {org.get('name') or 'the health system'} again: "
-                                         "Health → Labs → Patient portals.", 401)
+                                         "Health → Labs → Portals.", 401)
     try:
         got = _token(memory, org, {"grant_type": "refresh_token", "refresh_token": org["refresh"]}, env, fetch)
     except gateway.ConnectError as e:
@@ -326,7 +326,7 @@ def sync_if_due(memory: Memory, env=None, fetch=None) -> bool:
 
 def sync_now(memory: Memory, env=None, fetch=None) -> str:
     if not linked(memory, env):
-        return "No patient portal is connected: Health → Labs → Patient portals."
+        return "No patient portal is connected: Health → Labs → Portals."
     got = sync(memory, env=env, fetch=fetch, kind="manual")
     return "Read " + ", ".join(f"{n} new results from {name}" for name, n in got.items()) + "." if got else "Nothing to read."
 

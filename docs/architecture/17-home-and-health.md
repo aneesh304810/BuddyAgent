@@ -25,6 +25,8 @@ flowchart LR
         whoop_py["whoop.py<br/>The owner's WHOOP band, through Buddy Connect (Health group) and…"]
         healthmodel_py["healthmodel.py<br/>what, in their own days, tends to come before a better or worse next…"]
         moodlog_py["moodlog.py<br/>how they feel, in their own words, kept on their server only"]
+        prevention_py["prevention.py<br/>which screenings apply to the owner, what they usually cost, and…"]
+        nhanesref_py["nhanesref.py<br/>weighted percentiles from NHANES, the CDC's national health survey"]
     end
     you --> t_thermostat
     t_thermostat --> nest_py
@@ -53,6 +55,10 @@ flowchart LR
     healthmodel_py --> coach_py
     healthmodel_py --> moodlog_py
     moodlog_py --> healthrecords_py
+    prevention_py --> healthrecords_py
+    prevention_py --> labs_py
+    prevention_py --> nhanesref_py
+    prevention_py --> oura_py
     db[("Your database<br/>coach_log, coach_meals, health_daily, health_model_runs, health_records, lab_reports, lab_results, mood_log and more")]
     health_data_py --> db
     oura_py --> db
@@ -378,6 +384,51 @@ rule); kept as long as the other health readings (two years), and deleted entry 
 
 - Tables: `mood_log`
 - Uses: healthrecords.py, memory.py, tools.py
+
+### prevention.py
+
+```text
+Checkups: which screenings apply to the owner, what they usually cost, and where their numbers sit.
+
+From a few answers the owner gives on the Health page (birth year, sex, ancestry, where they were born or lived,
+smoking, family history, known conditions, height and waist), their lab results and their devices' readings, plain
+code works out:
+
+- **Screenings for you:** the US Preventive Services Task Force's A and B adult recommendations (and its C for
+  prostate, as a decision), each with why it applies, how often, when it was last done, and a coverage mark. Ancestry
+  changes the rules where the guidelines say so: the task force screens Asian Americans for diabetes from a BMI of 23
+  (not 25), the ADA lists Asian, Black, Hispanic, Native American and Pacific Islander ancestry as a risk factor, the
+  ACC/AHA cholesterol guideline counts South Asian ancestry as a risk enhancer, and the WHO's Asian BMI action points
+  are 23 and 27.5. Being born in, or having lived in, a country where hepatitis B or TB is common (most of Asia,
+  India and China included) brings those two screenings in.
+- **Worth asking about:** lipoprotein(a) once, a glucose sensor (CGM) and genetic testing: whether either is worth
+  raising with a doctor, by fixed rules on the owner's answers and results, and when it isn't needed.
+- **Compared with others:** where the owner's BMI, waist, blood pressure, A1c, cholesterol and glucose sit among US
+  adults of their sex and age, and among those of Asian ancestry (NHANES, nhanesref.py).
+
+Coverage marks are general: under the ACA most non-grandfathered private plans cover A and B screenings in-network
+with no cost sharing (upheld by the Supreme Court in Kennedy v. Braidwood, June 2025); Medicare and Medicaid have their
+own lists, and the owner's plan type (which they pick; no insurer, member number or money) adjusts the wording.
+
+Buddy never orders a test, books a visit or contacts a doctor. Not medical advice. No AI model is given any of it
+(the Privacy Gateway's health rule): the answers are kept in the owner's database until they change or delete them.
+```
+
+- Uses: healthrecords.py, labs.py, memory.py, nhanesref.py, oura.py, tools.py
+
+### nhanesref.py
+
+```text
+Where a value sits among US adults: weighted percentiles from NHANES, the CDC's national health survey.
+
+Built once, offline, by docs/data/nhanes_ref_build.py from the public NHANES files of 2017-March 2020 (P_ files) and
+August 2021-August 2023 (_L files): adults 20 and over, all of them ("all") and those NHANES records as non-Hispanic
+Asian ("asian", RIDRETH3 = 6; NHANES does not split South Asian from East Asian), by sex and age band. Each cycle's
+weight (exam, blood-draw or fasting subsample) is scaled by the years it covers (3.2 and 2.0 of 5.2) so the two
+combine. Blood pressure is the mean of the three seated oscillometric readings; LDL is the Martin-Hopkins estimate;
+glucose and LDL are from the fasting subsample. A group is kept with 30 or more people; the page wants 80.
+Percentiles: 5, 10, 25, 50, 75, 90, 95. NHANES data are public domain (CDC/NCHS).
+```
 
 ## How it connects
 
