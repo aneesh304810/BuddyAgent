@@ -133,8 +133,11 @@ sub-tabs under them, and the page remembers where you were.
 - **Scan food, everywhere, into the day's meals** (`scanmeal.py`): **Scan food** sits beside the microphone on every
   screen, in Home's message box, first among Home's quick actions, and at the bottom of Health. A pack's barcode shows
   "Good for me?" and then, by **time and place**:
-  - at home or work (learned from your phone's location), or a place you marked as somewhere you eat: it's noted in
-    the meal for the time of day (one label serving; − and + change the servings; Undo takes it off);
+  - at home, only a product already in **My kitchen** is noted as eaten; anything else scanned at home is a check
+    (groceries looked over or put away), with "I'm eating it" and "Add to my groceries";
+  - at work, or a place you marked as somewhere you eat: it's noted in the meal for the time of day (one label
+    serving; − and + change the servings; Undo takes it off). The same product scanned again within two minutes
+    (or the page opening again, as when the phone unfolds) is the same meal, not another;
   - at a place you marked as a store: shopping, so the verdict only ("I'm eating it" notes it anyway);
   - anywhere else, or when the phone hasn't shared where it is in the last 20 minutes: "Eating now" or "Just
     buying", with "Remember this place" (and its name) so it's asked once.
@@ -149,7 +152,9 @@ sub-tabs under them, and the page remembers where you were.
   yogurt" ticks off "Fage Total 0% Greek Yogurt"); the list shows under the camera, and Done opens Groceries. A product
   that's **Better to skip** for you waits for "Add anyway" and shows a better one you scanned before (same kind, a
   better verdict). In My kitchen, **Ate it** notes a serving in the meal for the time of day and the product stays
-  until **Finished**; scanning a kitchen product at home notes it the same way and keeps the count. When you're off
+  until **Finished**; scanning a kitchen product at home notes it the same way and keeps the count. Any meal noted
+  by mistake comes off with the ✕ beside it on Food → Last 7 days. A pack whose list gives 0 calories though it gives
+  carbs, protein and fat gets its calories from them (4, 4 and 9 kcal a gram), and says so. When you're off
   track, the next-meal hint names kitchen foods whose serving fits what's left today. **Bought** ticks an item off by
   hand (it goes in by its name, without numbers). Kept on your server until finished or deleted; no AI model sees the
   kitchen.

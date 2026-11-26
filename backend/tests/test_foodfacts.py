@@ -216,3 +216,18 @@ def test_the_page_endpoint_says_what_to_remember_a_name_under(tmp_path, monkeypa
     client, auth = TestClient(server.app), {"Authorization": "Bearer s3cret"}
     got = client.get("/api/health/facts?kind=barcode&q=0207542301835", headers=auth).json()
     assert got["label"] == "store" and got["key"] == "store-207542" and got["foods"] == []
+
+
+def test_a_pack_listed_at_0_kcal_gets_its_calories_from_carbs_protein_and_fat(tmp_path):
+    """Open Food Facts had an organic banana at 0 kcal, so it was noted without calories."""
+    foodfacts.CACHE.clear()
+
+    def fake(url, data=None, headers=None):
+        if "4011" in url:
+            return json.dumps({"product": {"product_name": "Organic banana", "serving_quantity": 126, "serving_size": "126g",
+                                           "nutriments": {"energy-kcal_100g": 0, "carbohydrates_100g": 22.8,
+                                                          "proteins_100g": 1.1, "fat_100g": 0.3}}})
+        return json.dumps({"product": {"product_name": "Mystery", "nutriments": {"energy-kcal_100g": 0}}})
+    got = foodfacts.barcode(Memory(tmp_path / "b.db"), "0000000040112", env={}, fetch=fake)
+    assert got[0]["per100"]["kcal"] == pytest.approx(98.3, abs=0.1) and "worked out" in got[0]["energy"]
+    assert foodfacts.barcode(Memory(tmp_path / "b.db"), "036000291452", env={}, fetch=fake) == []  # nothing to count

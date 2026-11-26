@@ -212,7 +212,7 @@ def barcode(memory: Memory, code: str, env=None, fetch=None) -> list[dict]:
         for f in (got or {}).get("foods") or []:
             if str(f.get("gtinUpc") or "").lstrip("0") == code.lstrip("0") and f.get("fdcId"):
                 food = _food(f)
-                if food["per100"]:
+                if food["per100"] and _energy(food):
                     out.append(food | {"kind": "Branded product (USDA)", "barcode": code})
     got = _cached(f"off:{code}", lambda: _off(memory, code, env=env, fetch=fetch))
     p = (got or {}).get("product") or {}
@@ -225,7 +225,7 @@ def barcode(memory: Memory, code: str, env=None, fetch=None) -> list[dict]:
             per100[ours] = round(float(n[theirs]) * 1000, 1)
     if isinstance(n.get("added-sugars_100g"), (int, float)):
         per100["added_sugar_g"] = round(float(n["added-sugars_100g"]), 2)
-    if per100.get("kcal") is not None and p.get("product_name"):
+    if p.get("product_name") and per100 and _energy(off := {"per100": per100}):
         portions = []
         serving = p.get("serving_quantity")
         if isinstance(serving, (int, float)) and 0 < serving < 3000 and str(p.get("serving_quantity_unit") or "g") == "g":
@@ -239,8 +239,24 @@ def barcode(memory: Memory, code: str, env=None, fetch=None) -> list[dict]:
                                             .split())[:1500],
                     "allergens": [str(t)[:40] for t in (p.get("allergens_tags") or [])[:30]],
                     "nova": p.get("nova_group") if p.get("nova_group") in (1, 2, 3, 4) else None,
+                    **({"energy": off["energy"]} if off.get("energy") else {}),
                     "additives": [str(t)[:40] for t in (p.get("additives_tags") or [])[:30]]})
     return out
+
+
+def _energy(food: dict) -> bool:
+    """A pack whose list gives no calories, or 0, though it gives carbs, protein or fat (crowd-filled entries do: a
+    banana at 0 kcal): its calories are worked out from them at 4, 4 and 9 kcal a gram, and said so. False when there's
+    nothing to count from, so the pack is treated as one no list has."""
+    per100 = food.get("per100") or {}
+    if per100.get("kcal"):
+        return True
+    made = 4 * float(per100.get("carbs_g") or 0) + 4 * float(per100.get("protein_g") or 0) + 9 * float(per100.get("fat_g") or 0)
+    if made < 1:
+        return False
+    per100["kcal"] = round(made, 1)
+    food["energy"] = "Calories worked out from the label's carbs, protein and fat (the list gave none)."
+    return True
 
 
 def portion(food: dict, grams: float) -> dict:

@@ -66,6 +66,9 @@ def serving(food: dict) -> tuple[float, str]:
         (portions[0] if portions else None)
     if label:
         name = re.sub(r"\s*\(label serving\)\s*$", "", str(label.get("label") or ""), flags=re.I) or "a serving"
+        if re.fullmatch(r"\s*[\d.,]+\s*(g|gr|grams?)\.?\s*(\([^)]*\))?\s*", name, flags=re.I) \
+                or re.search(r"\(\s*[\d.,]+\s*g\s*\)\s*$", name):  # "126g", "2 Tbsp (32 g)": already says it
+            return float(label["grams"]), (name if "(" in name else f"{label['grams']:g} g")
         return float(label["grams"]), f"{name} ({label['grams']:g} g)"
     return 100.0, "100 g"
 
@@ -237,13 +240,14 @@ def judge(memory: Memory, food: dict) -> dict:
             "processing": {"nova": nova, "nova_says": NOVA.get(nova, ""), "additives": additives[:12]},
             "used": [v for k, v in me.items() if k in ("ldl", "bp", "sugar", "kidney") and v],
             "score": round(score, 1),
-            "note": "Worked out by Buddy's code from the label and your own numbers, per serving. No AI model sees "
+            "note": (str(food["energy"]) + " " if food.get("energy") else "") +
+                    "Worked out by Buddy's code from the label and your own numbers, per serving. No AI model sees "
                     "it. Not medical advice."}
 
 
 # --- the products the owner scanned ------------------------------------------------------------------------------
 KEEP = ("id", "name", "kind", "brand", "per100", "portions", "barcode", "ingredients", "allergens", "nova", "additives",
-        "named")
+        "named", "energy")
 
 
 def keep(memory: Memory, food: dict, verdict: str) -> int:

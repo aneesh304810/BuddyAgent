@@ -60,7 +60,7 @@ def test_ate_it_notes_a_serving_and_finished_takes_it_off(tmp_path):
     m = _owner(tmp_path)
     item = groceries.keep(m, foodverdict.keep(m, CHIPS, "sometimes"))["kitchen"][0]
     got = groceries.ate(m, item["id"], now=LUNCH)
-    assert got["slot"] == "lunch" and got["what"] == "Sea salt kettle chips (1 oz (28 g))"
+    assert got["slot"] == "lunch" and got["what"] == "Sea salt kettle chips, 1 oz (28 g)"
     assert coach.eaten(m, LUNCH.date())["calories"] == 150
     assert got["kitchen"][0]["eaten"] == 1  # it stays: a bag lasts more than one meal
     foodverdict.forget(m)  # deleting the checked products doesn't empty the kitchen
@@ -116,9 +116,9 @@ def test_api(tmp_path, monkeypatch):
     lists = client.get("/api/health/groceries", headers=auth).json()
     assert lists["to_buy"] == [] and lists["kitchen"][0]["name"] == "Total 0% Greek Yogurt" and "No AI model" in lists["note"]
     item = lists["kitchen"][0]["id"]
-    assert client.post("/api/health/groceries", json={"action": "ate", "id": item}, headers=auth).json()["slot"]
     eaten = client.post("/api/health/scans", json={"action": "eat", "id": scan}, headers=auth).json()
     assert eaten["from_kitchen"] == "Total 0% Greek Yogurt"
+    assert client.post("/api/health/groceries", json={"action": "ate", "id": item}, headers=auth).json()["slot"]
     assert client.post("/api/health/groceries", json={"action": "finished", "id": item}, headers=auth).json()["kitchen"] == []
     assert client.post("/api/health/groceries", json={"action": "finished"}, headers=auth).status_code == 400
     assert client.get("/api/health/groceries").status_code in (401, 403)

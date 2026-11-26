@@ -1901,11 +1901,13 @@ async def api_health_verdict(body: dict) -> dict:
 
 
 @app.get("/api/health/where", dependencies=[Depends(require_admin)])
-async def api_health_where() -> dict:
+async def api_health_where(scan: int = 0) -> dict:
     """After a scan: eating (log it) or shopping (the verdict only), by where the phone is, compared on the server
-    with home, work and the places the owner marked (scanmeal). The comparison sends the position nowhere."""
+    with home, work and the places the owner marked (scanmeal); at home, by whether the scan is in My kitchen. The
+    comparison sends the position nowhere."""
     from . import scanmeal  # noqa: PLC0415
-    return await asyncio.to_thread(scanmeal.where, memory) | {"places": await asyncio.to_thread(scanmeal.places, memory)}
+    got = await asyncio.to_thread(scanmeal.where, memory, None, None, scan)
+    return got | {"places": await asyncio.to_thread(scanmeal.places, memory)}
 
 
 @app.post("/api/health/where", dependencies=[Depends(require_admin)])
@@ -2010,7 +2012,10 @@ async def api_health_scans_act(body: dict) -> dict:
             ids = [int(i) for i in body.get("ids") or [] if str(i).isdigit()][:6]
             return await asyncio.to_thread(foodverdict.compare, memory, ids)
         if action == "eat":  # a scan noted as eaten (label servings), in the meal for the time of day
-            got = await asyncio.to_thread(scanmeal.eat, memory, int(body.get("id") or 0), body.get("servings") or 1)
+            got = await asyncio.to_thread(scanmeal.eat, memory, int(body.get("id") or 0), body.get("servings") or 1,
+                                          None, "", None, True)
+            if got.get("again"):  # the same scan a moment ago: that meal, counted once
+                return got
             return got | {"from_kitchen": await asyncio.to_thread(groceries.note_eaten, memory, int(body.get("id") or 0))}
         if action == "uneat":
             return await asyncio.to_thread(scanmeal.uneat, memory, int(body.get("meal") or 0))

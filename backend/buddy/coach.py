@@ -305,6 +305,16 @@ def set_slot(memory: Memory, meal_id: int, slot: str) -> None:
     memory.db.commit()
 
 
+def delete_meal(memory: Memory, meal_id: int) -> None:
+    """Take a noted meal off (noted by mistake): from the day's totals, and its scan link with it."""
+    _ready(memory)
+    if not memory.db.execute("DELETE FROM coach_meals WHERE id = ?", (int(meal_id),)).rowcount:
+        raise ToolError("That meal isn't there any more.")
+    if memory.db.execute("SELECT 1 FROM sqlite_master WHERE type = 'table' AND name = 'scan_meals'").fetchone():
+        memory.db.execute("DELETE FROM scan_meals WHERE meal_id = ?", (int(meal_id),))
+    memory.db.commit()
+
+
 def missing_line(memory: Memory, now: datetime | None = None) -> str:
     """For the evening check-in: today's main meals not noted yet, once the owner notes meals at all (code only)."""
     now = now or local_now()

@@ -134,6 +134,9 @@ def act(memory: Memory, body: dict, env=None, fetch=None) -> dict:
     if action == "meal_slot":
         coach.set_slot(memory, int(body.get("id") or 0), str(body.get("slot") or ""))
         return {"ok": True}
+    if action == "meal_delete":
+        coach.delete_meal(memory, int(body.get("id") or 0))
+        return {"ok": True}
     if action == "plan":
         saved = coach.set_plan(memory, body.get("plan") or {})
         return {"ok": True, "habits": len(saved["habits"])}

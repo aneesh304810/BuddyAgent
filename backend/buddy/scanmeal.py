@@ -86,8 +86,10 @@ def places(memory: Memory) -> list[dict]:
     return [dict(r) for r in memory.db.execute("SELECT id, name, kind, created_at FROM food_places ORDER BY name")]
 
 
-def where(memory: Memory, now: datetime | None = None, now_utc: datetime | None = None) -> dict:
-    """Eating or shopping, by where the phone is: log (a meal), verdict (shopping) or ask."""
+def where(memory: Memory, now: datetime | None = None, now_utc: datetime | None = None, scan_id: int = 0) -> dict:
+    """Eating or shopping, by where the phone is: log (a meal), verdict (shopping, or a check) or ask. At home only a
+    product already in My kitchen counts as eaten (the owner's choice): anything else scanned there is a check, such
+    as groceries being looked over or put away, and waits for "I'm eating it"."""
     from . import coach  # noqa: PLC0415
     from .location import metres  # noqa: PLC0415
     from .maps import Maps  # noqa: PLC0415
@@ -110,6 +112,13 @@ def where(memory: Memory, now: datetime | None = None, now_utc: datetime | None 
         return {"do": "log", "place": p["name"], "slot": slot, "can_remember": False,
                 "why": f"At {p['name']}, a place you eat."}
     named = Maps(memory).place_at(*pos)
+    if named == "home" and scan_id:
+        from . import groceries  # noqa: PLC0415
+        if not groceries.in_kitchen(memory, scan_id):
+            return {"do": "verdict", "place": named, "slot": slot, "can_remember": False,
+                    "why": "At home, and it isn't in My kitchen: a check, so it isn't added to a meal."}
+        return {"do": "log", "place": named, "slot": slot, "can_remember": False,
+                "why": "At home, and it's in My kitchen."}
     if named in ("home", "work"):
         return {"do": "log", "place": named, "slot": slot, "can_remember": False, "why": f"At {named}."}
     return {"do": "ask", "place": "", "slot": slot, "can_remember": True,
@@ -151,10 +160,15 @@ def _scan(memory: Memory, scan_id: int) -> dict:
 
 
 def eat(memory: Memory, scan_id: int, servings: float = 1.0, now: datetime | None = None, slot: str = "",
-        food: dict | None = None) -> dict:
+        food: dict | None = None, once: bool = False) -> dict:
     """Note a scanned product as eaten: label servings x the label's numbers, in the meal for the time of day.
-    food: the label to use (My kitchen keeps its own copy, groceries.py); else the scan's."""
+    food: the label to use (My kitchen keeps its own copy, groceries.py); else the scan's. once: a scan of the same
+    product noted in the last two minutes is that meal, not another (more servings are − / +)."""
     from . import coach, foodverdict  # noqa: PLC0415
+    if once:
+        recent = _recent(memory, scan_id, now or local_now())
+        if recent:
+            return recent
     try:
         servings = float(servings)
     except (TypeError, ValueError):
@@ -169,7 +183,7 @@ def eat(memory: Memory, scan_id: int, servings: float = 1.0, now: datetime | Non
     grams *= servings
     amt = {k: float(v) * grams / 100 for k, v in per100.items() if isinstance(v, (int, float)) and not isinstance(v, bool)}
     count = f"{servings:g} × " if servings != 1 else ""
-    what = f"{food['_name']} ({count}{label}, {grams:g} g)" if count else f"{food['_name']} ({label})"
+    what = f"{food['_name']}, {count}{label}"
     now = now or local_now()
     coach.add_meal(memory, what, amt.get("kcal"), amt.get("protein_g"), now=now,
                    extra={k: amt.get(k) for k in coach.EXTRA}, slot=slot)
@@ -183,6 +197,23 @@ def eat(memory: Memory, scan_id: int, servings: float = 1.0, now: datetime | Non
     got = memory.db.execute("SELECT slot FROM coach_meals WHERE id = ?", (meal_id,)).fetchone()
     return {"meal_id": meal_id, "slot": got["slot"], "what": what, "servings": servings,
             "ontrack": ontrack(memory, now)}
+
+
+def _recent(memory: Memory, scan_id: int, now: datetime) -> dict | None:
+    from . import coach  # noqa: PLC0415
+    coach._ready(memory)
+    _ready(memory)
+    r = memory.db.execute(
+        "SELECT m.id, m.slot, m.at, s.what, s.servings FROM scan_meals s JOIN coach_meals m ON m.id = s.meal_id AND "
+        "m.what = s.what WHERE s.scan_id = ? AND m.day = ? ORDER BY m.id DESC LIMIT 1",
+        (int(scan_id), now.date().isoformat())).fetchone()
+    if not r:
+        return None
+    at = datetime.combine(now.date(), datetime.strptime(r["at"], "%H:%M").time())
+    if not timedelta(0) <= now.replace(tzinfo=None) - at <= timedelta(minutes=2):
+        return None
+    return {"meal_id": int(r["id"]), "slot": r["slot"], "what": r["what"], "servings": float(r["servings"]),
+            "ontrack": ontrack(memory, now), "again": True}
 
 
 def uneat(memory: Memory, meal_id: int) -> dict:

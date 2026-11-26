@@ -349,15 +349,25 @@ def ate(memory: Memory, item_id: int, now: datetime | None = None) -> dict:
     return out | {"kitchen": kitchen(memory)}
 
 
-def note_eaten(memory: Memory, scan_id: int) -> str:
-    """A scan noted as a meal: when that product is in the kitchen, count it there too. Its name, or ''."""
+def _in_kitchen(memory: Memory, scan_id: int):
     _ready(memory)
     try:
         barcode = str(_scan(memory, scan_id)["barcode"] or "")
     except ToolError:
-        return ""
-    row = memory.db.execute("SELECT id, name FROM kitchen WHERE scan_id = ? OR (barcode != '' AND barcode = ?)",
-                            (int(scan_id), barcode)).fetchone()
+        return None
+    return memory.db.execute("SELECT id, name FROM kitchen WHERE scan_id = ? OR (barcode != '' AND barcode = ?)",
+                             (int(scan_id), barcode)).fetchone()
+
+
+def in_kitchen(memory: Memory, scan_id: int) -> str:
+    """The kitchen product a scan is (its name), or '': at home only those count as eaten (scanmeal.where)."""
+    row = _in_kitchen(memory, scan_id)
+    return row["name"] if row else ""
+
+
+def note_eaten(memory: Memory, scan_id: int) -> str:
+    """A scan noted as a meal: when that product is in the kitchen, count it there too. Its name, or ''."""
+    row = _in_kitchen(memory, scan_id)
     if not row:
         return ""
     memory.db.execute("UPDATE kitchen SET eaten = eaten + 1, last_eaten = ? WHERE id = ?",

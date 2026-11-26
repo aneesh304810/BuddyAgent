@@ -614,6 +614,7 @@ function renderFood() {
   wireFoodLookup();
   $("main").querySelectorAll("[data-slot]").forEach((b) => b.onclick = () => { mealSlot = b.dataset.slot; render(); });
   $("main").querySelectorAll("[data-move]").forEach((s) => s.onchange = () => act({ action: "meal_slot", id: Number(s.dataset.move), slot: s.value }, "Moved."));
+  $("main").querySelectorAll("[data-meal-del]").forEach((b) => b.onclick = () => act({ action: "meal_delete", id: Number(b.dataset.mealDel) }, "Deleted: off the day's totals."));
   $("meal").onsubmit = (e) => { e.preventDefault(); const d = new FormData(e.target);
     act({ action: "meal", what: d.get("what"), calories: d.get("calories"), protein_g: d.get("protein_g"), slot: mealSlot }, `Noted for ${slotName(mealSlot)}.`); };
 }
@@ -636,7 +637,8 @@ function mealsBySlot(recent) {
     return `<div class="muted" style="margin:6px 0 0;font-size:13px"><b>${label}</b> · ${num(cal)} cal · ${num(pro)} g protein</div>`
       + ms.map((m) => `<div class="line"><div class="what">${esc(m.what)}<small>${esc(m.at)} · <select data-move="${m.id}" aria-label="Move to another meal" style="font-size:12px;padding:1px 4px">${SLOTS.map(([k, l]) =>
         `<option value="${k}"${k === m.slot ? " selected" : ""}>${l}</option>`).join("")}</select></small></div>
-        <div class="num">${m.calories == null ? "" : num(m.calories) + " cal"}${m.protein_g == null ? "" : `<small>${num(m.protein_g)} g protein</small>`}</div></div>`).join("");
+        <div class="num">${m.calories == null ? "" : num(m.calories) + " cal"}${m.protein_g == null ? "" : `<small>${num(m.protein_g)} g protein</small>`}</div>
+        <button class="btn" data-meal-del="${m.id}" aria-label="Delete ${esc(m.what)}" style="margin-left:8px">✕</button></div>`).join("");
   }).join("")).join("");
 }
 
@@ -790,7 +792,7 @@ function placesCard() {
 async function afterScan(id) {
   scanMeal = { busy: true, id }; render();
   let w;
-  try { w = await api("/api/health/where"); } catch (e) { scanMeal = { failed: e.message, id }; render(); return; }
+  try { w = await api(`/api/health/where?scan=${id}`); } catch (e) { scanMeal = { failed: e.message, id }; render(); return; }
   if (w.do === "log") return logScan(id, w);
   scanMeal = { where: w, id }; render();
 }
@@ -846,7 +848,7 @@ function mealBox() {
   const w = m.where || {};
   if (m.done) {
     const d = m.done;
-    return box(`<p style="margin:0"><span class="pill good">Added to ${esc(d.slot)}</span> ${esc(d.what)}${d.from_kitchen ? ` <span class="pill">from your kitchen</span>` : ""}</p>
+    return box(`<p style="margin:0"><span class="pill good">${d.again ? "Already in" : "Added to"} ${esc(d.slot)}</span> ${esc(d.what)}${d.again ? ` <span class="muted">(scanned a moment ago: + for another serving)</span>` : ""}${d.from_kitchen ? ` <span class="pill">from your kitchen</span>` : ""}</p>
       <div class="f" style="margin-top:8px;align-items:center"><button class="btn" data-serv="-0.5" aria-label="Half a serving less"${d.servings <= 0.5 ? " disabled" : ""}>−</button>
       <span>${num(d.servings)} serving${d.servings === 1 ? "" : "s"}</span><button class="btn" data-serv="0.5" aria-label="Half a serving more">+</button>
       <button class="btn danger" id="scan-undo">Undo</button></div>
@@ -1465,6 +1467,11 @@ const scanned = (() => {  // read from the address as it arrived (the token line
   const packdate = /^\d{4}-\d{2}-\d{2}$/.test(params.get("packdate") || "") ? params.get("packdate") : "";
   const dish = (params.get("scandish") || "").replace(/[^\p{L}\p{N} '&(),.-]/gu, "").trim().slice(0, 60);
   if (!code && !dish) return null;
+  const stamp = params.get("t") || "";
+  let done = [];
+  try { done = JSON.parse(storageGet("scansDone") || "[]"); } catch { done = []; }
+  if (stamp && done.includes(stamp)) return null;
+  if (stamp) storageSet("scansDone", JSON.stringify([...done, stamp].slice(-30)));
   const rest = new URLSearchParams(location.search);
   if (rest.has("scanbarcode") || rest.has("scandish")) {  // a reload doesn't look it up again
     rest.delete("scanbarcode"); rest.delete("scandish"); rest.delete("packdate"); rest.delete("t");

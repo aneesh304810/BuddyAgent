@@ -71,7 +71,7 @@ def test_eat_undo_and_recount(tmp_path):
     m = _owner(tmp_path)
     scan = foodverdict.keep(m, CHIPS, "sometimes")
     got = scanmeal.eat(m, scan, 2, now=LUNCH)
-    assert got["slot"] == "lunch" and got["what"] == "Sea salt kettle chips (2 × 1 oz (28 g), 56 g)"
+    assert got["slot"] == "lunch" and got["what"] == "Sea salt kettle chips, 2 × 1 oz (28 g)"
     meals = coach.eaten(m, LUNCH.date())
     assert meals["sat_fat_g"] == pytest.approx(4.5, abs=0.05) and meals["calories"] == 300
     back = scanmeal.recount(m, got["meal_id"], 1)
@@ -155,3 +155,41 @@ def test_api_where_eat_and_ontrack(tmp_path, monkeypatch):
     assert client.post("/api/health/scans", json={"action": "uneat", "meal": ate["meal_id"]}, headers=auth).status_code == 400
     assert client.post("/api/health/where", json={"action": "forget"}, headers=auth).json()["places"] == []
     assert client.get("/api/health/ontrack").status_code in (401, 403)
+
+
+def test_at_home_only_what_is_in_my_kitchen_counts_as_eaten(tmp_path):
+    """The owner checked groceries at home and they were counted as lunch: a scan at home is a check unless the
+    product is already in My kitchen (their choice: "scanning at home logs from the list")."""
+    from buddy import groceries
+    m = _owner(tmp_path)
+    _at(m, HOME)
+    scan = foodverdict.keep(m, OATS, "good")
+    got = scanmeal.where(m, LUNCH, scan_id=scan)
+    assert got["do"] == "verdict" and got["place"] == "home" and "isn't in My kitchen" in got["why"]
+    groceries.keep(m, scan)
+    assert scanmeal.where(m, LUNCH, scan_id=scan)["do"] == "log"
+    assert scanmeal.where(m, LUNCH)["do"] == "log"  # no scan named (older pages): as before
+    _at(m, CAFE)
+    scanmeal.remember(m, "eat", "Canteen")
+    assert scanmeal.where(m, LUNCH, scan_id=foodverdict.keep(m, BREAD, "good"))["do"] == "log"  # a place you eat
+
+
+def test_the_same_scan_noted_twice_in_two_minutes_is_one_meal(tmp_path):
+    m = _owner(tmp_path)
+    scan = foodverdict.keep(m, CHIPS, "sometimes")
+    first = scanmeal.eat(m, scan, 1, now=LUNCH, once=True)
+    again = scanmeal.eat(m, scan, 1, now=LUNCH + timedelta(minutes=1), once=True)
+    assert again["again"] and again["meal_id"] == first["meal_id"] and len(coach.eaten(m, LUNCH.date())["meals"]) == 1
+    later = scanmeal.eat(m, scan, 1, now=LUNCH + timedelta(minutes=30), once=True)
+    assert not later.get("again") and len(coach.eaten(m, LUNCH.date())["meals"]) == 2
+    coach.delete_meal(m, later["meal_id"])  # noted by mistake: off the day's totals, with its scan link
+    assert [x["id"] for x in coach.eaten(m, LUNCH.date())["meals"]] == [first["meal_id"]]
+    with pytest.raises(ToolError):
+        coach.delete_meal(m, later["meal_id"])
+
+
+def test_a_serving_named_by_its_weight_isnt_said_twice():
+    assert foodverdict.serving({"portions": [{"label": "126g (label serving)", "grams": 126}]}) == (126.0, "126 g")
+    assert foodverdict.serving({"portions": [{"label": "2 Tbsp (label serving)", "grams": 32}]}) == (32.0, "2 Tbsp (32 g)")
+    assert foodverdict.serving({"portions": [{"label": "2 Tbsp (32 g) (label serving)", "grams": 32}]}) == \
+        (32.0, "2 Tbsp (32 g)")
