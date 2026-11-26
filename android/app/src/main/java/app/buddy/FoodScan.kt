@@ -53,6 +53,7 @@ import androidx.compose.runtime.remember
 import androidx.compose.runtime.setValue
 import androidx.compose.ui.Alignment
 import androidx.compose.ui.Modifier
+import androidx.compose.ui.draw.clipToBounds
 import androidx.compose.ui.graphics.Color
 import androidx.compose.ui.platform.LocalContext
 import androidx.compose.ui.platform.LocalLifecycleOwner
@@ -349,12 +350,15 @@ private data class Guess(val name: String, val score: Float, val taught: Boolean
 
 /**
  * The camera preview with an analyzer on every frame (the latest only, when the analyzer is busy). Leaving it (or
- * switching between Barcode and Dish) lets go of the camera before its analyzer's thread stops.
+ * switching between Barcode and Dish) lets go of the camera before its analyzer's thread stops. The preview is drawn
+ * in the screen's own layout (TextureView): the faster SurfaceView isn't clipped to its box and, scaled to fill the
+ * wide unfolded screen, covered the mode chips with black. When the camera can't start, it says so.
  */
 @Composable
 private fun CameraFeed(modifier: Modifier, analyze: (ImageProxy) -> Unit) {
     val context = LocalContext.current
     val owner = LocalLifecycleOwner.current
+    var failed by remember { mutableStateOf("") }
     val worker = remember { Executors.newSingleThreadExecutor() }
     val bound = remember { arrayOfNulls<ProcessCameraProvider>(1) }
     val uses = remember { mutableListOf<UseCase>() }
@@ -365,27 +369,36 @@ private fun CameraFeed(modifier: Modifier, analyze: (ImageProxy) -> Unit) {
             worker.shutdown()
         }
     }
-    AndroidView(
-        modifier = modifier,
-        factory = { ctx ->
-            val view = PreviewView(ctx)
-            val providerFuture = ProcessCameraProvider.getInstance(ctx)
-            providerFuture.addListener({
-                val provider = providerFuture.get()
-                val preview = Preview.Builder().build().also { it.setSurfaceProvider(view.surfaceProvider) }
-                val analysis = ImageAnalysis.Builder()
-                    .setBackpressureStrategy(ImageAnalysis.STRATEGY_KEEP_ONLY_LATEST).build()
-                analysis.setAnalyzer(worker) { proxy -> analyze(proxy) }
-                runCatching {
-                    provider.unbindAll()
-                    provider.bindToLifecycle(owner, CameraSelector.DEFAULT_BACK_CAMERA, preview, analysis)
-                    bound[0] = provider
-                    uses.addAll(listOf(preview, analysis))
+    Box(modifier.clipToBounds(), contentAlignment = Alignment.Center) {
+        AndroidView(
+            modifier = Modifier.fillMaxSize(),
+            factory = { ctx ->
+                val view = PreviewView(ctx).apply {
+                    implementationMode = PreviewView.ImplementationMode.COMPATIBLE
+                    scaleType = PreviewView.ScaleType.FILL_CENTER
                 }
-            }, ContextCompat.getMainExecutor(context))
-            view
-        },
-    )
+                val providerFuture = ProcessCameraProvider.getInstance(ctx)
+                providerFuture.addListener({
+                    runCatching {
+                        val provider = providerFuture.get()
+                        val preview = Preview.Builder().build().also { it.setSurfaceProvider(view.surfaceProvider) }
+                        val analysis = ImageAnalysis.Builder()
+                            .setBackpressureStrategy(ImageAnalysis.STRATEGY_KEEP_ONLY_LATEST).build()
+                        analysis.setAnalyzer(worker) { proxy -> analyze(proxy) }
+                        provider.unbindAll()
+                        provider.bindToLifecycle(owner, CameraSelector.DEFAULT_BACK_CAMERA, preview, analysis)
+                        bound[0] = provider
+                        uses.addAll(listOf(preview, analysis))
+                    }.onFailure {
+                        failed = "The camera couldn't start (another app may be using it). Close it and try again, " +
+                            "or type the numbers below."
+                    }
+                }, ContextCompat.getMainExecutor(context))
+                view
+            },
+        )
+        if (failed.isNotEmpty()) Text(failed, color = Pal.text, modifier = Modifier.padding(16.dp))
+    }
 }
 
 /**
