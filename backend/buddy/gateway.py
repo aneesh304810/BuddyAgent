@@ -379,6 +379,22 @@ CATALOG: dict[str, dict] = {
                "terms": "NLM's E-utilities: free, at most 3 requests a second without a key. PubMed records are free "
                         "to use; abstracts may be copyrighted by their publishers.",
                "health": {"path": "/entrez/eutils/einfo.fcgi?db=pubmed&retmode=json&tool=buddy"}, "moved": True},
+    # The freshness watch (freshness.py): official sources that say when a health rule may be out of date.
+    "uspstf_api": {"group": "Health", "title": "US Preventive Services Task Force (Prevention TaskForce API)",
+                   "hosts": ["https://epssdata.ahrq.gov"], "auth": {"type": "param", "secret": "BUDDY_USPSTF_KEY"},
+                   "cost": 0.0, "per_minute": 10, "privacy": "public", "no_backup": True,
+                   "used_for": "once a week, the task force's whole recommendation data set (nothing about you is "
+                               "sent), to see whether a screening Buddy uses has changed, and its exact words",
+                   "terms": "AHRQ grants the key on request (prior approval). The task force's text is shown "
+                            "verbatim and cited, as its terms require. If AHRQ gives another address, set "
+                            "BUDDY_USPSTF_URL.",
+                   "health": {"custom": "freshness.check"}, "moved": True},
+    "nhanes": {"group": "Health", "title": "CDC NHANES data files", "hosts": ["https://wwwn.cdc.gov"],
+               "auth": {"type": "none"}, "cost": 0.0, "per_minute": 10, "privacy": "public", "no_backup": True,
+               "used_for": "once a week, whether the next survey cycle's files are out (one file's address is "
+                           "asked; nothing about you is sent)",
+               "terms": "Public domain (CDC/NCHS).",
+               "health": {"path": "/Nchs/Data/Nhanes/Public/2021/DataFiles/GLU_L.xpt", "raw": True}, "moved": True},
     "nih_dsld": {"group": "Health", "title": "NIH supplement labels (DSLD)", "hosts": ["https://api.ods.od.nih.gov"],
                  "auth": {"type": "none"}, "cost": 0.0, "per_minute": 20, "privacy": "public", "no_backup": True,
                  "used_for": "what a supplement's label says, ingredient by ingredient, for the products you look "

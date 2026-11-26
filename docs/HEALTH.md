@@ -163,14 +163,16 @@ sub-tabs under them, and the page remembers where you were.
   - **Ancestry changes the rules where the guidelines do:** the task force screens Asian Americans for diabetes from
     a BMI of 23 instead of 25 (marked "often $0; ask your plan first", since that comes from its notes, not its
     grade); the ADA tests every adult from 35 and counts Asian, Black, Hispanic, Native American and Pacific
-    Islander ancestry as a risk factor; the ACC/AHA cholesterol guideline counts South Asian ancestry as a risk
-    enhancer for starting a statin; and being born in most of Asia (India and China included) brings in hepatitis
+    Islander ancestry as a risk factor; the 2026 ACC/AHA dyslipidemia guideline counts higher-risk ancestry
+    (South Asian, Filipino) as a risk enhancer for starting a statin, and recommends measuring Lp(a) once in every
+    adult; and being born in most of Asia (India and China included) brings in hepatitis
     B and TB screening. With Kerala picked, the diabetes line adds that about 1 in 4 adults there had diabetes in
     India's ICMR-INDIAB study (Lancet Diabetes & Endocrinology, 2023), against 11.4% across India.
   - **When it was last done:** a matching lab result fills it in (A1c or glucose, cholesterol, PSA); otherwise you
     note the month under Details (and which test, for colorectal and cervical, since that sets the next one).
-  - **Lp(a), glucose sensor, DNA: worth it?** Lipoprotein(a) once (more often high with South Asian ancestry; a
-    high result is a risk enhancer). A glucose sensor (CGM): worth asking about only with an A1c or glucose in the
+  - **Lp(a), glucose sensor, DNA: worth it?** Lipoprotein(a) once, as the 2026 ACC/AHA dyslipidemia guideline
+    recommends for every adult (more often high with South Asian ancestry; a result of 50 mg/dL or 125 nmol/L and
+    over is a risk enhancer). A glucose sensor (CGM): worth asking about only with an A1c or glucose in the
     diabetes range; optional and paid by you in the prediabetes range, where the proven step is a lifestyle
     programme and a yearly A1c; not needed when normal; an A1c comes first. Genetic testing: worth asking about with
     breast or ovarian cancer in the family (or Ashkenazi ancestry), colon or uterine cancer before 50 in the family,
@@ -185,6 +187,24 @@ sub-tabs under them, and the page remembers where you were.
     a test, books a visit or contacts a doctor, and this is not medical advice. Your answers stay on your server,
     no AI model is given them, and "Delete my answers" (asked twice) deletes them and the dates you noted.
 
+- **Is Buddy up to date?** (the top of Sources). Buddy's health rules are fixed in code so they stay exact; they
+  don't change by themselves. This card says when one may be out of date, and whether a newer Buddy is ready:
+  - **Screenings** (the task force): once you have its free data key, Buddy fetches the task force's whole data set
+    once a week (nothing about you is sent) and compares each recommendation's grade and ages with the week
+    before; topics newer than the date Buddy's rules were checked are flagged too. Its own words are kept and shown
+    verbatim under Details on Checkups, as its terms require. Request the key from AHRQ (the Prevention TaskForce
+    API request form, or email uspstfpda@ahrq.gov with the subject "Requesting a Prevention TaskForce API Key"),
+    then `sudo bash /opt/buddy/deploy/set.sh BUDDY_USPSTF_KEY`, and `BUDDY_USPSTF_URL` if AHRQ's reply gives an
+    address other than epssdata.ahrq.gov. Until then Buddy watches PubMed for new task force statements (JAMA).
+  - **Diabetes rules** (a newer ADA Standards of Care) and **cholesterol and heart-risk rules** (a guideline newer
+    than the 2026 ACC/AHA dyslipidemia guideline): PubMed. **Menu dish numbers**: USDA's API, for a newer
+    survey-food release (your USDA key). **Compared with others**: CDC's files, for the next NHANES cycle. **Diet
+    targets**: the next Dietary Guidelines are due in 2030.
+  - A screening a newer task force recommendation touches moves to **Under review** on Labs → Checkups, with what
+    was published, until the rules are updated (ask for it; the change comes with tests) and deployed.
+  - **Buddy itself**: once a day the server compares its code with the repository's branch (read only: nothing is
+    fetched or changed) and, when a newer version is ready, shows the deploy command.
+  - Weekly on Sunday night, daily for Buddy's own version, or **Check now** (at most hourly). No notifications.
 - **Sources:** where your health data comes from. For each source (the phone's Health Connect, the Oura Ring):
   whether it works, when it last synced and what kind of sync that was (the first one, an update, sent by the
   phone, or one you asked for), how many values came and how many were new, a failed sync with its error, the

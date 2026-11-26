@@ -8,7 +8,7 @@ code works out:
   prostate, as a decision), each with why it applies, how often, when it was last done, and a coverage mark. Ancestry
   changes the rules where the guidelines say so: the task force screens Asian Americans for diabetes from a BMI of 23
   (not 25), the ADA lists Asian, Black, Hispanic, Native American and Pacific Islander ancestry as a risk factor, the
-  ACC/AHA cholesterol guideline counts South Asian ancestry as a risk enhancer, and the WHO's Asian BMI action points
+  2026 ACC/AHA dyslipidemia guideline counts higher-risk ancestry (South Asian, Filipino) as a risk enhancer, and the WHO's Asian BMI action points
   are 23 and 27.5. Being born in, or having lived in, a country where hepatitis B or TB is common (most of Asia,
   India and China included) brings those two screenings in.
 - **Worth asking about:** lipoprotein(a) once, a glucose sensor (CGM) and genetic testing: whether either is worth
@@ -295,11 +295,13 @@ def _items(p: dict, labs: dict) -> list[dict]:
                 months=12 if pre else 36, lab=("hba1c", "glucose"))
 
     if a(20):
-        why = ["The ACC/AHA checks cholesterol every 4 to 6 years from 20; the task force uses it from 40 to 75 to "
-               "decide on a statin."]
-        if "south_asian" in groups:
-            why.append("South Asian ancestry is a risk enhancer in the ACC/AHA guideline: tell your doctor when they "
-                       "work out your heart risk; it counts toward a statin when the risk is borderline or middling.")
+        why = ["Adults have cholesterol checked from 20 (ACC/AHA); the task force uses it from 40 to 75 to decide on a "
+               "statin. Buddy reminds you every 5 years, sooner if it was high."]
+        if "south_asian" in groups or "filipino" in (p.get("ancestry") or []):
+            why.append("Higher-risk ancestry (South Asian or Filipino) is a risk enhancer in the 2026 ACC/AHA "
+                       "dyslipidemia guideline, outside the risk calculator (which has no ancestry in it): tell your "
+                       "doctor when they work out your heart risk; it counts toward a statin when the risk is "
+                       "borderline or middling.")
         if "heart_early" in fam:
             why.append("Early heart disease in the family is a risk enhancer too.")
         add("cholesterol", "Cholesterol (lipid panel)", "Total, LDL and HDL cholesterol, triglycerides",
@@ -460,10 +462,11 @@ def _asks(memory: Memory, p: dict) -> list[dict]:
             lpa["unit"].lower().startswith("mg") and lpa["value"] >= 50)
         out.append({"key": "lpa", "title": "Lipoprotein(a)", "status": "ok",
                     "text": f"Measured {lpa['at'][:10]}: {lpa['value']:g} {lpa['unit']}. "
-                            + ("That is high (50 mg/dL or 125 nmol/L and over): a risk enhancer in the ACC/AHA "
-                               "guideline. Tell your doctor; it doesn't change with diet, and relatives may want it "
-                               "measured too." if high else "Once is enough for most people: it barely changes."),
-                    "source": "ACC/AHA cholesterol guideline (2018); National Lipid Association (2024)"})
+                            + ("That is high (50 mg/dL or 125 nmol/L and over): a risk enhancer in the 2026 ACC/AHA "
+                               "dyslipidemia guideline. Tell your doctor; it doesn't change with diet, and the guideline "
+                               "suggests your parents, brothers, sisters and children have it measured too."
+                               if high else "Once is enough for most people: it barely changes."),
+                    "source": "ACC/AHA dyslipidemia guideline (2026)"})
     else:
         why = []
         if "south_asian" in groups:
@@ -472,11 +475,11 @@ def _asks(memory: Memory, p: dict) -> list[dict]:
             why.append("there is early heart disease in your family")
         out.append({"key": "lpa", "title": "Lipoprotein(a), once", "status": "ask",
                     "text": ("Worth asking for once" + (f": {' and '.join(why)}. " if why else ". ")
-                             + "It is inherited, doesn't change with diet, and a high level (50 mg/dL or 125 nmol/L "
-                               "and over) counts toward treating cholesterol sooner. The National Lipid Association "
-                               "suggests measuring it once in every adult. Often billed as an ordinary test, not "
-                               "screening."),
-                    "source": "ACC/AHA cholesterol guideline (2018); National Lipid Association (2024)"})
+                             + "The 2026 ACC/AHA dyslipidemia guideline recommends measuring it at least once in "
+                               "every adult. It is inherited, doesn't change with diet, and a high level (50 mg/dL or "
+                               "125 nmol/L and over) counts toward treating cholesterol sooner. Often billed as an "
+                               "ordinary test, not screening."),
+                    "source": "ACC/AHA dyslipidemia guideline (2026)"})
 
     # a glucose sensor (CGM)
     diabetic = "diabetes" in cond or (a1c and a1c["value"] >= 6.5) or (glucose and glucose["value"] >= 126)
@@ -516,11 +519,12 @@ def _asks(memory: Memory, p: dict) -> list[dict]:
     if (ldl and ldl["value"] >= 190) or "very_high_cholesterol" in fam:
         reasons.append((f"An LDL of {ldl['value']:g} mg/dL ({ldl['at'][:10]})" if ldl and ldl["value"] >= 190
                         else "Very high cholesterol in the family")
-                       + ": possible familial hypercholesterolemia. The ACC/AHA treats an LDL of 190 or more as its "
-                         "own group; a genetic test can confirm it, and your relatives may need checking too.")
+                       + ": possible familial hypercholesterolemia. The ACC/AHA guideline (2026) treats an LDL of 190 "
+                         "or more as its own group for a statin; a genetic test can confirm it, and your relatives "
+                         "may need checking too.")
     if reasons:
         out.append({"key": "dna", "title": "Genetic testing", "status": "ask", "text": " ".join(reasons),
-                    "source": "USPSTF BRCA (2019); ACC/AHA cholesterol guideline (2018)"})
+                    "source": "USPSTF BRCA (2019); ACC/AHA dyslipidemia guideline (2026)"})
     else:
         out.append({"key": "dna", "title": "Genetic testing", "status": "not_needed",
                     "text": "Not needed for your health now: nothing in your answers or results points to an "
@@ -624,8 +628,16 @@ def view(memory: Memory) -> dict:
     for i in items:
         i["cover_text"] = _cover_text(i["cover"], p.get("plan") or "")
         i["methods"] = {k: v[0] for k, v in METHODS.get(i["key"], {}).items()}
-    order = {"due": 0, "decide": 1, "ask": 2, "ok": 3}
-    items.sort(key=lambda i: order.get(i["status"], 4))
+    from . import freshness  # noqa: PLC0415  a newer task force recommendation than these rules: under review
+    under, verbatim = freshness.reviews(memory), freshness.words(memory)
+    for i in items:
+        if i["key"] in under:
+            i["review"] = under[i["key"]]
+            i["status"] = "review"
+        if verbatim.get(i["key"]):
+            i["uspstf_words"] = verbatim[i["key"]][:4]
+    order = {"review": 0, "due": 1, "decide": 2, "ask": 3, "ok": 4}
+    items.sort(key=lambda i: order.get(i["status"], 5))
     return {
         "profile": p, "filled": filled, "suggested": suggested(memory) if not filled else {},
         "choices": {"ancestry": [{"key": k, "label": label, "group": g} for k, label, g in ANCESTRY],

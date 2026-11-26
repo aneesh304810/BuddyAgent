@@ -565,6 +565,11 @@ async def run(memory: Memory, deliver: Deliver, connected=None) -> None:
                         got = await asyncio.to_thread(healthmodel.learn, memory)
                         log.info("health patterns: %d days, %d patterns, %d models", got["days"],
                                  len(got["patterns"]), len(got["models"]))
+                    from . import freshness  # noqa: PLC0415  are the health rules' sources newer? (weekly)
+                    if freshness.due(memory):
+                        await asyncio.to_thread(freshness.run, memory)
+                    if freshness.update_due(memory):  # is a newer Buddy waiting to be deployed? (daily, read only)
+                        await asyncio.to_thread(freshness.update, memory)
                     from . import evidence  # noqa: PLC0415  the research digest, Sunday night (a page, no push)
                     from .tools import ToolError  # noqa: PLC0415
                     if evidence.due(memory):

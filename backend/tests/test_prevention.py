@@ -41,7 +41,7 @@ def test_south_asian_ancestry_and_birth_country_change_the_rules(tmp_path):
     diabetes = items["diabetes"]
     assert "Asian Americans from 23" in " ".join(diabetes["why"]) and diabetes["cover"] == "free_ask"
     assert diabetes["grade"] == "B" and "Kerala" in " ".join(diabetes["why"])
-    assert "South Asian ancestry is a risk enhancer" in " ".join(items["cholesterol"]["why"])
+    assert "(South Asian or Filipino) is a risk enhancer in the 2026 ACC/AHA" in " ".join(items["cholesterol"]["why"])
     assert {"hep_b", "tb", "colorectal", "hep_c", "hiv", "blood_pressure"} <= set(items)
     assert not {"breast", "cervical", "lung", "aaa", "prostate", "bone"} & set(items)  # not for a 45-year-old man
 

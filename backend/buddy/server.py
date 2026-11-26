@@ -1794,6 +1794,23 @@ def _swaps(**given) -> dict:
     return {m: max(0, min(int(v or 0), 50)) for m, v in given.items()}
 
 
+@app.get("/api/freshness", dependencies=[Depends(require_admin)])
+async def api_freshness() -> dict:
+    """Whether the health rules' sources have a newer version, and whether a newer Buddy is ready to deploy."""
+    from . import freshness  # noqa: PLC0415
+    return await asyncio.to_thread(freshness.view, memory)
+
+
+@app.post("/api/freshness", dependencies=[Depends(require_admin)])
+async def api_freshness_check() -> dict:
+    """Check now (at most hourly)."""
+    from . import freshness  # noqa: PLC0415
+    try:
+        return await asyncio.to_thread(freshness.check_now, memory)
+    except ToolError as e:
+        raise HTTPException(400, str(e)) from None
+
+
 @app.get("/api/health/diet", dependencies=[Depends(require_admin)])
 async def api_health_diet(b: int = 0, l: int = 0, d: int = 0, s: int = 0) -> dict:  # noqa: E741
     """Today's menu fitted to the owner's targets (code only); b/l/d/s rotate a meal to the next option."""

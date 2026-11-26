@@ -1,6 +1,6 @@
 # Buddy Privacy and Data Retention Policy
 
-Source: https://claude.ai/artifact/MJVGZ7pWQvi26tg1MS914P, revision 151
+Source: https://claude.ai/artifact/MJVGZ7pWQvi26tg1MS914P, revision 152
 
 Nov 1, 2026 · @Aneesh
 
@@ -132,6 +132,7 @@ Buddy uses a few service providers to work. Each sees only what its job needs, u
 | Deepgram | Turning the other side's speech into text during a call, in any of ten languages. Also, when live hearing is in use, turning what the owner says to Buddy in Talk mode into text as it is spoken (never Listen-in: other people's speech around the owner stays on Buddy's server) | The call's audio, only while someone is talking; in Talk mode, the owner's speech from the moment they start a sentence until it ends, with a short list of names and words from the owner's vocabulary so they are heard right; Buddy opts out of Deepgram's model improvement program on every connection, in one place in the code |
 | ElevenLabs | Buddy's spoken voice on calls | The words Buddy says on the call, which can include the facts the owner allowed for that call |
 | openFDA (api.fda.gov), MedlinePlus (wsearch.nlm.nih.gov), Open Food Facts, USDA FoodData Central (api.nal.usda.gov, through api.data.gov), the NIH Office of Dietary Supplements' Label Database (api.ods.od.nih.gov), PubMed (eutils.ncbi.nlm.nih.gov) | Public health information the owner asks for: medicine labels and recalls, health topics, food nutrition, the nutrients of foods the owner looks up, supplement labels, and new studies on the health topics the owner chooses | Only the medicine, topic, food or product name the owner types (for a supplement label, the database's own label number), for USDA the owner's own api.data.gov key, and for PubMed the topic words with tool=buddy and no email; never the owner's health data |
+| The Agency for Healthcare Research and Quality (the US Preventive Services Task Force's Prevention TaskForce API), CDC (NHANES data files) and GitHub (the repository Buddy's code comes from) | Checking once a week whether the guidelines and tables Buddy's health rules rest on have a newer version, and once a day whether a newer version of Buddy is ready to deploy | AHRQ receives the owner's API key and returns its whole recommendation data set (no age, sex or anything else about the owner is sent); CDC receives the address of one public file; GitHub receives a read-only question about the repository's branch. Nothing about the owner is sent |
 | Google Shopping (through Serper) and Keepa (optional), for Amazon prices | Checking an Amazon price the owner asks about or watches | Only the product's name or Amazon ID; never personal data. Amazon's own pages are never scraped |
 | GitHub, and Claude Code running there (Anthropic's GitHub Action, on the owner's Claude subscription) | Fixing Buddy's own code: after the owner's yes, Buddy opens an issue in its private repository and Claude Code pushes a fix to a branch | Code instructions only (what to fix, where); never the owner's personal data, which Buddy refuses to put in an issue |
 | Serper | Web search and news search | Search words only |

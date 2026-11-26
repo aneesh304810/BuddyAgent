@@ -173,10 +173,34 @@ function sourceCard(s) {
      ${buttons ? `<p style="margin:10px 0 0">${buttons}</p>` : ""}`,
     `${s.terms ? esc(s.terms) + " " : ""}${s.can_disconnect ? "" : esc(s.stop)}`);
 }
+let freshData = null, freshBusy = false;
+async function loadFresh(check) {
+  if (check) { freshBusy = true; render(); }
+  try { freshData = await api("/api/freshness", check ? {} : undefined); }
+  catch (e) { freshData = freshData || { failed: e.message }; if (check) notice(e.message); }
+  freshBusy = false;
+  if (tab === "sources") render();
+}
+const FRESH = { current: ["Up to date", "good"], changed: ["Newer version", "warn"], not_set_up: ["Needs a key", ""], unknown: ["Couldn't check", ""] };
+function freshCard() {
+  if (!freshData) { loadFresh(); return ""; }
+  if (freshData.failed) return "";
+  const pill = (s) => { const [t, c] = FRESH[s] || [s, ""]; return `<span class="pill ${c}">${esc(t)}</span>`; };
+  const u = freshData.update || {};
+  const update = u.status ? `<div class="line" style="align-items:flex-start"><div class="what">Buddy itself<small>${esc(u.detail)}</small>
+      ${u.command ? `<code style="display:block;margin-top:4px">${esc(u.command)}</code>` : ""}</div>${pill(u.status)}</div>` : "";
+  const rows = freshData.watches.map((w) => `<div class="line" style="align-items:flex-start"><div class="what">${esc(w.title)}
+      <small>Buddy has: ${esc(w.have)}${w.via ? ` · watched through ${esc(w.via)}` : ""}</small><small>${esc(w.detail)}</small>
+      ${(w.papers || []).filter((p) => p.items && p.items.length || w.key !== "uspstf").slice(0, 3).map((p) => `<small>${p.url ? `<a href="${esc(p.url)}" target="_blank" rel="noopener">${esc(p.title)}</a>` : esc(p.title)} ${esc(p.date || "")}</small>`).join("")}
+      ${w.hint && w.status !== "changed" ? `<small>${esc(w.hint)}</small>` : ""}</div>${pill(w.status)}</div>`).join("");
+  return card("Is Buddy up to date?", update + rows
+    + `<p style="margin:10px 0 0"><button class="btn" id="fresh-check"${freshBusy ? " disabled" : ""}>${freshBusy ? "Checking…" : "Check now"}</button>
+       <span class="muted">${freshData.checked ? "Last checked " + esc(when(freshData.checked)) : "Not checked yet"}</span></p>`, esc(freshData.note));
+}
 function renderSources() {
   if (!srcData) { $("main").innerHTML = `<p class="muted">Loading…</p>`; loadSources(); return; }
   if (srcData.failed) { $("main").innerHTML = `<p class="err">${esc(srcData.failed)}</p>`; return; }
-  $("main").innerHTML = (data ? sources() : "") + srcData.map(sourceCard).join("") +
+  $("main").innerHTML = freshCard() + (data ? sources() : "") + srcData.map(sourceCard).join("") +
     `<p class="note">Each value is kept with where it came from and how it was obtained: measured by a device, estimated by the maker's software (sleep stages, calories, scores), entered by you, or a lab result. A ring is not a lab. All of it stays on your server, and no AI model is given any of it.</p>`;
   $("main").querySelectorAll("[data-src]").forEach((b) => b.onclick = () => {
     const action = b.dataset.src, conn = b.dataset.conn;
@@ -186,6 +210,7 @@ function renderSources() {
   });
   $("main").querySelectorAll("[data-src-cancel]").forEach((b) => b.onclick = () => { srcAsk = ""; render(); });
   if ($("read")) $("read").onclick = () => { $("read").disabled = true; $("read").textContent = "Reading…"; act({ action: "read" }, (o) => `Read ${o.days} days from the ring.`); };
+  if ($("fresh-check")) $("fresh-check").onclick = () => loadFresh(true);
 }
 
 // --- Patterns: what, in your own days, tends to come before a better or worse next morning (learned by code)
@@ -699,7 +724,7 @@ async function loadCheckups(body) {
   catch (e) { chkData = chkData || { failed: e.message }; if (body) notice(e.message); }
   if (showing("labs", "checkups")) render();
 }
-const CHK_STATUS = { due: ["Due", "warn"], ok: ["Up to date", "good"], decide: ["Your choice", ""], ask: ["Ask", ""],
+const CHK_STATUS = { review: ["Under review", "warn"], due: ["Due", "warn"], ok: ["Up to date", "good"], decide: ["Your choice", ""], ask: ["Ask", ""],
   optional: ["Optional", ""], not_needed: ["Not needed", "good"], first: ["A1c first", ""] };
 const chkPill = (s) => { const [t, c] = CHK_STATUS[s] || [s, ""]; return `<span class="pill ${c}">${esc(t)}</span>`; };
 function chkForm() {
@@ -734,8 +759,10 @@ function chkItem(i) {
   const methods = Object.entries(i.methods || {});
   const when = i.last ? `Last ${esc(i.last)}${i.next ? ` · next ${esc(i.next)}` : ""}` : (i.once ? "Once" : esc(i.often));
   return `<div class="line" style="align-items:flex-start"><div class="what">${esc(i.title)}<small>${esc(i.test)}</small><small>${when}</small>
+      ${(i.review || []).map((r) => `<p class="why">${esc(r)} Its rule here may be out of date until Buddy's rules are updated.</p>`).join("")}
       <details><summary class="why" style="cursor:pointer">Details</summary>
         ${i.why.map((w) => `<p class="why">${esc(w)}</p>`).join("")}
+        ${(i.uspstf_words || []).map((u) => `<p class="why"><b>The task force's words${u.grade ? ` (grade ${esc(u.grade)})` : ""}:</b> ${esc(u.text)} <i>US Preventive Services Task Force.</i></p>`).join("")}
         <p class="why">${esc(i.often)}. ${esc(i.cover_text)}. <a href="${esc(i.url)}" target="_blank" rel="noopener">The guideline</a>${i.grade ? ` (grade ${esc(i.grade)})` : ""}.</p>
         ${i.how ? `<p class="why">Last done: ${esc(i.last)} (${esc(i.how)}).</p>` : ""}
         <div class="f"><input type="month" data-chk-month="${esc(i.key)}" aria-label="Month it was done">
@@ -762,6 +789,7 @@ function renderCheckups() {
   const due = chkData.items.filter((i) => i.status === "due").length;
   const asks = chkData.asks.map((a) => `<div class="line" style="align-items:flex-start"><div class="what">${esc(a.title)}<p class="why">${esc(a.text)}</p><small>${esc(a.source)}</small></div>${chkPill(a.status)}</div>`).join("");
   $("main").innerHTML = `<p class="muted" style="margin:0 0 10px">About you: ${esc(age)}, ${esc(p.sex)}${anc ? ", " + esc(anc) : ""} · <button class="btn" id="chk-edit">Change</button></p>`
+    + (chkData.items.some((i) => i.status === "review") ? card("Under review: newer than Buddy's rules", chkData.items.filter((i) => i.status === "review").map(chkItem).join("")) : "")
     + (due ? card(`Due · ${due}`, chkData.items.filter((i) => i.status === "due").map(chkItem).join("")) : "")
     + (chkData.items.some((i) => i.status === "decide" || i.status === "ask") ? card("To talk over with your doctor", chkData.items.filter((i) => i.status === "decide" || i.status === "ask").map(chkItem).join("")) : "")
     + (chkData.items.some((i) => i.status === "ok") ? card("Up to date", chkData.items.filter((i) => i.status === "ok").map(chkItem).join("")) : "")
