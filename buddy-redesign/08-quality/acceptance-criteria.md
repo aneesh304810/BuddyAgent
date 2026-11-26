@@ -16,7 +16,7 @@ ships it (see `07-engineering/migration-plan.md`).
 | 7 | Light and dark themes | prototyped, tested | All checks run in both themes; contrast report |
 | 8 | At most two levels of navigation | prototyped, tested | "two levels: every destination has 2 to 5 sections" |
 | 9 | Daily tasks in two taps or fewer | prototyped, tested | Meal 1, BP 1, today's health 1, scan 1, bills 1, news 1, approval 1, spending 2 |
-| 10 | Native and web share foundations | designed | One token source generating CSS and Kotlin; web-spec.md, android-spec.md |
+| 10 | Native and web share foundations | designed; tokens implemented (step 1) | One token source generating CSS and Kotlin; web-spec.md, android-spec.md |
 | 11 | Accessibility validated | partly: contrast tested; targets and labels designed | contrast-report.md (50/50); screen-reader pass on the real app is pending |
 | 12 | Health isolated from general AI | implemented today; prototyped; tested in the prototype | `privacygate.py` blocks health for every model today; the prototype turns health typed in the conversation away |
 | 13 | Financial actions require approval | implemented today (`confirm_action`); approval card prototyped and tested; exact-action tokens designed | architecture.md |
@@ -25,4 +25,4 @@ ships it (see `07-engineering/migration-plan.md`).
 | 16 | Multi-user architecture documented | designed | architecture.md |
 | 17 | Working prototype available | prototyped, tested | 05-prototype/prototype.html; published page |
 | 18 | Engineering handoff complete | designed | 07-engineering/*, components.md, tokens |
-| 19 | Regression tests documented and run | tested | Prototype journeys 116/116; backend suite 1,716 passed (unchanged code) |
+| 19 | Regression tests documented and run | tested | Prototype journeys 116/116; backend suite 1,719 passed, including the token drift and contrast tests |

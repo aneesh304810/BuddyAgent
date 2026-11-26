@@ -26,6 +26,7 @@ import androidx.compose.foundation.lazy.itemsIndexed
 import androidx.compose.ui.draw.alpha
 import androidx.compose.ui.draw.clip
 import androidx.compose.ui.draw.scale
+import androidx.compose.ui.res.painterResource
 import androidx.compose.ui.text.LinkAnnotation
 import androidx.compose.ui.text.SpanStyle
 import androidx.compose.ui.text.TextLinkStyles
@@ -65,6 +66,7 @@ import androidx.compose.foundation.shape.RoundedCornerShape
 import androidx.compose.material3.Button
 import androidx.compose.material3.DropdownMenu
 import androidx.compose.material3.DropdownMenuItem
+import androidx.compose.material3.Icon
 import androidx.compose.material3.FilterChip
 import androidx.compose.material3.MaterialTheme
 import androidx.compose.material3.OutlinedButton
@@ -363,7 +365,12 @@ private fun BuddyScreen(
                 RoundIconButton(Glyph.BACK, "Back") { onNavigate(parent) }
                 Spacer(Modifier.size(10.dp))
             }
-            Text(titleOf(screen), color = Pal.text, fontSize = 22.sp, fontWeight = FontWeight.SemiBold)
+            if (screen == Screen.Talk) {  // the conversation carries the wordmark (buddy-redesign/01-brand)
+                Icon(painterResource(R.drawable.buddy_wordmark), contentDescription = "Buddy", tint = Pal.text,
+                    modifier = Modifier.size(width = 72.dp, height = 30.dp))
+            } else {
+                Text(titleOf(screen), color = Pal.text, fontSize = 22.sp, fontWeight = FontWeight.SemiBold)
+            }
             Spacer(Modifier.size(10.dp))
             Box(Modifier.size(8.dp).background(if (ui.online) Listening else Muted, CircleShape))
             Spacer(Modifier.size(6.dp))
