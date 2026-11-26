@@ -76,3 +76,11 @@ def test_public_work_done_by_paid_claude_is_flagged():
     r = costwatch.analyse(m)
     f = [x for x in r["findings"] if x["kind"] == "could be free"]
     assert f and "none of your data" in f[0]["what"] and "free key" in f[0]["fix"]
+
+
+def test_a_window_since_the_reset_that_starts_at_midnight_is_still_labelled_by_its_times():
+    m = Memory(":memory:")
+    start = datetime.now(timezone.utc).replace(hour=0, minute=0, second=30, microsecond=0)
+    got = costwatch.analyse(m, start=start, end=start + timedelta(hours=2))
+    assert " – " in got["day"]  # not mistaken for "yesterday"
+    assert " – " not in costwatch.analyse(m)["day"]  # a calendar day is labelled by its date

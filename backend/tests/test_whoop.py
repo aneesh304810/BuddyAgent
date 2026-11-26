@@ -72,7 +72,7 @@ def test_connect_and_one_row_a_day_from_the_four_kinds(tmp_path):
     net = Whoop()
     assert _connect(m, net) == {"linked": True} and whoop.linked(m, ENV)
     assert whoop.sync(m, env=ENV, fetch=net) == 1
-    d = whoop.days(m, 1)[0]
+    d = [r for r in whoop.days(m, 2) if r["day"] == TODAY][0]  # TODAY was fixed at import: a run past midnight
     assert (d["recovery"], d["resting_hr"], d["hrv"], d["skin_temp"]) == (68, 52, 61.3, 33.4)
     assert d["sleep_minutes"] == 390 and d["deep_minutes"] == 90 and d["rem_minutes"] == 100  # the nap left out
     assert d["strain"] == 11.2 and d["calories"] == 2200 and d["max_hr"] == 151 and d["respiratory_rate"] == 14.6

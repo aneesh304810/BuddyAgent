@@ -130,7 +130,7 @@ def test_sync_makes_one_row_a_day_and_skips_what_it_may_not_read(tmp_path):
     net = Oura(DATA, refuse={"daily_resilience", "daily_spo2"})
     _connect(m, net)
     assert oura.sync(m, env=ENV, fetch=net) == 1
-    d = oura.days(m, 1)[0]
+    d = [r for r in oura.days(m, 2) if r["day"] == TODAY][0]  # TODAY was fixed at import: a run past midnight
     assert d["readiness"] == 64 and d["sleep_score"] == 71 and d["steps"] == 6400
     assert d["sleep_minutes"] == 390 and d["deep_minutes"] == 60 and d["hrv"] == 38 and d["lowest_hr"] == 52
     assert d["bedtime"] == "23:41" and d["wake"] == "06:50" and d["temp_deviation"] == 0.6

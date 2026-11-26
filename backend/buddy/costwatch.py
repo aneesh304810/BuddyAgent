@@ -108,6 +108,8 @@ def analyse(memory: Memory, day: datetime | None = None, start: datetime | None 
             end: datetime | None = None) -> dict:
     """Yesterday (or the day before `day`) against the 7 days before it; or any window start..end (default now),
     e.g. since the cost reset, against the 7 days before it."""
+    whole_day = start is None  # a calendar day; a window (since the reset) is labelled by its times, even one that
+    # happens to start at midnight
     if start is None:
         end = (day or datetime.now(timezone.utc)).astimezone(timezone.utc).replace(hour=0, minute=0, second=0,
                                                                                       microsecond=0)
@@ -221,8 +223,7 @@ def analyse(memory: Memory, day: datetime | None = None, start: datetime | None 
     top = sorted(({"purpose": k, "usd": round(v["usd"], 2), "calls": v["calls"],
                    "usual_usd": round(usual.get(k, {}).get("usd", 0.0) * per, 2)} for k, v in today.items()),
                  key=lambda x: -x["usd"])[:8]
-    same_day = per <= 1.01 and start.hour == 0 and start.minute == 0
-    label = start.date().isoformat() if same_day else \
+    label = start.date().isoformat() if whole_day else \
         f"{start.astimezone(local_now().tzinfo):%b %-d %H:%M} – {end.astimezone(local_now().tzinfo):%b %-d %H:%M}"
     return {"day": label, "days": round(per, 2), "total_usd": round(total, 2), "usual_usd": round(usual_total * per, 2),
             "top": top, "findings": findings,
