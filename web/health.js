@@ -113,11 +113,63 @@ function pill(band, better) {
   return `<span class="pill${kind}">${esc(band)}</span>`;
 }
 
+// The redesign's five sections (buddy-redesign/03-ux): Today, Food, Body, Labs, Library. Each opens on its main
+// view; the rest of the section is listed under it ("Also in Food") and opens full-page with a "‹ Food" button
+// (and the phone's Back), so there is never a second row of tabs. ?tabs=1 brings back the earlier six tabs.
+const GROUPS = [
+  ["today", "Today", [["today", "Today", ""], ["plan/habits", "Progress", "This week's habits and targets"],
+    ["plan/goals", "Goals & habits", "What you are working towards, and the habits for it"]]],
+  ["food", "Food", [["plan/food", "Meals", ""], ["plan/groceries", "Groceries", "Good for me? on anything you scan or type; compare on the shelf"],
+    ["plan/menu", "Menu", "Day menus with their numbers"]]],
+  ["body", "Body", [["trends/body", "Body & BP", ""], ["trends/measures", "Measures", "Each reading against your own usual"],
+    ["trends/patterns", "Patterns", "What goes with what in your days"], ["trends/mood", "Mood", "Mood, stress and energy you noted"]]],
+  ["labs", "Labs", [["labs/results", "Results", ""], ["labs/add", "Add a report", "A lab report's PDF, or the numbers typed"],
+    ["labs/portals", "Portals", "Results from your patient portal"], ["labs/checkups", "Checkups", "Screenings due for you, and what is covered"]]],
+  ["library", "Library", [["learn/research", "Research", ""], ["learn/supplements", "Supplements", "What a supplement holds, from NIH"],
+    ["learn/medicines", "Medicines", "A medicine's label and warnings, from FDA"],
+    ["sources", "Sources", "Where each number comes from, and each connection"]]],
+];
+const OLD_TABS = params.get("tabs") === "1";
+const partNow = () => (subsOf(tab).length ? `${tab}/${subOf(tab)}` : tab);
+const groupOf = (part) => GROUPS.find(([, , parts]) => parts.some(([p]) => p === part)) || GROUPS[0];
+const mainOf = (part) => groupOf(part)[2][0][0];
+function openPart(part, push = true) {
+  const [t, s] = part.split("/");
+  tab = t; storageSet("healthTab", t);
+  if (s) storageSet("healthSub:" + t, s);
+  sure = false;
+  if (push && part !== mainOf(part)) history.pushState({ part }, "");  // so Back returns to the section
+  render(); window.scrollTo(0, 0);
+}
+window.addEventListener("popstate", (e) => openPart((e.state && e.state.part) || mainOf(partNow()), false));
+
 function tabs() {
+  if (OLD_TABS) return oldTabs();
+  const [now] = groupOf(partNow());
+  $("tabs").innerHTML = GROUPS.map(([k, label]) => `<button class="chip${k === now ? " on" : ""}" role="tab" aria-selected="${k === now}" data-group="${k}">${label}</button>`).join("");
+  $("tabs").querySelectorAll("button").forEach((b) => b.onclick = () => {
+    if (history.state && history.state.part) history.replaceState(null, "");
+    openPart(GROUPS.find(([k]) => k === b.dataset.group)[2][0][0], false);
+  });
+}
+function subTabs() {
+  if (OLD_TABS) return oldSubTabs();
+  const part = partNow(), [, label, parts] = groupOf(part);
+  if (parts[0][0] !== part) {
+    $("main").insertAdjacentHTML("afterbegin", `<p><button class="btn" id="part-back">‹ ${esc(label)}</button></p>`);
+    $("part-back").onclick = () => (history.state && history.state.part ? history.back() : openPart(parts[0][0], false));
+  } else if (parts.length > 1) {
+    $("main").insertAdjacentHTML("beforeend", card(`Also in ${esc(label)}`, parts.slice(1).map(([p, name, about]) =>
+      `<button class="part" data-part="${p}"><span><b>${esc(name)}</b><small>${esc(about)}</small></span><span aria-hidden="true">›</span></button>`).join("")));
+    $("main").querySelectorAll("[data-part]").forEach((b) => b.onclick = () => openPart(b.dataset.part));
+  }
+}
+
+function oldTabs() {
   $("tabs").innerHTML = TABS.map(([k, label]) => `<button class="chip${k === tab ? " on" : ""}" role="tab" aria-selected="${k === tab}" data-tab="${k}">${label}</button>`).join("");
   $("tabs").querySelectorAll("button").forEach((b) => b.onclick = () => { tab = b.dataset.tab; sure = false; storageSet("healthTab", tab); render(); });
 }
-function subTabs() {
+function oldSubTabs() {
   const subs = subsOf(tab), now = subOf(tab);
   if (!subs.length) return;
   $("main").insertAdjacentHTML("afterbegin", `<div class="subtabs" role="tablist">${subs.map(([k, label]) =>

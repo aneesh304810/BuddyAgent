@@ -88,7 +88,17 @@ fun HealthScreen(link: ServerLink?) {
     LaunchedEffect(jump) { if (jump == "scan" && link != null) scan.launch(Intent(context, FoodScanActivity::class.java)) }
     Box(Modifier.fillMaxSize()) {
         key(query) { BuddyPage(link, "health.html", query) }
-        if (link != null) {
+        if (link != null && NavLayout.v2) {
+            // The redesign: Log BP and Scan food in place of the microphone (no health goes to the conversation).
+            Row(Modifier.align(Alignment.BottomEnd).padding(16.dp), horizontalArrangement = Arrangement.spacedBy(10.dp)) {
+                ExtendedFloatingActionButton(onClick = {
+                    query = "section=bp&t=" + System.currentTimeMillis()
+                }) { Text("Log BP") }
+                ExtendedFloatingActionButton(onClick = { scan.launch(Intent(context, FoodScanActivity::class.java)) }) {
+                    Text("Scan food")
+                }
+            }
+        } else if (link != null) {
             ExtendedFloatingActionButton(
                 onClick = { scan.launch(Intent(context, FoodScanActivity::class.java)) },
                 // Beside Buddy's microphone button (56 dp in the same corner, 16 dp in), not under it.

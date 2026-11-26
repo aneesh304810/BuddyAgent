@@ -6,10 +6,15 @@ import android.net.Uri
 import android.webkit.WebResourceRequest
 import android.webkit.WebView
 import android.webkit.WebViewClient
+import androidx.activity.compose.BackHandler
 import androidx.compose.foundation.layout.fillMaxSize
 import androidx.compose.foundation.layout.padding
 import androidx.compose.material3.Text
 import androidx.compose.runtime.Composable
+import androidx.compose.runtime.getValue
+import androidx.compose.runtime.mutableStateOf
+import androidx.compose.runtime.remember
+import androidx.compose.runtime.setValue
 import androidx.compose.ui.Modifier
 import androidx.compose.ui.graphics.Color
 import androidx.compose.ui.unit.dp
@@ -33,9 +38,13 @@ fun BuddyPage(link: ServerLink?, page: String, query: String = "") {
         return
     }
     val base = Uri.parse(link.baseUrl)
+    // The phone's Back steps back inside the page first (a Health part opened from its section), then leaves it.
+    val web = remember { arrayOfNulls<WebView>(1) }
+    var canBack by remember { mutableStateOf(false) }
+    BackHandler(enabled = canBack) { web[0]?.goBack() }
     val light = Theme.light
     val url = link.baseUrl.trimEnd('/') + "/" + page + "?token=" + URLEncoder.encode(link.token, "UTF-8") +
-        "&theme=" + Theme.pageTheme + (if (query.isNotEmpty()) "&$query" else "")
+        "&theme=" + Theme.pageTheme + "&embed=1" + (if (query.isNotEmpty()) "&$query" else "")
     AndroidView(
         modifier = Modifier.fillMaxSize(),
         factory = { context ->
@@ -50,7 +59,11 @@ fun BuddyPage(link: ServerLink?, page: String, query: String = "") {
                 settings.allowFileAccess = false
                 settings.allowContentAccess = false
                 settings.setSupportMultipleWindows(false)
+                web[0] = this
                 webViewClient = object : WebViewClient() {
+                    override fun doUpdateVisitedHistory(view: WebView, url: String?, isReload: Boolean) {
+                        canBack = view.canGoBack()
+                    }
                     override fun shouldOverrideUrlLoading(view: WebView, request: WebResourceRequest): Boolean {
                         val u = request.url
                         val ours = u.scheme == base.scheme && u.host == base.host && u.port == base.port

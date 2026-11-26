@@ -525,7 +525,8 @@ private fun BuddyScreen(
             Controls(ui, prefs)
         }
           }
-          if (screen != Screen.Talk && screen != Screen.Settings) {
+          // Health keeps its own Log BP and Scan food buttons instead: health isn't spoken into the conversation.
+          if (screen != Screen.Talk && screen != Screen.Settings && !(NavLayout.v2 && screen == Screen.Health)) {
               TalkAnywhere(ui, Modifier.align(Alignment.BottomEnd).padding(16.dp))
           }
         }

@@ -17,7 +17,10 @@ on your Buddy server. It's coaching, not medical advice.
 
 ## The Health page
 
-**Health** in the app's bar (Home's Log a meal, Log BP and Scan food open it at that section) (`web/health.html`). It shows your own numbers to you, worked out by fixed rules on
+**Health** in the app's bar (`web/health.html`; Home's Log a meal, Log BP and Scan food open it at that
+section). It has five sections: Today, Food, Body, Labs and Library. Each opens on its main view, and the rest of
+the section is listed under it ("Also in Food": Groceries, Menu) and opens full-page; Back returns. Log BP and
+Scan food sit at the bottom in place of the microphone, since health is never spoken into the conversation. It shows your own numbers to you, worked out by fixed rules on
 your server. No AI model is given any of it. Five sections along the top; Trends, Labs and Plan have smaller
 sub-tabs under them, and the page remembers where you were.
 

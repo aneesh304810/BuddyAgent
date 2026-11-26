@@ -13,4 +13,6 @@
     look = window.matchMedia && matchMedia("(prefers-color-scheme: dark)").matches ? "dark" : "light";
   }
   document.documentElement.dataset.theme = look;
+  // Inside the app (?embed=1) the app's header names the page, so the page's own title is hidden (theme.css).
+  if (new URLSearchParams(location.search).get("embed") === "1") document.documentElement.dataset.embed = "1";
 })();

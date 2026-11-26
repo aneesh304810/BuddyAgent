@@ -8,3 +8,5 @@
   --hover: var(--b-surface-2); --tagbg: var(--b-primary-soft); --tagtext: var(--b-primary-strong);
   --track: var(--b-surface-2); --tick: var(--b-text); --shade: var(--b-scrim);
 }
+/* Inside the app the header already names the page: no repeated title. */
+html[data-embed] header > h1 { display: none; }
