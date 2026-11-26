@@ -33,6 +33,7 @@ import androidx.compose.material3.FilterChip
 import androidx.compose.material3.OutlinedButton
 import androidx.compose.material3.OutlinedTextField
 import androidx.compose.material3.Text
+import androidx.compose.material3.TextButton
 import androidx.compose.runtime.Composable
 import androidx.compose.runtime.DisposableEffect
 import androidx.compose.runtime.LaunchedEffect
@@ -59,6 +60,7 @@ import com.google.mlkit.vision.label.custom.CustomImageLabelerOptions
 import java.net.URLEncoder
 import java.util.concurrent.Executors
 import java.util.concurrent.atomic.AtomicBoolean
+import java.util.concurrent.atomic.AtomicReference
 
 /**
  * The Health screen: Buddy's health page (web/health.html) with a "Scan food" button over it. A scanned barcode or
@@ -133,20 +135,26 @@ private fun ScanScreen(onCode: (String) -> Unit, onDish: (String) -> Unit, onCan
     }
     var dishMode by remember { mutableStateOf(false) }
     var typed by remember { mutableStateOf("") }
-    var guesses by remember { mutableStateOf(listOf<Pair<String, Float>>()) }
+    var guesses by remember { mutableStateOf(listOf<Guess>()) }
     var problem by remember { mutableStateOf("") }
+    val book = remember { DishBook(context) }
+    val latest = remember { AtomicReference<FloatArray?>(null) }  // what the camera sees now, as numbers
+    var taught by remember { mutableStateOf(book.names()) }
+    var said by remember { mutableStateOf("") }
+    var showTaught by remember { mutableStateOf(false) }
     Column(
         Modifier.fillMaxSize().background(Color(0xFF0E1222)).safeDrawingPadding().padding(16.dp),
         verticalArrangement = Arrangement.spacedBy(10.dp),
     ) {
         Row(horizontalArrangement = Arrangement.spacedBy(8.dp)) {
             FilterChip(selected = !dishMode, onClick = { dishMode = false; typed = "" }, label = { Text("Barcode") })
-            FilterChip(selected = dishMode, onClick = { dishMode = true; typed = ""; guesses = emptyList() },
+            FilterChip(selected = dishMode, onClick = { dishMode = true; typed = ""; guesses = emptyList(); said = "" },
                 label = { Text("Dish") })
         }
         Text(
-            if (dishMode) "Point at the plate: tap the dish it is. Suggestions are made on your phone; no picture " +
-                "is kept or sent. It doesn't know dosa, appam, avial, thoran, chapati: type those."
+            if (dishMode) "Point at the plate and tap the dish it is. Suggestions are made on your phone; no " +
+                "picture is kept or sent. It doesn't know dosa, appam, avial, thoran or chapati until you teach it: " +
+                "type the name and tap Teach, from 3 to 5 sides."
             else "Point at the pack's barcode. Read on your phone; only the number is looked up. No picture is " +
                 "kept or sent.",
             color = Color(0xFFB8BED0),
@@ -154,7 +162,7 @@ private fun ScanScreen(onCode: (String) -> Unit, onDish: (String) -> Unit, onCan
         if (allowed) {
             key(dishMode) {
                 if (dishMode) {
-                    DishCamera(onGuesses = { guesses = it }, onProblem = { problem = it },
+                    DishCamera(book, latest, onGuesses = { guesses = it }, onProblem = { problem = it },
                         modifier = Modifier.fillMaxWidth().weight(1f))
                 } else {
                     BarcodeCamera(onCode, Modifier.fillMaxWidth().weight(1f))
@@ -172,9 +180,9 @@ private fun ScanScreen(onCode: (String) -> Unit, onDish: (String) -> Unit, onCan
         if (dishMode) {
             if (problem.isNotEmpty()) Text(problem, color = Color(0xFFFFB4A9))
             Column(verticalArrangement = Arrangement.spacedBy(4.dp)) {
-                guesses.forEach { (name, confidence) ->
-                    OutlinedButton(onClick = { onDish(name) }, modifier = Modifier.fillMaxWidth()) {
-                        Text("$name · ${(confidence * 100).toInt()}%")
+                guesses.forEach { g ->
+                    OutlinedButton(onClick = { onDish(g.name) }, modifier = Modifier.fillMaxWidth()) {
+                        Text(if (g.taught) "${g.name} · one you taught" else "${g.name} · ${(g.score * 100).toInt()}%")
                     }
                 }
             }
@@ -190,10 +198,43 @@ private fun ScanScreen(onCode: (String) -> Unit, onDish: (String) -> Unit, onCan
                 onClick = { if (dishMode) onDish(typed) else onCode(typed) },
                 enabled = if (dishMode) typed.trim().length >= 2 else typed.length >= 8,
             ) { Text("Look up") }
+            if (dishMode) {
+                OutlinedButton(
+                    onClick = {
+                        val view = latest.get()
+                        said = if (view == null) "Point the camera at the dish first." else {
+                            val n = book.teach(typed, view)
+                            taught = book.names()
+                            if (n == 0) "That's the most dishes Buddy keeps: forget one first."
+                            else "Saved view $n of ${typed.trim()}. Turn the plate or step to one side and tap Teach " +
+                                "again: 3 to 5 views work best."
+                        }
+                    },
+                    enabled = allowed && typed.trim().length >= 2,
+                ) { Text("Teach") }
+            }
             OutlinedButton(onClick = onCancel) { Text("Cancel") }
+        }
+        if (dishMode && said.isNotEmpty()) Text(said, color = Color(0xFFB8BED0))
+        if (dishMode && taught.isNotEmpty()) {
+            TextButton(onClick = { showTaught = !showTaught }) { Text("Dishes you taught (${taught.size})") }
+            if (showTaught) {
+                taught.forEach { (name, views) ->
+                    Row(verticalAlignment = Alignment.CenterVertically) {
+                        Text("$name · $views view${if (views == 1) "" else "s"}", color = Color.White,
+                            modifier = Modifier.weight(1f))
+                        TextButton(onClick = { book.forget(name); taught = book.names() }) { Text("Forget") }
+                    }
+                }
+                Text("Kept on this phone only, as numbers that describe each view, not pictures.",
+                    color = Color(0xFFB8BED0))
+            }
         }
     }
 }
+
+/** A suggestion for the dish in view: from the dishes the owner taught, or from Google's food classifier. */
+private data class Guess(val name: String, val score: Float, val taught: Boolean)
 
 /**
  * The camera preview with an analyzer on every frame (the latest only, when the analyzer is busy). Leaving it (or
@@ -261,10 +302,18 @@ private fun BarcodeCamera(onCode: (String) -> Unit, modifier: Modifier) {
     }
 }
 
-/** Google's food classifier, on the phone: the three likeliest dishes, a few times a second. */
-@androidx.annotation.OptIn(ExperimentalGetImage::class)
+/**
+ * Suggestions a few times a second, on the phone: the dishes the owner taught (DishEmbedder and DishBook) first, then
+ * Google's food classifier's likeliest. Each frame is copied, released to the camera, and dropped after use.
+ */
 @Composable
-private fun DishCamera(onGuesses: (List<Pair<String, Float>>) -> Unit, onProblem: (String) -> Unit, modifier: Modifier) {
+private fun DishCamera(
+    book: DishBook,
+    latest: AtomicReference<FloatArray?>,
+    onGuesses: (List<Guess>) -> Unit,
+    onProblem: (String) -> Unit,
+    modifier: Modifier,
+) {
     val context = LocalContext.current
     val names = remember {  // the model's English dish names, by output index (0 is "no dish")
         runCatching { context.assets.open("food_v1_labels_en.txt").bufferedReader().readLines() }.getOrDefault(emptyList())
@@ -277,28 +326,49 @@ private fun DishCamera(onGuesses: (List<Pair<String, Float>>) -> Unit, onProblem
             )
         }.getOrNull()
     }
-    DisposableEffect(Unit) { onDispose { labeler?.close() } }
-    if (labeler == null) {
+    val embedder = remember { runCatching { DishEmbedder(context) }.getOrNull() }
+    DisposableEffect(Unit) {
+        onDispose {
+            labeler?.close()
+            embedder?.close()
+            latest.set(null)
+        }
+    }
+    if (labeler == null && embedder == null) {
         LaunchedEffect(Unit) { onProblem("Dish suggestions aren't available on this phone: type the dish below.") }
         return
     }
     val last = remember { longArrayOf(0L) }
     CameraFeed(modifier) { proxy ->
-        val image = proxy.image
         val now = SystemClock.elapsedRealtime()
-        if (image == null || now - last[0] < 700) {
+        if (now - last[0] < 700) {
             proxy.close()
-        } else {
-            last[0] = now
-            labeler.process(InputImage.fromMediaImage(image, proxy.imageInfo.rotationDegrees))
-                .addOnSuccessListener { labels ->
-                    onGuesses(labels.mapNotNull { l ->
-                        val name = names.getOrNull(l.index)?.trim().takeUnless { it.isNullOrEmpty() } ?: l.text
-                        if (l.index == 0 || name.startsWith("__") || name.startsWith("/g/")) null else name to l.confidence
-                    }.take(3))
-                }
-                .addOnFailureListener { onProblem("Couldn't read the picture: type the dish below.") }
-                .addOnCompleteListener { proxy.close() }
+            return@CameraFeed
         }
+        last[0] = now
+        val rotation = proxy.imageInfo.rotationDegrees
+        val frame = runCatching { proxy.toBitmap() }.getOrNull()
+        proxy.close()
+        if (frame == null) return@CameraFeed
+        val view = runCatching { embedder?.embed(frame, rotation) }.getOrNull()
+        latest.set(view)
+        val mine = view?.let { book.match(it) }.orEmpty().map { (name, score) -> Guess(name, score, true) }
+        if (labeler == null) {
+            onGuesses(mine)
+            return@CameraFeed
+        }
+        labeler.process(InputImage.fromBitmap(frame, rotation))
+            .addOnSuccessListener { labels ->
+                val theirs = labels.mapNotNull { l ->
+                    val name = names.getOrNull(l.index)?.trim().takeUnless { it.isNullOrEmpty() } ?: l.text
+                    if (l.index == 0 || name.startsWith("__") || name.startsWith("/g/")) null
+                    else Guess(name, l.confidence, false)
+                }.filter { g -> mine.none { it.name.equals(g.name, ignoreCase = true) } }
+                onGuesses((mine + theirs).take(3))
+            }
+            .addOnFailureListener {
+                onGuesses(mine)
+                onProblem("Couldn't read the picture: type the dish below.")
+            }
     }
 }

@@ -78,6 +78,9 @@ dependencies {
     implementation("com.google.mlkit:barcode-scanning:17.3.0")
     // Health → Scan food → Dish: ML Kit runs Google's food classifier (assets/food_v1.tflite) on the phone.
     implementation("com.google.mlkit:image-labeling-custom:17.0.3")
+    // Health → Scan food → Dish → Teach: Google's MobileNet-V3 image embedder (assets/mobilenet_v3_small_embedder.tflite)
+    // describes what the camera sees as numbers, on the phone, so dishes the owner taught can be suggested.
+    implementation("org.tensorflow:tensorflow-lite:2.17.0")
 
     testImplementation("junit:junit:4.13.2")
 }

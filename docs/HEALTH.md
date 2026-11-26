@@ -94,9 +94,14 @@ sub-tabs under them, and the page remembers where you were.
     2,000 dishes), which runs on the phone through ML Kit and works offline. No picture is kept or sent: only the
     dish's name you tap goes to your server, and from there to USDA as a food lookup. It knows idli, sambar, upma,
     puttu, idiyappam, biryani, palak paneer, chana masala, rajma, chicken curry, fish fry, Greek salad, hummus,
-    falafel, tabbouleh and many more, but not dosa, appam, avial, thoran, rasam, pongal, uttapam, chapati, naan,
-    grilled chicken, oatmeal or quinoa: type those in the box under the camera. A suggestion is a guess, so the
-    meal is only added when you pick it and its portion.
+    falafel, tabbouleh, pathiri, kottu and many more, but not dosa, appam, avial, thoran, rasam, pongal, uttapam,
+    chapati, naan, grilled chicken, oatmeal or quinoa. **Teach it those:** type the dish's name, point the camera
+    at it and tap **Teach**; turn the plate or step to one side and tap it again (3 to 5 views work best). Each view
+    is kept as 1,024 numbers that describe what the camera saw, from Google's MobileNet-V3 image embedder (Apache
+    2.0) running on the phone; never the picture. Next time, a dish you taught is suggested first ("one you
+    taught"), and it works for your own home cooking too. They stay on the phone, in a folder Android doesn't back
+    up, and nothing is sent anywhere; "Dishes you taught" lists them, and Forget removes one. A suggestion is a
+    guess, so the meal is only added when you pick it and its portion.
 - **Learn → Research:** new studies on the topics you choose, strongest evidence first, from PubMed (the US
   National Library of Medicine). Ready-made topics: longevity research (the journals Nature Aging, Aging Cell and
   GeroScience, and work from the National Institute on Aging, the Buck Institute and AFAR), South Asian heart and
