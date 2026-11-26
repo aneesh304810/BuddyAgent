@@ -1790,6 +1790,38 @@ async def api_health_lab_file(report_id: int):
                     headers={"Content-Disposition": "inline; filename=report.pdf", "Cache-Control": "no-store"})
 
 
+@app.get("/api/health/research", dependencies=[Depends(require_admin)])
+async def api_health_research(pmid: str = "") -> dict:
+    """The research digest (topics, papers by evidence), or one paper's abstract with pmid."""
+    from . import evidence  # noqa: PLC0415
+    try:
+        if pmid:
+            return await asyncio.to_thread(evidence.abstract, memory, pmid)
+        return await asyncio.to_thread(evidence.view, memory)
+    except ToolError as e:
+        raise HTTPException(400, str(e)) from None
+
+
+@app.post("/api/health/research", dependencies=[Depends(require_admin)])
+async def api_health_research_act(body: dict) -> dict:
+    """topics (presets, custom, strong, people), then a first look; refresh (at most hourly)."""
+    from . import evidence  # noqa: PLC0415
+    action = str(body.get("action") or "")
+    try:
+        if action == "topics":
+            await asyncio.to_thread(evidence.choose, memory, body.get("presets") or [], body.get("custom") or [],
+                                    body.get("strong", True) is not False, body.get("people", True) is not False)
+            got = await asyncio.to_thread(evidence.refresh, memory)
+        elif action == "refresh":
+            got = await asyncio.to_thread(evidence.refresh_now, memory)
+        else:
+            raise HTTPException(400, "unknown action")
+    except ToolError as e:
+        raise HTTPException(400, str(e)) from None
+    text = f"{got['found']} papers, {got['new']} new." if got["found"] else "Nothing new in the last %d days." % got["days"]
+    return {"text": text, **await asyncio.to_thread(evidence.view, memory)}
+
+
 @app.get("/api/health/facts", dependencies=[Depends(require_admin)])
 async def api_health_facts(kind: str, q: str = "") -> dict:
     """Public facts the owner looks up: food (USDA), supplement (NIH label database), label (one supplement's

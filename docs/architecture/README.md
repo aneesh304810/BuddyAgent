@@ -105,7 +105,7 @@ flowchart LR
 | [Going out: restaurants and events](14-going-out.md) | Finding and booking a table after your yes; events and films with links to buy tickets yourself | 2 |
 | [News, trends and research](15-news-trends-and-research.md) | The topics you follow with a daily digest, what's trending, searching beyond the web index, reading pages on Buddy's side, and the background research agent | 6 |
 | [Email, messages and apps](16-email-messages-and-apps.md) | Gmail and other accounts sorted and summarised, marketing and notices moved out of the inbox, messages, and package tracking | 9 |
-| [Home and health](17-home-and-health.md) | Your Nest thermostat, your phone's health data and Oura Ring, and your health plan with public medical sources | 14 |
+| [Home and health](17-home-and-health.md) | Your Nest thermostat, your phone's health data and Oura Ring, and your health plan with public medical sources | 15 |
 | [Making and doing things](18-making-and-doing-things.md) | Diagrams, charts, images, Word, PowerPoint, PDF and Excel; data crunching in the sandbox; a real browser Buddy drives; filling forms; rich cards in the chat; background jobs | 7 |
 | [Agents and skills](19-agents-and-skills.md) | Specialist agents Buddy can connect or build, and its registry of tools and skills | 3 |
 | [Buddy Intelligence Platform](20-buddy-intelligence-platform.md) | A shared layer, like Buddy Connect, that collects public evidence on emerging technologies (papers, clinical studies, company filings, federal awards, code, discussion), finds which are converging across sectors and what stage each is at, and that Buddy's other features read from | 8 |
@@ -114,4 +114,4 @@ flowchart LR
 | [Insights and costs](23-insights-and-costs.md) | What Buddy spends and how well it does, model by model and service by service, and what makes it feel slow; and the modules: which parts are switched on for this server, and the meter that counts what each one is used for | 5 |
 | [The server and the app](24-the-server-and-the-app.md) | The one server the phone talks to: the chat connection, the app's pages and their data, and the door where a pair of smart glasses joins Buddy's brain | 2 |
 
-24 features, 192 server modules. The app (Kotlin) and the deploy scripts are documented by `python -m buddy.codedocs`.
+24 features, 193 server modules. The app (Kotlin) and the deploy scripts are documented by `python -m buddy.codedocs`.

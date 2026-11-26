@@ -372,6 +372,13 @@ CATALOG: dict[str, dict] = {
                  "terms": "Public domain (CC0), from the US Department of Agriculture; the key is a free api.data.gov "
                           "key.",
                  "health": {"custom": "foodfacts.check"}, "moved": True},
+    "pubmed": {"group": "Health", "title": "PubMed (research digest)", "hosts": ["https://eutils.ncbi.nlm.nih.gov"],
+               "auth": {"type": "none"}, "cost": 0.0, "per_minute": 60, "privacy": "public", "no_backup": True,
+               "used_for": "new studies on the health topics you choose, once a week, strongest evidence first "
+                           "(only the topic words are sent, with tool=buddy and no email)",
+               "terms": "NLM's E-utilities: free, at most 3 requests a second without a key. PubMed records are free "
+                        "to use; abstracts may be copyrighted by their publishers.",
+               "health": {"path": "/entrez/eutils/einfo.fcgi?db=pubmed&retmode=json&tool=buddy"}, "moved": True},
     "nih_dsld": {"group": "Health", "title": "NIH supplement labels (DSLD)", "hosts": ["https://api.ods.od.nih.gov"],
                  "auth": {"type": "none"}, "cost": 0.0, "per_minute": 20, "privacy": "public", "no_backup": True,
                  "used_for": "what a supplement's label says, ingredient by ingredient, for the products you look "

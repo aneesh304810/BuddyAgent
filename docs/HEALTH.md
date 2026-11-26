@@ -27,7 +27,7 @@ sub-tabs under them, and the page remembers where you were.
 | **Trends** | Measures · Patterns · Mood |
 | **Labs** | Results · Add a report · Portals · Checkups |
 | **Plan** | Progress · Food · Goals & habits |
-| **Learn** | Supplements · Medicines |
+| **Learn** | Research · Supplements · Medicines |
 | **Sources** | (one page) each source, and "Read the ring now" |
 
 - **Today:** readiness, sleep, heart rate variability, lowest night heart rate and temperature, what they mean for
@@ -52,6 +52,16 @@ sub-tabs under them, and the page remembers where you were.
   portion or type grams, and "Add" puts that food into today's meals with the calories and protein worked out by
   code from USDA's numbers. No AI estimates them. Food lookups need a free api.data.gov key, set once on the
   server: `sudo bash /opt/buddy/deploy/set.sh BUDDY_USDA_KEY` (sign up at api.data.gov; Buddy can't do it for you).
+- **Learn → Research:** new studies on the topics you choose, strongest evidence first, from PubMed (the US
+  National Library of Medicine). Ready-made topics: longevity research (the journals Nature Aging, Aging Cell and
+  GeroScience, and work from the National Institute on Aging, the Buck Institute and AFAR), South Asian heart and
+  metabolic health, prediabetes, sleep, exercise and ageing, and supplements; and up to five of your own, in plain
+  words. By default only guidelines, meta-analyses, systematic reviews and randomised trials, without studies done
+  only in animals (both can be switched off). Buddy looks once a week, on Sunday night, over the last 30 days (90
+  the first time), or when you press Refresh (at most once an hour). Each paper shows its journal, date, first
+  author and evidence type, guidelines first, then reviews, then trials; **Abstract** fetches its abstract. A
+  page, not a notification. No AI model reads or summarises any of it; only your topic words go to PubMed. Papers
+  are kept 180 days. Research isn't advice: one study rarely changes what you should do.
 - **Learn → Supplements:** look up a product in the NIH Office of Dietary Supplements' Label Database (no key):
   products sold now first, then ones no longer sold. Open a label to see each ingredient per serving, its share of
   the daily value, and, for the nutrients with an adult upper limit (vitamin D, C, E and B6, niacin, calcium,

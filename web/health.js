@@ -19,7 +19,7 @@ const SECTIONS = [
   ["trends", "Trends", [["measures", "Measures"], ["patterns", "Patterns"], ["mood", "Mood"]]],
   ["labs", "Labs", [["results", "Results"], ["add", "Add a report"], ["portals", "Portals"], ["checkups", "Checkups"]]],
   ["plan", "Plan", [["habits", "Progress"], ["food", "Food"], ["goals", "Goals & habits"]]],
-  ["learn", "Learn", [["supplements", "Supplements"], ["medicines", "Medicines"]]],
+  ["learn", "Learn", [["research", "Research"], ["supplements", "Supplements"], ["medicines", "Medicines"]]],
   ["sources", "Sources", []],
 ];
 const TABS = SECTIONS.map(([k, label]) => [k, label]);
@@ -491,6 +491,65 @@ function wireFoodLookup() {
   });
 }
 
+// --- the research digest: new PubMed papers on the topics you choose, strongest evidence first (code only)
+let resData = null, resEdit = false, resBusy = false;
+const resAbs = {};
+async function loadResearch(body) {
+  if (body) { resBusy = true; render(); }
+  try { const out = await api("/api/health/research", body); resData = out; if (body) { resEdit = false; notice(out.text); } }
+  catch (e) { resData = resData || { failed: e.message }; if (body) notice(e.message); }
+  resBusy = false;
+  if (showing("learn", "research")) render();
+}
+async function openAbstract(pmid) {
+  resAbs[pmid] = { busy: true }; render();
+  try { resAbs[pmid] = await api(`/api/health/research?pmid=${encodeURIComponent(pmid)}`); }
+  catch (e) { resAbs[pmid] = { failed: e.message }; }
+  render();
+}
+function researchTopics() {
+  const s = resData.settings;
+  return card("Your topics", `<form id="res-form">
+      ${Object.entries(resData.presets).map(([k, v]) => `<label class="pick" style="display:flex;border-radius:12px"><input type="checkbox" name="preset" value="${esc(k)}"${s.presets.includes(k) ? " checked" : ""}> ${esc(v)}</label>`).join("")}
+      <label>Your own topics, one a line (up to five; plain words, e.g. "Lp(a) South Asian", "creatine older adults")</label>
+      <textarea name="custom" maxlength="420">${esc(s.custom.join("\n"))}</textarea>
+      <label class="pick"><input type="checkbox" name="strong"${s.strong ? " checked" : ""}> Strong evidence only (guidelines, reviews, randomised trials)</label>
+      <label class="pick"><input type="checkbox" name="people"${s.people ? " checked" : ""}> Leave out animal-only studies</label>
+      <p style="margin:12px 0 0"><button class="btn solid">Save and look</button>${s.presets.length || s.custom.length ? ` <button type="button" class="btn" id="res-cancel">Cancel</button>` : ""}</p></form>`,
+    "Only these words are sent to PubMed. Buddy looks again every Sunday night.");
+}
+function paper(p) {
+  const a = resAbs[p.pmid];
+  const abs = !a ? "" : a.busy ? `<p class="why">Loading…</p>` : a.failed ? `<p class="err">${esc(a.failed)}</p>`
+    : (a.sections.length ? a.sections.map((s) => `<p class="why">${s.label ? `<b>${esc(s.label)}:</b> ` : ""}${esc(s.text)}</p>`).join("") : `<p class="why">No abstract.</p>`);
+  return `<div class="line"><div class="what"><a href="${esc(p.url)}" target="_blank" rel="noopener">${esc(p.title)}</a>
+      <small>${esc(p.journal)} · ${esc(p.published)}${p.author ? " · " + esc(p.author) : ""}</small>
+      <p style="margin:4px 0 0"><span class="pill ${p.rank <= 1 ? "good" : ""}">${esc(p.evidence)}</span>${p.new ? ` <span class="pill warn">New</span>` : ""}
+      ${a ? "" : ` <button class="btn" data-abs="${esc(p.pmid)}">Abstract</button>`}</p>${a ? abs : ""}</div></div>`;
+}
+function renderResearch() {
+  if (!resData) { $("main").innerHTML = `<p class="muted">Loading…</p>`; loadResearch(); return; }
+  if (resData.failed) { $("main").innerHTML = `<p class="err">${esc(resData.failed)}</p>`; return; }
+  const s = resData.settings, any = s.presets.length || s.custom.length;
+  if (!any || resEdit) { $("main").innerHTML = researchTopics() + (resBusy ? `<p class="muted">Looking…</p>` : ""); wireResearch(); return; }
+  const topics = resData.topics.map((t) => card(esc(t.label), t.papers.length ? t.papers.map(paper).join("")
+    : `<p class="muted">Nothing ${s.strong ? "with strong evidence " : ""}in the last weeks.</p>`)).join("");
+  $("main").innerHTML = `<p class="muted" style="margin:0 0 10px">${resData.ran ? `Looked ${esc(when(resData.ran))}` : "Not looked yet"} · <button class="btn" id="res-edit">Topics</button> <button class="btn" id="res-refresh"${resBusy ? " disabled" : ""}>${resBusy ? "Looking…" : "Refresh"}</button></p>`
+    + topics + `<p class="note">${esc(resData.note)}</p>`;
+  wireResearch();
+}
+function wireResearch() {
+  if ($("res-form")) $("res-form").onsubmit = (e) => {
+    e.preventDefault(); const d = new FormData(e.target);
+    loadResearch({ action: "topics", presets: d.getAll("preset"), custom: String(d.get("custom") || "").split("\n").map((x) => x.trim()).filter(Boolean),
+      strong: d.get("strong") === "on", people: d.get("people") === "on" });
+  };
+  if ($("res-cancel")) $("res-cancel").onclick = () => { resEdit = false; render(); };
+  if ($("res-edit")) $("res-edit").onclick = () => { resEdit = true; render(); };
+  if ($("res-refresh")) $("res-refresh").onclick = () => loadResearch({ action: "refresh" });
+  $("main").querySelectorAll("[data-abs]").forEach((b) => b.onclick = () => openAbstract(b.dataset.abs));
+}
+
 function renderSupplements() {
   const got = facts.supplement, state = factState(got), lab = facts.label;
   let list = state ?? "";
@@ -690,7 +749,7 @@ const VIEWS = {
   "labs/results": () => renderLabs("results"), "labs/add": () => renderLabs("add"), "labs/portals": () => renderLabs("portals"),
   "labs/checkups": renderCheckups,
   "plan/habits": renderHabits, "plan/food": renderFood, "plan/goals": renderPlan,
-  "learn/supplements": renderSupplements, "learn/medicines": renderMedicines,
+  "learn/research": renderResearch, "learn/supplements": renderSupplements, "learn/medicines": renderMedicines,
 };
 function render() {
   tabs();

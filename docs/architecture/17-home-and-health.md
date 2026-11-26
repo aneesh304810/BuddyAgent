@@ -28,6 +28,7 @@ flowchart LR
         prevention_py["prevention.py<br/>which screenings apply to the owner, what they usually cost, and…"]
         nhanesref_py["nhanesref.py<br/>weighted percentiles from NHANES, the CDC's national health survey"]
         foodfacts_py["foodfacts.py<br/>Food, supplement and medicine facts from US government sources,…"]
+        evidence_py["evidence.py<br/>new studies on the health topics the owner chooses, strongest…"]
     end
     you --> t_thermostat
     t_thermostat --> nest_py
@@ -61,7 +62,7 @@ flowchart LR
     prevention_py --> nhanesref_py
     prevention_py --> oura_py
     foodfacts_py --> health_data_py
-    db[("Your database<br/>coach_log, coach_meals, health_daily, health_model_runs, health_records, lab_reports, lab_results, mood_log and more")]
+    db[("Your database<br/>coach_log, coach_meals, evidence_papers, health_daily, health_model_runs, health_records, lab_reports, lab_results and more")]
     health_data_py --> db
     oura_py --> db
     coach_py --> db
@@ -70,6 +71,7 @@ flowchart LR
     whoop_py --> db
     healthmodel_py --> db
     moodlog_py --> db
+    evidence_py --> db
     s_medlineplus["MedlinePlus (NIH health topics)<br/>(public data only)"]
     health_data_py --> s_medlineplus
     s_nest["Google Nest (thermostat)<br/>(may see personal data)"]
@@ -453,6 +455,27 @@ Not medical advice.
 
 - Settings: `BUDDY_USDA_KEY`
 - Uses: gateway.py, health_data.py, memory.py, tools.py
+
+### evidence.py
+
+```text
+The research digest: new studies on the health topics the owner chooses, strongest evidence first, from PubMed.
+
+The owner picks topics on the Health page (Learn → Research): ready-made ones (longevity research from Nature Aging,
+Aging Cell, GeroScience, the National Institute on Aging, the Buck Institute and AFAR; South Asian heart and metabolic
+health; prediabetes; sleep; exercise and ageing; supplements) and up to five of their own words. Once a week (Sunday
+night), or when they press Refresh, Buddy asks the National Library of Medicine's E-utilities for each topic's papers
+from the last 30 days (90 the first time), by default only guidelines, meta-analyses, systematic reviews and randomised
+trials, and leaves out studies only in animals. Each paper is shown with its journal, date, first author and evidence
+type, guidelines first, then reviews, then trials, then other studies; its abstract is fetched when the owner opens
+it. Code only: no AI model reads or summarises any of it, and no notification is sent (a page, not a push).
+
+Only the topic words go to NCBI (with tool=buddy and no email or key); papers are kept 180 days, the topics until
+changed. Research isn't advice: one study rarely changes what anyone should do.
+```
+
+- Tables: `evidence_papers`
+- Uses: gateway.py, memory.py, tools.py
 
 ## How it connects
 

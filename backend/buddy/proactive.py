@@ -1,6 +1,7 @@
 """Buddy speaking up on its own: due reminders, the morning briefing and the evening wrap-up."""
 
 import asyncio
+import contextlib
 import json
 import logging
 import os
@@ -564,6 +565,14 @@ async def run(memory: Memory, deliver: Deliver, connected=None) -> None:
                         got = await asyncio.to_thread(healthmodel.learn, memory)
                         log.info("health patterns: %d days, %d patterns, %d models", got["days"],
                                  len(got["patterns"]), len(got["models"]))
+                    from . import evidence  # noqa: PLC0415  the research digest, Sunday night (a page, no push)
+                    from .tools import ToolError  # noqa: PLC0415
+                    if evidence.due(memory):
+                        try:
+                            got = await asyncio.to_thread(evidence.refresh, memory)
+                            log.info("research digest: %d papers, %d new", got["found"], got["new"])
+                        except ToolError as e:
+                            log.info("research digest skipped: %s", e)
                 from . import fhirlabs, whoop  # noqa: PLC0415  portals once a day; WHOOP every 3 hours
                 await asyncio.to_thread(fhirlabs.sync_if_due, memory)
                 await asyncio.to_thread(whoop.sync_if_due, memory)
