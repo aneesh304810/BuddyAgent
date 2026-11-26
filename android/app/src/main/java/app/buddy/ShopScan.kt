@@ -3,7 +3,11 @@ package app.buddy
 import android.os.SystemClock
 import androidx.compose.foundation.background
 import androidx.compose.foundation.layout.Arrangement
+import androidx.compose.foundation.horizontalScroll
 import androidx.compose.foundation.layout.Column
+import androidx.compose.foundation.layout.Row
+import androidx.compose.foundation.rememberScrollState
+import androidx.compose.material3.FilterChip
 import androidx.compose.foundation.layout.fillMaxWidth
 import androidx.compose.foundation.layout.padding
 import androidx.compose.foundation.shape.RoundedCornerShape
@@ -45,10 +49,10 @@ import kotlin.math.roundToInt
 data class ShopItem(val id: Int, val text: String)
 
 data class ShopVerdict(val scanId: Int, val name: String, val brand: String, val verdict: String, val headline: String,
-                       val numbers: String)
+                       val numbers: String, val deals: String = "")
 
 data class ShopAdd(val added: Boolean, val already: Boolean, val ticked: String, val warn: String, val better: String,
-                   val toBuy: List<ShopItem>)
+                   val toBuy: List<ShopItem>, val itemId: Int = 0)
 
 object GroceryApi {
     private val http = OkHttpClient.Builder().callTimeout(30, TimeUnit.SECONDS).build()
@@ -76,7 +80,27 @@ object GroceryApi {
 
     private fun one(d: Double): String = if (d >= 10) d.roundToInt().toString() else "%.1f".format(d).removeSuffix(".0")
 
-    suspend fun toBuy(link: ServerLink): List<ShopItem> = items(call(link, "/api/health/groceries").optJSONArray("to_buy"))
+    /** The shopping list and the household (the people the owner shops for). */
+    suspend fun lists(link: ServerLink): Pair<List<ShopItem>, List<String>> {
+        val o = call(link, "/api/health/groceries")
+        val people = o.optJSONArray("people")?.let { a -> (0 until a.length()).map { a.getString(it) } }.orEmpty()
+        return items(o.optJSONArray("to_buy")) to people
+    }
+
+    /** Lower prices seen lately for a scanned product: store emails Buddy reads and order prices (price book). */
+    suspend fun deals(link: ServerLink, scanId: Int): String {
+        val a = call(link, "/api/health/groceries/deals?scan=$scanId").optJSONArray("deals") ?: return ""
+        return (0 until a.length()).joinToString(" · ") { i ->
+            val d = a.getJSONObject(i)
+            "$" + "%.2f".format(d.optDouble("price")) + " at " + d.optString("store")
+        }
+    }
+
+    /** The date on the pack, as the phone read it. */
+    suspend fun expires(link: ServerLink, itemId: Int, date: String) {
+        call(link, "/api/health/groceries", JSONObject().put("action", "expires").put("id", itemId)
+            .put("date", date).put("how", "read"))
+    }
 
     /** True when the phone is at a store the owner marked (scanmeal.where): the scanner opens in Groceries mode. */
     suspend fun atStore(link: ServerLink): Boolean = call(link, "/api/health/where").optString("do") == "verdict"
@@ -100,16 +124,18 @@ object GroceryApi {
             v.optString("headline"), bits.joinToString(" · "))
     }
 
-    suspend fun keep(link: ServerLink, scanId: Int, anyway: Boolean): ShopAdd {
-        val o = call(link, "/api/health/groceries",
-            JSONObject().put("action", "keep").put("scan", scanId).put("anyway", anyway))
+    suspend fun keep(link: ServerLink, scanId: Int, anyway: Boolean, who: String?): ShopAdd {
+        val body = JSONObject().put("action", "keep").put("scan", scanId).put("anyway", anyway)
+        if (who != null) body.put("who", who.ifBlank { "everyone" })
+        val o = call(link, "/api/health/groceries", body)
         val warn = o.optJSONObject("warn")
         val why = warn?.optJSONArray("why")?.let { a -> (0 until a.length()).joinToString(" ") { a.getString(it) } }.orEmpty()
         val better = warn?.optJSONObject("better")?.let { b ->
             b.optString("name") + b.optString("brand").takeIf { it.isNotBlank() }?.let { " ($it)" }.orEmpty()
         }.orEmpty()
         return ShopAdd(o.optBoolean("added"), o.optBoolean("already"), o.optString("ticked"),
-            if (warn != null) why.ifBlank { warn.optString("headline") } else "", better, items(o.optJSONArray("to_buy")))
+            if (warn != null) why.ifBlank { warn.optString("headline") } else "", better, items(o.optJSONArray("to_buy")),
+            o.optInt("item_id"))
     }
 }
 
@@ -121,12 +147,17 @@ class ShopSession(private val link: ServerLink?, private val scope: CoroutineSco
     var add by mutableStateOf<ShopAdd?>(null)
     var problem by mutableStateOf("")
     var added by mutableIntStateOf(0)
+    var people by mutableStateOf<List<String>>(emptyList())
+    var who by mutableStateOf<String?>(null)     // null: the list item's person, else everyone
+    var readingFor by mutableIntStateOf(0)        // a kitchen item whose pack date the camera is reading
+    var dateSeen by mutableStateOf<java.time.LocalDate?>(null)
+    var dateSaved by mutableStateOf("")
     private var last = ""
     private var lastAt = 0L
 
     fun load() {
         val link = link ?: return
-        scope.launch { runCatching { GroceryApi.toBuy(link) }.onSuccess { toBuy = it } }
+        scope.launch { runCatching { GroceryApi.lists(link) }.onSuccess { (list, names) -> toBuy = list; people = names } }
     }
 
     /** A barcode the camera read (many times a second while it's in view) or typed: checked once. */
@@ -140,10 +171,33 @@ class ShopSession(private val link: ServerLink?, private val scope: CoroutineSco
             busy = true
             problem = ""
             add = null
+            readingFor = 0
+            dateSaved = ""
             runCatching { GroceryApi.check(link, code) }
-                .onSuccess { verdict = it }
+                .onSuccess { v ->
+                    verdict = v
+                    val cheaper = runCatching { GroceryApi.deals(link, v.scanId) }.getOrDefault("")
+                    if (cheaper.isNotBlank() && verdict?.scanId == v.scanId) verdict = v.copy(deals = cheaper)
+                }
                 .onFailure { verdict = null; problem = it.message ?: "Couldn't check it: try again." }
             busy = false
+        }
+    }
+
+    /** What the text reader saw while the camera points at the pack's date. */
+    fun sawText(text: String) {
+        if (readingFor == 0 || dateSeen != null) return
+        PackDate.parse(text)?.let { dateSeen = it }
+    }
+
+    fun saveDate() {
+        val link = link ?: return
+        val day = dateSeen ?: return
+        val item = readingFor
+        scope.launch {
+            runCatching { GroceryApi.expires(link, item, day.toString()) }
+                .onSuccess { dateSaved = day.toString(); readingFor = 0; dateSeen = null }
+                .onFailure { problem = it.message ?: "Couldn't save the date: try again." }
         }
     }
 
@@ -152,7 +206,7 @@ class ShopSession(private val link: ServerLink?, private val scope: CoroutineSco
         val v = verdict ?: return
         scope.launch {
             busy = true
-            runCatching { GroceryApi.keep(link, v.scanId, anyway) }
+            runCatching { GroceryApi.keep(link, v.scanId, anyway, who) }
                 .onSuccess { a -> add = a; if (a.added) { added += 1; toBuy = a.toBuy } }
                 .onFailure { problem = it.message ?: "Couldn't add it: try again." }
             busy = false
@@ -180,13 +234,33 @@ fun ShopPanel(s: ShopSession, modifier: Modifier = Modifier) {
                 Text(v.headline.substringBefore(":"), color = verdictColor(v.verdict), fontWeight = FontWeight.SemiBold)
                 Text(v.name + if (v.brand.isNotBlank()) " · ${v.brand}" else "", color = Pal.text)
                 if (v.numbers.isNotBlank()) Text(v.numbers, color = Pal.dim, fontSize = 13.sp)
+                if (v.deals.isNotBlank()) Text("Seen lately: ${v.deals}", color = Pal.link, fontSize = 13.sp)
                 val a = s.add
+                if (a == null && s.people.isNotEmpty()) {  // whom it's for: you, each person, or everyone
+                    Row(Modifier.horizontalScroll(rememberScrollState()), horizontalArrangement = Arrangement.spacedBy(6.dp)) {
+                        (listOf("" to "Everyone", "me" to "You") + s.people.map { it to it }).forEach { (key, label) ->
+                            FilterChip(selected = (s.who ?: "") == key, onClick = { s.who = key }, label = { Text(label) })
+                        }
+                    }
+                }
                 when {
                     a == null -> Button(onClick = { s.keep(false) }, enabled = !s.busy, modifier = Modifier.fillMaxWidth()) {
                         Text("Add to my groceries")
                     }
-                    a.added -> Text((if (a.already) "✓ One more in your groceries" else "✓ In your groceries") +
-                        if (a.ticked.isNotBlank()) " · ticked off ${a.ticked}" else "", color = Pal.good)
+                    a.added -> {
+                        Text((if (a.already) "✓ One more in your groceries" else "✓ In your groceries") +
+                            if (a.ticked.isNotBlank()) " · ticked off ${a.ticked}" else "", color = Pal.good)
+                        when {
+                            s.dateSaved.isNotBlank() -> Text("Date on the pack: ${s.dateSaved}", color = Pal.dim, fontSize = 13.sp)
+                            s.readingFor == 0 -> OutlinedButton(onClick = { s.readingFor = a.itemId; s.dateSeen = null },
+                                enabled = a.itemId > 0) { Text("Read the date on the pack") }
+                            s.dateSeen == null -> Text("Point the camera at the date (best by, use by, exp)…", color = Pal.dim)
+                            else -> Row(horizontalArrangement = Arrangement.spacedBy(8.dp)) {
+                                Button(onClick = { s.saveDate() }) { Text("Save ${s.dateSeen}") }
+                                OutlinedButton(onClick = { s.dateSeen = null }) { Text("Read again") }
+                            }
+                        }
+                    }
                     else -> {
                         Text("Better to skip for you: ${a.warn}", color = Pal.bad)
                         if (a.better.isNotBlank()) Text("Better for you, scanned before: ${a.better}", color = Pal.text)

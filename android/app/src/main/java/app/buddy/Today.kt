@@ -36,7 +36,8 @@ import java.util.concurrent.TimeUnit
 data class TodayItem(val label: String, val title: String, val source: String)
 
 /** What the server's /api/today says: the next thing, the next payment, and how many alerts are new. */
-data class TodayState(val next: TodayItem? = null, val due: TodayItem? = null, val newAlerts: Int = 0)
+data class TodayState(val next: TodayItem? = null, val due: TodayItem? = null, val newAlerts: Int = 0,
+                      val use: TodayItem? = null)
 
 object TodayApi {
     private val http = OkHttpClient.Builder().callTimeout(15, TimeUnit.SECONDS).build()
@@ -61,6 +62,7 @@ object TodayApi {
                     next = item(o.optJSONObject("next"), "Next"),
                     due = item(o.optJSONObject("due"), "Due this week"),
                     newAlerts = o.optJSONObject("alerts")?.optInt("new") ?: 0,
+                    use = item(o.optJSONObject("use"), "Use soon"),
                 )
             }
         } catch (e: Exception) {
@@ -84,13 +86,15 @@ object TodayApi {
 
 /** The strip at the top of the conversation: at most two tiles, and nothing at all when there is nothing. */
 @Composable
-fun TodayStrip(today: TodayState, onOpenMoney: () -> Unit) {
+fun TodayStrip(today: TodayState, onOpenMoney: () -> Unit, onOpenKitchen: () -> Unit = {}) {
     val next = today.next
     val due = today.due
-    if (next == null && due == null) return
+    val use = today.use  // from My kitchen: the pack with the nearest date (groceries.py)
+    if (next == null && due == null && use == null) return
     Row(Modifier.fillMaxWidth().padding(bottom = 8.dp), horizontalArrangement = Arrangement.spacedBy(8.dp)) {
         if (next != null) TodayTile(next, Modifier.weight(1f), null)
         if (due != null) TodayTile(due, Modifier.weight(1f), onOpenMoney)
+        if (use != null) TodayTile(use, Modifier.weight(1f), onOpenKitchen)
     }
 }
 

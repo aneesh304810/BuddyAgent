@@ -76,6 +76,7 @@ dependencies {
     // library already resolves Guava's stand-alone ListenableFuture to its empty placeholder: use Guava itself.
     implementation("com.google.guava:guava:33.3.1-android")
     implementation("com.google.mlkit:barcode-scanning:17.3.0")
+    implementation("com.google.mlkit:text-recognition:16.0.1")  // the date on a pack, read on the phone (PackDate.kt)
     // Health → Scan food → Dish: ML Kit runs Google's food classifier (assets/food_v1.tflite) on the phone.
     implementation("com.google.mlkit:image-labeling-custom:17.0.3")
     // Health → Scan food → Dish → Teach: Google's MobileNet-V3 image embedder (assets/mobilenet_v3_small_embedder.tflite)

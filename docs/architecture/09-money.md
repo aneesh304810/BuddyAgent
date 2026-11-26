@@ -459,5 +459,5 @@ yearly dollar amount · a suggested monthly budget · the few things to do first
 ## How it connects
 
 - Relies on: Buddy Connect; Claude: the brain; Email, messages and apps; Free AI models (Groq, Gemini, Mistral, Cerebras, GitHub Models, OpenRouter); Making and doing things; Memory; News, trends and research; Phone calls; Security and privacy; Travel and getting around
-- Relied on by: Claude: the brain; Email, messages and apps; Free AI models (Groq, Gemini, Mistral, Cerebras, GitHub Models, OpenRouter); Investing: signals, research and practice; Learning: the English and investing tutors; Memory; News, trends and research; Security and privacy; Shopping and deals; Speaking up on its own: briefing, reminders and alerts; The server and the app; Travel and getting around; Voice: Talk mode and Listen-in
+- Relied on by: Claude: the brain; Email, messages and apps; Free AI models (Groq, Gemini, Mistral, Cerebras, GitHub Models, OpenRouter); Home and health; Investing: signals, research and practice; Learning: the English and investing tutors; Memory; News, trends and research; Security and privacy; Shopping and deals; Speaking up on its own: briefing, reminders and alerts; The server and the app; Travel and getting around; Voice: Talk mode and Listen-in
 

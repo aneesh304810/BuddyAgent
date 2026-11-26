@@ -6,6 +6,8 @@ Three things, read from what Buddy already keeps on the server, with no AI model
   due     the next bill or card payment due within 7 days
   alerts  how many messages Buddy sent on its own since you last opened the Alerts screen (silenced kinds
           are not counted)
+  use     what to use up in My kitchen: the product with the nearest date on its pack, within two days or past
+          (groceries.py)
 
 Each part says where it came from. A part with nothing to show is left out; a part that fails is left out
 and logged, so the strip never blocks the conversation.
@@ -82,10 +84,20 @@ def _alerts(memory: Memory, now: datetime) -> dict:
     return {"new": int(n), "since": seen}
 
 
+def _use(memory: Memory, now: datetime) -> dict | None:
+    from . import groceries  # noqa: PLC0415
+    soon = groceries.use_soon(memory, now)
+    if not soon:
+        return None
+    first = soon[0]
+    more = f" and {len(soon) - 1} more" if len(soon) > 1 else ""
+    return {"title": groceries._label(first) + more, "when": first["when"], "source": "My kitchen"}
+
+
 def strip(memory: Memory, now: datetime | None = None) -> dict:
     now = now or local_now()
     out = {"as_of": now.isoformat(timespec="minutes")}
-    for name, fn in (("next", _next), ("due", _due), ("alerts", _alerts)):
+    for name, fn in (("next", _next), ("due", _due), ("alerts", _alerts), ("use", _use)):
         try:
             out[name] = fn(memory, now)
         except Exception:

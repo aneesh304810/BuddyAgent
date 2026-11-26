@@ -10,6 +10,8 @@ import androidx.activity.ComponentActivity
 import androidx.activity.compose.rememberLauncherForActivityResult
 import androidx.activity.compose.setContent
 import androidx.activity.result.contract.ActivityResultContracts
+import com.google.mlkit.vision.text.latin.TextRecognizerOptions
+import com.google.mlkit.vision.text.TextRecognition
 import kotlinx.coroutines.delay
 import androidx.compose.runtime.rememberCoroutineScope
 import androidx.compose.material3.MaterialTheme
@@ -246,12 +248,16 @@ private fun ScanScreen(link: ServerLink?, startShopping: Boolean, onCode: (Strin
             color = Pal.dim,
         )
         if (allowed) {
-            key(mode) {
+            key(mode, shop.readingFor != 0) {
                 if (dishMode) {
                     DishCamera(book, latest, onGuesses = { guesses = it }, onProblem = { problem = it },
                         modifier = Modifier.fillMaxWidth().weight(1f))
                 } else {
-                    BarcodeCamera(readCode, Modifier.fillMaxWidth().weight(1f))
+                    if (shopMode && shop.readingFor != 0) {
+                        DateCamera({ text -> shop.sawText(text) }, Modifier.fillMaxWidth().weight(1f))
+                    } else {
+                        BarcodeCamera(readCode, Modifier.fillMaxWidth().weight(1f))
+                    }
                 }
             }
         } else {
@@ -387,6 +393,23 @@ private fun BarcodeCamera(onCode: (String) -> Unit, modifier: Modifier) {
                 .addOnSuccessListener { codes ->
                     codes.firstNotNullOfOrNull { c -> c.rawValue?.takeIf { v -> v.all { it.isDigit() } } }?.let(onCode)
                 }
+                .addOnCompleteListener { proxy.close() }
+        }
+    }
+}
+
+/** The words in view, read on the phone (ML Kit's text reader), for the date on a pack (PackDate.kt). */
+@Composable
+private fun DateCamera(onText: (String) -> Unit, modifier: Modifier) {
+    val reader = remember { TextRecognition.getClient(TextRecognizerOptions.DEFAULT_OPTIONS) }
+    DisposableEffect(Unit) { onDispose { reader.close() } }
+    CameraFeed(modifier) { proxy ->
+        val image = proxy.image
+        if (image == null) {
+            proxy.close()
+        } else {
+            reader.process(InputImage.fromMediaImage(image, proxy.imageInfo.rotationDegrees))
+                .addOnSuccessListener { seen -> if (seen.text.isNotBlank()) onText(seen.text) }
                 .addOnCompleteListener { proxy.close() }
         }
     }

@@ -234,6 +234,12 @@ def readback(memory: Memory, a: dict) -> str:
             parts.append(missing)
     except Exception:  # noqa: BLE001
         pass
+    try:  # what to use up from the kitchen before it goes off (code only)
+        from . import groceries  # noqa: PLC0415
+        if (soon := groceries.soon_line(memory)):
+            parts.append(soon)
+    except Exception:  # noqa: BLE001
+        pass
     try:  # what went over on fats, sodium, added sugar or ultra-processed food today (code only)
         from . import scanmeal  # noqa: PLC0415
         if (over := scanmeal.evening_line(memory)):

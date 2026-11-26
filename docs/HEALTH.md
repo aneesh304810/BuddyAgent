@@ -153,6 +153,18 @@ sub-tabs under them, and the page remembers where you were.
   track, the next-meal hint names kitchen foods whose serving fits what's left today. **Bought** ticks an item off by
   hand (it goes in by its name, without numbers). Kept on your server until finished or deleted; no AI model sees the
   kitchen.
+- **For the family, dates, spending and deals** (`groceries.py`, `PackDate.kt`). Name the people you shop for once
+  (e.g. your wife and Ishaan) under **Who you shop for**; each item on To buy and in My kitchen can be for one of you
+  or everyone (the scanner has chips for it), and My kitchen groups by person. **The date on the pack:** after adding
+  a product in the scanner, **Read the date on the pack** points the camera at "best by", "use by" or "exp"; the
+  words are read on the phone (no picture is kept or sent) and the date is taken by code (US month-first dates, or
+  DEC 05 2026), or pick it on Groceries. **Use soon** (within two days, or past) shows on Home's Today strip, on Health
+  → Today and in the evening check-in, never as a notification. **Grocery spending** by month and store comes from
+  the card and bank transactions Buddy files as groceries, plus grocery stores' order emails (e-receipts).
+  **Lower prices** for what's on your list and what you scan come from the store emails Buddy already reads (weekly
+  ads and coupons, through the deals inbox) and order prices, in the price book: the lowest seen in two weeks per
+  store, with the store's own link to open the offer. Buddy can't clip coupons: ShopRite, ACME and Walmart have no
+  public coupon API, and reading their apps or sites would break their terms.
 - **Off track on fats and unhealthy food** (code only, not medical advice): after each scan, on **Health → Today**
   ("Food today"), and in the evening check-in, Buddy checks today's meals against your numbers: saturated fat at
   most 10% of calories, fat at most 35% (the National Academies' range is 20 to 35%), sodium under 2,300 mg, at most

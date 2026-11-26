@@ -76,6 +76,7 @@ flowchart LR
     moodlog_py --> healthrecords_py
     checkin_py --> activity_py
     checkin_py --> coach_py
+    checkin_py --> groceries_py
     checkin_py --> moodlog_py
     checkin_py --> scanmeal_py
     prevention_py --> freshness_py
@@ -123,7 +124,7 @@ flowchart LR
     groceries_py --> coach_py
     groceries_py --> foodverdict_py
     groceries_py --> scanmeal_py
-    db[("Your database<br/>bp_readings, coach_log, coach_meals, evidence_papers, food_places, food_scans, health_daily, health_model_runs and more")]
+    db[("Your database<br/>bp_readings, buy_for, coach_log, coach_meals, evidence_papers, food_places, food_scans, health_daily and more")]
     health_data_py --> db
     oura_py --> db
     coach_py --> db
@@ -165,9 +166,9 @@ flowchart LR
     nest_py -. uses .-> o_2
     o_3["Memory"]
     nest_py -. uses .-> o_3
-    o_4["Security and privacy"]
+    o_4["Money"]
     nest_py -. uses .-> o_4
-    o_5["Speaking up on its own"]
+    o_5["Security and privacy"]
     nest_py -. uses .-> o_5
 ```
 
@@ -488,7 +489,7 @@ Spoken answers pass through a speech recognizer first, like every spoken word (t
 answers go only to the owner's server.
 ```
 
-- Uses: activity.py, coach.py, memory.py, moodlog.py, privacygate.py, scanmeal.py, tools.py
+- Uses: activity.py, coach.py, groceries.py, memory.py, moodlog.py, privacygate.py, scanmeal.py, tools.py
 
 ### prevention.py
 
@@ -849,6 +850,15 @@ Groceries: the shopping list, ticked off as you scan, and My kitchen, what you b
                                        until the owner taps Finished (a pack lasts many meals)
   note_eaten(memory, scan_id)       -> a scan noted as a meal at home that's in the kitchen keeps the kitchen in step
   from_kitchen(memory, left, keys)  -> kitchen foods whose serving fits what's left today, for the next-meal hint
+  people / set_who                  -> who it's for: the owner, the household they name once (e.g. a wife and a son),
+                                       or everyone; the kitchen groups by person
+  set_expires / use_soon            -> the date on the pack (read on the phone, or picked) and what to use in the next
+                                       two days, for Home's Today strip, Health → Today and the evening check-in
+  spend(memory)                     -> grocery spending by month and store, from the card and bank transactions Buddy
+                                       files as groceries (money.py) and the order emails of grocery stores (shopper.py)
+  deals_for(memory, name)           -> lower prices seen lately for a product: the store emails Buddy reads (weekly
+                                       ads, coupons: dealmail.py) and the prices of orders, from the price book, each
+                                       with the store's own link (clip a coupon there: Buddy can't clip or buy)
 
 A scan matches a list item when every word of the item (a plural s aside) is in the product's name or brand:
 "greek yogurt" ticks off "Fage Total 0% Greek Yogurt". The kitchen keeps each product's label as it was scanned, so
@@ -857,11 +867,11 @@ AI model is given the kitchen (health information); the shopping list is the org
 already reads.
 ```
 
-- Tables: `kitchen`
-- Uses: coach.py, foodverdict.py, memory.py, organiser.py, scanmeal.py, tools.py
+- Tables: `buy_for`, `kitchen`
+- Uses: coach.py, foodverdict.py, memory.py, money.py, organiser.py, pricebook.py, scanmeal.py, shopper.py, tools.py
 
 ## How it connects
 
-- Relies on: Buddy Connect; Claude: the brain; Investing: signals, research and practice; Memory; Security and privacy; Speaking up on its own: briefing, reminders and alerts; Travel and getting around
+- Relies on: Buddy Connect; Claude: the brain; Investing: signals, research and practice; Memory; Money; Security and privacy; Shopping and deals; Speaking up on its own: briefing, reminders and alerts; The price book, pattern learning and trained models; Travel and getting around
 - Relied on by: Buddy Connect; Buddy Intelligence Platform; Claude: the brain; Investing: signals, research and practice; News, trends and research; Security and privacy; Speaking up on its own: briefing, reminders and alerts; The server and the app
 

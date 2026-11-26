@@ -1929,25 +1929,52 @@ async def api_health_where_act(body: dict) -> dict:
 async def api_health_groceries() -> dict:
     """The shopping list (the organiser's "shopping" list) and My kitchen, judged again with today's numbers."""
     from . import groceries  # noqa: PLC0415
-    return {"to_buy": await asyncio.to_thread(groceries.to_buy, memory),
-            "kitchen": await asyncio.to_thread(groceries.kitchen, memory), "note": groceries.NOTE}
+    return await asyncio.to_thread(groceries.lists, memory)
+
+
+@app.get("/api/health/groceries/deals", dependencies=[Depends(require_admin)])
+async def api_health_grocery_deals(scan: int = 0, q: str = "") -> dict:
+    """Lower prices seen lately for a scanned product (scan) or words (q): store emails and order prices in the price
+    book, each with the store's own link."""
+    from . import foodverdict, groceries  # noqa: PLC0415
+    name, brand = q[:120], ""
+    if scan:
+        foodverdict._ready(memory)
+        row = memory.db.execute("SELECT name, brand FROM food_scans WHERE id = ?", (scan,)).fetchone()
+        if row:
+            name, brand = row["name"], row["brand"] or ""
+    return {"deals": await asyncio.to_thread(groceries.deals_for, memory, name, brand) if name else []}
 
 
 @app.post("/api/health/groceries", dependencies=[Depends(require_admin)])
 async def api_health_groceries_act(body: dict) -> dict:
-    """buy (text), unbuy (id), bought (id: ticked by hand); keep (scan, anyway): a scan into My kitchen, ticking
-    off the list; ate (id): a serving into the meal for the time; finished (id)."""
+    """buy (text, who), unbuy (id), bought (id: ticked by hand); keep (scan, anyway, who): a scan into My kitchen,
+    ticking off the list; ate (id): a serving into the meal for the time; finished (id); people (names): the household;
+    who (id, who); expires (id, date or days, how read|set)."""
     from . import groceries  # noqa: PLC0415
     action, n = str(body.get("action") or ""), int(body.get("id") or 0)
     try:
         if action == "buy":
-            return {"to_buy": await asyncio.to_thread(groceries.add_buy, memory, str(body.get("text") or ""))}
+            return {"to_buy": await asyncio.to_thread(groceries.add_buy, memory, str(body.get("text") or ""),
+                                                      str(body.get("who") or ""))}
+        if action == "people":
+            names = body.get("names") if isinstance(body.get("names"), list) else []
+            return {"people": await asyncio.to_thread(groceries.set_people, memory, names)}
+        if action == "who":
+            return {"kitchen": await asyncio.to_thread(groceries.set_who, memory, n, str(body.get("who") or ""))}
+        if action == "expires":
+            days = body.get("days")
+            return {"kitchen": await asyncio.to_thread(
+                groceries.set_expires, memory, n, str(body.get("date") or ""),
+                int(days) if isinstance(days, (int, float)) and not isinstance(days, bool) else None,
+                str(body.get("how") or "set"))}
         if action == "unbuy":
             return {"to_buy": await asyncio.to_thread(groceries.remove_buy, memory, n)}
         if action == "bought":
             return await asyncio.to_thread(groceries.bought, memory, n)
         if action == "keep":
-            return await asyncio.to_thread(groceries.keep, memory, int(body.get("scan") or 0), bool(body.get("anyway")))
+            return await asyncio.to_thread(groceries.keep, memory, int(body.get("scan") or 0), bool(body.get("anyway")),
+                                           body.get("who") if isinstance(body.get("who"), str) else None)
         if action == "ate":
             return await asyncio.to_thread(groceries.ate, memory, n)
         if action == "finished":

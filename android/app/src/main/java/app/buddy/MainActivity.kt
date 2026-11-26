@@ -510,12 +510,12 @@ private fun BuddyScreen(
                     .padding(bottom = 16.dp), verticalArrangement = Arrangement.spacedBy(12.dp)) {
                     QuickActions(grid = true, onPick = quick)
                     ui.approval?.let { question -> ApprovalCard(question) }
-                    TodayStrip(today) { onNavigate(Screen.Dashboard) }
+                    TodayStrip(today, { onNavigate(Screen.Dashboard) }) { Jump.health = "groceries"; onNavigate(Screen.Health) }
                 }
             }
         } else {
             if (NavLayout.v2) QuickActions(grid = false, onPick = quick)  // Home: one tap to the six things done most
-            TodayStrip(today) { onNavigate(Screen.Dashboard) }
+            TodayStrip(today, { onNavigate(Screen.Dashboard) }) { Jump.health = "groceries"; onNavigate(Screen.Health) }
             Transcript(ui.lines, Modifier.weight(1f), { onNavigate(Screen.Insights) }, { onNavigate(Screen.Card(it)) }) {
                 onNavigate(Screen.Report(it))
             }

@@ -126,12 +126,14 @@ Three things, read from what Buddy already keeps on the server, with no AI model
   due     the next bill or card payment due within 7 days
   alerts  how many messages Buddy sent on its own since you last opened the Alerts screen (silenced kinds
           are not counted)
+  use     what to use up in My kitchen: the product with the nearest date on its pack, within two days or past
+          (groceries.py)
 
 Each part says where it came from. A part with nothing to show is left out; a part that fails is left out
 and logged, so the strip never blocks the conversation.
 ```
 
-- Uses: attention.py, finance.py, lifemail.py, memory.py, tools.py
+- Uses: attention.py, finance.py, groceries.py, lifemail.py, memory.py, tools.py
 
 ### daybrief.py
 

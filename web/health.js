@@ -462,9 +462,10 @@ function renderToday() {
     : `<p class="muted">${data.plan ? "No habits are due today." : "No plan yet. Set one up under Plan → Goals & habits and its habits show here."}</p>`;
   $("main").innerHTML = (k.length ? `<div class="kpis">${k.join("")}</div>` : card("Today", `<p class="muted">No readings yet for today or yesterday.</p>`))
     + (k.length ? card("What it means for today", means, "Fixed rules against your own week. Not medical advice.") : "")
-    + foodTodayCard() + nowCard() + weekCard() + bpQuick() + card("Today's habits", habits) + moodCard();
+    + foodTodayCard() + (grocList === null ? (grocList = { to_buy: [], kitchen: [] }, loadGroceries(), "") : useSoonCard(true)) + nowCard() + weekCard() + bpQuick() + card("Today's habits", habits) + moodCard();
   wire();
   wireBody();
+  wireGroceries();
 }
 
 // --- your health now, the week's targets, blood pressure, weight and waist (bodylog, prevent, activity, healthnow)
@@ -676,10 +677,47 @@ let grocList = null, grocAdd = null;
 async function loadGroceries(body) {
   try {
     const out = await api("/api/health/groceries", body);
-    grocList = { ...(grocList || {}), ...(out.to_buy ? { to_buy: out.to_buy } : {}), ...(out.kitchen ? { kitchen: out.kitchen } : {}), ...(out.note ? { note: out.note } : {}) };
+    grocList = { ...(grocList || {}), ...Object.fromEntries(["to_buy", "kitchen", "note", "people", "use_soon", "spend"].filter((k) => out[k] !== undefined).map((k) => [k, out[k]])) };
+    if (body && (out.kitchen || out.to_buy || out.people)) { grocList.stale = true; }
     return out;
   } catch (e) { notice(e.message); grocList = grocList || { to_buy: [], kitchen: [] }; return null; }
-  finally { if (showing("plan", "groceries")) render(); }
+  finally {
+    if (grocList && grocList.stale) { grocList.stale = false; loadGroceries(); return; }  // dates, deals and spend again
+    if (showing("plan", "groceries") || tab === "today") render();
+  }
+}
+const usd = (n) => "$" + Number(n || 0).toFixed(2);
+const whoName = (w) => (w === "me" ? "You" : w || "Everyone");
+function whoOptions(sel) {
+  return ["", "me", ...((grocList && grocList.people) || [])].map((w) => `<option value="${esc(w)}"${w === (sel || "") ? " selected" : ""}>${esc(whoName(w))}</option>`).join("");
+}
+function expiryPill(x) {
+  if (!x.expires) return "";
+  const left = Math.round((new Date(x.expires + "T12:00:00") - new Date(new Date().toDateString() + " 12:00")) / 86400000);
+  const words = left < -1 ? `expired ${-left} days ago` : left === -1 ? "expired yesterday" : left === 0 ? "use today" : left === 1 ? "use by tomorrow" : `use by ${x.expires}`;
+  return ` <span class="pill${left < 0 ? " bad" : left <= 2 ? " warn" : ""}">${esc(words)}</span>`;
+}
+function dealLine(deals) {
+  if (!deals || !deals.length) return "";
+  return `<small>${deals.map((d) => `${usd(d.price)} at ${esc(d.store)}${d.regular && d.regular > d.price ? ` (was ${usd(d.regular)})` : ""}, ${esc(d.seen)}${/^https:\/\//.test(d.link) ? ` · <a href="${esc(d.link)}" rel="noopener">open the offer</a>` : ""}`).join("; ")}</small>`;
+}
+function peopleCard() {
+  const p = grocList.people || [];
+  return card("Who you shop for", `<form class="f" id="people-form"><input class="grow" name="names" maxlength="200" value="${esc(p.join(", "))}" placeholder="Their first names, e.g. your wife's and Ishaan" aria-label="The people you shop for"><button class="btn">Save</button></form>`,
+    "You're always included. Each product can be for one of you, or everyone; My kitchen groups by person. Names stay on your server.");
+}
+function spendCard() {
+  const sp = grocList.spend;
+  if (!sp || (!sp.months.length && !sp.receipts.length)) return "";
+  const months = sp.months.map((m) => `<div class="line" style="align-items:flex-start"><div class="what"><b>${esc(m.month)}</b><small>${m.stores.map((x) => `${esc(x.store)} ${usd(x.total)} (${x.visits})`).join(" · ")}</small></div><b>${usd(m.total)}</b></div>`).join("");
+  const rec = sp.receipts.length ? `<p style="margin:10px 0 2px"><b>From order emails</b></p>` + sp.receipts.slice(0, 8).map((r) => `<div class="line"><div class="what">${esc(r.item || r.merchant)}<small>${esc(r.merchant)} · ${esc(r.day)}</small></div>${r.amount != null ? usd(r.amount) : ""}</div>`).join("") : "";
+  return card("Grocery spending", months + rec, esc(sp.note));
+}
+function useSoonCard(buttons) {
+  const u = (grocList && grocList.use_soon) || [];
+  if (!u.length) return "";
+  return card("Use soon", u.map((x) => `<div class="line"><div class="what">${esc(x.name)}${expiryPill(x)}<small>${esc(whoName(x.who))}</small></div>${buttons ? `<div class="f" style="gap:6px;flex-wrap:nowrap"><button class="btn solid" data-ate="${x.id}">Ate it</button><button class="btn" data-finished="${x.id}">Finished</button></div>` : ""}</div>`).join(""),
+    "By the date on each pack in My kitchen. No AI model sees it.");
 }
 async function keepGroc(id, anyway) {
   const out = await loadGroceries({ action: "keep", scan: id, anyway });
@@ -696,22 +734,28 @@ function grocAddBox() {
 }
 function toBuyCard() {
   const t = grocList.to_buy || [];
-  return card("To buy", `<form class="f" id="buy-form"><input class="grow" name="text" maxlength="120" placeholder="e.g. Greek yogurt, oats, eggs" aria-label="Something to buy"><button class="btn solid">Add</button></form>
-    ${t.length ? t.map((x) => `<div class="line"><div class="what">${esc(x.text)}</div><div class="f" style="gap:6px;flex-wrap:nowrap"><button class="btn" data-bought="${x.id}">Bought</button><button class="btn" data-unbuy="${x.id}" aria-label="Take ${esc(x.text)} off the list">✕</button></div></div>`).join("")
+  return card("To buy", `<form class="f" id="buy-form"><input class="grow" name="text" maxlength="120" placeholder="e.g. Greek yogurt, oats, eggs" aria-label="Something to buy"><select name="who" aria-label="Who it's for">${whoOptions("")}</select><button class="btn solid">Add</button></form>
+    ${t.length ? t.map((x) => `<div class="line" style="align-items:flex-start"><div class="what">${esc(x.text)}${x.who ? ` <span class="pill">${esc(whoName(x.who))}</span>` : ""}${dealLine(x.deals)}</div><div class="f" style="gap:6px;flex-wrap:nowrap"><button class="btn" data-bought="${x.id}">Bought</button><button class="btn" data-unbuy="${x.id}" aria-label="Take ${esc(x.text)} off the list">✕</button></div></div>`).join("")
       : `<p class="muted">Nothing to buy. Add it here, or tell Buddy "add eggs to my shopping list".</p>`}`,
-    "Scanning a product and tapping Add to my groceries ticks off the item it matches.");
+    "Scanning a product and tapping Add to my groceries ticks off the item it matches. Prices are the lowest seen in the last two weeks in store emails Buddy reads and your orders; clip a coupon in the store's app or site (Buddy can't).");
 }
 function kitchenCard() {
   const k = grocList.kitchen || [];
-  return card("My kitchen", k.length ? k.map((x) => `<div class="line" style="align-items:flex-start"><div class="what">${x.verdict ? `<span class="pill ${VERDICT_PILL[x.verdict]}">${esc(x.headline.split(":")[0])}</span> ` : ""}${esc(x.name)}
-      <small>${[x.brand, x.packs > 1 ? `${x.packs} packs` : "", x.serving ? `a serving: ${x.serving}` : "no label numbers", x.eaten ? `eaten ${x.eaten} time${x.eaten === 1 ? "" : "s"}` : ""].filter(Boolean).map(esc).join(" · ")}</small></div>
-      <div class="f" style="gap:6px;flex-wrap:nowrap"><button class="btn solid" data-ate="${x.id}">Ate it</button><button class="btn" data-finished="${x.id}">Finished</button></div></div>`).join("")
+  const row = (x) => `<div class="line" style="align-items:flex-start"><div class="what">${x.verdict ? `<span class="pill ${VERDICT_PILL[x.verdict]}">${esc(x.headline.split(":")[0])}</span> ` : ""}${esc(x.name)}${expiryPill(x)}
+      <small>${[x.brand, x.packs > 1 ? `${x.packs} packs` : "", x.serving ? `a serving: ${x.serving}` : "no label numbers", x.eaten ? `eaten ${x.eaten} time${x.eaten === 1 ? "" : "s"}` : ""].filter(Boolean).map(esc).join(" · ")}</small>
+      <div class="f" style="margin-top:4px"><select data-who-item="${x.id}" aria-label="Who it's for">${whoOptions(x.who)}</select><label style="margin:0;display:flex;align-items:center;gap:6px">Date on the pack <input type="date" data-exp="${x.id}" value="${esc(x.expires || "")}"></label></div></div>
+      <div class="f" style="gap:6px;flex-wrap:nowrap"><button class="btn solid" data-ate="${x.id}">Ate it</button><button class="btn" data-finished="${x.id}">Finished</button></div></div>`;
+  const groups = [...new Set(k.map((x) => x.who || ""))];
+  return card("My kitchen", k.length ? groups.map((g) => (groups.length > 1 ? `<p style="margin:10px 0 2px"><b>${esc(whoName(g))}</b></p>` : "") + k.filter((x) => (x.who || "") === g).map(row).join("")).join("")
     : `<p class="muted">Nothing yet. In a store, scan a product and tap <b>Add to my groceries</b>.</p>`, esc(grocList.note || ""));
 }
 function wireGroceries() {
   if ($("groc-keep")) $("groc-keep").onclick = () => keepGroc(groc.verdict.id, false);
   if ($("groc-anyway")) $("groc-anyway").onclick = () => keepGroc(groc.verdict.id, true);
-  if ($("buy-form")) $("buy-form").onsubmit = (e) => { e.preventDefault(); const text = e.target.text.value.trim(); if (text) loadGroceries({ action: "buy", text }); };
+  if ($("buy-form")) $("buy-form").onsubmit = (e) => { e.preventDefault(); const text = e.target.text.value.trim(); if (text) loadGroceries({ action: "buy", text, who: e.target.who.value }); };
+  if ($("people-form")) $("people-form").onsubmit = (e) => { e.preventDefault(); loadGroceries({ action: "people", names: e.target.names.value.split(",").map((x) => x.trim()).filter(Boolean) }); };
+  $("main").querySelectorAll("[data-who-item]").forEach((el) => el.onchange = () => loadGroceries({ action: "who", id: Number(el.dataset.whoItem), who: el.value }));
+  $("main").querySelectorAll("[data-exp]").forEach((el) => el.onchange = () => { if (el.value) loadGroceries({ action: "expires", id: Number(el.dataset.exp), date: el.value, how: "set" }); });
   $("main").querySelectorAll("[data-unbuy]").forEach((b) => b.onclick = () => loadGroceries({ action: "unbuy", id: Number(b.dataset.unbuy) }));
   $("main").querySelectorAll("[data-bought]").forEach((b) => b.onclick = () => loadGroceries({ action: "bought", id: Number(b.dataset.bought) }));
   $("main").querySelectorAll("[data-finished]").forEach((b) => b.onclick = () => loadGroceries({ action: "finished", id: Number(b.dataset.finished) }));
@@ -843,7 +887,9 @@ function renderGroceries() {
   else if (groc.verdict) {
     const v = groc.verdict;
     const shopping = scanMeal && !scanMeal.done && !scanMeal.busy;  // at a store, or "Just buying"
-    body += verdictCard(v) + mealBox() + grocAddBox() + `<div class="f" style="margin-top:10px">${v.id && !(grocAdd && grocAdd.added) ? `<button class="btn${shopping || !scanMeal ? " solid" : ""}" id="groc-keep">Add to my groceries</button>` : ""}${scanMeal ? "" : `<button class="btn" id="groc-eat">Add to a meal</button>`}
+    if (v.id && groc.dealsFor !== v.id) { groc.dealsFor = v.id; groc.deals = null; api(`/api/health/groceries/deals?scan=${v.id}`).then((o) => { groc.deals = o.deals; render(); }).catch(() => {}); }
+    const cheaper = groc.deals && groc.deals.length ? `<p style="margin:8px 0 0"><b>Seen lately:</b> ${dealLine(groc.deals).replace(/^<small>|<\/small>$/g, "")}</p>` : "";
+    body += verdictCard(v) + cheaper + mealBox() + grocAddBox() + `<div class="f" style="margin-top:10px">${v.id && !(grocAdd && grocAdd.added) ? `<button class="btn${shopping || !scanMeal ? " solid" : ""}" id="groc-keep">Add to my groceries</button>` : ""}${scanMeal ? "" : `<button class="btn" id="groc-eat">Add to a meal</button>`}
       ${v.id ? `<button class="btn${groc.compare.has(v.id) ? " on" : ""}" data-cmp="${v.id}">${groc.compare.has(v.id) ? "In the comparison" : "Compare"}</button>` : ""}</div>`;
     if (groc.found && groc.found.length > 1) body += `<p class="muted" style="margin:10px 0 2px">Other matches:</p>` + groc.found.map((f, i) => i === groc.pick ? "" :
       `<div class="line"><div class="what">${esc(f.name)}<small>${esc(f.kind)}${f.brand ? " · " + esc(f.brand) : ""}</small></div><button class="btn" data-groc-pick="${i}">Check this</button></div>`).join("");
@@ -852,7 +898,7 @@ function renderGroceries() {
   }
   let html = card("Good for me?", body, "Judged per serving by Buddy's code from the label, your labs, blood pressure, allergies and goal. No AI model sees it.");
   if (grocList === null) { grocList = { to_buy: [], kitchen: [] }; loadGroceries(); }
-  html += toBuyCard() + kitchenCard();
+  html += useSoonCard(false) + toBuyCard() + kitchenCard() + spendCard() + peopleCard();
   if (groc.cmp) {
     const ps = groc.cmp.products, rows = [["Verdict", (p) => `<span class="pill ${VERDICT_PILL[p.verdict]}">${esc(p.headline.split(":")[0])}</span>`],
       ["A serving", (p) => esc(p.serving.label)], ["Calories", (p) => num(p.per_serving.kcal)],

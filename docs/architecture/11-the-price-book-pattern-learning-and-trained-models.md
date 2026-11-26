@@ -231,5 +231,5 @@ many calls, and whether it is now in use. A model is one more opinion with a tra
 ## How it connects
 
 - Relies on: Buddy Connect; Buddy Intelligence Platform; Claude: the brain; Fixing and explaining itself; Investing: signals, research and practice; Memory; Shopping and deals
-- Relied on by: Buddy Intelligence Platform; Claude: the brain; Investing: signals, research and practice; Learning: the English and investing tutors; Shopping and deals; Speaking up on its own: briefing, reminders and alerts; The server and the app; Travel and getting around
+- Relied on by: Buddy Intelligence Platform; Claude: the brain; Home and health; Investing: signals, research and practice; Learning: the English and investing tutors; Shopping and deals; Speaking up on its own: briefing, reminders and alerts; The server and the app; Travel and getting around
 
