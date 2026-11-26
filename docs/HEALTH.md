@@ -41,7 +41,7 @@ sub-tabs under them, and the page remembers where you were.
   alcohol, social, alone time) and a short note of your own if you like. Several a day are fine; a day is their
   average. Trends → Mood shows the last 7 days' averages, what was going on most often, and every entry, each
   with a delete button, and "Delete every entry" (asked twice). The days also feed Patterns, below, as factors.
-  No AI model is given any of it, the notes least of all; kept as long as the readings (two years). It is not a
+  No AI model is given any of it, the notes least of all; kept as long as the readings (until you delete them). It is not a
   diagnosis: if you feel low for a long time, or unsafe, talk to a doctor or call or text 988 (the US Suicide &
   Crisis Lifeline).
   - **The evening check-in, in chat or by voice.** On your first chat after 6 pm each day, Buddy answers your
@@ -111,7 +111,14 @@ sub-tabs under them, and the page remembers where you were.
   the first time), or when you press Refresh (at most once an hour). Each paper shows its journal, date, first
   author and evidence type, guidelines first, then reviews, then trials; **Abstract** fetches its abstract. A
   page, not a notification. No AI model reads or summarises any of it; only your topic words go to PubMed. Papers
-  are kept 180 days. Research isn't advice: one study rarely changes what you should do.
+  are listed 180 days, and every paper is also kept in the **paper library**. Research isn't advice: one study
+  rarely changes what you should do.
+  - **Paper library** (at the foot of Learn → Research): every research paper Buddy finds, from every source, kept
+    once each until you delete it: PubMed (this digest and the freshness watch), arXiv (the research desk, trends,
+    the tech radar, Buddy Intelligence), Europe PMC and OpenAlex (Buddy Intelligence). Each keeps its details, its
+    abstract (the digest's new papers' abstracts are fetched with them, in one PubMed call) and which feature and
+    topic found it. Search by words and source; Delete removes one. Public records; nothing is sent anywhere from
+    it.
 - **Learn → Supplements:** look up a product in the NIH Office of Dietary Supplements' Label Database (no key):
   products sold now first, then ones no longer sold. Open a label to see each ingredient per serving, its share of
   the daily value, and, for the nutrients with an adult upper limit (vitamin D, C, E and B6, niacin, calcium,
@@ -152,7 +159,7 @@ sub-tabs under them, and the page remembers where you were.
 - **Plan → Goals & habits:** goals, up to eight habits (tracked from the ring or phone with a target, or ticked off
   by you), and food targets. This form replaces the set-up conversation in section 2, and Plan opens on it until
   there is a plan. "Forget my health plan" (pressed twice) deletes the plan, the habit log and the meals; the
-  readings stay until their time is up (two years).
+  readings stay until you delete them.
 - **Trends → Patterns (your personal model):** what, in your own days, tends to come before a better or worse next
   morning. Learned on your server by plain code once a week (Sunday night) or when you press Learn now, from the
   readings Buddy keeps: the day's steps, active minutes, workouts, WHOOP strain, time under stress, your journal's
@@ -368,12 +375,13 @@ Habits Buddy tracks by itself: **steps**, **sleep hours**, **bedtime** (lights o
 
 ## 4. Privacy
 
-- Oura data and Health Connect data: two years on your server, then deleted (you chose longer than 90 days so a
-  personal model has history to learn from; change it with `sudo bash /opt/buddy/deploy/set.sh
-  BUDDY_HEALTH_KEEP_DAYS`, 30 to 3650 days). Oura's first sync reads the last year. No AI model is given them,
+- Oura, WHOOP and Health Connect data, the meals, the habit log and the mood journal: kept on your server until
+  you delete them (Health → Sources → Delete its data), for future reference and so Buddy's own model on your server
+  has history to learn from. To set a limit instead: `sudo bash /opt/buddy/deploy/set.sh BUDDY_HEALTH_KEEP_DAYS`
+  (30 to 3650 days; 0 for none). Oura's first sync reads the last year. No AI model is given them,
   Claude included. If you switch on health ranges on the server, Claude, and only Claude, is told how a measure compares
   with your usual ("sleep: below usual"), never the value (`docs/PRIVACY-GATEWAY.md`).
-- The plan stays until you change it; the habit log and meals as long as the readings (two years).
+- The plan stays until you change it; the habit log and meals as long as the readings (until you delete them).
 - Lab reports and results: until you delete the report (Health → Labs → Results → Reports → Delete); results from MyChart until you
   delete them (Health → Sources → MyChart → Delete its data). No AI model reads a report or is
   given a result. **Lab ranges** are their own switch, off unless you turn it on, on the server:

@@ -124,9 +124,10 @@ def forget(memory: Memory) -> str:
 
 
 def prune(memory: Memory) -> int:
-    from .healthrecords import keep_days  # noqa: PLC0415  as long as the other health readings
+    from .healthrecords import cutoff  # noqa: PLC0415  as long as the other health readings
     _ready(memory)
-    n = memory.db.execute("DELETE FROM mood_log WHERE day < ?",
-                          ((local_now().date() - timedelta(days=keep_days())).isoformat(),)).rowcount
+    if (first := cutoff()) is None:
+        return 0
+    n = memory.db.execute("DELETE FROM mood_log WHERE day < ?", (first,)).rowcount
     memory.db.commit()
     return n

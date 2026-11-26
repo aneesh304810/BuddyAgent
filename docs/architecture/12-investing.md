@@ -160,7 +160,7 @@ flowchart LR
     recommend_py -. uses .-> o_3
     o_4["Free AI models"]
     recommend_py -. uses .-> o_4
-    o_5["Learning"]
+    o_5["Home and health"]
     recommend_py -. uses .-> o_5
 ```
 
@@ -438,7 +438,7 @@ or download, not a program. Download those yourself and upload them in the Tradi
 
 - Tables: `research_queue`
 - Outside services: arXiv (papers), GitHub (trending projects)
-- Uses: docread.py, gateway.py, memory.py, pricebook.py, stratrules.py, tools.py
+- Uses: docread.py, gateway.py, memory.py, paperlib.py, pricebook.py, stratrules.py, tools.py
 
 ### benchmarks.py
 
@@ -865,6 +865,6 @@ The service can be switched off on the Security page like any other.
 
 ## How it connects
 
-- Relies on: Buddy Connect; Buddy Intelligence Platform; Claude: the brain; Fixing and explaining itself; Free AI models (Groq, Gemini, Mistral, Cerebras, GitHub Models, OpenRouter); Learning: the English and investing tutors; Making and doing things; Memory; Money; News, trends and research; Shopping and deals; The price book, pattern learning and trained models
+- Relies on: Buddy Connect; Buddy Intelligence Platform; Claude: the brain; Fixing and explaining itself; Free AI models (Groq, Gemini, Mistral, Cerebras, GitHub Models, OpenRouter); Home and health; Learning: the English and investing tutors; Making and doing things; Memory; Money; News, trends and research; Shopping and deals; The price book, pattern learning and trained models
 - Relied on by: Buddy Connect; Buddy Intelligence Platform; Claude: the brain; Free AI models (Groq, Gemini, Mistral, Cerebras, GitHub Models, OpenRouter); Home and health; Learning: the English and investing tutors; News, trends and research; Shopping and deals; Speaking up on its own: briefing, reminders and alerts; The price book, pattern learning and trained models; The server and the app; Travel and getting around
 

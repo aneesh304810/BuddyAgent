@@ -96,8 +96,8 @@ def _ingest(memory: Memory, payload: dict, got: dict) -> int:
         got["records"] += n_rec
         got["new"] += n_new
         got["reached"] = max(got["reached"], day)
-    cutoff = (local_now().date() - timedelta(days=healthrecords.keep_days())).isoformat()
-    memory.db.execute("DELETE FROM health_daily WHERE day < ?", (cutoff,))
+    if (first := healthrecords.cutoff()):
+        memory.db.execute("DELETE FROM health_daily WHERE day < ?", (first,))
     memory.db.commit()
     healthrecords.prune(memory, "health_connect")
     memory.set(SYNC_KEY, now)

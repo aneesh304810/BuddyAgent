@@ -34,6 +34,7 @@ flowchart LR
         dietfoods_py["dietfoods.py<br/>The dishes the day menus use, with USDA's own numbers per 100 g and…"]
         dietcheck_py["dietcheck.py<br/>Does this food fit? Before a looked-up, scanned or phone-named food…"]
         freshness_py["freshness.py<br/>whether the guidelines and tables Buddy's health rules rest on have a…"]
+        paperlib_py["paperlib.py<br/>every research paper Buddy finds, from any source, kept with its…"]
     end
     you --> t_thermostat
     t_thermostat --> nest_py
@@ -71,6 +72,7 @@ flowchart LR
     prevention_py --> nhanesref_py
     prevention_py --> oura_py
     foodfacts_py --> health_data_py
+    evidence_py --> paperlib_py
     dietplan_py --> coach_py
     dietplan_py --> dietfoods_py
     dietplan_py --> healthrecords_py
@@ -79,6 +81,7 @@ flowchart LR
     dietcheck_py --> dietplan_py
     dietcheck_py --> healthrecords_py
     dietcheck_py --> prevention_py
+    freshness_py --> paperlib_py
     freshness_py --> prevention_py
     db[("Your database<br/>coach_log, coach_meals, evidence_papers, health_daily, health_model_runs, health_records, lab_reports, lab_results and more")]
     health_data_py --> db
@@ -90,6 +93,7 @@ flowchart LR
     healthmodel_py --> db
     moodlog_py --> db
     evidence_py --> db
+    paperlib_py --> db
     s_medlineplus["MedlinePlus (NIH health topics)<br/>(public data only)"]
     health_data_py --> s_medlineplus
     s_nest["Google Nest (thermostat)<br/>(may see personal data)"]
@@ -529,7 +533,7 @@ changed. Research isn't advice: one study rarely changes what anyone should do.
 ```
 
 - Tables: `evidence_papers`
-- Uses: gateway.py, memory.py, tools.py
+- Uses: gateway.py, memory.py, paperlib.py, tools.py
 
 ### dietplan.py
 
@@ -622,10 +626,29 @@ Nothing about the owner is sent anywhere by these checks. No AI model is involve
 
 - Outside services: CDC NHANES data files, PubMed (research digest), USDA FoodData Central (food facts), US Preventive Services Task Force (Prevention TaskForce API)
 - Settings: `BUDDY_USDA_KEY`, `BUDDY_USPSTF_KEY`, `BUDDY_USPSTF_URL`
-- Uses: gateway.py, memory.py, prevention.py, tools.py
+- Uses: gateway.py, memory.py, paperlib.py, prevention.py, tools.py
+
+### paperlib.py
+
+```text
+The paper library: every research paper Buddy finds, from any source, kept with its details and abstract until
+the owner deletes it, for future reference and for Buddy's own models.
+
+Where papers come from: PubMed (the health research digest and the freshness watch), arXiv (the research desk,
+trends, the tech radar, Buddy Intelligence), Europe PMC and OpenAlex (Buddy Intelligence). Each source keeps its
+own short list for its own page; this keeps them all, once each, with which feature and topic found it.
+
+A paper is known by its PubMed number, DOI, arXiv number or OpenAlex id (in that order), worked out from what the
+source gives or from its link, so the same paper found twice is one row. Public records only; what's personal in
+here is which of the owner's topics found each paper, and that stays in the owner's encrypted database. Nothing is
+sent anywhere from here.
+```
+
+- Tables: `paper_finds`, `papers`
+- Uses: memory.py, tools.py
 
 ## How it connects
 
 - Relies on: Buddy Connect; Claude: the brain; Investing: signals, research and practice; Memory; Security and privacy; Speaking up on its own: briefing, reminders and alerts; Travel and getting around
-- Relied on by: Buddy Connect; Claude: the brain; Security and privacy; Speaking up on its own: briefing, reminders and alerts; The server and the app
+- Relied on by: Buddy Connect; Buddy Intelligence Platform; Claude: the brain; Investing: signals, research and practice; News, trends and research; Security and privacy; Speaking up on its own: briefing, reminders and alerts; The server and the app
 

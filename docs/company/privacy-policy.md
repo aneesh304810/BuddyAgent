@@ -1,6 +1,6 @@
 # Buddy Privacy and Data Retention Policy
 
-Source: https://claude.ai/artifact/MJVGZ7pWQvi26tg1MS914P, revision 156
+Source: https://claude.ai/artifact/MJVGZ7pWQvi26tg1MS914P, revision 162
 
 Nov 1, 2026 · @Aneesh
 
@@ -195,18 +195,19 @@ Data is kept only as long as it is useful, then deleted automatically.
 | Room transcripts (Listen-in mode) | 2 days, unless the owner saves a stretch |
 | English-practice speech samples | 30 days |
 | The owner's own conversation lines (conversation coaching) | 30 days; turning coaching off deletes them |
-| Daily health totals from the phone | Two years (the owner can set 30 days to 10 years on the server), then deleted automatically; turning the permission off in Health Connect stops new ones |
-| Oura Ring daily data | Two years (the same setting), then deleted automatically; removing Buddy's access in the Oura account stops new ones |
-| WHOOP daily data | Two years (the same setting), then deleted automatically; disconnecting WHOOP stops new ones |
+| Daily health totals from the phone | Until the owner deletes them (Health → Sources → Delete its data), kept for future reference and Buddy's own model on the server; the owner can set a limit of 30 days to 10 years on the server; turning the permission off in Health Connect stops new ones |
+| Oura Ring daily data | Until the owner deletes them (the same setting can set a limit); removing Buddy's access in the Oura account stops new ones |
+| WHOOP daily data | Until the owner deletes them (the same setting can set a limit); disconnecting WHOOP stops new ones |
 | Health readings in the common form | As long as the source's own readings, then deleted automatically; deleted at once with "Delete its data" or "Disconnect" for that source; lab results until their report is deleted |
 | Lab reports and the confirmed results | Until the owner deletes the report on the Health page; a report read but not yet confirmed is dropped after 24 hours |
 | Lab results from patient portals | Until the owner deletes them (Health → Sources); disconnecting a portal stops new ones |
 | Sync history of each source of the owner's data | The last 50 syncs per source, none older than a year; deleted with that source's data |
 | Patterns learned from health readings | The last 12 learnings; deleted at once with "Forget what was learned" on the Health page |
-| Mood journal | As long as the readings (two years); each entry deleted at once on the Health page, or all of them with "Delete every entry" |
+| Mood journal | As long as the readings (until the owner deletes them); each entry deleted at once on the Health page, or all of them with "Delete every entry" |
 | Answers for checkups and the months noted | Until the owner changes them, or deletes them with "Delete my answers" on the Health page |
-| Research digest topics and papers | Topics until the owner changes them; papers 180 days, and a topic's papers as soon as it is dropped |
-| Health plan, habit log and meals | The plan until the owner changes it or says "forget my health plan"; the habit log and meals as long as the readings (two years); diet choices until the owner changes them |
+| Research digest topics and papers | Topics until the owner changes them; the digest lists papers for 180 days (a topic's as soon as it is dropped), and every paper is also kept in the paper library |
+| Paper library (every research paper Buddy found, from PubMed, arXiv, Europe PMC and OpenAlex: its public details and abstract, and which feature and topic of the owner's found it) | Until the owner deletes a paper, or the whole library, on the Health page (Learn → Research → Paper library) |
+| Health plan, habit log and meals | The plan until the owner changes it or says "forget my health plan"; the habit log and meals as long as the readings (until the owner deletes them); diet choices until the owner changes them |
 | Buddy's self-check of its own server (problems from its log, with numbers, emails and call words removed, sent to Claude for a diagnosis; memory and disk readings) | The last report and 7 days of readings |
 | Phone call summaries (who was called, the goal, the outcome, minutes) | 180 days, then deleted automatically; no recordings or transcripts are ever kept |
 | Messages from calls Buddy answered for the owner (caller's number, name, message) | 180 days, then deleted automatically; no recordings or transcripts are ever kept |

@@ -90,6 +90,9 @@ def arxiv_new(memory: Memory, fetch=None, days: int = 10, today=None) -> int:
         day = (e.findtext("a:published", "", ns) or "")[:10]
         if not link.startswith("https://arxiv.org/abs/") or not title or day < since:
             continue
+        from . import paperlib  # noqa: PLC0415  every new paper seen is kept in the library, queued or not
+        paperlib.keep_items(memory, [{"title": title, "url": link, "day": day, "summary": summary}], "arXiv",
+                            "Research desk: quantitative finance")
         if LOOKS_TESTABLE.search(title + " " + summary) and _keep(memory, "arXiv", title, link, day, summary, "arXiv"):
             added += 1
     return added

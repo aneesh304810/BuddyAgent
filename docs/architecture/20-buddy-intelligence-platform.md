@@ -52,11 +52,11 @@ flowchart LR
     bip_py -. uses .-> o_1
     o_2["Free AI models"]
     bip_py -. uses .-> o_2
-    o_3["Investing"]
+    o_3["Home and health"]
     bip_py -. uses .-> o_3
-    o_4["Learning"]
+    o_4["Investing"]
     bip_py -. uses .-> o_4
-    o_5["Memory"]
+    o_5["Learning"]
     bip_py -. uses .-> o_5
 ```
 
@@ -143,7 +143,7 @@ A source that fails is recorded and skipped; the others still run.
 ```
 
 - Outside services: NSF (research grants)
-- Uses: funds.py, gateway.py
+- Uses: funds.py, gateway.py, paperlib.py
 
 ### themes.py
 
@@ -311,6 +311,6 @@ another; a strategy document is public text, so the Privacy Gateway lets it go t
 
 ## How it connects
 
-- Relies on: Buddy Connect; Claude: the brain; Free AI models (Groq, Gemini, Mistral, Cerebras, GitHub Models, OpenRouter); Investing: signals, research and practice; Learning: the English and investing tutors; Memory; Shopping and deals; The price book, pattern learning and trained models
+- Relies on: Buddy Connect; Claude: the brain; Free AI models (Groq, Gemini, Mistral, Cerebras, GitHub Models, OpenRouter); Home and health; Investing: signals, research and practice; Learning: the English and investing tutors; Memory; Shopping and deals; The price book, pattern learning and trained models
 - Relied on by: Claude: the brain; Free AI models (Groq, Gemini, Mistral, Cerebras, GitHub Models, OpenRouter); Investing: signals, research and practice; News, trends and research; Shopping and deals; Speaking up on its own: briefing, reminders and alerts; The price book, pattern learning and trained models; The server and the app; Travel and getting around
 

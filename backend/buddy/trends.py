@@ -246,7 +246,10 @@ class Trends:
             if words and not hit:
                 continue
             out.append({"source": "arXiv", "title": title, "url": e.findtext("a:id", "", ns) or "", "score": hit,
-                        "comments": 0, "ts": time.time() - 12 * 3600})
+                        "comments": 0, "ts": time.time() - 12 * 3600, "summary": summary,
+                        "day": (e.findtext("a:published", "", ns) or "")[:10]})
+        from . import paperlib  # noqa: PLC0415  kept in the paper library
+        paperlib.keep_items(self.memory, out[:8], "arXiv", f"Trends: {query}")
         return out[:8]
 
     def github(self, query: str, days: int) -> list[dict]:

@@ -59,7 +59,7 @@ flowchart LR
     trends_py -. uses .-> o_3
     o_4["Free AI models"]
     trends_py -. uses .-> o_4
-    o_5["Investing"]
+    o_5["Home and health"]
     trends_py -. uses .-> o_5
 ```
 
@@ -105,7 +105,7 @@ their usual level.
 - Tables: `news_feedback`, `trend_counts`, `trend_topics`
 - Outside services: Serper (Google search, news, places)
 - Settings: `BUDDY_ALPACA_KEY_ID`, `BUDDY_SERPAPI_KEY`, `BUDDY_SERPER_KEY`
-- Uses: benefits.py, brain.py, finance.py, free_models.py, gateway.py, jobs.py, markets.py, memory.py, newsfeed.py, tools.py
+- Uses: benefits.py, brain.py, finance.py, free_models.py, gateway.py, jobs.py, markets.py, memory.py, newsfeed.py, paperlib.py, tools.py
 
 ### techradar.py
 
@@ -145,7 +145,7 @@ Nothing is installed or changed: this recommends, the owner decides, and buildin
 ```
 
 - Tables: `tech_radar`
-- Uses: benefits.py, codedocs.py, free_models.py, markets.py, memory.py, securitywatch.py, tools.py, trends.py
+- Uses: benefits.py, codedocs.py, free_models.py, markets.py, memory.py, paperlib.py, securitywatch.py, tools.py, trends.py
 
 ### social.py
 
@@ -239,6 +239,6 @@ Everything that comes back is other people's writing: information, never instruc
 
 ## How it connects
 
-- Relies on: Buddy Connect; Buddy Intelligence Platform; Claude: the brain; Fixing and explaining itself; Free AI models (Groq, Gemini, Mistral, Cerebras, GitHub Models, OpenRouter); Investing: signals, research and practice; Making and doing things; Memory; Money; Security and privacy
+- Relies on: Buddy Connect; Buddy Intelligence Platform; Claude: the brain; Fixing and explaining itself; Free AI models (Groq, Gemini, Mistral, Cerebras, GitHub Models, OpenRouter); Home and health; Investing: signals, research and practice; Making and doing things; Memory; Money; Security and privacy
 - Relied on by: Claude: the brain; Going out: restaurants and events; Insights and costs; Investing: signals, research and practice; Making and doing things; Memory; Money; Speaking up on its own: briefing, reminders and alerts; The server and the app; Travel and getting around
 

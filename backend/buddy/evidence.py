@@ -144,8 +144,10 @@ def refresh(memory: Memory, env=None, fetch=None) -> dict:
     first = not memory.get(RAN_KEY)
     days = FIRST_DAYS if first else WINDOW_DAYS
     today = local_now().date().isoformat()
+    fresh: list[str] = []
     found = new = 0
-    for key, _, base in _topics(s):
+    from . import paperlib  # noqa: PLC0415  every paper also goes into the library, kept until the owner deletes it
+    for key, label, base in _topics(s):
         ids = ((_call(memory, "/entrez/eutils/esearch.fcgi?" + urllib.parse.urlencode(
             {"db": "pubmed", "retmode": "json", "retmax": PER_TOPIC, "sort": "pub_date", "datetype": "pdat",
              "reldate": days, "tool": "buddy", "term": query(base, s)}), env=env, fetch=fetch) or {})
@@ -156,6 +158,7 @@ def refresh(memory: Memory, env=None, fetch=None) -> dict:
         result = (_call(memory, "/entrez/eutils/esummary.fcgi?" + urllib.parse.urlencode(
             {"db": "pubmed", "retmode": "json", "tool": "buddy", "id": ",".join(ids)}), env=env, fetch=fetch)
             or {}).get("result") or {}
+        topic_label = label
         for pmid in ids:
             r = result.get(pmid) or {}
             title = " ".join(re.sub(r"<[^>]+>", "", str(r.get("title") or "")).split())
@@ -173,11 +176,23 @@ def refresh(memory: Memory, env=None, fetch=None) -> dict:
                 (key, pmid, title[:400], str(r.get("fulljournalname") or r.get("source") or "")[:160],
                  str(r.get("pubdate") or "")[:40], _sort_date(str(r.get("pubdate") or ""), today), json.dumps(types),
                  rk, label, str(author)[:80], str(doi)[:120], today))
+            paperlib.keep(memory, title, "PubMed", f"Health research digest: {topic_label}", pmid=pmid, doi=doi,
+                          authors=", ".join(str(a.get("name") or "") for a in (r.get("authors") or [])[:6]),
+                          venue=str(r.get("fulljournalname") or r.get("source") or ""),
+                          published=str(r.get("pubdate") or ""), kinds=types, commit=False)
+            if held is None:
+                fresh.append(pmid)
             found += 1
             new += held is None
-    memory.db.execute("DELETE FROM evidence_papers WHERE found < ?",
+    memory.db.execute("DELETE FROM evidence_papers WHERE found < ?",  # the digest's own list; the library keeps all
                       ((local_now().date() - timedelta(days=KEEP_DAYS)).isoformat(),))
     memory.db.commit()
+    for i in range(0, len(fresh), 100):  # the new papers' abstracts, in one PubMed call per hundred, for the library
+        try:
+            for pmid, text in _abstracts(memory, fresh[i:i + 100], env, fetch).items():
+                paperlib.set_abstract(memory, f"pmid:{pmid}", text)
+        except (ToolError, ET.ParseError):
+            break
     memory.set(RAN_KEY, today)
     return {"found": found, "new": new, "days": days}
 
@@ -222,19 +237,43 @@ def view(memory: Memory) -> dict:
                     "words are sent; no AI model reads or summarises any of it."}
 
 
-def abstract(memory: Memory, pmid: str, env=None, fetch=None) -> dict:
-    """A paper's abstract, by section, when the owner opens it."""
-    if not re.fullmatch(r"\d{1,9}", str(pmid or "")):
-        raise ToolError("That isn't a PubMed number.")
+def _efetch(memory: Memory, pmids: list[str], env=None, fetch=None):
+    """PubMed's records for these numbers, parsed safely (no entity declarations, no doctype)."""
     raw = _call(memory, "/entrez/eutils/efetch.fcgi?" + urllib.parse.urlencode(
-        {"db": "pubmed", "retmode": "xml", "rettype": "abstract", "tool": "buddy", "id": pmid}), env=env, fetch=fetch,
-        raw=True)
+        {"db": "pubmed", "retmode": "xml", "rettype": "abstract", "tool": "buddy", "id": ",".join(pmids)}), env=env,
+        fetch=fetch, raw=True)
     text = raw.decode("utf-8", "replace") if isinstance(raw, (bytes, bytearray)) else str(raw or "")
     text = re.sub(r"<!DOCTYPE PubmedArticleSet PUBLIC \"[^\"<>\[\]]*\" \"[^\"<>\[\]]*\">", "", text, count=1)
     if "<!ENTITY" in text or "<!DOCTYPE" in text:  # never parse entity declarations
         raise ToolError("PubMed sent something unexpected.")
-    root = ET.fromstring(text)  # nosec B314: checked above, no entities or doctype
+    return ET.fromstring(text)  # nosec B314: checked above, no entities or doctype
+
+
+def _sections(node) -> list[dict]:
     parts = [{"label": (a.get("Label") or "").capitalize(), "text": " ".join("".join(a.itertext()).split())}
-             for a in root.iter("AbstractText")]
-    return {"pmid": pmid, "sections": [p for p in parts if p["text"]],
+             for a in node.iter("AbstractText")]
+    return [p for p in parts if p["text"]]
+
+
+def _abstracts(memory: Memory, pmids: list[str], env=None, fetch=None) -> dict[str, str]:
+    """{pmid: abstract as one text} for several papers at once."""
+    out = {}
+    for art in _efetch(memory, pmids, env, fetch).iter("PubmedArticle"):
+        pmid = (art.findtext(".//PMID") or "").strip()
+        text = " ".join((f"{p['label']}: " if p["label"] else "") + p["text"] for p in _sections(art))
+        if pmid and text:
+            out[pmid] = text
+    return out
+
+
+def abstract(memory: Memory, pmid: str, env=None, fetch=None) -> dict:
+    """A paper's abstract, by section, when the owner opens it (and kept in the paper library)."""
+    if not re.fullmatch(r"\d{1,9}", str(pmid or "")):
+        raise ToolError("That isn't a PubMed number.")
+    parts = _sections(_efetch(memory, [pmid], env, fetch))
+    if parts:
+        from . import paperlib  # noqa: PLC0415
+        paperlib.set_abstract(memory, f"pmid:{pmid}",
+                              " ".join((f"{p['label']}: " if p["label"] else "") + p["text"] for p in parts))
+    return {"pmid": pmid, "sections": parts,
             "note": "Abstracts may be copyrighted by their publishers; shown to you for your own reading."}

@@ -281,8 +281,8 @@ def sync(memory: Memory, n: int | None = None, env=None, fetch=None, kind: str =
             got["records"] += n_rec
             got["new"] += n_new
             got["reached"] = max(got["reached"], day)
-        memory.db.execute("DELETE FROM whoop_daily WHERE day < ?",
-                          ((local_now().date() - timedelta(days=healthrecords.keep_days())).isoformat(),))
+        if (first := healthrecords.cutoff()):
+            memory.db.execute("DELETE FROM whoop_daily WHERE day < ?", (first,))
         memory.db.commit()
         healthrecords.prune(memory, NAME)
     memory.set(SYNC_KEY, now)

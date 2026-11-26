@@ -105,16 +105,24 @@ TABLES = {"health_connect": "health_daily", "oura": "oura_daily", "whoop": "whoo
 TITLES = {"health_connect": "Phone health data (Health Connect)", "oura": "Oura Ring", "whoop": "WHOOP",
           "lab_upload": "Lab reports you upload", "mychart": "MyChart (patient portals)"}
 LAB_SOURCES = ("lab_upload", "mychart")  # kept until the owner deletes them
-KEEP_SETTING, KEEP_DEFAULT = "BUDDY_HEALTH_KEEP_DAYS", 730
+KEEP_SETTING = "BUDDY_HEALTH_KEEP_DAYS"
 
 
-def keep_days(env=None) -> int:
-    """How long readings from devices are kept: BUDDY_HEALTH_KEEP_DAYS, 30 days to 10 years; two years unset."""
+def keep_days(env=None) -> int | None:
+    """How long the owner's health data is kept: until they delete it (None) unless BUDDY_HEALTH_KEEP_DAYS sets a
+    limit, from 30 days to 10 years (0 or unset: no limit). Kept for future reference and Buddy's own model."""
+    raw = str((env if env is not None else os.environ).get(KEEP_SETTING) or "").strip()
     try:
-        days = int(((env if env is not None else os.environ).get(KEEP_SETTING) or KEEP_DEFAULT))
+        days = int(raw) if raw else 0
     except ValueError:
-        days = KEEP_DEFAULT
-    return max(30, min(days, 3650))
+        days = 0
+    return None if days <= 0 else max(30, min(days, 3650))
+
+
+def cutoff(env=None) -> str | None:
+    """The first day still kept (ISO), or None when nothing is deleted for age."""
+    days = keep_days(env)
+    return None if days is None else (local_now().date() - timedelta(days=days)).isoformat()
 BACKFILL_KEY = "healthrecords:backfilled_v1"
 SCHEMA = """
 CREATE TABLE IF NOT EXISTS health_records (      -- the owner's health values in one form, with their source
@@ -191,8 +199,10 @@ def prune(memory: Memory, connector: str) -> int:
     if connector in LAB_SOURCES:
         return 0
     _ready(memory)
-    cutoff = (local_now().date() - timedelta(days=keep_days())).isoformat()
-    n = memory.db.execute("DELETE FROM health_records WHERE connector = ? AND at < ?", (connector, cutoff)).rowcount
+    first = cutoff()
+    if first is None:
+        return 0
+    n = memory.db.execute("DELETE FROM health_records WHERE connector = ? AND at < ?", (connector, first)).rowcount
     memory.db.commit()
     return n
 

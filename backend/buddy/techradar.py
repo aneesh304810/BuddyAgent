@@ -362,6 +362,10 @@ async def _run_track(memory: Memory, track: str, trends, ask, today) -> dict:
                  item["kind"], item["what"], item["idea"], item["effort"], item["caution"], item["relevance"], level,
                  evidence, today.isoformat(), today.isoformat(), track, item["threat"], item["defence"]))
             fresh = level != "unverified"
+            if "arxiv.org/" in str(item["url"]):
+                from . import paperlib  # noqa: PLC0415  a paper on the radar is kept in the paper library too
+                paperlib.keep_items(memory, [{"title": item["title"], "url": item["url"], "summary": item["what"]}],
+                                    "arXiv", f"Tech radar: {item['area']}")
         else:
             again = row["last_seen"] != today.isoformat()
             fresh = row["verified"] == "unverified" and level != "unverified" and row["status"] == "new"

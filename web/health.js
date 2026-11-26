@@ -167,7 +167,7 @@ function sourceCard(s) {
     connect + expired + failed +
     `<p class="muted">Last sync: ${syncLine(s.last)}${s.last_ok && s.last && !s.last.ok ? ` · last good: ${syncLine(s.last_ok)}` : ""}</p>
      ${(s.apps || []).length ? `<p class="muted">Apps that wrote to it lately: ${esc(s.apps.join(", "))}</p>` : ""}
-     <p class="muted">Held: ${values(s.records)}${s.records ? `, ${esc(when(s.first))} to ${esc(when(s.newest))}` : ""}, kept ${esc(s.keep_days)} days.</p>
+     <p class="muted">Held: ${values(s.records)}${s.records ? `, ${esc(when(s.first))} to ${esc(when(s.newest))}` : ""}, kept ${s.keep_days ? `${esc(s.keep_days)} days` : "until you delete it"}.</p>
      <details><summary class="muted" style="cursor:pointer">What it sends (${esc(s.measures.length)})</summary>${measures}</details>
      <details><summary class="muted" style="cursor:pointer">Sync history</summary>${hist || `<p class="muted">No syncs yet.</p>`}</details>
      ${buttons ? `<p style="margin:10px 0 0">${buttons}</p>` : ""}`,
@@ -605,8 +605,31 @@ function renderResearch() {
   const topics = resData.topics.map((t) => card(esc(t.label), t.papers.length ? t.papers.map(paper).join("")
     : `<p class="muted">Nothing ${s.strong ? "with strong evidence " : ""}in the last weeks.</p>`)).join("");
   $("main").innerHTML = `<p class="muted" style="margin:0 0 10px">${resData.ran ? `Looked ${esc(when(resData.ran))}` : "Not looked yet"} · <button class="btn" id="res-edit">Topics</button> <button class="btn" id="res-refresh"${resBusy ? " disabled" : ""}>${resBusy ? "Looking…" : "Refresh"}</button></p>`
-    + topics + `<p class="note">${esc(resData.note)}</p>`;
+    + topics + libraryCard() + `<p class="note">${esc(resData.note)}</p>`;
   wireResearch();
+}
+// The paper library: every paper Buddy found, from every source (PubMed, arXiv, Europe PMC, OpenAlex), kept.
+let lib = null, libQ = "", libSrc = "", libOpen = false;
+async function loadLibrary() {
+  try { lib = await api(`/api/papers?q=${encodeURIComponent(libQ)}&source=${encodeURIComponent(libSrc)}`); }
+  catch (e) { lib = { failed: e.message }; }
+  if (showing("learn", "research")) render();
+}
+function libraryCard() {
+  const head = `<button class="btn" id="lib-toggle">${libOpen ? "Hide" : "Open"} the paper library</button>`;
+  if (!libOpen) return card("Paper library", `<p class="muted" style="margin:0 0 8px">Every paper Buddy finds, from every source, kept until you delete it.</p>${head}`);
+  if (!lib) { loadLibrary(); return card("Paper library", `${head}<p class="muted">Loading…</p>`); }
+  if (lib.failed) return card("Paper library", `${head}<p class="err">${esc(lib.failed)}</p>`);
+  const srcs = Object.entries(lib.counts).map(([s, n]) => `<option value="${esc(s)}"${s === libSrc ? " selected" : ""}>${esc(s)} (${n})</option>`).join("");
+  const rows = lib.papers.map((p) => `<div class="line" style="align-items:flex-start"><div class="what">${p.url ? `<a href="${esc(p.url)}" target="_blank" rel="noopener">${esc(p.title)}</a>` : esc(p.title)}
+      <small>${esc([p.venue, p.published].filter(Boolean).join(" · "))}</small>
+      <small>Found by ${esc(p.found_by.map((f) => f.why || f.source).join("; "))}</small>
+      ${p.abstract ? `<details><summary class="why" style="cursor:pointer">Abstract</summary><p class="why">${esc(p.abstract)}</p></details>` : ""}</div>
+      <button class="btn" data-lib-forget="${esc(p.key)}" aria-label="Delete this paper">Delete</button></div>`).join("");
+  return card(`Paper library · ${lib.all}`, `${head}<form class="f" id="lib-form" style="margin-top:8px"><input class="grow" name="q" value="${esc(libQ)}" placeholder="Search titles and abstracts" aria-label="Search the library" maxlength="120">
+      <select name="source" aria-label="Source"><option value="">All sources</option>${srcs}</select><button class="btn solid">Search</button></form>
+    ${rows || `<p class="muted">${lib.all ? "Nothing matches." : "No papers yet: they're kept as Buddy finds them."}</p>`}
+    ${lib.total > lib.papers.length ? `<p class="muted">Showing the newest ${lib.papers.length} of ${lib.total}.</p>` : ""}`, esc(lib.note));
 }
 function wireResearch() {
   if ($("res-form")) $("res-form").onsubmit = (e) => {
@@ -618,6 +641,11 @@ function wireResearch() {
   if ($("res-edit")) $("res-edit").onclick = () => { resEdit = true; render(); };
   if ($("res-refresh")) $("res-refresh").onclick = () => loadResearch({ action: "refresh" });
   $("main").querySelectorAll("[data-abs]").forEach((b) => b.onclick = () => openAbstract(b.dataset.abs));
+  if ($("lib-toggle")) $("lib-toggle").onclick = () => { libOpen = !libOpen; render(); };
+  if ($("lib-form")) $("lib-form").onsubmit = (e) => { e.preventDefault(); libQ = e.target.q.value.trim(); libSrc = e.target.source.value; lib = null; render(); };
+  $("main").querySelectorAll("[data-lib-forget]").forEach((b) => b.onclick = async () => {
+    try { await api("/api/papers", { action: "forget", key: b.dataset.libForget }); lib = null; render(); } catch (e) { notice(e.message); }
+  });
 }
 
 function renderSupplements() {

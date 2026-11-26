@@ -91,8 +91,10 @@ def test_days_held_before_are_filled_in_once(tmp_path):
     assert rows(m, "health_connect")["steps"]["sync_id"] is None  # from before the sync history existed
 
 
-def test_old_records_follow_their_source_out(tmp_path):
+def test_old_records_follow_their_source_out(tmp_path, monkeypatch):
     m = Memory(tmp_path / "b.db")
+    assert healthrecords.prune(m, "health_connect") == 0  # no limit set: nothing is deleted for age
+    monkeypatch.setenv("BUDDY_HEALTH_KEEP_DAYS", "730")
     health_data.ingest(m, {"days": [{"day": _day(0), "steps": 1}, {"day": _day(80), "steps": 2}]})
     healthrecords._ready(m)
     m.db.execute("UPDATE health_records SET at = ? WHERE value = 2", (_day(800),))  # past the two years
@@ -105,7 +107,7 @@ def test_the_sources_view_has_counts_and_dates_but_no_values(tmp_path):
     health_data.ingest(m, {"days": [{"day": TODAY, "steps": 8123, "resting_hr": 58}]})
     view = {s["connector"]: s for s in healthrecords.sources(m, ENV)}
     phone = view["health_connect"]
-    assert phone["records"] == 2 and phone["newest"] == TODAY and phone["keep_days"] == 730
+    assert phone["records"] == 2 and phone["newest"] == TODAY and phone["keep_days"] is None  # until deleted
     assert phone["last"]["ok"] == 1 and not phone["can_sync"] and "Health Connect" in phone["stop"]
     assert {x["measure"]: x["days"] for x in phone["measures"]}["steps"] == 1
     assert "8123" not in str(phone) and "58.0" not in str(phone)
@@ -113,10 +115,12 @@ def test_the_sources_view_has_counts_and_dates_but_no_values(tmp_path):
 
 
 def test_how_long_readings_are_kept_is_one_setting():
-    assert healthrecords.keep_days({}) == 730  # two years when unset
+    assert healthrecords.keep_days({}) is None and healthrecords.cutoff({}) is None  # until the owner deletes them
+    assert healthrecords.keep_days({"BUDDY_HEALTH_KEEP_DAYS": "0"}) is None
     assert healthrecords.keep_days({"BUDDY_HEALTH_KEEP_DAYS": "365"}) == 365
     assert healthrecords.keep_days({"BUDDY_HEALTH_KEEP_DAYS": "5"}) == 30 and healthrecords.keep_days(
-        {"BUDDY_HEALTH_KEEP_DAYS": "lots"}) == 730
+        {"BUDDY_HEALTH_KEEP_DAYS": "lots"}) is None
+    assert healthrecords.cutoff({"BUDDY_HEALTH_KEEP_DAYS": "30"}) == (local_now().date() - timedelta(days=30)).isoformat()
 
 
 def test_the_phone_sends_what_garmin_fitbit_and_other_apps_wrote_and_which_apps(tmp_path):

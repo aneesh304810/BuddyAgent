@@ -160,6 +160,8 @@ def arxiv(memory, phrase: str, fetch=None) -> list[dict]:
                     "title": " ".join((e.findtext("a:title", "", ns) or "").split()), "url": link.replace("http://", "https://"),
                     "day": _day(e.findtext("a:published", "", ns)), "who": "", "amount": None,
                     "text": (e.findtext("a:summary", "", ns) or "")[:1500]})
+    from . import paperlib  # noqa: PLC0415  every paper found is also kept in the paper library
+    paperlib.keep_items(memory, out, "arXiv", f"Buddy Intelligence: {phrase}")
     return out
 
 
@@ -173,7 +175,10 @@ def europepmc(memory, phrase: str, fetch=None) -> list[dict]:
         out.append({"key": f"epmc:{r.get('source')}:{r['id']}", "kind": "research", "source": "Europe PMC",
                     "title": " ".join(str(r["title"]).split()), "day": _day(r.get("firstPublicationDate")),
                     "url": f"https://europepmc.org/article/{r.get('source', 'MED')}/{r['id']}",
-                    "who": str(r.get("journalTitle") or "")[:80], "amount": None, "text": ""})
+                    "who": str(r.get("journalTitle") or "")[:80], "amount": None, "text": "",
+                    "pmid": str(r.get("pmid") or ""), "doi": str(r.get("doi") or "")})
+    from . import paperlib  # noqa: PLC0415
+    paperlib.keep_items(memory, out, "Europe PMC", f"Buddy Intelligence: {phrase}")
     return out
 
 
@@ -321,6 +326,9 @@ def openalex(memory, phrase: str, fetch=None, today: date | None = None) -> list
         out.append({"key": f"oa:{str(w['id']).rsplit('/', 1)[-1]}", "kind": "research", "source": "OpenAlex",
                     "title": title[:240], "url": link if link.startswith("https://") else "",
                     "day": _day(w.get("publication_date")), "who": str(venue)[:80], "amount": None, "text": ""})
+    from . import paperlib  # noqa: PLC0415
+    paperlib.keep_items(memory, [o | {"url": o["url"] or f"https://openalex.org/{o['key'][3:]}"} for o in out],
+                        "OpenAlex", f"Buddy Intelligence: {phrase}")
     return out
 
 

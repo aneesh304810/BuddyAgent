@@ -218,6 +218,9 @@ def run(memory: Memory, env=None, fetch=None) -> dict:
         except ToolError as e:
             row |= {"status": "unknown", "detail": f"Couldn't check: {e}"}
         out["watches"].append(row)
+        if row.get("papers"):
+            from . import paperlib  # noqa: PLC0415  kept in the paper library, beyond this week's list
+            paperlib.keep_items(memory, row["papers"], "PubMed", f"Freshness watch: {title}")
     memory.set(STATE_KEY, json.dumps(out))
     return out
 

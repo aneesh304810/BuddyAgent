@@ -1856,6 +1856,30 @@ async def api_health_fit(body: dict) -> dict:
         raise HTTPException(400, str(e)) from None
 
 
+@app.get("/api/papers", dependencies=[Depends(require_admin)])
+async def api_papers(q: str = "", source: str = "", offset: int = 0) -> dict:
+    """The paper library: every research paper Buddy found, from every source, kept until the owner deletes it."""
+    from . import paperlib  # noqa: PLC0415
+    try:
+        return await asyncio.to_thread(paperlib.search, memory, q[:120], source, 30, offset)
+    except ToolError as e:
+        raise HTTPException(400, str(e)) from None
+
+
+@app.post("/api/papers", dependencies=[Depends(require_admin)])
+async def api_papers_act(body: dict) -> dict:
+    """forget (one paper by its key) or forget_all."""
+    from . import paperlib  # noqa: PLC0415
+    action = str(body.get("action") or "")
+    if action == "forget" and str(body.get("key") or ""):
+        n = await asyncio.to_thread(paperlib.forget, memory, str(body["key"])[:300])
+    elif action == "forget_all":
+        n = await asyncio.to_thread(paperlib.forget, memory, "")
+    else:
+        raise HTTPException(400, "unknown action")
+    return {"deleted": n}
+
+
 @app.get("/api/health/research", dependencies=[Depends(require_admin)])
 async def api_health_research(pmid: str = "") -> dict:
     """The research digest (topics, papers by evidence), or one paper's abstract with pmid."""
