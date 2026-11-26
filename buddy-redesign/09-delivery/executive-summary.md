@@ -30,4 +30,10 @@ isolated per-customer data planes (keeps "one server per customer").
 **Not done, and why:** no Figma file (no Figma access here: the prototype,
 SVGs and tokens are the importable assets); no pricing (deliberately).
 
-**Next:** migration steps 1 to 6 in order; decisions 6 to 11 in `open-decisions.md` stay open.
+**Built so far (Stage 9):** tokens in the app and on every page; the new icon and wordmark; the new colours with
+Follow the phone, Light or Dark; Home, Health, Money, Explore, Profile (Settings → Layout goes back); Home's quick
+actions and the open-Fold panel; Health in five sections with Log BP and Scan instead of the microphone; Invest and
+Health without a second row of tabs; no repeated titles in the app.
+
+**Next:** measure tap counts and do a screen-reader pass on the Fold; Money › Bills, Explore › For you and
+Profile › Privacy (new content); decisions 6 to 11 in `open-decisions.md` stay open.
