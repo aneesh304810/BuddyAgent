@@ -560,7 +560,7 @@ function renderFood() {
 
 // --- facts looked up on request (USDA foods, NIH supplement labels, openFDA medicines): only the words typed go out
 const facts = { food: null, supplement: null, label: null, medicine: null }, factQ = { food: "", supplement: "", medicine: "" };
-let foodPick = -1, foodGrams = "";
+let foodPick = -1, foodGrams = "", foodPortion = 0, foodCount = "1";  // portion: its index, or -1 for grams
 const listText = (v) => (Array.isArray(v) ? v.join(", ") : String(v ?? ""));
 // Does it fit? The server's code checks the picked food at this portion against the goal, the guidelines, your labs
 // and your allergies (dietcheck.py), before it is added.
@@ -594,7 +594,7 @@ async function lookUp(kind, q) {
   const slot = kind === "barcode" ? "food" : kind;  // a scanned pack's matches show in the food lookup
   facts[slot] = { busy: true };
   if (kind === "supplement") facts.label = null;
-  if (slot === "food") foodPick = -1;
+  if (slot === "food") { foodPick = -1; foodPortion = 0; foodCount = "1"; }
   render();
   try { facts[slot] = await api(`/api/health/facts?kind=${kind}&q=${encodeURIComponent(q)}`); }
   catch (e) { facts[slot] = { failed: e.message }; }
@@ -616,13 +616,15 @@ function foodLookup() {
   let body = state ?? "";
   if (state === null) {
     body = got.foods.length ? got.foods.map((f, i) => {
-      const open = i === foodPick, grams = Number(foodGrams) || (f.portions[0] ? f.portions[0].grams : 100);
+      const open = i === foodPick, { grams, label } = foodAmount(f);
       const amt = { kcal: Math.round((f.per100.kcal || 0) * grams / 100), protein: Math.round((f.per100.protein_g || 0) * grams / 10) / 10 };
+      const byPortion = f.portions.length && foodPortion >= 0;
       return `<div class="line" style="align-items:flex-start"><div class="what">${esc(f.name)}<small>${esc(f.kind)}${f.brand ? " · " + esc(f.brand) : ""} · per 100 g: ${per100(f.per100)}</small>
         ${open ? `<div class="f" style="align-items:flex-end;margin-top:6px">
-          ${f.portions.length ? `<select data-food-portion aria-label="Portion"><option value="">Grams</option>${f.portions.map((p) => `<option value="${p.grams}"${Number(foodGrams) === p.grams ? " selected" : ""}>${esc(p.label)} (${num(p.grams)} g)</option>`).join("")}</select>` : ""}
-          <input class="narrow" data-food-grams inputmode="decimal" value="${esc(grams)}" aria-label="Grams"> g
-          <button class="btn solid" data-food-add="${i}">Add ${num(amt.kcal)} kcal, ${num(amt.protein)} g protein</button></div>
+          ${byPortion ? `<label class="muted" style="display:flex;align-items:center;gap:6px">How many <input data-food-count inputmode="decimal" value="${esc(foodCount)}" aria-label="How many" style="width:72px;flex:0 0 72px"></label> ×` : ""}
+          ${f.portions.length ? `<select data-food-portion aria-label="Portion">${f.portions.map((p, j) => `<option value="${j}"${j === foodPortion ? " selected" : ""}>${esc(portionName(p))} (${num(p.grams)} g)</option>`).join("")}<option value="-1"${foodPortion < 0 ? " selected" : ""}>Grams</option></select>` : ""}
+          ${byPortion ? `<span class="muted">= ${num(grams)} g</span>` : `<input class="narrow" data-food-grams inputmode="decimal" value="${esc(grams)}" aria-label="Grams"> g`}
+          <button class="btn solid" data-food-add="${i}">Add ${esc(label)}: ${num(amt.kcal)} kcal, ${num(amt.protein)} g protein</button></div>
           ${grams > 0 && grams <= 3000 ? fitBox(f, grams) : ""}` : ""}</div>
         ${open ? "" : `<button class="btn" data-food-pick="${i}">Use</button>`}</div>`;
     }).join("") : `<p class="muted">Nothing found: try fewer or plainer words.</p>`;
@@ -630,23 +632,42 @@ function foodLookup() {
   return card("Look up a food", searchForm("food", "A food, e.g. idli, banana, Greek yogurt") + body,
     got && got.source ? `${esc(got.source)}. Only the words you type are sent.` : "From USDA FoodData Central. Only the words you type are sent.");
 }
+// How much: a number of portions ("2" × "1 large egg", "3" × "1 slice") or grams; the meal is named with it.
+const portionName = (p) => String(p.label || "").replace(/\s*\(label serving\)\s*$/i, "") || "a serving";
+function foodAmount(f) {
+  if (f.portions.length && foodPortion >= 0) {
+    const p = f.portions[Math.min(foodPortion, f.portions.length - 1)], n = Number(foodCount);
+    const count = n > 0 ? Math.round(n * 100) / 100 : 0;
+    return { grams: Math.round(count * p.grams * 10) / 10, label: `${num(count)} × ${portionName(p)}` };
+  }
+  const g = Number(foodGrams) || 100;
+  return { grams: g, label: `${num(g)} g` };
+}
 function wireFoodLookup() {
   wireSearch();
-  $("main").querySelectorAll("[data-food-pick]").forEach((b) => b.onclick = () => { foodPick = Number(b.dataset.foodPick); foodGrams = ""; render(); });
+  $("main").querySelectorAll("[data-food-pick]").forEach((b) => b.onclick = () => {
+    foodPick = Number(b.dataset.foodPick); foodGrams = ""; foodCount = "1";
+    foodPortion = facts.food.foods[foodPick].portions.length ? 0 : -1; render();
+  });
   const portion = $("main").querySelector("[data-food-portion]"), grams = $("main").querySelector("[data-food-grams]");
-  if (portion) portion.onchange = () => { if (portion.value) { foodGrams = portion.value; render(); } };
+  const count = $("main").querySelector("[data-food-count]");
+  if (portion) portion.onchange = () => { foodPortion = Number(portion.value); render(); };
+  if (count) count.oninput = () => { foodCount = count.value; clearTimeout(count._t); count._t = setTimeout(() => { render(); const c = $("main").querySelector("[data-food-count]"); if (c) { c.focus(); c.setSelectionRange(c.value.length, c.value.length); } }, 500); };
   if (grams) grams.onchange = () => { foodGrams = grams.value; render(); };
   $("main").querySelectorAll("[data-food-add]").forEach((b) => b.onclick = () => {
-    const f = facts.food.foods[Number(b.dataset.foodAdd)], g = Number(grams.value);
-    if (!(g > 0 && g <= 3000)) { notice("An amount between 1 and 3,000 grams."); return; }
-    const label = portion && portion.value && Number(portion.value) === g ? portion.selectedOptions[0].textContent : `${num(g)} g`;
+    const f = facts.food.foods[Number(b.dataset.foodAdd)];
+    if (count) foodCount = count.value;
+    if (grams) foodGrams = grams.value;
+    const { grams: g, label: amount } = foodAmount(f);
+    if (!(g > 0 && g <= 3000)) { notice(count ? "How many: a number, such as 2 or 0.5." : "An amount between 1 and 3,000 grams."); return; }
+    const label = f.portions.length && foodPortion >= 0 ? `${amount}, ${num(g)} g` : amount;
     const of = (k) => (f.per100[k] == null ? null : Math.round(f.per100[k] * g) / 100);
     act({ action: "meal", what: `${f.name} (${label})`.slice(0, 200), calories: Math.round((f.per100.kcal || 0) * g / 100),
       protein_g: Math.round((f.per100.protein_g || 0) * g / 100), carbs_g: of("carbs_g"), fat_g: of("fat_g"),
       fiber_g: of("fiber_g"), sodium_mg: of("sodium_mg"), sat_fat_g: of("sat_fat_g"), sugar_g: of("sugar_g"),
       added_sugar_g: of("added_sugar_g") }, "Added to today's meals.");
     Object.keys(fits).forEach((k) => delete fits[k]);  // today's totals changed: check again next time
-    foodPick = -1; foodGrams = "";
+    foodPick = -1; foodGrams = ""; foodCount = "1";
   });
 }
 

@@ -101,8 +101,9 @@ sub-tabs under them, and the page remembers where you were.
 - **Plan → Food:** what you noted today against the plan's calories and protein, and the last week's meals. You
   type a meal, or **look up a food**: USDA FoodData Central's basic foods, foods as people eat them (with portions
   such as "1 idli" or "1 cup") and branded products, each with calories, protein, carbs and fat per 100 g. Pick a
-  portion or type grams, and "Add" puts that food into today's meals with the calories and protein worked out by
-  code from USDA's numbers. No AI estimates them. Food lookups need a free api.data.gov key, set once on the
+  portion and **how many** (3 × "1 slice" from a scanned bread's label, 2 × "1 large" egg, 0.5 × "1 cup"), or
+  choose Grams and type them, and "Add" puts that food into today's meals, named with the amount ("Italian Bread
+  (3 × 1 slice, 96 g)"), with the calories and protein worked out by code from USDA's or the label's numbers. No AI estimates them. Food lookups need a free api.data.gov key, set once on the
   server: `sudo bash /opt/buddy/deploy/set.sh BUDDY_USDA_KEY` (sign up at api.data.gov; Buddy can't do it for you).
   - **Does it fit?** Pick a food and its portion, and before you tap Add Buddy's code checks it against your own
     plan: **Fits your plan**, **Fits, with care** (with what to watch) or **Not for you** (it's on your allergy
