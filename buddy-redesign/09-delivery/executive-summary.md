@@ -1,7 +1,7 @@
 # Executive summary
 
-Buddy's redesign is designed, prototyped and tested on the prototype; the app itself is unchanged until the owner
-approves Stage 9.
+Buddy's redesign is designed, prototyped and tested on the prototype. The owner approved Stage 9 on 2026-11-26, and
+it is going into the app and server pages one revertible step at a time (`07-engineering/migration-plan.md`).
 
 **What changes for the user:** Buddy still opens on the conversation, now with the message box and mic on screen
 at once, six quick actions (log a meal, log blood pressure, scan food, spending, bills, deals), what's waiting for
@@ -27,9 +27,7 @@ model.
 "Log BP" and "Scan"; secondary text darkened to #5E6B63 for contrast; multi-user as a shared control plane with
 isolated per-customer data planes (keeps "one server per customer").
 
-**Not done, and why:** no change to the Android app or server pages (needs approval: the owner's "ask before you
-build" rule and the brief's "implement approved changes"); no Figma file (no Figma access here: the prototype,
+**Not done, and why:** no Figma file (no Figma access here: the prototype,
 SVGs and tokens are the importable assets); no pricing (deliberately).
 
-**Next:** the owner answers the open decisions (`open-decisions.md`); Stage 9 starts with step 1 of the migration
-plan (tokens in, no visual change) and proceeds one reversible step at a time.
+**Next:** migration steps 1 to 6 in order; decisions 6 to 11 in `open-decisions.md` stay open.

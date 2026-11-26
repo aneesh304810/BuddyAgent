@@ -1,6 +1,7 @@
 # Stage reports
 
-Run on 2026-11-26. Levels: designed, prototyped, tested, implemented. Nothing below is implemented in the app.
+Run on 2026-11-26. Levels: designed, prototyped, tested, implemented. Stage 9 was approved the same day; what is
+implemented so far is listed in `07-engineering/migration-plan.md`.
 
 | Stage | Delivered (files) | Decisions | Assumptions | Open issues | Tests |
 | --- | --- | --- | --- | --- | --- |
@@ -12,5 +13,5 @@ Run on 2026-11-26. Levels: designed, prototyped, tested, implemented. Nothing be
 | 6. Responsive | Folded (bar, sheets) and open (rail, side panel) | 600 dp breakpoint; 840 dp for the side panel | Fold 8 inner display about 900 dp wide open | Verify on the device | All checks in both shapes |
 | 7. Design system | 06-design-system: tokens JSON/CSS/Kotlin, components.md, contrast-report.md | Secondary text #5E6B63 | none | Decision 9 | 50/50 contrast pairs |
 | 8. Prototype | 05-prototype/prototype.html (published), 04-ui/screens (25 PNG) | Free/Premium and states as live toggles | none | none | 08-quality/prototype-test-results.md |
-| 9. Engineering | 07-engineering specs and migration plan | Control plane + per-customer data plane | none | **Waiting for approval to change the app** | test-cases.md written |
+| 9. Engineering | 07-engineering specs and migration plan | Control plane + per-customer data plane | none | Approved 2026-11-26; steps 1 to 6 in progress | test-cases.md written; `test_design_tokens.py` |
 | 10. Quality | 08-quality: acceptance criteria with status, test cases | none | none | Screen-reader pass on the real app | prototype 116/116; contrast 50/50 |

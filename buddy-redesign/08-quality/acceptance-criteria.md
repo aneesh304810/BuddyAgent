@@ -2,7 +2,8 @@
 
 Each criterion from the brief with its honest status today. Levels: **designed** (specified or drawn),
 **prototyped** (works in the HTML prototype), **tested** (checked automatically), **implemented** (in the real app or
-server). Nothing is implemented in the app yet: Stage 9 waits for the owner's approval.
+server). Stage 9 was approved on 2026-11-26; this table moves a row to implemented only when the app or a server page
+ships it (see `07-engineering/migration-plan.md`).
 
 | # | Criterion | Status | Evidence |
 | --- | --- | --- | --- |

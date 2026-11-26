@@ -4,8 +4,9 @@ Brand, product structure, design system, a working prototype and the engineering
 Conversation first; five destinations (Home, Health, Money, Explore, Profile); health kept out of every AI model;
 nothing acts without the owner's approval.
 
-**Status:** designed, prototyped and tested on the prototype. The Android app and server pages are unchanged until
-the owner approves Stage 9 (`09-delivery/open-decisions.md`).
+**Status:** designed, prototyped and tested on the prototype. Stage 9 (building it into the app and server pages) was
+approved on 2026-11-26 and is going in one revertible step at a time; `07-engineering/migration-plan.md` shows which
+steps are implemented.
 
 | Folder | What's in it |
 | --- | --- |
