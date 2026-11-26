@@ -18,7 +18,7 @@ const SECTIONS = [
   ["today", "Today", []],
   ["trends", "Trends", [["measures", "Measures"], ["body", "Body & BP"], ["patterns", "Patterns"], ["mood", "Mood"]]],
   ["labs", "Labs", [["results", "Results"], ["add", "Add a report"], ["portals", "Portals"], ["checkups", "Checkups"]]],
-  ["plan", "Plan", [["habits", "Progress"], ["food", "Food"], ["menu", "Menu"], ["goals", "Goals & habits"]]],
+  ["plan", "Plan", [["habits", "Progress"], ["food", "Food"], ["groceries", "Groceries"], ["menu", "Menu"], ["goals", "Goals & habits"]]],
   ["learn", "Learn", [["research", "Research"], ["supplements", "Supplements"], ["medicines", "Medicines"]]],
   ["sources", "Sources", []],
 ];
@@ -544,18 +544,145 @@ function renderFood() {
   if (f.left.protein_g != null) k.push(kpi(num(f.left.protein_g) + " g", "protein left"));
   if (f.eaten.fiber_g != null) k.push(kpi(num(Math.round(f.eaten.fiber_g)) + " g", t.fiber_g ? `of ${num(t.fiber_g)} g fibre` : "fibre"));
   if (f.eaten.sodium_mg != null) k.push(kpi(num(Math.round(f.eaten.sodium_mg)) + " mg", "sodium (under 2,300)"));
-  const meals = f.recent.length ? f.recent.map((m) => `<div class="line"><div class="what">${esc(m.what)}<small>${esc(when(m.day))} ${esc(m.at)}</small></div>
-      <div class="num">${m.calories == null ? "" : num(m.calories) + " cal"}${m.protein_g == null ? "" : `<small>${num(m.protein_g)} g protein</small>`}</div></div>`).join("")
-    : `<p class="muted">No meals noted in the last week.</p>`;
-  $("main").innerHTML = `<div class="kpis">${k.join("")}</div>` + foodLookup()
+  $("main").innerHTML = `<div class="kpis">${k.join("")}</div>`
+    + `<div class="f" role="group" aria-label="Which meal" style="margin:4px 0 10px"><span class="muted">For</span>${SLOTS.map(([s, l]) =>
+      `<button class="chip${s === mealSlot ? " on" : ""}" data-slot="${s}">${l}</button>`).join("")}</div>` + foodLookup()
     + card("Note a meal", `<form id="meal"><div class="f"><input class="grow" name="what" placeholder="What you ate" aria-label="What you ate" required maxlength="200">
         <input class="narrow" name="calories" inputmode="numeric" placeholder="Calories" aria-label="Calories">
         <input class="narrow" name="protein_g" inputmode="numeric" placeholder="Protein g" aria-label="Protein in grams">
         <button class="btn solid">Add</button></div></form>`, esc(f.note))
-    + card("Last 7 days", meals);
+    + card("Last 7 days", mealsBySlot(f.recent));
   wireFoodLookup();
+  $("main").querySelectorAll("[data-slot]").forEach((b) => b.onclick = () => { mealSlot = b.dataset.slot; render(); });
+  $("main").querySelectorAll("[data-move]").forEach((s) => s.onchange = () => act({ action: "meal_slot", id: Number(s.dataset.move), slot: s.value }, "Moved."));
   $("meal").onsubmit = (e) => { e.preventDefault(); const d = new FormData(e.target);
-    act({ action: "meal", what: d.get("what"), calories: d.get("calories"), protein_g: d.get("protein_g") }, "Meal noted."); };
+    act({ action: "meal", what: d.get("what"), calories: d.get("calories"), protein_g: d.get("protein_g"), slot: mealSlot }, `Noted for ${slotName(mealSlot)}.`); };
+}
+
+// Meals by breakfast, lunch, snack and dinner: picked by the time (as the server does), changed with a tap.
+const SLOTS = [["breakfast", "Breakfast"], ["lunch", "Lunch"], ["snack", "Snack"], ["dinner", "Dinner"]];
+const slotName = (s) => (SLOTS.find(([k]) => k === s) || [s, s])[1].toLowerCase();
+function slotNow() {
+  const d = new Date(), m = d.getHours() * 60 + d.getMinutes();
+  return m >= 240 && m < 660 ? "breakfast" : m >= 660 && m < 900 ? "lunch" : (m >= 900 && m < 1050) || m < 240 ? "snack" : "dinner";
+}
+let mealSlot = slotNow();
+function mealsBySlot(recent) {
+  if (!recent.length) return `<p class="muted">No meals noted in the last week.</p>`;
+  const days = [...new Set(recent.map((m) => m.day))];
+  return days.map((day) => `<h3 class="muted" style="margin:12px 0 2px;font-size:14px">${esc(when(day))}</h3>` + SLOTS.map(([s, label]) => {
+    const ms = recent.filter((m) => m.day === day && m.slot === s);
+    if (!ms.length) return "";
+    const cal = ms.reduce((a, m) => a + (m.calories || 0), 0), pro = ms.reduce((a, m) => a + (m.protein_g || 0), 0);
+    return `<div class="muted" style="margin:6px 0 0;font-size:13px"><b>${label}</b> · ${num(cal)} cal · ${num(pro)} g protein</div>`
+      + ms.map((m) => `<div class="line"><div class="what">${esc(m.what)}<small>${esc(m.at)} · <select data-move="${m.id}" aria-label="Move to another meal" style="font-size:12px;padding:1px 4px">${SLOTS.map(([k, l]) =>
+        `<option value="${k}"${k === m.slot ? " selected" : ""}>${l}</option>`).join("")}</select></small></div>
+        <div class="num">${m.calories == null ? "" : num(m.calories) + " cal"}${m.protein_g == null ? "" : `<small>${num(m.protein_g)} g protein</small>`}</div></div>`).join("");
+  }).join("")).join("");
+}
+
+// --- Groceries: is this product good for me? One serving judged by the server's code against your own numbers
+// (foodverdict.py); the products you check are kept, so you can look back and compare them on the shelf.
+const groc = { q: "", found: null, busy: false, failed: "", pick: 0, verdict: null, scans: null, compare: new Set(), cmp: null, sure: false };
+const VERDICT_PILL = { good: "good", sometimes: "warn", skip: "bad" };
+async function grocCheck(food) {
+  groc.busy = true; groc.failed = ""; render();
+  try { groc.verdict = await api("/api/health/verdict", { food, keep: true }); groc.verdict.food = food; groc.scans = null; }
+  catch (e) { groc.failed = e.message; groc.verdict = null; }
+  groc.busy = false; render(); loadScans();
+}
+async function grocFind(kind, q) {
+  groc.busy = true; groc.failed = ""; groc.found = null; groc.verdict = null; render();
+  try { groc.found = (await api(`/api/health/facts?kind=${kind}&q=${encodeURIComponent(q)}`)).foods || []; }
+  catch (e) { groc.failed = e.message; groc.busy = false; render(); return; }
+  groc.busy = false;
+  if (!groc.found.length) { groc.failed = kind === "barcode" ? "That barcode isn't in USDA's or Open Food Facts' lists: look the product up by its name." : "Nothing found: try fewer or plainer words."; render(); return; }
+  if (kind === "barcode") { groc.pick = 0; grocCheck(groc.found[0]); } else render();
+}
+async function loadScans() {
+  try { groc.scans = (await api("/api/health/scans")).scans; } catch (e) { groc.scans = []; notice(e.message); }
+  render();
+}
+function verdictCard(v) {
+  const per = v.per_serving, bits = [`${num(per.kcal)} kcal`];
+  for (const [k, l, u] of [["protein_g", "protein", "g"], ["fiber_g", "fibre", "g"], ["sodium_mg", "sodium", "mg"], ["sat_fat_g", "sat fat", "g"], ["added_sugar_g", "added sugar", "g"]])
+    if (per[k] != null) bits.push(`${num(u === "mg" ? Math.round(per[k]) : Math.round(per[k] * 10) / 10)} ${u} ${l}`);
+  const list = (xs, yours) => xs.map((x) => `<li>${esc(x.text)}${yours && x.yours ? ` <span class="pill warn">for you</span>` : ""}</li>`).join("");
+  const why = [...new Set([...v.benefits, ...v.concerns].map((x) => x.why))];
+  return `<div style="margin-top:8px"><span class="pill ${VERDICT_PILL[v.verdict]}" style="font-size:13px">${esc(v.headline)}</span>
+    <div style="margin-top:6px"><b>${esc(v.name)}</b>${v.brand ? ` <span class="muted">${esc(v.brand)}</span>` : ""}</div>
+    <div class="muted" style="font-size:13px">A serving: ${esc(v.serving.label)} · ${bits.join(" · ")}</div>
+    ${v.benefits.length ? `<p style="margin:8px 0 2px"><b>Good</b></p><ul style="margin:0 0 0 18px;padding:0">${list(v.benefits)}</ul>` : ""}
+    ${v.concerns.length ? `<p style="margin:8px 0 2px"><b>Watch</b></p><ul style="margin:0 0 0 18px;padding:0">${list(v.concerns, true)}</ul>` : ""}
+    ${v.processing.nova ? `<p class="muted" style="margin:6px 0 0;font-size:13px">Processing: ${esc(v.processing.nova_says)} (NOVA ${esc(v.processing.nova)})${v.processing.additives.length ? ` · additives: ${esc(v.processing.additives.join(", "))}` : ""}</p>` : ""}
+    <details style="margin-top:6px"><summary class="why" style="cursor:pointer">What this rests on</summary>
+      ${why.map((w) => `<p class="why" style="margin:4px 0 0">${esc(w)}</p>`).join("")}
+      ${v.used.length ? `<p class="why" style="margin:4px 0 0">Your numbers used: ${esc(v.used.join("; "))}.</p>` : ""}
+      <p class="muted" style="margin:4px 0 0;font-size:12px">${esc(v.note)}</p></details></div>`;
+}
+function renderGroceries() {
+  if (groc.scans === null && !groc.loadingScans) { groc.loadingScans = true; loadScans().then(() => { groc.loadingScans = false; }); }
+  let body = `<form class="f" id="groc-form"><input class="grow" name="q" maxlength="80" placeholder="A product, e.g. Greek yogurt, oat bread" value="${esc(groc.q)}" aria-label="A product"><button class="btn solid">Check</button></form>
+    <p class="muted" style="margin:6px 0 0">Or scan its barcode with <b>Scan food</b>.</p>`;
+  if (groc.busy) body += `<p class="muted">Checking…</p>`;
+  else if (groc.failed) body += `<p class="err">${esc(groc.failed)}</p>`;
+  else if (groc.verdict) {
+    const v = groc.verdict;
+    body += verdictCard(v) + `<div class="f" style="margin-top:10px"><button class="btn solid" id="groc-eat">Add to a meal</button>
+      ${v.id ? `<button class="btn${groc.compare.has(v.id) ? " on" : ""}" data-cmp="${v.id}">${groc.compare.has(v.id) ? "In the comparison" : "Compare"}</button>` : ""}</div>`;
+    if (groc.found && groc.found.length > 1) body += `<p class="muted" style="margin:10px 0 2px">Other matches:</p>` + groc.found.map((f, i) => i === groc.pick ? "" :
+      `<div class="line"><div class="what">${esc(f.name)}<small>${esc(f.kind)}${f.brand ? " · " + esc(f.brand) : ""}</small></div><button class="btn" data-groc-pick="${i}">Check this</button></div>`).join("");
+  } else if (groc.found) {
+    body += groc.found.map((f, i) => `<div class="line"><div class="what">${esc(f.name)}<small>${esc(f.kind)}${f.brand ? " · " + esc(f.brand) : ""}</small></div><button class="btn" data-groc-pick="${i}">Check</button></div>`).join("");
+  }
+  let html = card("Good for me?", body, "Judged per serving by Buddy's code from the label, your labs, blood pressure, allergies and goal. No AI model sees it.");
+  if (groc.cmp) {
+    const ps = groc.cmp.products, rows = [["Verdict", (p) => `<span class="pill ${VERDICT_PILL[p.verdict]}">${esc(p.headline.split(":")[0])}</span>`],
+      ["A serving", (p) => esc(p.serving.label)], ["Calories", (p) => num(p.per_serving.kcal)],
+      ["Protein", (p) => p.per_serving.protein_g == null ? "–" : `${num(Math.round(p.per_serving.protein_g))} g`],
+      ["Fibre", (p) => p.per_serving.fiber_g == null ? "–" : `${num(Math.round(p.per_serving.fiber_g * 10) / 10)} g`],
+      ["Sodium", (p) => p.per_serving.sodium_mg == null ? "–" : `${num(Math.round(p.per_serving.sodium_mg))} mg`],
+      ["Saturated fat", (p) => p.per_serving.sat_fat_g == null ? "–" : `${num(Math.round(p.per_serving.sat_fat_g * 10) / 10)} g`],
+      ["Added sugar", (p) => p.per_serving.added_sugar_g == null ? "–" : `${num(Math.round(p.per_serving.added_sugar_g))} g`],
+      ["Processing", (p) => p.processing.nova ? `NOVA ${p.processing.nova}` : "–"],
+      ["Watch", (p) => p.concerns.length ? p.concerns.map((c) => esc(c.text.split(":")[0])).join("; ") : "–"]];
+    html += card("Side by side", `<div style="overflow-x:auto"><table style="width:100%;border-collapse:collapse;font-size:13px"><tr><th></th>${ps.map((p) =>
+      `<th style="text-align:left;padding:4px">${esc(p.name)}${p.id === groc.cmp.better ? ` <span class="pill good">better for you</span>` : ""}</th>`).join("")}</tr>
+      ${rows.map(([l, f]) => `<tr><td class="muted" style="padding:4px;vertical-align:top">${l}</td>${ps.map((p) => `<td style="padding:4px;vertical-align:top">${f(p)}</td>`).join("")}</tr>`).join("")}</table></div>
+      <p style="margin:8px 0 0">${esc(groc.cmp.why)}</p><p><button class="btn" id="cmp-close">Close</button></p>`, "Per serving, as each label gives it: servings differ in size.");
+  }
+  const sc = groc.scans;
+  html += card("Products you checked", sc === null ? `<p class="muted">Loading…</p>` : !sc.length ? `<p class="muted">None yet: scan or check a product above.</p>`
+    : sc.map((s) => `<div class="line"><div class="what"><span class="pill ${VERDICT_PILL[s.verdict]}">${esc(s.headline.split(":")[0])}</span> ${esc(s.name)}<small>${s.brand ? esc(s.brand) + " · " : ""}${esc(when(s.at))}</small></div>
+        <div class="f" style="gap:6px;flex-wrap:nowrap"><button class="btn${groc.compare.has(s.id) ? " on" : ""}" data-cmp="${s.id}" aria-pressed="${groc.compare.has(s.id)}">${groc.compare.has(s.id) ? "✓ Compare" : "Compare"}</button><button class="btn" data-groc-open="${s.id}">Open</button><button class="btn" data-groc-del="${s.id}" aria-label="Delete">✕</button></div></div>`).join("")
+      + `<div class="f" style="margin-top:10px"><button class="btn solid" id="cmp-go"${groc.compare.size < 2 ? " disabled" : ""}>Compare ${groc.compare.size || ""} side by side</button>
+         <button class="btn danger" id="groc-forget">${groc.sure ? "Press again to delete all" : "Delete all"}</button></div>`,
+    "Kept on your server until you delete them, and judged again with your newest numbers each time you look.");
+  $("main").innerHTML = html;
+  $("groc-form").onsubmit = (e) => { e.preventDefault(); const q = e.target.q.value.trim(); if (!q) return; groc.q = q; grocFind("food", q); };
+  $("main").querySelectorAll("[data-groc-pick]").forEach((b) => b.onclick = () => { groc.pick = Number(b.dataset.grocPick); grocCheck(groc.found[groc.pick]); });
+  $("main").querySelectorAll("[data-cmp]").forEach((b) => b.onclick = () => { const id = Number(b.dataset.cmp); groc.compare.has(id) ? groc.compare.delete(id) : groc.compare.add(id); render(); });
+  $("main").querySelectorAll("[data-groc-open]").forEach((b) => b.onclick = () => {
+    const s = groc.scans.find((x) => x.id === Number(b.dataset.grocOpen)); if (!s) return;
+    groc.verdict = { ...s, food: s.food }; groc.found = null; groc.failed = ""; render(); window.scrollTo(0, 0);
+  });
+  $("main").querySelectorAll("[data-groc-del]").forEach((b) => b.onclick = async () => {
+    try { groc.scans = (await api("/api/health/scans", { action: "delete", id: Number(b.dataset.grocDel) })).scans; groc.compare.delete(Number(b.dataset.grocDel)); }
+    catch (e) { notice(e.message); } render();
+  });
+  if ($("groc-forget")) $("groc-forget").onclick = async () => {
+    if (!groc.sure) { groc.sure = true; render(); return; } groc.sure = false;
+    try { groc.scans = (await api("/api/health/scans", { action: "forget" })).scans; groc.compare.clear(); groc.cmp = null; } catch (e) { notice(e.message); } render();
+  };
+  if ($("cmp-go")) $("cmp-go").onclick = async () => {
+    try { groc.cmp = await api("/api/health/scans", { action: "compare", ids: [...groc.compare] }); } catch (e) { notice(e.message); } render();
+  };
+  if ($("cmp-close")) $("cmp-close").onclick = () => { groc.cmp = null; render(); };
+  if ($("groc-eat")) $("groc-eat").onclick = () => {  // into the food picker, with its amount and the fit check
+    const food = groc.verdict.food; facts.food = { foods: [food], source: food.kind || "" }; factQ.food = food.name;
+    foodPick = 0; foodGrams = ""; foodCount = "1"; foodPortion = (food.portions || []).length ? 0 : -1; mealSlot = slotNow();
+    storageSet("healthSub:plan", "food"); render(); window.scrollTo(0, 0);
+  };
 }
 
 // --- facts looked up on request (USDA foods, NIH supplement labels, openFDA medicines): only the words typed go out
@@ -665,7 +792,7 @@ function wireFoodLookup() {
     act({ action: "meal", what: `${f.name} (${label})`.slice(0, 200), calories: Math.round((f.per100.kcal || 0) * g / 100),
       protein_g: Math.round((f.per100.protein_g || 0) * g / 100), carbs_g: of("carbs_g"), fat_g: of("fat_g"),
       fiber_g: of("fiber_g"), sodium_mg: of("sodium_mg"), sat_fat_g: of("sat_fat_g"), sugar_g: of("sugar_g"),
-      added_sugar_g: of("added_sugar_g") }, "Added to today's meals.");
+      added_sugar_g: of("added_sugar_g"), slot: mealSlot }, `Added to ${slotName(mealSlot)}.`);
     Object.keys(fits).forEach((k) => delete fits[k]);  // today's totals changed: check again next time
     foodPick = -1; foodGrams = ""; foodCount = "1";
   });
@@ -1025,7 +1152,7 @@ const VIEWS = {
   "trends/measures": renderTrends, "trends/body": renderBody, "trends/patterns": renderPatterns, "trends/mood": moodHistory,
   "labs/results": () => renderLabs("results"), "labs/add": () => renderLabs("add"), "labs/portals": () => renderLabs("portals"),
   "labs/checkups": renderCheckups,
-  "plan/habits": renderHabits, "plan/food": renderFood, "plan/menu": renderMenu, "plan/goals": renderPlan,
+  "plan/habits": renderHabits, "plan/food": renderFood, "plan/groceries": renderGroceries, "plan/menu": renderMenu, "plan/goals": renderPlan,
   "learn/research": renderResearch, "learn/supplements": renderSupplements, "learn/medicines": renderMedicines,
 };
 function render() {
@@ -1039,8 +1166,9 @@ async function load() {
   try { data = await api(`/api/health/page?days=${span}`); render(); }
   catch (e) { tabs(); $("main").innerHTML = `<p class="err">${esc(e.message)}</p>`; }
 }
-// The app's "Scan food" opens this page with the barcode it read, or the dish the owner tapped, on the phone: show
-// the matches on Plan → Food. Only the number or the dish's name came from the phone; never a picture.
+// The app's "Scan food" opens this page with the barcode it read, or the dish the owner tapped, on the phone: a
+// barcode shows "Good for me?" on Plan → Groceries first (adding it to a meal is a tap away); a dish shows its
+// matches on Plan → Food. Only the number or the dish's name came from the phone; never a picture.
 const scanned = (() => {  // read from the address as it arrived (the token line above may have cleared it since)
   const code = (params.get("scanbarcode") || "").replace(/\D/g, "");
   const dish = (params.get("scandish") || "").replace(/[^\p{L}\p{N} '&(),.-]/gu, "").trim().slice(0, 60);
@@ -1050,7 +1178,11 @@ const scanned = (() => {  // read from the address as it arrived (the token line
     rest.delete("scanbarcode"); rest.delete("scandish"); rest.delete("t");
     history.replaceState(null, "", location.pathname + (String(rest) ? `?${rest}` : ""));
   }
-  tab = "plan"; storageSet("healthTab", "plan"); storageSet("healthSub:plan", "food");
+  tab = "plan"; storageSet("healthTab", "plan"); storageSet("healthSub:plan", code ? "groceries" : "food");
   return code ? { kind: "barcode", q: code } : { kind: "food", q: dish };
 })();
-load().then(() => { if (scanned) { factQ.food = scanned.q; lookUp(scanned.kind, scanned.q); } });
+load().then(() => {
+  if (!scanned) return;
+  if (scanned.kind === "barcode") grocFind("barcode", scanned.q);
+  else { factQ.food = scanned.q; lookUp(scanned.kind, scanned.q); }
+});

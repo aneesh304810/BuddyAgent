@@ -357,4 +357,5 @@ def eat(memory: Memory, meal: dict) -> dict:
     from . import coach  # noqa: PLC0415
     what = f"{meal['name']}: " + ", ".join(f"{i['name']} ({i['amount']})" for i in meal["items"])
     return coach.add_meal(memory, what, meal["totals"]["kcal"], meal["totals"]["protein_g"],
-                          extra={k: meal["totals"][k] for k in coach.EXTRA if k in meal["totals"]})
+                          extra={k: meal["totals"][k] for k in coach.EXTRA if k in meal["totals"]},
+                          slot={"b": "breakfast", "l": "lunch", "d": "dinner", "s": "snack"}.get(meal.get("meal"), ""))

@@ -228,6 +228,12 @@ def readback(memory: Memory, a: dict) -> str:
             parts.append(still)
     except Exception:  # noqa: BLE001
         pass
+    try:  # today's main meals not noted yet (code only)
+        from . import coach  # noqa: PLC0415
+        if (missing := coach.missing_line(memory)):
+            parts.append(missing)
+    except Exception:  # noqa: BLE001
+        pass
     if (a.get("mood") and a["mood"] <= 2) or a.get("people") == "no":
         parts.append("Thanks for telling me. If days like this keep coming, talking to someone you trust or a "
                      "doctor helps, and if you ever feel unsafe, call or text 988 any time.")

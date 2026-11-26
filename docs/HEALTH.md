@@ -103,7 +103,29 @@ sub-tabs under them, and the page remembers where you were.
   such as "1 idli" or "1 cup") and branded products, each with calories, protein, carbs and fat per 100 g. Pick a
   portion and **how many** (3 × "1 slice" from a scanned bread's label, 2 × "1 large" egg, 0.5 × "1 cup"), or
   choose Grams and type them, and "Add" puts that food into today's meals, named with the amount ("Italian Bread
-  (3 × 1 slice, 96 g)"), with the calories and protein worked out by code from USDA's or the label's numbers. No AI estimates them. Food lookups need a free api.data.gov key, set once on the
+  (3 × 1 slice, 96 g)"), with the calories and protein worked out by code from USDA's or the label's numbers.
+  Every meal is breakfast, lunch, a snack or dinner: picked by the time you add it (before 11 am breakfast, to 3 pm
+  lunch, to 5:30 pm a snack, then dinner; after midnight a snack), changed with the chips above the lookup or, for
+  a meal already noted, its own Breakfast/Lunch/Snack/Dinner menu. The last week shows each day by meal with
+  totals. Once you note meals, the evening check-in says which of today's breakfast, lunch or dinner isn't noted
+  yet (code only, no notification).
+- **Plan → Groceries ("Good for me?"):** scanning a pack with **Scan food** opens here first, or type a product.
+  One label serving is judged by code: **Good for you**, **Fine sometimes** or **Better to skip**, with
+  - **Good:** what it gives by FDA's nutrient content rules (a good source is 10 to 19% of a day's value in a
+    serving, high 20% or more: protein, fibre, potassium, calcium, iron), low sodium (140 mg or less), low saturated
+    fat (1 g or less), no added sugar, a whole grain first, unprocessed (NOVA 1), protein-rich for its calories
+    when your goal is to lose or gain;
+  - **Watch:** 20% or more of a day's sodium, saturated fat or added sugar (FDA's 5/20 rule), made stricter by your
+    own numbers: with an LDL of 130 or more, saturated fat from 10%; with blood pressure averaging 130/80 or more,
+    sodium from 10%; with an A1c of 5.7% or more, added sugar from 5 g and refined flour first; with kidney function
+    (eGFR) below 60, high potassium ("ask your doctor"); calorie-dense foods (400 kcal per 100 g or more) when
+    losing weight; ultra-processed (NOVA 4) with its additives, from Open Food Facts;
+  - **Better to skip** for anything on your allergy or avoid list or against your menu (vegetarian, no eggs), or
+    with two or more serious points.
+  "Add to a meal" takes it to Plan → Food with the amount and the fit check. Every product you check is kept in
+  **Products you checked** (judged again with your newest numbers each time you look) until you delete it; tick
+  two or more and **Compare** shows them side by side per serving with the better one for you marked. No AI model
+  sees any of it; not medical advice. No AI estimates them. Food lookups need a free api.data.gov key, set once on the
   server: `sudo bash /opt/buddy/deploy/set.sh BUDDY_USDA_KEY` (sign up at api.data.gov; Buddy can't do it for you).
   - **Does it fit?** Pick a food and its portion, and before you tap Add Buddy's code checks it against your own
     plan: **Fits your plan**, **Fits, with care** (with what to watch) or **Not for you** (it's on your allergy

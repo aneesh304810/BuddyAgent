@@ -31,6 +31,7 @@ CACHE_SECONDS, CACHE_MAX = 86400, 300
 NUTRIENTS = {  # FoodData Central nutrient id -> our name (per 100 g in search results)
     1008: "kcal", 2047: "kcal", 2048: "kcal", 1003: "protein_g", 1005: "carbs_g", 1004: "fat_g", 1079: "fiber_g",
     2000: "sugar_g", 1093: "sodium_mg", 1258: "sat_fat_g", 1235: "added_sugar_g",
+    1087: "calcium_mg", 1089: "iron_mg", 1092: "potassium_mg",  # for the grocery verdict (foodverdict.py)
 }
 KINDS = {"Foundation": "USDA basic food", "SR Legacy": "USDA basic food", "Survey (FNDDS)": "As people eat it",
          "Branded": "Branded product"}
@@ -169,8 +170,12 @@ def barcode(memory: Memory, code: str, env=None, fetch=None) -> list[dict]:
     n = p.get("nutriments") or {}
     per100 = {ours: round(float(n[theirs]), 2) for theirs, ours in OFF_FIELDS.items()
               if isinstance(n.get(theirs), (int, float))}
-    if isinstance(n.get("sodium_100g"), (int, float)):
-        per100["sodium_mg"] = round(float(n["sodium_100g"]) * 1000, 1)
+    for theirs, ours in (("sodium_100g", "sodium_mg"), ("potassium_100g", "potassium_mg"),
+                         ("calcium_100g", "calcium_mg"), ("iron_100g", "iron_mg")):  # Open Food Facts gives grams
+        if isinstance(n.get(theirs), (int, float)):
+            per100[ours] = round(float(n[theirs]) * 1000, 1)
+    if isinstance(n.get("added-sugars_100g"), (int, float)):
+        per100["added_sugar_g"] = round(float(n["added-sugars_100g"]), 2)
     if per100.get("kcal") is not None and p.get("product_name"):
         portions = []
         serving = p.get("serving_quantity")
@@ -183,7 +188,9 @@ def barcode(memory: Memory, code: str, env=None, fetch=None) -> list[dict]:
                     "portions": portions, "barcode": code,
                     "ingredients": " ".join(str(p.get("ingredients_text_en") or p.get("ingredients_text") or "")
                                             .split())[:1500],
-                    "allergens": [str(t)[:40] for t in (p.get("allergens_tags") or [])[:30]]})
+                    "allergens": [str(t)[:40] for t in (p.get("allergens_tags") or [])[:30]],
+                    "nova": p.get("nova_group") if p.get("nova_group") in (1, 2, 3, 4) else None,
+                    "additives": [str(t)[:40] for t in (p.get("additives_tags") or [])[:30]]})
     return out
 
 

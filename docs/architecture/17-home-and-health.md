@@ -39,6 +39,7 @@ flowchart LR
         prevent_py["prevent.py<br/>The American Heart Association's PREVENT equations: the 10-year…"]
         activity_py["activity.py<br/>The week's activity targets, from the Oura Ring first (and the…"]
         healthnow_py["healthnow.py<br/>one view of where the owner stands, what to watch, what to do and…"]
+        foodverdict_py["foodverdict.py<br/>Is this product good for me? A verdict on a food or a scanned pack,…"]
     end
     you --> t_thermostat
     t_thermostat --> nest_py
@@ -107,7 +108,12 @@ flowchart LR
     healthnow_py --> bodylog_py
     healthnow_py --> prevent_py
     healthnow_py --> prevention_py
-    db[("Your database<br/>bp_readings, coach_log, coach_meals, evidence_papers, health_daily, health_model_runs, health_records, lab_reports and more")]
+    foodverdict_py --> coach_py
+    foodverdict_py --> dietcheck_py
+    foodverdict_py --> dietplan_py
+    foodverdict_py --> prevent_py
+    foodverdict_py --> prevention_py
+    db[("Your database<br/>bp_readings, coach_log, coach_meals, evidence_papers, food_scans, health_daily, health_model_runs, health_records and more")]
     health_data_py --> db
     oura_py --> db
     coach_py --> db
@@ -121,6 +127,7 @@ flowchart LR
     bodylog_py --> db
     prevent_py --> db
     activity_py --> db
+    foodverdict_py --> db
     s_medlineplus["MedlinePlus (NIH health topics)<br/>(public data only)"]
     health_data_py --> s_medlineplus
     s_nest["Google Nest (thermostat)<br/>(may see personal data)"]
@@ -758,6 +765,31 @@ very high); activity by the Physical Activity Guidelines; sleep 7 hours or more.
 ```
 
 - Uses: activity.py, bodylog.py, memory.py, prevent.py, prevention.py, tools.py
+
+### foodverdict.py
+
+```text
+Is this product good for me? A verdict on a food or a scanned pack, by code, for the owner in particular.
+
+  judge(memory, food) -> {verdict: good | sometimes | skip, headline, benefits, concerns, serving, per_serving, ...}
+
+A grocery question, not "does it fit today" (that is dietcheck.py): one label serving of the product, judged on
+- what it gives (FDA's nutrient content claims: a good source is 10-19% of a day's value in a serving, high 20%
+  or more; low sodium 140 mg or less; low saturated fat 1 g or less; no added sugar; whole grain first)
+- what to watch (FDA's 5/20 rule: 20% of a day's value or more in a serving is high), made stricter by the
+  owner's own numbers: an LDL of 130 mg/dL or more (saturated fat), blood pressure averaging 130/80 or more
+  (sodium), an A1c of 5.7% or more (added sugar and refined grains), kidney function below 60 (potassium: ask)
+- the owner's allergies, foods to avoid and menu choices (vegetarian, no eggs), and their goal (calorie-dense
+  foods when losing weight, protein for its calories)
+- how processed it is (Open Food Facts' NOVA group and the additives on the label)
+Nothing here goes to any AI model. Not medical advice.
+
+The products the owner scans are kept (food_scans), with the product's public details, until the owner deletes
+them; each is judged again when looked at, so a new lab result changes the verdict.
+```
+
+- Tables: `food_scans`
+- Uses: coach.py, dietcheck.py, dietplan.py, memory.py, prevent.py, prevention.py, tools.py
 
 ## How it connects
 

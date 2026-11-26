@@ -14,7 +14,7 @@ Nothing here calls a model or leaves this server, apart from reading the ring fr
 "Read the ring now". It is not medical advice.
 """
 
-from datetime import datetime, timedelta
+from datetime import date, datetime, timedelta
 from statistics import median, pstdev
 
 from . import coach, health_data, healthranges, oura
@@ -73,9 +73,14 @@ def view(memory: Memory, days: int = 30, now: datetime | None = None, env=None) 
     data = coach._data(memory, max(LOOK_BACK, days + 7))
     plan = coach.plan(memory)
     today = coach.today(memory, now)
+    coach._ready(memory)
     recent = [dict(r) for r in memory.db.execute(
-        "SELECT day, at, what, calories, protein_g FROM coach_meals WHERE day >= ? ORDER BY day DESC, at DESC LIMIT 30",
-        ((now.date() - timedelta(days=6)).isoformat(),))]
+        "SELECT id, day, at, slot, what, calories, protein_g FROM coach_meals WHERE day >= ? "
+        "ORDER BY day DESC, at DESC LIMIT 80", ((now.date() - timedelta(days=6)).isoformat(),))]
+    for r in recent:  # meals noted before slots existed: by their time
+        if r["slot"] not in coach.SLOTS:
+            r["slot"] = coach.slot_for(datetime.combine(date.fromisoformat(r["day"]),
+                                                        datetime.strptime(r["at"], "%H:%M").time()))
     diet = dict(plan.get("diet") or {})
     eaten = today["eaten"]
     from . import dietplan  # noqa: PLC0415  targets worked out by code, when the owner set none
@@ -124,8 +129,11 @@ def act(memory: Memory, body: dict, env=None, fetch=None) -> dict:
                                               str(body.get("day") or ""))}
     if action == "meal":
         got = coach.add_meal(memory, body.get("what"), body.get("calories"), body.get("protein_g"),
-                             extra={k: body.get(k) for k in coach.EXTRA})
+                             extra={k: body.get(k) for k in coach.EXTRA}, slot=str(body.get("slot") or ""))
         return {"ok": True, "calories": got["calories"], "protein_g": got["protein_g"]}
+    if action == "meal_slot":
+        coach.set_slot(memory, int(body.get("id") or 0), str(body.get("slot") or ""))
+        return {"ok": True}
     if action == "plan":
         saved = coach.set_plan(memory, body.get("plan") or {})
         return {"ok": True, "habits": len(saved["habits"])}

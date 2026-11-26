@@ -48,12 +48,30 @@ EXTRA = ("carbs_g", "fat_g", "fiber_g", "sodium_mg", "sat_fat_g", "sugar_g", "ad
 # comes from a lookup or the day's menu (the fit check counts the day's saturated fat and sodium from them)
 
 
+SLOTS = ("breakfast", "lunch", "snack", "dinner")
+
+
+def slot_for(now: datetime) -> str:
+    """Which meal, by the time: before 11 breakfast, to 3 pm lunch, to 5:30 pm a snack, then dinner (and a snack
+    after midnight)."""
+    minutes = now.hour * 60 + now.minute
+    if 4 * 60 <= minutes < 11 * 60:
+        return "breakfast"
+    if 11 * 60 <= minutes < 15 * 60:
+        return "lunch"
+    if 15 * 60 <= minutes < 17 * 60 + 30 or minutes < 4 * 60:
+        return "snack"
+    return "dinner"
+
+
 def _ready(memory: Memory) -> None:
     memory.db.executescript(SCHEMA)
     have = {r[1] for r in memory.db.execute("PRAGMA table_info(coach_meals)")}
     for column in EXTRA:
         if column not in have:
             memory.db.execute(f"ALTER TABLE coach_meals ADD COLUMN {column} REAL")  # nosec B608: fixed names
+    if "slot" not in have:
+        memory.db.execute("ALTER TABLE coach_meals ADD COLUMN slot TEXT")
 
 
 def plan(memory: Memory) -> dict:
@@ -240,17 +258,18 @@ def body(data: dict[str, dict], day: date) -> dict:
 
 # --- food -----------------------------------------------------------------------------------------------------
 def add_meal(memory: Memory, what: str, calories=None, protein_g=None, now: datetime | None = None,
-             extra: dict | None = None) -> dict:
+             extra: dict | None = None, slot: str = "") -> dict:
     _ready(memory)
     now = now or local_now()
+    slot = slot if slot in SLOTS else slot_for(now)
     what = " ".join(str(what or "").split())[:300]
     if not what:
         raise ToolError("Say what was eaten.")
     cal, pro = _num(calories), _num(protein_g)
     more = [(_num((extra or {}).get(k)) if (extra or {}).get(k) not in (None, "") else None) for k in EXTRA]
-    memory.db.execute(f"INSERT INTO coach_meals (day, at, what, calories, protein_g, {', '.join(EXTRA)}) "  # nosec B608
-                      f"VALUES (?, ?, ?, ?, ?{', ?' * len(EXTRA)})",  # fixed column names
-                      (now.date().isoformat(), now.strftime("%H:%M"), what, round(cal) if cal else None,
+    memory.db.execute(f"INSERT INTO coach_meals (day, at, slot, what, calories, protein_g, {', '.join(EXTRA)}) "  # nosec B608
+                      f"VALUES (?, ?, ?, ?, ?, ?{', ?' * len(EXTRA)})",  # fixed column names
+                      (now.date().isoformat(), now.strftime("%H:%M"), slot, what, round(cal) if cal else None,
                        round(pro) if pro else None, *[round(v, 1) if v is not None else None for v in more]))
     memory.db.commit()
     return eaten(memory, now.date())
@@ -259,15 +278,46 @@ def add_meal(memory: Memory, what: str, calories=None, protein_g=None, now: date
 def eaten(memory: Memory, day: date) -> dict:
     _ready(memory)
     rows = [dict(r) for r in memory.db.execute(
-        f"SELECT at, what, calories, protein_g, {', '.join(EXTRA)} FROM coach_meals WHERE day = ? "  # nosec B608
+        f"SELECT id, at, slot, what, calories, protein_g, {', '.join(EXTRA)} FROM coach_meals WHERE day = ? "  # nosec B608
         "ORDER BY at", (day.isoformat(),))]
+    for r in rows:  # meals noted before slots existed: by their time
+        if r["slot"] not in SLOTS:
+            r["slot"] = slot_for(datetime.combine(day, datetime.strptime(r["at"], "%H:%M").time()))
     out = {"meals": rows, "calories": sum(r["calories"] or 0 for r in rows),
            "protein_g": sum(r["protein_g"] or 0 for r in rows)}
     for k in EXTRA:  # only meals that came with the number count toward it
         counted = [r[k] for r in rows if r[k] is not None]
         out[k] = round(sum(counted), 1) if counted else None
         out[k + "_meals"] = len(counted)
+    out["by_slot"] = {s: {"calories": sum(r["calories"] or 0 for r in rows if r["slot"] == s),
+                          "protein_g": sum(r["protein_g"] or 0 for r in rows if r["slot"] == s),
+                          "meals": sum(1 for r in rows if r["slot"] == s)} for s in SLOTS}
     return out
+
+
+def set_slot(memory: Memory, meal_id: int, slot: str) -> None:
+    """Move a noted meal to breakfast, lunch, a snack or dinner."""
+    if slot not in SLOTS:
+        raise ToolError("Breakfast, lunch, snack or dinner.")
+    _ready(memory)
+    if not memory.db.execute("UPDATE coach_meals SET slot = ? WHERE id = ?", (slot, int(meal_id))).rowcount:
+        raise ToolError("That meal isn't there any more.")
+    memory.db.commit()
+
+
+def missing_line(memory: Memory, now: datetime | None = None) -> str:
+    """For the evening check-in: today's main meals not noted yet, once the owner notes meals at all (code only)."""
+    now = now or local_now()
+    _ready(memory)
+    since = (now.date() - timedelta(days=7)).isoformat()
+    if not memory.db.execute("SELECT 1 FROM coach_meals WHERE day >= ? LIMIT 1", (since,)).fetchone():
+        return ""
+    have = {r["slot"] for r in eaten(memory, now.date())["meals"]}
+    due = [s for s, hour in (("breakfast", 11), ("lunch", 15), ("dinner", 21)) if now.hour >= hour and s not in have]
+    if not due:
+        return ""
+    words = due[0] if len(due) == 1 else ", ".join(due[:-1]) + " and " + due[-1]
+    return f"Not noted today: {words}. Note it on Health → Plan → Food when you can."
 
 
 def food(memory: Memory, now: datetime | None = None) -> dict:

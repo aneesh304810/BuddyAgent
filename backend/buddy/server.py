@@ -1885,6 +1885,45 @@ async def api_health_body_act(body: dict) -> dict:
     return {"said": said, **await asyncio.to_thread(_body_all)}
 
 
+@app.post("/api/health/verdict", dependencies=[Depends(require_admin)])
+async def api_health_verdict(body: dict) -> dict:
+    """Is this product good for me? One serving judged by code against the owner's own numbers (foodverdict);
+    keep=true also keeps it in the scanned list."""
+    from . import foodverdict  # noqa: PLC0415
+    food = body.get("food") if isinstance(body.get("food"), dict) else {}
+    try:
+        got = await asyncio.to_thread(foodverdict.judge, memory, food)
+    except ToolError as e:
+        raise HTTPException(400, str(e)) from None
+    if body.get("keep"):
+        got["id"] = await asyncio.to_thread(foodverdict.keep, memory, food, got["verdict"])
+    return got
+
+
+@app.get("/api/health/scans", dependencies=[Depends(require_admin)])
+async def api_health_scans() -> dict:
+    """The products the owner scanned, each judged again with today's numbers."""
+    from . import foodverdict  # noqa: PLC0415
+    return {"scans": await asyncio.to_thread(foodverdict.scans, memory)}
+
+
+@app.post("/api/health/scans", dependencies=[Depends(require_admin)])
+async def api_health_scans_act(body: dict) -> dict:
+    """compare (ids), delete (id) or forget (all)."""
+    from . import foodverdict  # noqa: PLC0415
+    action = str(body.get("action") or "")
+    try:
+        if action == "compare":
+            ids = [int(i) for i in body.get("ids") or [] if str(i).isdigit()][:6]
+            return await asyncio.to_thread(foodverdict.compare, memory, ids)
+        if action in ("delete", "forget"):
+            n = await asyncio.to_thread(foodverdict.forget, memory, int(body.get("id") or 0) if action == "delete" else None)
+            return {"deleted": n, "scans": await asyncio.to_thread(foodverdict.scans, memory)}
+    except ToolError as e:
+        raise HTTPException(400, str(e)) from None
+    raise HTTPException(400, "unknown action")
+
+
 @app.post("/api/health/fit", dependencies=[Depends(require_admin)])
 async def api_health_fit(body: dict) -> dict:
     """Does this food, at this portion, fit the owner's goal and plan? Worked out by code on the server (dietcheck)."""
