@@ -89,7 +89,7 @@ The diagram reads left to right: what you ask, the tools Buddy uses, the modules
 | `library` | The user's library: documents, photos, PDFs, spreadsheets, CSV and JSON they uploaded (Share -> Buddy, or the paperclip) | search, list, open, unlock, forget | library.py |
 | `life_log` | Search the user's life log: places they've been (Google Maps Timeline), trips and stays (Airbnb and booking exports), past calendar events, and Buddy's own dail | place, trip, stay, event, day | lifelog.py |
 | `where_am_i` | Where the user is, if they share their location from the app (fresh within the last few hours): street address, neighbourhood, city and country, shops/cafes/res | - | taste.py |
-| `find_places` | Find places that suit the user: restaurants, cafes, bars, nightlife, spas, hotels, shops, activities | - | taste.py |
+| `find_places` | Recommend places that suit the user: restaurants and any kind of food, cafes, bars, nightlife, spas, hotels, shops, activities | - | taste.py |
 | `my_taste` | The user's taste per category (food, nightlife, spa, hotels, shopping, activities, travel, general): likes, dislikes and budget | - | taste.py |
 | `my_routine` | The user's daily routine as Buddy has learned it from their location history (weekdays, Saturdays, Sundays: home, commute, office, regular places), what they've | show, relearn | routine.py |
 
@@ -238,16 +238,16 @@ Buddy learns it three ways:
   - what you tell it ("I love rooftop bars", "no loud clubs", "I'm vegetarian")
   - where you actually go: the places in your life log (Maps Timeline, trips, stays)
   - where you actually spend: restaurants and shops in your money records
-find_places searches Google Maps (ratings, prices, opening hours), ranks places by a
-review-count-aware score (a 4.6 from 5,000 people beats a 5.0 from 4), then checks
-the best few across other channels: Reddit threads that mention them and review sites
-(TripAdvisor, Yelp, Time Out, Eater...) through Google. Claude gets one compact
-dossier per place plus your taste and history, picks, and explains why each suits you.
+find_places asks Buddy Search for places (Google Places and OpenStreetMap together, Google Maps through Serper
+without a Places key), in the area the owner names or the neighbourhood the phone last shared (never a position),
+ranks them by their reviews (a 4.6 from 5,000 people beats a 5.0 from 4), then by the owner's taste among the top
+six (likes, dislikes, budget, the places they go), and checks the reviews of the top three (reviews.py: Reddit,
+review sites, complaint threads, warning signs). Distance from the owner and "open now" are worked out on the
+server. Claude gets one compact dossier per place plus the taste and history, and says why each suits them.
 ```
 
 - Tables: `taste`
-- Settings: `BUDDY_SERPER_KEY`
-- Uses: cards.py, memory.py, privacy.py, tools.py
+- Uses: buddysearch.py, cards.py, memory.py, privacy.py, reviews.py, tools.py
 
 ### routine.py
 

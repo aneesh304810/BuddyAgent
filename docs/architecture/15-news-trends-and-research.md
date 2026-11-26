@@ -26,7 +26,7 @@ flowchart LR
         research_py["research.py<br/>a background job that reads, checks and computes"]
         webread_py["webread.py<br/>Read web pages on Buddy's side, so Claude gets the facts instead of…"]
         buddysearch_py["buddysearch.py<br/>one search brain over many providers, so Buddy depends on no single…"]
-        reviews_py["reviews.py<br/>Reviews of one place or product, fetched only when the owner asks…"]
+        reviews_py["reviews.py<br/>for the top three places Buddy recommends (taste.find_places), or…"]
     end
     you --> t_trends
     t_trends --> trends_py
@@ -66,7 +66,6 @@ flowchart LR
     buddysearch_py --> s_brave
     s_google_places["Google Places (restaurants)<br/>(public data only)"]
     buddysearch_py --> s_google_places
-    reviews_py --> s_google_places
     s_nominatim["OpenStreetMap places (Nominatim)<br/>(public data only)"]
     buddysearch_py --> s_nominatim
     s_overpass["OpenStreetMap places by kind (Overpass)<br/>(public data only)"]
@@ -310,31 +309,28 @@ attribution (ODbL). The owner's searches are kept until they delete them.
 ### reviews.py
 
 ```text
-Reviews of one place or product, fetched only when the owner asks (the Reviews button in Buddy Search, or a
-question in chat), so a search doesn't cost a review lookup for every result.
+Reviews of one place or product: for the top three places Buddy recommends (taste.find_places), or when the
+owner asks what people say about one (check_reviews), so a search doesn't cost a review lookup for every result.
 
-  for_result(memory, "place", "Luca Pizza", area="Hoboken", place_id="ChIJ...", rating=4.6, count=300)
-    -> Google's own reviews (Google Places key and a place ID): up to five, shown word for word with their
-       authors and Google's attribution; never cached, never kept, never given to a model, never mined for
-       complaints (Google Maps Platform terms)
-    -> what people say elsewhere: Reddit threads, review sites (TripAdvisor, Yelp, Time Out, Eater and others for
+  for_result(memory, "place", "Luca Pizza", area="Hoboken", rating=4.6, count=300)
+    -> what people say: Reddit threads, review sites (TripAdvisor, Yelp, Time Out, Eater and others for
        places; Wirecutter, RTINGS, Consumer Reports, CNET and others for products) and complaint threads, as the
        snippets search results show, each with its link (Serper, else Brave; Reddit's own API when connected)
     -> Best Buy's customer rating for a product (its official Products API)
     -> warning signs, by code: a very high rating from few reviews, sources a star or more apart, the same
        complaint from two or more sources
-    -> pros, cons and catches with their sources: a model in Maestro, from the public snippets only (a snippet
-       that reads like someone's health is left out; with anything personal in them they go to Claude only)
-    -> the owner's own verdicts on things they bought (shopper.py): shown, never sent to any model
+    -> the owner's own verdicts on things they bought (shopper.py)
+Claude reads the numbered snippets and tells the owner the good, the bad and the catches, citing them. Google's own
+reviews are not fetched: Google's terms keep them from AI models, and Buddy has no screen that shows them.
 
 No scraping: official APIs and search-result snippets only, never a review site's own pages; Yelp's API is not used.
 Providers get the name and an area name, never a position. The public part is held an hour (a second tap costs
 nothing) and not kept.
 ```
 
-- Outside services: Best Buy Products API, Google Places (restaurants)
+- Outside services: Best Buy Products API
 - Settings: `BUDDY_BESTBUY_KEY`
-- Uses: buddysearch.py, gateway.py, maestro.py, memory.py, privacygate.py, shopper.py, social.py, tools.py
+- Uses: buddysearch.py, gateway.py, memory.py, shopper.py, social.py, tools.py
 
 ## How it connects
 

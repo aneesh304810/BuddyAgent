@@ -33,11 +33,14 @@ LAST_KEY = "dining:last"  # the last search's places, so "book the second one" w
 
 def area(memory: Memory) -> str:
     """Where to search: the neighbourhood and city the phone last shared (never coordinates), or ''."""
+    import re  # noqa: PLC0415
     try:
         from .location import Location  # noqa: PLC0415
-        return Location(memory).label()
+        label = Location(memory).label()
     except Exception:
         return ""
+    # with no neighbourhood name known, label() falls back to the position itself: that is never searched
+    return "" if re.match(r"^\s*-?\d+(?:\.\d+)?\s*,\s*-?\d+(?:\.\d+)?\s*$", label) else label
 
 
 def _places_api(memory, text: str, env=None, fetch=None) -> list[dict]:
@@ -154,7 +157,8 @@ TOOL = {
         "Find restaurants and help book a table. search: what (cuisine, dish, vibe or a name) and optionally where "
         "(default: the owner's neighbourhood from the phone; only that area is searched, never their exact "
         "position); gives rating, reviews, price, open now, phone, website and whether they take reservations. "
-        "Pick the best 3 for the owner's taste (find_places has their taste and reviews). book: which (number or "
+        "To recommend the best places, use find_places (taste, distance, reviews); to book one it recommended, "
+        "search it here by name first. book: which (number or "
         "name from the last search), party, when (YYYY-MM-DDTHH:MM); gives booking links (OpenTable, Resy, the "
         "restaurant's site, Google Maps) with the details filled in, and the phone number. The owner taps the final "
         "button on the site; or, after the owner says so, call the restaurant with phone_call kind reservation. "

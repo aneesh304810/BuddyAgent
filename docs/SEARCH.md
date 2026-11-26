@@ -4,8 +4,8 @@
 
 One search over many providers, so Buddy depends on no single search company. Ask in plain words; Buddy works out
 where to look, asks the right providers at the same time, merges what they found and shows where each result came
-from. In the app: **Discover → Search**. In conversation: ask Buddy to search, and it uses the same engine
-(`search_everywhere`).
+from. There is no separate screen: ask Buddy in chat or by voice ("search for …", "best ramen near me") and it
+uses this engine (`search_everywhere`; `find_places` for places to eat or go, below).
 
 ### What it searches
 
@@ -20,7 +20,7 @@ from. In the app: **Discover → Search**. In conversation: ask Buddy to search,
 
 Buddy decides from the words: "Italian restaurant in Hoboken" is Places in Hoboken; "cheapest iPhone 16" is
 Products; "latest market news" is News and Web; "research on longevity" is Research and Web; "the Etihad booking in
-my email" is Your own things. You can also pick the engine above the results.
+my email" is Your own things. You can also say where to look ("search the news for …").
 
 ### How results are put together
 
@@ -42,44 +42,43 @@ my email" is Your own things. You can also pick the engine above the results.
   news and research, any model in Maestro (public text only, checked by the Privacy Gateway; the job is
   "Summarise search results"); with your own things, Claude only.
 
-### Reviews
+### Recommendations: "best biryani near me"
 
-Every place and product result has a **Reviews** button. Reviews are fetched only when you tap it, so a search
-doesn't spend a review lookup on every result. In conversation, ask "what do people say about …" and Buddy uses
-the same check (`check_reviews`) for one or two options you are weighing.
+Ask in chat or by voice for the best places for any food (or a bar, cafe, spa, hotel, shop or thing to do), near you
+or in an area you name. Buddy (`find_places`):
 
-- **Warning signs** (worked out by code, not a model): a very high rating (4.7 or more) from fewer than 30
-  reviews; sources a star or more apart (Google's rating, Best Buy's, and ratings that review sites state in
-  their snippets, such as "4.5/5" or "8/10"); the same complaint from two or more sources (for places: fees and
-  surprise charges, rude or slow service, cleanliness, people falling ill, scams, noise, long waits; for products:
-  breaking or stopping working, returns and warranty trouble, battery, overheating, customer service, quality
-  control).
-- **Good, not so good, and catches:** up to four of each, every point with the numbers of the snippets it rests
-  on, so you can check it. A model in Maestro writes it ("Sum up reviews"), from public snippets only; a snippet
-  that reads like someone's health is left out, and if anything personal is in them they go to Claude only.
-- **Google's own reviews** (with a Google Places key, for a Google Places result): up to five, word for word, with
-  each author and "Reviews from Google", and a link to all of them on Google Maps. As Google's terms ask, they are
-  not cached, not kept, not summarised by any model and not counted for warning signs; each tap uses one of the
-  day's 25 Google Places lookups.
-- **What people say elsewhere:** Reddit threads, review sites (for places TripAdvisor, Yelp, Time Out, Eater, The
-  Infatuation, Michelin, OpenTable and others; for products Wirecutter, RTINGS, Consumer Reports, CNET, The Verge,
-  PCMag and others) and complaint threads, each as the snippet a search shows with its link. Through Serper (three
-  of the day's searches) or, without Serper, Brave Search (two); Reddit's own API when it is connected. For a
-  product, Best Buy's customer rating too (with the Best Buy key).
-- **Your own verdicts:** if you bought something with a similar name and told Buddy how it went (happy, okay or
-  regret), it is shown. It is never sent to any model.
+1. Takes the neighbourhood and city your phone last shared (*Settings → Share my location*), or the area you named.
+   Only that name goes to the search services, never your position; with no name for where you are, Buddy asks.
+2. Searches Google Places and OpenStreetMap together (Google Maps through Serper without a Places key) and ranks
+   by reviews first: the rating pulled towards an ordinary 4.2 when few people gave it.
+3. Then your taste, among the best-reviewed six: what you like (a little up), what you avoid (down), anything
+   over your budget (down), places you go or spend at (a little up). A place without a rating comes last.
+4. Checks the reviews of the top three: Reddit threads, review sites (TripAdvisor, Yelp, Time Out, Eater, The
+   Infatuation, Michelin, OpenTable and others) and complaint threads, as the snippets search results show,
+   through Serper (three searches a place) or, without Serper, Brave Search (two). Warning signs are worked out by
+   code: a rating of 4.7 or more from fewer than 30 reviews, sources a star or more apart (including ratings review
+   sites state, such as "4.5/5"), and the same complaint from two or more sources (fees and surprise charges, rude
+   or slow service, cleanliness, people falling ill, scams, noise, long waits).
+5. Works out on your server how far each place is from you and whether it is open now.
+
+Buddy then recommends the three, each with why it suits you, the rating and how many reviews, the distance and
+whether it's open, what reviewers praise and complain about, and the warning signs and catches; and says if a pick
+clashes with your taste. The chat shows a card for each (photo, map, links to the reviews). To book one, say so:
+Buddy gives the booking links or, with your yes, calls.
+
+Past the day's search allowance, picks are made from ratings and your taste alone. Ask "what do people say about
+…" for any one place or product (`check_reviews`; for products also Best Buy's customer rating with the Best Buy
+key, and your own verdicts on things you bought).
 
 No scraping: Buddy reads only official APIs and the snippets search results show, never a review site's own pages,
-and Yelp's API is not used. Only the name, and for a place an area name, goes to the search providers. What they
-found is held for an hour, so a second tap costs nothing, and then dropped.
+and Yelp's API is not used. Google's own review texts are not fetched: Google's terms keep them from AI models. What
+the searches found is held for an hour, so asking again costs nothing, and then dropped.
 
 ### Costs and limits
 
 Each paid provider has a daily allowance that spreads its free monthly use over the month (Brave 40, Tavily 30,
 Google Places 25, Serper 60 searches a day); past it, that provider is skipped until tomorrow. Change one with
-`sudo bash /opt/buddy/deploy/set.sh BUDDY_SEARCH_CAP_BRAVE` (or `_TAVILY`, `_GOOGLE_PLACES`, `_SERPER`). The
-Search page's **Providers** table shows each one: ready or needing a key, today's use against its allowance, the
-week's searches, failures and speed, and what it may keep.
+`sudo bash /opt/buddy/deploy/set.sh BUDDY_SEARCH_CAP_BRAVE` (or `_TAVILY`, `_GOOGLE_PLACES`, `_SERPER`).
 
 ### Keys
 
@@ -105,8 +104,8 @@ cached for a week, an identifying user agent) and shows its attribution.
   is held in a short cache (Brave and Serper an hour, Tavily a day, news 30 minutes) and then dropped; Google
   Places answers are not cached at all, as Google's terms ask. One provider's details are never kept under
   another's terms.
-- Your searches are kept until you delete them (one at a time, or the history, the cache and everything kept, on
-  the Search page).
+- Your searches are kept until you delete them: ask Buddy to delete your search history, and the history, the
+  cache and everything kept go together.
 
 ### Not in this version
 
@@ -135,18 +134,17 @@ check what real buyers say on Reddit before recommending a product.
 
 ## Places that fit your taste
 Restaurants, cafes, bars and nightlife, spas, hotels, shops and things to do: Buddy searches
-Google Maps (ratings, number of reviews, price level, opening hours, address; needs the
-Serper key below) and picks the three that suit **you**, each with a line on why.
+Google Places and OpenStreetMap, ranks by reviews and then your taste, and picks the three that
+suit **you**, each with a line on why (how, step by step: "Recommendations" above).
 
-Every recommendation is checked across channels:
-- **Google Maps**: rating, number of reviews, price level. Places are ranked so a 4.6 from 5,000
-  people beats a 5.0 from 4.
-- **Reddit**: threads that mention the place (with Reddit connected), for the real vibe and tips
-  ("go before 1 pm", "overpriced since the new owners").
-- **Review sites** through Google: TripAdvisor, Yelp, Time Out, Eater, The Infatuation, Michelin,
-  Booking.com, Zomato, OpenTable, TheFork and more.
+Each of the three is checked across channels:
+- **Ratings**: rating and number of reviews, so a 4.6 from 5,000 people beats a 5.0 from 4.
+- **Reddit**: threads that mention the place, for the real vibe and tips ("go before 1 pm",
+  "overpriced since the new owners").
+- **Review sites** through search: TripAdvisor, Yelp, Time Out, Eater, The Infatuation,
+  Michelin, Booking.com, Zomato, OpenTable, TheFork and more.
 
-Only the best five are checked, with short snippets, so a search costs about a cent. For a big
+Only the top three are checked, with short snippets, so a question costs about a cent. For a big
 decision (a hotel for a week, an expensive dinner), ask for a deal hunt instead: the research
 agent reads full reviews and compares in depth.
 

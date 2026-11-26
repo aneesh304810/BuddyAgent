@@ -120,7 +120,7 @@ def test_the_test_set_is_balanced_and_scores_a_choice(memory):
     assert got["usd"] == 0.006 and got["seconds"] == 4.5 and got["wrong"][0]["said"] == "bad"
     page = models.page(memory)
     assert page["tests"][0]["choice"] == "claude:fast" and page["spending"]["jobs"]["test"]["usd"] == 0.006
-    assert [j["id"] for j in page["jobs"] if j["in_use"]] == ["label", "write", "extract", "summarise_search", "summarise_reviews"]
+    assert [j["id"] for j in page["jobs"] if j["in_use"]] == ["label", "write", "extract", "summarise_search"]
     with pytest.raises(ToolError):
         asyncio.run(models.test(memory, "openai:cheap", perfect_but_one, env={}))
 

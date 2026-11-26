@@ -5,16 +5,18 @@ Buddy learns it three ways:
   - what you tell it ("I love rooftop bars", "no loud clubs", "I'm vegetarian")
   - where you actually go: the places in your life log (Maps Timeline, trips, stays)
   - where you actually spend: restaurants and shops in your money records
-find_places searches Google Maps (ratings, prices, opening hours), ranks places by a
-review-count-aware score (a 4.6 from 5,000 people beats a 5.0 from 4), then checks
-the best few across other channels: Reddit threads that mention them and review sites
-(TripAdvisor, Yelp, Time Out, Eater...) through Google. Claude gets one compact
-dossier per place plus your taste and history, picks, and explains why each suits you.
+find_places asks Buddy Search for places (Google Places and OpenStreetMap together, Google Maps through Serper
+without a Places key), in the area the owner names or the neighbourhood the phone last shared (never a position),
+ranks them by their reviews (a 4.6 from 5,000 people beats a 5.0 from 4), then by the owner's taste among the top
+six (likes, dislikes, budget, the places they go), and checks the reviews of the top three (reviews.py: Reddit,
+review sites, complaint threads, warning signs). Distance from the owner and "open now" are worked out on the
+server. Claude gets one compact dossier per place plus the taste and history, and says why each suits them.
 """
 
 import asyncio
 import json
 import math
+import re
 from datetime import datetime, timedelta, timezone
 
 from . import cards
@@ -137,21 +139,6 @@ WATCH_FOR = {
                    "real duration versus advertised", "accessibility"],
     "general": ["hidden fees", "recent complaints", "anything the listing leaves out"],
 }
-CATCH_WORDS = "hidden fee OR service charge OR cover charge OR scam OR overpriced OR avoid OR complaint"
-
-REVIEW_SITES = ("tripadvisor", "yelp", "timeout", "eater", "infatuation", "michelin", "booking.com",
-                "zomato", "opentable", "thefork", "culturetrip", "condenast", "lonelyplanet")
-CHECK_TOP = 5
-
-
-def review_score(place: dict, prior: float = 4.2, weight: int = 50) -> float:
-    """Bayesian average: few reviews pull the score toward a typical rating."""
-    rating, count = float(place.get("rating") or 0), int(place.get("ratingCount") or 0)
-    if not rating:
-        return 0.0
-    return round((rating * count + prior * weight) / (count + weight) + 0.02 * math.log10(count + 1), 3)
-
-
 CARD_ONLY = ("thumbnailUrl", "latitude", "longitude", "cid")
 
 
@@ -159,49 +146,12 @@ def _for_claude(place: dict, card_id: str | None) -> dict:
     """The place without what only the chat card needs (photo, map, links): fewer tokens."""
     slim = {k: v for k, v in place.items() if k not in CARD_ONLY}
     if "other_reviews" in slim:
-        slim["other_reviews"] = {k: [{x: y for x, y in r.items() if x != "link"} for r in v] if isinstance(v, list)
-                                 else v for k, v in slim["other_reviews"].items()}
+        slim["other_reviews"] = {k: [{x: y for x, y in r.items() if x != "link"} if isinstance(r, dict) else r
+                                     for r in v] if isinstance(v, list) else v
+                                 for k, v in slim["other_reviews"].items()}
     if card_id:
         slim["card"] = card_id
     return slim
-
-
-def _review_check(social, place: dict, where: str, country: str) -> dict:
-    """What other channels say about one place, including the catches. Compact."""
-    name = place.get("title", "")
-    city = where.split(",")[-1].strip() or where
-    found: dict = {}
-    if social.has_reddit() or social.has_google():
-        try:
-            posts = social.reddit("search", f'"{name}" {city}', sort="relevance", period="all", limit=5)
-            mentions = [p for p in posts if name.split()[0].lower() in (p["title"] + p["text"]).lower()]
-            if mentions:
-                found["reddit"] = [{"title": p["title"], "subreddit": p.get("subreddit"), "score": p.get("score"),
-                                    "says": p["text"][:240], "link": p.get("link", "")} for p in mentions[:3]]
-        except Exception:
-            pass
-    if social.has_google():
-        try:
-            results = social.google(f"{name} {where} reviews", country=country, num=8).get("results", [])
-            sites = [r for r in results if any(s in (r.get("link") or "") for s in REVIEW_SITES)]
-            if sites:
-                found["review_sites"] = [{"site": (r.get("link") or "").split("/")[2].removeprefix("www."),
-                                          "says": (r.get("snippet") or "")[:240], "link": r.get("link", "")}
-                                         for r in sites[:4]]
-            # The catches: complaints, fees and warnings that listings leave out.
-            catches = social.google(f'"{name}" {city} {CATCH_WORDS}', country=country, num=6).get("results", [])
-            catches = [r for r in catches if name.split()[0].lower() in
-                       ((r.get("title") or "") + (r.get("snippet") or "")).lower()]
-            if catches:
-                found["complaints_and_catches"] = [
-                    {"from": (r.get("link") or "").split("/")[2].removeprefix("www.") if r.get("link") else "",
-                     "says": (r.get("snippet") or "")[:240], "link": r.get("link", "")} for r in catches[:3]]
-        except Exception:
-            pass
-    rating, count = float(place.get("rating") or 0), int(place.get("ratingCount") or 0)
-    if rating >= 4.8 and count < 40:
-        found["caution"] = "Very high rating from few reviews: could be new, or padded with friends' reviews."
-    return found
 
 
 WHERE_TOOL = {
@@ -215,14 +165,17 @@ WHERE_TOOL = {
 TASTE_TOOLS = [
     {
         "name": "find_places",
-        "description": "Find places that suit the user: restaurants, cafes, bars, nightlife, spas, hotels, shops, "
-        "activities. Searches Google Maps (rating, number of reviews, price level, address, hours) and returns the "
-        "results with the user's taste and where they usually go and spend. The best few by reviews are also checked "
-        "on Reddit and review sites (TripAdvisor, Yelp, Time Out, Eater...). Pick the 3 best fits and say in one line "
-        "each why it suits them (their likes, budget, vibe, what reviewers praise or warn about), with rating and "
-        "price. Always tell the user the catches places don't advertise: check `watch_for` against the reviews, "
-        "complaints_and_catches and caution (fees, cover, dress code, noise, safety...), and say plainly if "
-        "something is a real concern or if nothing turned up.",
+        "description": "Recommend places that suit the user: restaurants and any kind of food, cafes, bars, "
+        "nightlife, spas, hotels, shops, activities. Searches Google Places and OpenStreetMap together (rating, "
+        "number of reviews, price level, address, open now, hours), in the area named or the neighbourhood the "
+        "phone shares, ranks by reviews (a 4.6 from 5,000 beats a 5.0 from 4) and then by the user's taste, and "
+        "checks the reviews of the top 3 (`pick`: Reddit, review sites, complaint threads, warning_signs). "
+        "Recommend those 3 in order, each with: one line on why it suits them (taste_fit, their likes, budget, "
+        "vibe), the rating with how many reviews, the distance and whether it's open now when known, what "
+        "reviewers praise and complain about, and the warning signs and catches places don't advertise (check "
+        "`watch_for` against the reviews: fees, cover, dress code, noise, safety...). Say plainly if something is "
+        "a real concern or if nothing worrying turned up. If a pick clashes with their taste, say so and offer the "
+        "next place. Keep it short enough to say aloud.",
         "input_schema": {
             "type": "object",
             "properties": {
@@ -267,39 +220,182 @@ async def run_taste_tool(taste: Taste, social, name: str, args: dict, location=N
         found = [taste.get(args["category"])] if args.get("category") else taste.all()
         return json.dumps(found) if found else "No taste saved yet."
     if name == "find_places":
-        what, where = args["what"].strip(), str(args.get("where", "")).strip()
-        category = category_of(what)
-        if location is not None and (not where or where.lower() in ("near me", "here", "nearby", "around me")):
-            where = location.label()
-            if not where:
-                return ("I don't know where the user is: ask them, or suggest turning on Share my location "
-                        "in the Buddy app's settings.")
-            here = location.current() or {}
-            if here.get("country") and not args.get("country"):
-                args = {**args, "country": here["country"]}
-        if not where:
-            return "Where should I look? Ask the user for the area or city."
-        result = {"category": category, "where": where, "your_taste": taste.get(category),
-                  "general_taste": taste.get("general"), "your_history": taste.history(category),
-                  "watch_for": WATCH_FOR.get(category, WATCH_FOR["general"])}
-        if social is not None and social.has_google():
-            country = args.get("country", "US")
-            try:
-                places = await asyncio.to_thread(social.places, f"{what} in {where}", country)
-            except Exception as e:
-                places = []
-                result["places_error"] = f"Maps search failed ({type(e).__name__}); use web_search instead."
-            for p in places:
-                p["review_score"] = review_score(p)
-            places.sort(key=lambda p: p["review_score"], reverse=True)
-            checks = await asyncio.gather(*(asyncio.to_thread(_review_check, social, p, where, country)
-                                            for p in places[:CHECK_TOP]))
-            for p, other in zip(places, checks):
-                if other:
-                    p["other_reviews"] = other
-            result["places"] = [_for_claude(p, cards.offer(cards.place_card(p))) for p in places]
-        else:
-            result["places_note"] = ("Google Maps search isn't connected (BUDDY_SERPER_KEY), so use web_search "
-                                     "or google_search for listings.")
-        return UNTRUSTED + json.dumps(result, ensure_ascii=False)
+        return await _find_places(taste, social, args, location)
     raise ToolError(f"Unknown tool {name}")
+
+
+# --- finding places: Buddy Search, reviews first, then your taste --------------------------------------------------
+PICKS = 3        # how many get their reviews checked (a few searches each)
+TASTE_TOP = 6    # taste reorders only among the best-reviewed few
+MILES = ("US", "GB", "LR", "MM")
+NEAR_WORDS = ("near me", "here", "nearby", "around me", "around here", "close by")
+COORDS = re.compile(r"^\s*-?\d+(?:\.\d+)?\s*,\s*-?\d+(?:\.\d+)?\s*$")
+PRICE_RANK = {"free": 0, "$": 1, "$$": 2, "$$$": 3, "$$$$": 4}
+GENERIC = {"food", "place", "places", "restaurant", "restaurants", "good", "great", "nice", "best", "with", "that",
+           "spot", "spots", "very", "really", "like", "love"}
+
+
+def _km(a_lat, a_lng, b_lat, b_lng) -> float:
+    p1, p2 = math.radians(a_lat), math.radians(b_lat)
+    dp, dl = p2 - p1, math.radians(b_lng - a_lng)
+    h = math.sin(dp / 2) ** 2 + math.cos(p1) * math.cos(p2) * math.sin(dl / 2) ** 2
+    return 6371.0 * 2 * math.asin(math.sqrt(h))
+
+
+def _distance(here: dict | None, lat, lng) -> str:
+    """How far, from the phone's last shared position (worked out here; the position never goes to a search)."""
+    if not here or not isinstance(lat, (int, float)) or not isinstance(lng, (int, float)):
+        return ""
+    km = _km(float(here["lat"]), float(here["lng"]), float(lat), float(lng))
+    if km > 50:
+        return ""
+    if str(here.get("country") or "").upper() in MILES:
+        mi = km / 1.609
+        return f"{mi:.1f} mi" if mi < 10 else f"{mi:.0f} mi"
+    return f"{km:.1f} km" if km < 10 else f"{km:.0f} km"
+
+
+def _words_of(phrase: str) -> list[str]:
+    return [w for w in re.findall(r"[a-z]{4,}", str(phrase).lower().removeprefix("no ").removeprefix("not "))
+            if w not in GENERIC]
+
+
+def _budget_cap(budget: str) -> int | None:
+    b = str(budget or "").lower()
+    if re.search(r"cheap|budget|inexpensive|affordable|low", b):
+        return 2
+    if re.search(r"mid|moderate|medium|reasonable", b):
+        return 3
+    return None
+
+
+def _taste_fit(p: dict, mine: dict, general: dict, been: set[str]) -> tuple[float, list[str]]:
+    """How the owner's taste moves a place (1.0 = not at all), and why, in a few words."""
+    text = " ".join(str(p.get(k) or "") for k in ("title", "category", "description")).lower()
+    if p.get("vegetarian"):
+        text += " vegetarian"
+    factor, why = 1.0, []
+    for t in (mine, general):
+        for like in t.get("likes", []):
+            if any(w in text for w in _words_of(like)):
+                factor *= 1.1
+                why.append(f"you like {like}")
+        for dislike in t.get("dislikes", []):
+            if any(w in text for w in _words_of(dislike)):
+                factor *= 0.7
+                why.append(f"you avoid {dislike}")
+    cap, rank = _budget_cap(mine.get("budget") or general.get("budget")), PRICE_RANK.get(str(p.get("priceLevel") or ""))
+    if cap is not None and rank is not None and rank > cap:
+        factor *= 0.85
+        why.append(f"above your {mine.get('budget') or general.get('budget')} budget")
+    if _norm(p.get("title")) in been:
+        factor *= 1.05
+        why.append("you've been there")
+    return factor, why
+
+
+def _norm(text) -> str:
+    return re.sub(r"[^a-z0-9]+", " ", str(text or "").lower()).strip()
+
+
+def _as_place(r: dict) -> dict:
+    """A Buddy Search result as the place dossier (and chat card) find_places has always given."""
+    x = r.get("extra") or {}
+    p = {"title": r.get("title", ""), "category": x.get("category"), "rating": x.get("rating"),
+         "ratingCount": x.get("reviews"), "priceLevel": x.get("price_level"), "address": x.get("address"),
+         "open_now": x.get("open_now"), "hours": x.get("hours"), "phoneNumber": x.get("phone"),
+         "website": x.get("website"), "description": r.get("snippet") or x.get("description"),
+         "vegetarian": x.get("vegetarian"), "found_by": r.get("found_by"), "review_score": r.get("review_score"),
+         "caution": r.get("caution"), "thumbnailUrl": x.get("thumbnail"), "latitude": x.get("lat"),
+         "longitude": x.get("lon"), "cid": x.get("cid")}
+    return {k: v for k, v in p.items() if v not in (None, "", [])}
+
+
+def _other_reviews(got: dict) -> dict:
+    """reviews.py's answer in the shape the chat card and Claude already read."""
+    out: dict = {"reddit": [], "review_sites": [], "complaints_and_catches": []}
+    for it in got.get("items") or []:
+        if it["type"] == "reddit":
+            out["reddit"].append({"title": it["title"], "subreddit": it["from"].removeprefix("r/")
+                                  if it["from"].startswith("r/") else "", "says": it["says"], "link": it["link"]})
+        elif it["type"] == "site":
+            out["review_sites"].append({"site": it["from"], "says": it["says"], "link": it["link"]})
+        else:
+            out["complaints_and_catches"].append({"from": it["from"], "says": it["says"], "link": it["link"]})
+    out = {k: v for k, v in out.items() if v}
+    if got.get("warnings"):
+        out["warning_signs"] = [w["text"] for w in got["warnings"]]
+        few = [w["text"] for w in got["warnings"] if w["sign"] == "few_reviews"]
+        if few:
+            out["caution"] = few[0]
+    if got.get("own"):
+        out["your_verdicts"] = got["own"]
+    if got.get("note"):
+        out["note"] = got["note"]
+    return out
+
+
+async def _find_places(taste: Taste, social, args: dict, location=None) -> str:
+    from . import buddysearch, reviews  # noqa: PLC0415
+    what, where = str(args.get("what") or "").strip(), str(args.get("where", "")).strip()
+    if not what:
+        raise ToolError("What kind of place?")
+    category = category_of(what)
+    here = location.current() if location is not None else None
+    if not where or where.lower() in NEAR_WORDS:
+        where = location.label() if location is not None else ""
+        if not where or COORDS.match(where):  # never a position to a search service: ask for the area instead
+            return ("I don't know where the user is: ask them for the area or city, or suggest turning on Share my "
+                    "location in the Buddy app's settings.")
+    if COORDS.match(where):
+        return "Ask the user for the area or city by name (a position is never sent to a search service)."
+    mine, general = taste.get(category), taste.get("general")
+    history = taste.history(category)
+    been = {_norm(m.get("merchant")) for m in history.get("you_spend_at", [])} | \
+           {_norm(p.get("title")) for p in history.get("places_you_go", [])}
+    result = {"category": category, "where": where, "your_taste": mine, "general_taste": general,
+              "your_history": history, "watch_for": WATCH_FOR.get(category, WATCH_FOR["general"]),
+              "how_ranked": "by reviews first (the rating pulled towards an ordinary 4.2 when few people gave it), "
+                            f"then your taste among the top {TASTE_TOP}; the first {PICKS} had their reviews checked"}
+    try:
+        found = await buddysearch.search(taste.memory, what, ["local"], area=where)
+    except ToolError as e:
+        return str(e)
+    answered = [p["title"] for p in found["providers"] if p["ok"]]
+    result["searched"] = answered or "no place search answered"
+    places = [_as_place(r) for r in found["results"].get("local", [])]
+    if not places:
+        result["places_note"] = ("No places found" + ("" if answered else " (no place search answered: "
+                                 + "; ".join(f"{p['title']}: {p['error']}" for p in found["providers"]) + ")")
+                                 + ". Try other words, a nearby area, or web_search.")
+        return UNTRUSTED + json.dumps(result, ensure_ascii=False)
+    for p in places:
+        if d := _distance(here, p.get("latitude"), p.get("longitude")):
+            p["distance"] = d
+    rated = sorted([p for p in places if p.get("review_score")], key=lambda p: -p["review_score"])
+    unrated = [p for p in places if not p.get("review_score")]
+    for p in rated + unrated:
+        factor, why = _taste_fit(p, mine, general, been)
+        p["_fit"] = factor
+        if why:
+            p["taste_fit"] = why
+    top = sorted(rated[:TASTE_TOP], key=lambda p: -(p["review_score"] * p["_fit"]))
+    ordered = top + rated[TASTE_TOP:] + sorted(unrated, key=lambda p: -p["_fit"])
+    picks = ordered[:PICKS]
+    checks = await asyncio.gather(*(reviews.for_result(
+        taste.memory, "place", p["title"], where, rating=p.get("rating"), count=p.get("ratingCount"),
+        rated_by="Google", social=social) for p in picks), return_exceptions=True)
+    for p, got in zip(picks, checks):
+        p["pick"] = True
+        if isinstance(got, dict):
+            p["other_reviews"] = _other_reviews(got)
+            if p["other_reviews"].get("caution"):
+                p["caution"] = p["other_reviews"]["caution"]
+    out = []
+    for p in ordered[:8]:
+        p.pop("_fit", None)
+        out.append(_for_claude(p, cards.offer(cards.place_card(p))))
+    result["places"] = out
+    if found.get("attribution"):
+        result["attribution"] = found["attribution"]
+    return UNTRUSTED + json.dumps(result, ensure_ascii=False)

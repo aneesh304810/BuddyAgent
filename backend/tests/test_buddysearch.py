@@ -6,7 +6,6 @@ import json
 import urllib.parse
 
 import pytest
-from fastapi.testclient import TestClient
 
 from buddy import buddysearch as bs
 from buddy import gateway
@@ -190,26 +189,23 @@ def test_the_summary_uses_claude_only_with_the_owners_things(tmp_path, monkeypat
     assert seen["personal"] is True
 
 
-def test_status_history_endpoints_and_the_tool(tmp_path, world, monkeypatch):
-    from buddy import server
+def test_status_history_and_the_tool(tmp_path, world, monkeypatch):
     m = Memory(tmp_path / "b.db")
-    monkeypatch.setattr(server, "memory", m)
-    monkeypatch.setattr(server, "authorized", lambda t: t == "s3cret")
     for k, v in KEYS.items():
         monkeypatch.setenv(k, v)
-    client, auth = TestClient(server.app), {"Authorization": "Bearer s3cret"}
-    got = client.get("/api/search?q=how+tall+is+mount+everest", headers=auth).json()
+    got = json.loads(asyncio.run(bs.run_tool(m, {"query": "how tall is mount everest"})))
     assert got["results"]["web"][0]["found_by"] == ["Brave Search", "Tavily"]
-    assert client.get("/api/search?q=", headers=auth).status_code == 400
-    assert client.get("/api/search?q=x&engines=nope", headers=auth).status_code == 400
-    st = client.get("/api/search/status", headers=auth).json()
+    with pytest.raises(ToolError):
+        asyncio.run(bs.search(m, "x", ["nope"]))
+    st = bs.status(m)
     brave = next(p for p in st["providers"] if p["provider"] == "brave")
     assert brave["ready"] and brave["today"] == 1 and brave["daily_limit"] == 40 and brave["keeps"] == "links"
     assert next(p for p in st["providers"] if p["provider"] == "google_places")["keeps"] == "id"
     assert st["history"][0]["query"] == "how tall is mount everest"
     out = json.loads(asyncio.run(bs.run_tool(m, {"query": "pizza in hoboken"})))
     assert out["engines"] == ["local"] and out["results"]["local"][0]["title"] == "Luca Pizza"
-    gone = client.post("/api/search", json={"action": "forget"}, headers=auth).json()
-    assert gone["deleted"] >= 2 and gone["history"] == [] and gone["kept"] == 0
+    assert "Deleted 2 searches" in asyncio.run(bs.run_tool(m, {"forget_history": True}))
+    gone = bs.status(m)
+    assert gone["history"] == [] and gone["kept"] == 0
     with pytest.raises(ToolError, match="What should I search for"):
         asyncio.run(bs.search(m, "  "))

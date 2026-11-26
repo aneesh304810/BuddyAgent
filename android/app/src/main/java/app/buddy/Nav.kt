@@ -330,13 +330,13 @@ fun TripsScreen(link: ServerLink?) {
 
 @Composable
 fun DiscoverScreen(link: ServerLink?, onNavigate: (Screen) -> Unit) {
-    // "discover2": Search came first, so the tab remembered under the old order starts afresh.
-    PlaceTabs("discover2", listOf("Search", "News", "Intelligence", "Library", "Reports")) { tab ->
+    // "discover3": the Search tab is gone (Buddy answers searches and place questions in chat), so the tab
+    // remembered under the old order starts afresh.
+    PlaceTabs("discover3", listOf("News", "Intelligence", "Library", "Reports")) { tab ->
         when (tab) {
-            0 -> BuddyPage(link, "search.html")
-            1 -> BuddyPage(link, "news.html")
-            2 -> BuddyPage(link, "intel.html")
-            3 -> LibraryScreen(link) { onNavigate(Screen.LibraryItem(it)) }
+            0 -> BuddyPage(link, "news.html")
+            1 -> BuddyPage(link, "intel.html")
+            2 -> LibraryScreen(link) { onNavigate(Screen.LibraryItem(it)) }
             else -> ReportsScreen(link) { onNavigate(Screen.Report(it)) }
         }
     }

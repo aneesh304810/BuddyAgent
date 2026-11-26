@@ -9,6 +9,11 @@ from buddy.memory import Memory
 from buddy.social import run_social_tool
 from buddy.taste import Taste, run_taste_tool
 from tests.test_conversation import Scripted, text, tool_use
+from tests.test_taste import places_search
+
+PUNTO = {"title": "Punto Azul", "rating": 4.6, "ratingCount": 5321, "priceLevel": "$$", "category": "Seafood restaurant",
+         "address": "Calle San Martin 595, Lima", "thumbnailUrl": "https://lh5.googleusercontent.com/p/abc",
+         "latitude": -12.12, "longitude": -77.03, "cid": "987", "website": "https://puntoazul.pe"}
 
 
 class FakeSocial:
@@ -17,12 +22,6 @@ class FakeSocial:
 
     def has_reddit(self):
         return False
-
-    def places(self, query, country):
-        return [{"title": "Punto Azul", "rating": 4.6, "ratingCount": 5321, "priceLevel": "$$",
-                 "category": "Seafood restaurant", "address": "Calle San Martin 595, Lima",
-                 "thumbnailUrl": "https://lh5.googleusercontent.com/p/abc", "latitude": -12.12,
-                 "longitude": -77.03, "cid": "987", "website": "https://puntoazul.pe"}]
 
     def reddit(self, *a, **k):
         return []
@@ -34,7 +33,11 @@ class FakeSocial:
                              "snippet": "Punto Azul has a long queue and cash only"}]}
 
 
-def test_places_become_cards_and_claude_gets_only_ids():
+def test_places_become_cards_and_claude_gets_only_ids(monkeypatch):
+    places_search(monkeypatch, [{"title": "Punto Azul", "rating": 4.6, "reviews": 5321, "price_level": "$$",
+                                 "category": "Seafood restaurant", "address": "Calle San Martin 595, Lima",
+                                 "thumbnail": "https://lh5.googleusercontent.com/p/abc", "lat": -12.12,
+                                 "lon": -77.03, "cid": "987", "website": "https://puntoazul.pe"}])
     box = cards.CardBox()
     token = cards.current.set(box)
     try:
@@ -88,7 +91,7 @@ def test_show_cards_ends_the_turn_and_reaches_the_chat(monkeypatch):
     convo = agent.Conversation(mem)
 
     async def find(name, args):
-        cards.offer(cards.place_card(FakeSocial().places("", "")[0]))
+        cards.offer(cards.place_card(PUNTO))
         return "found p1"
 
     fake = Scripted([

@@ -49,9 +49,6 @@ JOBS = {  # name -> (title, what it does, in use today?)
     "deep": ("Hard research questions", "long questions that need the strongest model; on request", False),
     "summarise_search": ("Summarise search results", "a short answer, with numbered sources, from public search "
                          "results (Buddy Search); on request. Your own files and messages: Claude only", True),
-    "summarise_reviews": ("Sum up reviews", "pros, cons and catches, each with its sources, from public review "
-                          "snippets (Reddit, review sites, complaint threads) when you tap Reviews; never Google's "
-                          "reviews or your own verdicts", True),
 }
 CLAUDE = {"claude:fast": ("fast_model", "Claude, cheap model"), "claude:chat": ("chat_model", "Claude, mid model"),
           "claude:deep": ("model", "Claude, strongest model")}

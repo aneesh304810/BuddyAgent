@@ -246,6 +246,8 @@ def _places(memory, q: str, area: str, env=None, fetch=None) -> list[Result]:
                                      "category": (p.get("primaryTypeDisplayName") or {}).get("text", ""),
                                      "open_now": (p.get("currentOpeningHours") or {}).get("openNow"),
                                      "phone": p.get("internationalPhoneNumber") or "", "website": p.get("websiteUri", ""),
+                                     "price_level": dining.PRICE.get(p.get("priceLevel", ""), ""),
+                                     "vegetarian": p.get("servesVegetarianFood"),
                                      "lat": loc.get("latitude"), "lon": loc.get("longitude")}))
         return out
     from .social import Social  # noqa: PLC0415
@@ -256,6 +258,8 @@ def _places(memory, q: str, area: str, env=None, fetch=None) -> list[Result]:
                           extra={"address": p.get("address", ""), "rating": p.get("rating"),
                                  "reviews": p.get("ratingCount"), "category": p.get("category", ""),
                                  "phone": p.get("phoneNumber", ""), "website": p.get("website", ""),
+                                 "price_level": p.get("priceLevel", ""), "description": p.get("description", ""),
+                                 "thumbnail": p.get("thumbnailUrl", ""), "cid": p.get("cid", ""),
                                  "lat": p.get("latitude"), "lon": p.get("longitude")}))
     return out
 
@@ -769,16 +773,21 @@ TOOL = {
         "the owner's own things (documents, what Buddy remembers, email/messages/calendar, saved papers; these "
         "never leave the server). Results are merged, de-duplicated and ranked, each with its source; 'found_by' "
         "lists every source that had it. Use it for discovery across sources; web_fetch to read a page. engines "
-        "is optional (Buddy works it out); summary=true adds a short cited answer."),
+        "is optional (Buddy works it out); summary=true adds a short cited answer. To recommend places to eat, "
+        "drink or go, use find_places instead (it adds the owner's taste, distance and the reviews). "
+        "forget_history=true deletes the owner's search history, the cache and what was kept."),
     "input_schema": {"type": "object", "properties": {
         "query": {"type": "string"},
         "engines": {"type": "array", "items": {"type": "string", "enum": list(ENGINES)}},
         "area": {"type": "string", "description": "a place name for places searches (never coordinates)"},
-        "summary": {"type": "boolean"}}, "required": ["query"]},
+        "summary": {"type": "boolean"}, "forget_history": {"type": "boolean"}}},
 }
 
 
 async def run_tool(memory: Memory, args: dict) -> str:
+    if args.get("forget_history"):
+        n = await asyncio.to_thread(forget, memory)
+        return f"Deleted {n} searches from the history, with the cache and everything kept from them."
     found = await search(memory, str(args.get("query") or ""), args.get("engines") or None, str(args.get("area") or ""))
     compact = {e: [{k: r[k] for k in ("title", "url", "snippet", "source", "found_by", "published")} |
                    {k: v for k, v in r["extra"].items() if k in ("address", "rating", "price", "store", "category",
