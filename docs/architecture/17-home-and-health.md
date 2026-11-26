@@ -25,6 +25,7 @@ flowchart LR
         whoop_py["whoop.py<br/>The owner's WHOOP band, through Buddy Connect (Health group) and…"]
         healthmodel_py["healthmodel.py<br/>what, in their own days, tends to come before a better or worse next…"]
         moodlog_py["moodlog.py<br/>how they feel, in their own words, kept on their server only"]
+        checkin_py["checkin.py<br/>on the owner's first chat after 6 pm, Buddy asks how they are, and…"]
         prevention_py["prevention.py<br/>which screenings apply to the owner, what they usually cost, and…"]
         nhanesref_py["nhanesref.py<br/>weighted percentiles from NHANES, the CDC's national health survey"]
         foodfacts_py["foodfacts.py<br/>Food, supplement and medicine facts from US government sources,…"]
@@ -57,6 +58,8 @@ flowchart LR
     healthmodel_py --> coach_py
     healthmodel_py --> moodlog_py
     moodlog_py --> healthrecords_py
+    checkin_py --> coach_py
+    checkin_py --> moodlog_py
     prevention_py --> healthrecords_py
     prevention_py --> labs_py
     prevention_py --> nhanesref_py
@@ -388,6 +391,32 @@ rule); kept as long as the other health readings (two years), and deleted entry 
 
 - Tables: `mood_log`
 - Uses: healthrecords.py, memory.py, tools.py
+
+### checkin.py
+
+```text
+The evening check-in: on the owner's first chat after 6 pm, Buddy asks how they are, and code reads the answers.
+
+The owner chose this on 26 Nov 2026: a check-in run by code, with no AI model. On the first message they send Buddy
+after 6 pm each day, Buddy answers that message as usual and then asks, in fixed words:
+
+1. mood, stress and energy, each from 1 to 5 ("4, 2, 3", "mood 4 stress 2", or a word such as "good");
+2. whether they have been in touch with friends or family (yes, a little, no);
+3. how rested they feel, from 1 to 5;
+4. anything on their mind, in a few words.
+
+Each answer is read here, before the Privacy Gateway and before any model, and the whole check-in goes into the mood
+journal (moodlog.py). Buddy then reads the day back in fixed sentences: what was noted, last night's sleep and
+readiness, the week's average mood. Only a note that a check-in happened is kept in the conversation later turns send
+to Claude. "Skip" ends it; a message that isn't an answer ends it too and is handled as a normal message (what was
+already answered is kept). "Check in" starts it at any time. It never sends a notification: it asks only while the
+owner is already talking to Buddy. Switched off or on from Health → Trends → Mood.
+
+Spoken answers pass through a speech recognizer first, like every spoken word (the phone's, or Whisper); typed
+answers go only to the owner's server.
+```
+
+- Uses: coach.py, memory.py, moodlog.py, privacygate.py, tools.py
 
 ### prevention.py
 

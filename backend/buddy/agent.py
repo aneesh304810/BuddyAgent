@@ -278,6 +278,31 @@ class Conversation:
                                    prompt_lines(self.memory))
 
     async def reply(self, user_text: str, say: Say, via: str = "user") -> None:
+        """Answer one user utterance (see _reply), with the evening check-in around it: an answer to the check-in is
+        read here by code and goes to no model; the first chat after 6 pm ends with the check-in's first question,
+        unless Buddy's own reply ended by asking something (checkin.py)."""
+        offer = False
+        if via == "user":
+            from . import checkin  # noqa: PLC0415
+            said = await asyncio.to_thread(checkin.answer, self.memory, user_text)
+            if said:
+                self.turn += 1
+                await say(said)
+                self._note_exchange("[An evening check-in answer, read by Buddy's code and kept from every AI model]",
+                                    "[Noted in the owner's journal.]")
+                return
+            offer = await asyncio.to_thread(checkin.due, self.memory)
+        last = {"text": ""}
+
+        async def said_to(text: str) -> None:
+            last["text"] = text
+            await say(text)
+        await self._reply(user_text, said_to if offer else say, via)
+        if offer and not last["text"].rstrip().endswith("?") and (not self.thrift or self.thrift.pending is None):
+            from . import checkin  # noqa: PLC0415
+            await say(await asyncio.to_thread(checkin.start, self.memory))
+
+    async def _reply(self, user_text: str, say: Say, via: str = "user") -> None:
         """Answer one user utterance, calling `say` with each sentence to speak.
 
         via "room": the words came through Listen-in ("Hey Buddy, ..."), where

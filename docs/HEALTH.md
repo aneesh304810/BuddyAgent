@@ -44,6 +44,19 @@ sub-tabs under them, and the page remembers where you were.
   No AI model is given any of it, the notes least of all; kept as long as the readings (two years). It is not a
   diagnosis: if you feel low for a long time, or unsafe, talk to a doctor or call or text 988 (the US Suicide &
   Crisis Lifeline).
+  - **The evening check-in, in chat or by voice.** On your first chat after 6 pm each day, Buddy answers your
+    message as usual and then asks, in fixed words: mood, stress and energy from 1 to 5 ("4, 2, 3", "mood 4
+    stress 2", or a word such as "good"); whether you've been in touch with friends or family (yes, a little, no);
+    how rested you feel from 1 to 5; and anything on your mind. Your answers are read by code before anything
+    else, go into the journal (marked "check-in"), and reach no AI model; the conversation Claude sees later keeps
+    only a note that a check-in happened. Buddy then reads the day back in fixed sentences: what was noted, last
+    night's sleep and readiness from the ring, and your week's average mood (with the 988 line on a hard day).
+    "Skip" stops it and keeps what you said; a message that isn't an answer ends it and is handled as a normal
+    message; words about how you are, instead of a number, are kept as the note and the question is asked again.
+    It isn't offered when Buddy's own reply ended by asking you something (it waits for the next chat). Say
+    "check in" any time to start it. It never sends a notification. Switch it off or on under Trends → Mood.
+    Spoken answers pass through the speech recognizer first, like every spoken word; typed answers go only to
+    your server.
 - **Plan → Progress:** each habit over the last 7 and 30 days (days done, the rate, the run in a row), and your
   weekly averages now against when the plan started.
 - **Plan → Food:** what you noted today against the plan's calories and protein, and the last week's meals. You

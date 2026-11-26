@@ -16,6 +16,8 @@ from .tools import ToolError, local_now
 
 TAGS = ("work", "family", "sleep", "exercise", "illness", "travel", "money", "alcohol", "social", "alone time")
 SCALES = ("mood", "stress", "energy")
+PEOPLE = ("yes", "a little", "no")  # in touch with friends or family that day (the evening check-in asks)
+CHECKIN_OFF_KEY = "checkin:off"  # "1" when the owner switched the evening check-in off
 SCHEMA = """
 CREATE TABLE IF NOT EXISTS mood_log (             -- the owner's own entries; never given to an AI model
     id INTEGER PRIMARY KEY, day TEXT NOT NULL, at TEXT NOT NULL, mood INTEGER, stress INTEGER, energy INTEGER,
@@ -26,6 +28,11 @@ CREATE TABLE IF NOT EXISTS mood_log (             -- the owner's own entries; ne
 
 def _ready(memory: Memory) -> None:
     memory.db.executescript(SCHEMA)
+    have = {r[1] for r in memory.db.execute("PRAGMA table_info(mood_log)")}
+    for column, kind in (("rested", "INTEGER"), ("people", "TEXT NOT NULL DEFAULT ''"),
+                         ("via", "TEXT NOT NULL DEFAULT 'page'")):
+        if column not in have:  # added with the evening check-in
+            memory.db.execute(f"ALTER TABLE mood_log ADD COLUMN {column} {kind}")  # nosec B608: fixed names
 
 
 def _scale(v) -> int | None:
@@ -36,22 +43,26 @@ def _scale(v) -> int | None:
     return n if 1 <= n <= 5 else None
 
 
-def add(memory: Memory, mood=None, stress=None, energy=None, tags=None, note: str = "", day: str = "") -> dict:
+def add(memory: Memory, mood=None, stress=None, energy=None, tags=None, note: str = "", day: str = "",
+        people: str = "", rested=None, via: str = "page") -> dict:
     values = {"mood": _scale(mood), "stress": _scale(stress), "energy": _scale(energy)}
-    if all(v is None for v in values.values()):
+    rested, people = _scale(rested), people if people in PEOPLE else ""
+    note = " ".join(str(note or "").split())[:500]
+    if all(v is None for v in values.values()) and rested is None and not people and not (via == "checkin" and note):
         raise ToolError("Pick at least one of mood, stress or energy (1 to 5).")
     day = day if re.fullmatch(r"\d{4}-\d{2}-\d{2}", str(day or "")) else local_now().date().isoformat()
     if day > local_now().date().isoformat():
         raise ToolError("That day hasn't come yet.")
     kept_tags = [t for t in (tags or []) if t in TAGS][:len(TAGS)]
     _ready(memory)
-    cur = memory.db.execute("INSERT INTO mood_log (day, at, mood, stress, energy, tags, note) VALUES (?, ?, ?, ?, ?, ?, ?)",
-                            (day, datetime.now(timezone.utc).isoformat(timespec="seconds"), values["mood"],
-                             values["stress"], values["energy"], json.dumps(kept_tags),
-                             " ".join(str(note or "").split())[:500]))
+    cur = memory.db.execute(
+        "INSERT INTO mood_log (day, at, mood, stress, energy, tags, note, people, rested, via) "
+        "VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?)",
+        (day, datetime.now(timezone.utc).isoformat(timespec="seconds"), values["mood"], values["stress"],
+         values["energy"], json.dumps(kept_tags), note, people, rested, "checkin" if via == "checkin" else "page"))
     memory.db.commit()
     prune(memory)
-    return {"id": int(cur.lastrowid), "day": day, **values, "tags": kept_tags}
+    return {"id": int(cur.lastrowid), "day": day, **values, "tags": kept_tags, "people": people, "rested": rested}
 
 
 def entries(memory: Memory, days: int = 30) -> list[dict]:
@@ -70,8 +81,10 @@ def daily(memory: Memory, days: int = 730) -> dict[str, dict]:
     since = (local_now().date() - timedelta(days=days - 1)).isoformat()
     out = {}
     for r in memory.db.execute("SELECT day, AVG(mood) AS mood, AVG(stress) AS stress, AVG(energy) AS energy, "
-                               "COUNT(*) AS n FROM mood_log WHERE day >= ? GROUP BY day", (since,)):
-        out[r["day"]] = {k: (round(r[k], 2) if r[k] is not None else None) for k in SCALES} | {"entries": r["n"]}
+                               "AVG(rested) AS rested, COUNT(*) AS n FROM mood_log WHERE day >= ? GROUP BY day",
+                               (since,)):
+        out[r["day"]] = {k: (round(r[k], 2) if r[k] is not None else None) for k in SCALES + ("rested",)} | {
+            "entries": r["n"]}
     return out
 
 
@@ -88,7 +101,8 @@ def view(memory: Memory, days: int = 30) -> dict:
         for t in e["tags"]:
             tag_count[t] = tag_count.get(t, 0) + 1
     return {"entries": got[:60], "days": [{"day": d, **v} for d, v in sorted(by_day.items(), reverse=True)],
-            "week": {k: avg(k, 7) for k in SCALES}, "month": {k: avg(k, 30) for k in SCALES},
+            "week": {k: avg(k, 7) for k in SCALES + ("rested",)}, "month": {k: avg(k, 30) for k in SCALES + ("rested",)},
+            "checkin_on": memory.get(CHECKIN_OFF_KEY) != "1",
             "tags": sorted(tag_count.items(), key=lambda x: -x[1]), "choices": list(TAGS),
             "today": local_now().date().isoformat(),
             "note": "Kept on your server only; no AI model is given any of it. Not a diagnosis: if you feel low for "

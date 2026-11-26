@@ -59,6 +59,7 @@ a model. What lab ranges reveal: which tests the owner has had and whether each 
 | `maestro.ask_with` (OpenAI, added providers, the pool, Claude) | intelligence jobs: headlines, papers, strategy rules, news checks | `authorize` before any model is called; a refusal ends `maestro.ask` | `test_maestro_checks_before_any_model_is_called`, `test_a_privacy_refusal_is_final...` |
 | Health tools (`my_health`, `health_plan`) | the chat | `withhold`: the result goes to a card on the owner's screen and a marker goes to the model | `test_in_the_chat...`, `test_a_health_tools_result...` |
 | The chat's incoming message | `agent.Conversation.reply` | a message about the owner's own health is answered by Buddy itself, is not sent on, and its words are not kept in the conversation | `test_in_the_chat...` |
+| The evening check-in | `agent.Conversation.reply`, before the line above (`checkin.py`) | an answer to the check-in is read by code, kept in the mood journal, not sent on, and only a placeholder is kept in the conversation | `test_in_the_chat_the_answers_reach_no_model` |
 | Conversation history and memory lines | every later Claude request | covered by the first door: old turns and remembered facts are cut the same way | `test_a_claude_request_has_health_cut_out...` |
 | Agent delegation, background jobs | all use `claude_client()` or Maestro | covered by the first three doors | the static check |
 | Meaning search (`brain.py`) | memory search | runs a small model on this server; nothing is sent out | by inspection, no test |

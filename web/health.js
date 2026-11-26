@@ -42,14 +42,20 @@ function moodHistory() {
   if (!moodData) { $("main").innerHTML = `<p class="muted">Loading…</p>`; loadMood(); return; }
   if (moodData.failed) { $("main").innerHTML = `<p class="err">${esc(moodData.failed)}</p>`; return; }
   const k = (label, v) => kpi(v == null ? "–" : esc(v), label);
-  const rows = moodData.entries.map((e) => `<div class="line"><div class="what">${esc(when(e.day))} · mood ${e.mood ?? "–"} · stress ${e.stress ?? "–"} · energy ${e.energy ?? "–"}
+  const rows = moodData.entries.map((e) => { const extra = [e.rested != null ? `rested ${e.rested}` : "", e.people ? `in touch: ${e.people}` : "",
+      e.via === "checkin" ? "check-in" : ""].filter(Boolean).join(" · ");
+    return `<div class="line"><div class="what">${esc(when(e.day))} · mood ${e.mood ?? "–"} · stress ${e.stress ?? "–"} · energy ${e.energy ?? "–"}
+      ${extra ? `<small>${esc(extra)}</small>` : ""}
       ${e.tags.length || e.note ? `<small>${esc(e.tags.join(", "))}${e.tags.length && e.note ? " · " : ""}${esc(e.note)}</small>` : ""}</div>
-      <button class="btn danger" data-mood-del="${esc(e.id)}" aria-label="Delete this entry">✕</button></div>`).join("");
-  $("main").innerHTML = `<div class="kpis">${k("Mood, last 7 days", moodData.week.mood)}${k("Stress, last 7 days", moodData.week.stress)}${k("Energy, last 7 days", moodData.week.energy)}</div>`
+      <button class="btn danger" data-mood-del="${esc(e.id)}" aria-label="Delete this entry">✕</button></div>`; }).join("");
+  $("main").innerHTML = `<div class="kpis">${k("Mood, last 7 days", moodData.week.mood)}${k("Stress, last 7 days", moodData.week.stress)}${k("Energy, last 7 days", moodData.week.energy)}${moodData.week.rested != null ? k("Rested, last 7 days", moodData.week.rested) : ""}</div>`
     + card("Your entries", rows || `<p class="muted">No entries yet: add one on Today.</p>`,
       (moodData.tags.length ? "Most often: " + moodData.tags.slice(0, 4).map(([t, n]) => `${esc(t)} (${n})`).join(", ") + ". " : "") + esc(moodData.note))
+    + card("Evening check-in in chat", `<div class="line"><div class="what">${moodData.checkin_on ? "On" : "Off"}<small>On your first chat after 6 pm, Buddy asks your mood, stress and energy, whether you've been in touch with people, how rested you feel and anything on your mind. Your answers are read by code and go to no AI model. Say "check in" any time; say "skip" to stop. Spoken answers pass through the speech recognizer first, like every spoken word.</small></div>
+        <button class="btn" id="mood-checkin">${moodData.checkin_on ? "Turn off" : "Turn on"}</button></div>`)
     + (rows ? `<p>${sure ? `<button class="btn danger solid" id="mood-forget" data-sure="1">Yes, delete every entry</button>` : `<button class="btn danger" id="mood-forget">Delete every entry</button>`}</p>` : "");
   $("main").querySelectorAll("[data-mood-del]").forEach((b) => b.onclick = () => loadMood({ action: "delete", id: Number(b.dataset.moodDel) }));
+  if ($("mood-checkin")) $("mood-checkin").onclick = () => loadMood({ action: "checkin", on: !moodData.checkin_on });
   if ($("mood-forget")) $("mood-forget").onclick = () => {
     if (!$("mood-forget").dataset.sure) { sure = true; render(); return; }
     sure = false; loadMood({ action: "forget", confirm: true });

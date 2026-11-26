@@ -1894,6 +1894,10 @@ async def api_health_mood_act(body: dict) -> dict:
             text = await asyncio.to_thread(moodlog.delete, memory, int(body.get("id") or 0))
         elif action == "forget" and body.get("confirm") is True:
             text = await asyncio.to_thread(moodlog.forget, memory)
+        elif action == "checkin":  # the evening check-in in chat, on or off
+            from . import checkin  # noqa: PLC0415
+            await asyncio.to_thread(checkin.switch, memory, body.get("on") is True)
+            text = f"The evening check-in is {'on' if body.get('on') is True else 'off'}."
         else:
             raise HTTPException(400, "unknown action")
     except ToolError as e:
