@@ -67,6 +67,83 @@ COUPON = re.compile(r"coupon|digital (?:deal|offer)|\bclip|for ?u\b|price plus|\
 VALUE = re.compile(r"(?:save\s+)?\$\s?(\d+(?:\.\d\d)?)\s*off|save\s+\$\s?(\d+(?:\.\d\d)?)", re.I)
 _GROCER, _GENERAL, _FOOD = (re.compile(rf"\b(?:{x})", re.I) for x in (GROCERS, GENERAL, FOOD))
 GROCERY_CATEGORIES = ("grocery", "household")
+ROUNDUP = re.compile(r"\bup to\s+\d{1,2}\s?%", re.I)  # "Snacks & Candy Deals: Up to 78% off": a sale, not a coupon
+
+# The store, by its usual name: the sender's, else the one a deal site's headline names ("... @ Amazon").
+STORE_NAMES = (("ShopRite", r"shop ?rite"), ("ACME", r"\bacme\b"), ("Whole Foods", r"whole ?foods"),
+               ("Trader Joe's", r"trader joe"), ("Stop & Shop", r"stop (?:&|and) shop"), ("Wegmans", r"wegmans"),
+               ("Aldi", r"\baldi\b"), ("Lidl", r"\blidl\b"), ("Kroger", r"kroger"), ("H Mart", r"\bh ?mart\b"),
+               ("Patel Brothers", r"patel brothers"), ("Sprouts", r"sprouts"), ("Safeway", r"safeway"),
+               ("Giant", r"\bgiant\b"), ("Food Lion", r"food lion"), ("Publix", r"publix"), ("Weis", r"\bweis\b"),
+               ("PriceRite", r"price ?rite"), ("Foodtown", r"foodtown"), ("Key Food", r"key food"),
+               ("FreshDirect", r"fresh ?direct"), ("Instacart", r"instacart"), ("Walmart", r"walmart"),
+               ("Target", r"\btarget\b"), ("Costco", r"costco"), ("Amazon", r"amazon|\bamz\b"), ("CVS", r"\bcvs\b"),
+               ("Walgreens", r"walgreens"), ("BJ's", r"\bbj'?s\b"), ("Sam's Club", r"sam'?s club"),
+               ("Dollar General", r"dollar general"), ("Rite Aid", r"rite aid"))
+_STORE_RES = [(n, re.compile(x, re.I)) for n, x in STORE_NAMES]
+# What it is, for grouping by product when it isn't on the shopping list. Order matters: hair oil is personal care.
+PRODUCT_GROUPS = (
+    ("Personal care", r"\bhair\b|shampoo|conditioner|\bsoap\b|body wash|toothpaste|deodorant|skin ?care|lotion|razor|"
+                      r"sunscreen|cosmetic|makeup"),
+    ("Household", r"paper towels?|toilet paper|tissues|detergent|trash bags|dish ?soap|dishwasher|laundry|batteries|"
+                  r"\bwipes\b|diapers|cleaner|foil|plastic wrap|sponges?"),
+    ("Yogurt", r"yogh?urt|\bskyr\b|chobani|\bfage\b|siggi|oikos|dannon|yoplait|stonyfield|noosa"), ("Eggs", r"\beggs?\b"), ("Milk & cream", r"\bmilk\b|\bcream\b|creamer"),
+    ("Cheese & butter", r"cheese|butter\b"),
+    ("Meat & fish", r"chicken|beef|pork|turkey|salmon|shrimp|\bfish\b|bacon|sausage|\bham\b|steak|tuna"),
+    ("Fruit & vegetables", r"fruit|apples?\b|bananas?|berr(?:y|ies)|grapes|oranges?|avocados?|tomato|potato|onions?|"
+                           r"lettuce|spinach|salad|broccoli|carrots?|vegetables?|veggies|produce|lemons?|limes?"),
+    ("Bread & bakery", r"bread|bagels?|muffins?|tortillas?|\bbuns?\b|croissant"),
+    ("Cereal & breakfast", r"cereal|cheerios|kellogg|frosted flakes|special k|\boats\b|oatmeal|granola|pancake|"
+                           r"waffle"),
+    ("Pasta, rice & sauces", r"pasta|spaghetti|noodles|\brice\b|sauce|salsa|ketchup|mayo|dressing"),
+    ("Snacks & candy", r"snacks?|chips|crackers|cookies|candy|chocolate|pub mix|pretzels?|popcorn|\bnuts\b|almonds|"
+                       r"\bbars?\b|jerky|doritos|\blay'?s\b|pringles|oreos?|\butz\b|cheez-?it|goldfish"),
+    ("Drinks", r"juice|soda|sparkling|\bwater\b|coffee|\btea\b|k-?cups?|drinks?|kombucha|seltzer|coca-?cola|"
+               r"pepsi|gatorade|la ?croix"),
+    ("Frozen", r"frozen|ice cream|pizza"),
+    ("Pantry", r"flour|sugar|\boil\b|spices?|beans|lentils|soup|peanut butter|honey|jam|canned|broth"),
+)
+_PRODUCT_RES = [(n, re.compile(x, re.I)) for n, x in PRODUCT_GROUPS]
+DEAL_SITE = re.compile(r"slickdeals|dealnews|brad'?s deals|9to5|deals? alert|kinja|woot|hip2save|krazy coupon|"
+                       r"the krazy|living rich|frugal|coupons?\.com|ibotta|fetch", re.I)
+
+
+def store_name(store: str, title: str = "") -> str:
+    """The store, by its usual name: the sender (ACME Markets is ACME), else the store a deal site's headline names
+    ("~$2.68 After Coupon & S&S @ Amazon"), else the sender itself, else "Deal sites"."""
+    store = (store or "").strip()
+    for name, rx in _STORE_RES:
+        if rx.search(store):
+            return name
+    at = re.search(r"(?:@|\bat|\bfrom|\bvia)\s+([A-Za-z'&. ]{3,30}?)(?:\s*[-–—:|(]|$|\s+(?:for|with|on|w/))", title or "")
+    for name, rx in _STORE_RES:
+        if (at and rx.search(at.group(1))) or re.search(rf"^\s*{rx.pattern}\b", title or "", re.I):
+            return name
+    for name, rx in _STORE_RES:  # a store named anywhere in a deal site's headline
+        if DEAL_SITE.search(store) or not store:
+            if rx.search(title or ""):
+                return name
+    return "Deal sites" if not store or DEAL_SITE.search(store) else store[:40]
+
+
+def product_group(title: str, items: list[str] | None = None) -> tuple[str, bool]:
+    """What a coupon or deal is for: the shopping-list item it matches (and True), else a kind of product."""
+    for t in items or []:
+        if _match(t, title):
+            return t[:1].upper() + t[1:], True
+    for name, rx in _PRODUCT_RES:
+        if rx.search(title or ""):
+            return name, False
+    return "Other", False
+
+
+def _grouped(rows: list[dict], items: list[str]) -> list[dict]:
+    out = []
+    for r in rows:
+        product, on_list = product_group(r.get("title") or "", items)
+        out.append(r | {"where": store_name(r.get("store") or "", r.get("title") or ""), "product": product,
+                        "on_list": on_list})
+    return out
 
 
 def _ready(memory: Memory) -> None:
@@ -149,9 +226,14 @@ def coupons(memory: Memory, found: list[dict] | None = None, today: date | None 
     today = today or local_now().date()
     marks = {r["key"]: dict(r) for r in memory.db.execute("SELECT * FROM grocery_coupons")}
     out = []
+    seen: set[tuple[str, str]] = set()
     for d in found if found is not None else deals(memory, 30):
-        if not COUPON.search(str(d.get("title") or "")):
+        if not COUPON.search(str(d.get("title") or "")) or ROUNDUP.search(str(d.get("title") or "")):
             continue
+        same = (store_name(d.get("store") or "", d["title"]), str(d["title"]).lower())
+        if same in seen:
+            continue  # the same coupon in two emails
+        seen.add(same)
         if d.get("ends") and str(d["ends"])[:10] < today.isoformat():
             continue
         key = _key(d)
@@ -418,7 +500,18 @@ def wishlist(memory: Memory, today: date | None = None) -> list[dict]:
 
 
 def page(memory: Memory) -> dict:
-    """Everything the Groceries page's savings parts show."""
-    found_deals = deals(memory)
-    return {"plan": plan(memory), "deals": found_deals[:120], "coupons": coupons(memory),
+    """Everything the Groceries page's savings parts show; coupons and deals carry their store (where) and product
+    (the shopping-list item they match, or a kind of product), for grouping by store or by product."""
+    from . import groceries  # noqa: PLC0415
+    items = [t["text"] for t in groceries.to_buy(memory)]
+    found_deals, found_coupons = deals(memory), coupons(memory)
+    shown = {c["key"] for c in found_coupons}  # a coupon that is also a deal is listed once, as the coupon
+    once, seen = [], set()
+    for d in found_deals:
+        same = (store_name(d.get("store") or "", d["title"]), str(d["title"]).lower(), d.get("price"))
+        if _key(d) in shown or same in seen:
+            continue  # the same deal from two emails is listed once
+        seen.add(same)
+        once.append(d)
+    return {"plan": plan(memory), "deals": _grouped(once[:120], items), "coupons": _grouped(found_coupons, items),
             "savings": savings(memory), "trip_cost": trip_cost(memory)}

@@ -1478,12 +1478,13 @@ function adviceRow(a) {
     <small>${esc(a.why)}${/^https:\/\//.test(a.link || "") ? ` · <a href="${esc(a.link)}" rel="noopener">open the offer</a>` : ""}</small></div>
     ${a.price != null ? `<div class="num">${usd(a.price)}<small>${esc(a.store)}</small></div>` : ""}</div>`;
 }
-function couponRow(c) {
+function couponRow(c, by) {
   const clipped = c.state === "clipped";
-  return `<div class="line" style="align-items:flex-start"><div class="what">${clipped ? `<span class="pill good">Clipped</span> ` : ""}${esc(c.title)}
-    <small>${esc(c.store)}${c.ends ? " · until " + esc(c.ends) : ""}${c.value ? " · " + usd(c.value) + " off" : ""}${/^https:\/\//.test(c.link) ? ` · <a href="${esc(c.link)}" rel="noopener">open it at the store</a>` : " · clip it in the store's app"}</small></div>
+  const where = by === "store" ? (c.product || "") : by === "product" ? (c.where || c.store) : c.store;
+  return `<div class="line" style="align-items:flex-start"><div class="what"><span class="pill${clipped ? " good" : ""}">${clipped ? "Clipped" : "Coupon"}</span> ${esc(c.title)}
+    <small>${esc(where)}${c.ends ? " · until " + esc(c.ends) : ""}${c.value ? " · " + usd(c.value) + " off" : ""}${/^https:\/\//.test(c.link) ? ` · <a href="${esc(c.link)}" rel="noopener">open it at the store</a>` : " · clip it in the store's app"}</small></div>
     <div class="f" style="gap:6px;flex-wrap:nowrap">${clipped ? `<button class="btn" data-coupon="${esc(c.key)}" data-state="found">Not clipped</button>`
-      : `<button class="btn solid" data-coupon="${esc(c.key)}" data-state="clipped">Clipped</button>`}<button class="btn" data-coupon="${esc(c.key)}" data-state="dismissed" aria-label="Not interested">✕</button></div></div>`;
+      : `<button class="btn solid" data-coupon="${esc(c.key)}" data-state="clipped">I clipped it</button>`}<button class="btn" data-coupon="${esc(c.key)}" data-state="dismissed" aria-label="Not interested">✕</button></div></div>`;
 }
 function renderGrocWeek() {
   if (!gsav) { $("main").innerHTML = `<p class="muted">Loading…</p>`; return; }
@@ -1496,22 +1497,42 @@ function renderGrocWeek() {
       : `<p class="muted" style="margin:6px 0 0">${esc(p.pair.stores.join(" + "))} would save only ${usd(p.pair.saving)}: not worth a trip (${usd(p.trip_cost)}).</p>`;
   } else store = `<p class="muted" style="margin:0">No store prices for your list yet: forward store weekly ads and coupon emails to your deals inbox, or tell Buddy what you paid.</p>`;
   const advice = p.advice.length ? p.advice.map(adviceRow).join("") : `<p class="muted">Nothing on your list. Add items on To buy & kitchen, or tell Buddy "add eggs to my shopping list".</p>`;
-  $("main").innerHTML = card("This week", store + (p.clip.length ? `<p style="margin:10px 0 2px"><b>Clip first</b> (in the store's app)</p>` + p.clip.map(couponRow).join("") : "")
+  $("main").innerHTML = card("This week", store + (p.clip.length ? `<p style="margin:10px 0 2px"><b>Clip first</b> (in the store's app)</p>` + p.clip.map((x) => couponRow(x)).join("") : "")
       + (p.wait.length ? `<p style="margin:10px 0 0"><b>Wait for:</b> ${p.wait.map((a) => esc(a.item)).join(", ")}</p>` : ""), esc(p.note))
     + card("Your list, item by item", advice, "Skip comes first: a deal never makes Better to skip good for you. Your health numbers stay on your server.")
     + card("A trip to a store is worth", `<form class="f" id="trip-form"><input class="narrow" name="dollars" inputmode="decimal" value="${esc(String(p.trip_cost))}" aria-label="Dollars"><button class="btn">Save</button></form>`,
       "Buddy suggests a second store only when it saves more than this.");
   wireGrocSavings();
 }
+let grocBy = ["store", "product"].includes(storageGet("grocBy")) ? storageGet("grocBy") : "store";
+function dealRow(x, by) {
+  const where = by === "product" ? x.where : x.product;  // the other grouping's name, so nothing is lost
+  return `<div class="line" style="align-items:flex-start"><div class="what">${esc(x.title)}<small>${esc(where || "")} · ${esc(x.seen_on)}${x.lowest_seen != null && x.is_lowest ? " · the lowest seen" : ""}${/^https:\/\//.test(x.url) ? ` · <a href="${esc(x.url)}" rel="noopener">open</a>` : ""}</small></div>${x.price != null ? `<div class="num">${usd(x.price)}</div>` : ""}</div>`;
+}
 function renderGrocDeals() {
   if (!gsav) { $("main").innerHTML = `<p class="muted">Loading…</p>`; return; }
-  const c = gsav.coupons, d = gsav.deals;
-  $("main").innerHTML = card("Coupons", c.length ? c.map(couponRow).join("")
-      : `<p class="muted">No coupons yet. They come from the stores' coupon emails in your deals inbox.</p>`,
-      "Buddy can't clip coupons (the stores have no way for it to): open the store's app, clip it there, then tap Clipped here. A coupon is counted as saved only when you clip it (an estimate) or a receipt shows it.")
-    + card("Grocery deals", d.length ? d.slice(0, 80).map((x) => `<div class="line" style="align-items:flex-start"><div class="what">${esc(x.title)}<small>${esc(x.store || "")} · ${esc(x.seen_on)}${x.lowest_seen != null && x.is_lowest ? " · the lowest seen" : ""}${/^https:\/\//.test(x.url) ? ` · <a href="${esc(x.url)}" rel="noopener">open</a>` : ""}</small></div>${x.price != null ? `<div class="num">${usd(x.price)}</div>` : ""}</div>`).join("")
-      : `<p class="muted">No grocery deals in the last two weeks.</p>`,
-      "Weekly ads and offers from store emails in your deals inbox and the deal feeds. Electronics, home and travel deals stay on the Deals page.");
+  const c = gsav.coupons || [], d = (gsav.deals || []).slice(0, 120);
+  const key = (x) => (grocBy === "product" ? x.product : x.where) || "Other";
+  const groups = new Map();
+  const add = (x, kind) => { const k = key(x); if (!groups.has(k)) groups.set(k, { name: k, on_list: false, coupons: [], deals: [] }); const g = groups.get(k); g[kind].push(x); g.on_list = g.on_list || !!x.on_list; };
+  c.forEach((x) => add(x, "coupons")); d.forEach((x) => add(x, "deals"));
+  // On your list first (by product), then the groups with the most coupons, then the most deals; Other last.
+  const order = [...groups.values()].sort((a, b) => (b.on_list - a.on_list) || ((a.name === "Other" || a.name === "Deal sites") - (b.name === "Other" || b.name === "Deal sites"))
+    || (b.coupons.length - a.coupons.length) || (b.deals.length - a.deals.length) || a.name.localeCompare(b.name));
+  const chips = `<div class="f" role="tablist" aria-label="Group by" style="gap:8px;margin:0 0 12px">${[["store", "By store"], ["product", "By product"]].map(([k, label]) =>
+    `<button class="chip${k === grocBy ? " on" : ""}" role="tab" aria-selected="${k === grocBy}" data-gby="${k}">${label}</button>`).join("")}</div>`;
+  const count = (n, one) => `${n} ${one}${n === 1 ? "" : "s"}`;
+  const body = order.map((g) => {
+    const head = `${esc(g.name)}${g.on_list ? ` <span class="pill good">on your list</span>` : ""}`;
+    const sub = [g.coupons.length ? count(g.coupons.length, "coupon") : "", g.deals.length ? count(g.deals.length, "deal") : ""].filter(Boolean).join(" · ");
+    const first = g.deals.slice(0, 6).map((x) => dealRow(x, grocBy)).join(""), more = g.deals.slice(6);
+    return card(head, `<p class="muted" style="margin:-4px 0 6px;font-size:13px">${sub}</p>`
+      + g.coupons.map((x) => couponRow(x, grocBy)).join("") + first
+      + (more.length ? `<details><summary class="muted" style="cursor:pointer;padding:8px 0">${count(more.length, "more deal")}</summary>${more.map((x) => dealRow(x, grocBy)).join("")}</details>` : ""));
+  }).join("");
+  $("main").innerHTML = chips + (order.length ? body : card("Deals & coupons", `<p class="muted">No grocery deals or coupons in the last two weeks. They come from store emails in your deals inbox and the deal feeds.</p>`))
+    + `<p class="muted" style="font-size:13px">Buddy can't clip coupons (the stores have no way for it to): open the store's app, clip it there, then tap <b>I clipped it</b> here. A coupon is counted as saved only when you clip it (an estimate) or a receipt shows it. Electronics, home and travel deals stay on the Deals page.</p>`;
+  $("main").querySelectorAll("[data-gby]").forEach((b) => b.onclick = () => { grocBy = b.dataset.gby; storageSet("grocBy", grocBy); renderGrocDeals(); });
   wireGrocSavings();
 }
 function renderGrocSavings() {

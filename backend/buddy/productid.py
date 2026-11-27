@@ -67,7 +67,7 @@ CATEGORIES = (  # the first that matches wins, so the specific ones come before 
     ("camera", r"mirrorless|\bdslr\b|action cam|\blens\b|\bdrone"),
     ("smart home", r"smart plug|smart bulb|smart lock|thermostat|smart display|echo (?:dot|show|pop)|light strip"),
     ("charger and cable", r"charger|power bank|\bcable\b|charging|usb-?c hub|power strip|surge protector"),
-    ("power station", r"power station|solar generator|solar panel"),
+    ("power station", r"power station|solar generator|solar panel|\bgenerator\b|\binverter\b|portable power"),
     ("coffee", r"coffee|espresso|\bk-?cups?\b|keurig|nespresso"),
     ("kitchen appliance", r"air fryer|blender|instant pot|pressure cooker|toaster|microwave|stand mixer|"
                           r"food processor|rice cooker|slow cooker|\bgrill\b|griddle|\bsmoker\b"),

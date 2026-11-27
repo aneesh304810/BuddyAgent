@@ -200,7 +200,10 @@ sub-tabs under them, and the page remembers where you were.
     "Buy 2, get 1 free". A saving is never taken as a price, and "orders over $35" (the least to spend) isn't a
     price either; lines about delivery, fuel, gift cards, memberships or the pharmacy aren't coupons. Buddy lists
     them with the store's link and end date (no end date: for 30 days); you clip them in the store's app and tap
-    **Clipped** (or ✕ for not interested). Buddy never clips, signs in or redeems anything. Whole Foods' Prime
+    **I clipped it** (or ✕ for not interested). The tab groups everything **by store** (a deal site's alert goes
+    under the store its headline names, "… @ Amazon") or **by product** (the shopping-list item it matches first,
+    marked "on your list", then kinds such as Yogurt, Eggs, Snacks & candy, Personal care); a coupon that is also a
+    deal, or the same deal from two emails, is listed once. Buddy never clips, signs in or redeems anything. Whole Foods' Prime
     deals need no clipping (they apply when you scan the Amazon app at checkout), and Walmart has no store coupons
     to clip.
   - **Savings:** estimated savings are the dollars off on coupons you marked clipped or used, by month; a coupon

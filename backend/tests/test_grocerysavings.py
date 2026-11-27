@@ -145,7 +145,7 @@ def test_the_api(memory, monkeypatch):
     dealmail.keep(memory, [deal("Digital coupon: $1.00 off Fage yogurt", 4.99, "ShopRite", ends="2099-12-31"),
                            deal("Sony WH-1000XM5 headphones $248", 248.0, "Walmart")])
     page = client.get("/api/groceries/savings", headers=auth).json()
-    assert [d["title"] for d in page["deals"]] == ["Digital coupon: $1.00 off Fage yogurt"] and page["coupons"]
+    assert page["deals"] == [] and [c["title"] for c in page["coupons"]] == ["Digital coupon: $1.00 off Fage yogurt"]
     key = page["coupons"][0]["key"]
     after = client.post("/api/groceries/savings", json={"action": "coupon", "key": key, "state": "clipped",
                                                         "title": page["coupons"][0]["title"]}, headers=auth).json()
@@ -208,3 +208,49 @@ def test_coupons_from_emails_reach_the_list_and_the_advice(memory):
     later = grocerysavings.coupons(memory, found=[], today=date(2026, 12, 4))  # Fage ended on Dec 3
     assert all("Fage" not in c["title"] for c in later) and any("Chobani" in c["title"] for c in later)
     assert grocerysavings.coupons(memory, found=[], today=date(2027, 1, 5)) == []  # no end date: listed 30 days
+
+
+def test_coupons_and_deals_are_grouped_by_store_and_product(memory):
+    from buddy import productid
+    groceries.add_buy(memory, "greek yogurt")
+    dealmail.keep(memory, [
+        deal("Prego Traditional Pasta Sauce, 67 oz Jar~$2.68 After Coupon & S&S @ Amazon", 2.68, "Slickdeals Alerts"),
+        deal("Prego Traditional Pasta Sauce, 67 oz Jar~$2.68 After Coupon & S&S @ Amazon", 2.68, "Slickdeals Alerts",
+             url="https://slickdeals.net/f/2"),  # the same coupon from a second alert
+        deal("Amazon Black Friday Snacks & Candy Deals: Up to 78% off + free shipping w/ Prime", 1.0, "Slickdeals Alerts"),
+        deal("Digital coupon: $1.00 off Fage Greek yogurt", 4.99, "ACME Markets", ends="2099-12-31"),
+        deal("Large eggs 18 ct $2.99", 2.99, "Walmart")])
+    page = grocerysavings.page(memory)
+    by_title = lambda start: next(c for c in page["coupons"] if c["title"].startswith(start))  # noqa: E731
+    assert len([c for c in page["coupons"] if c["title"].startswith("Prego")]) == 1  # not twice
+    assert not any("Up to 78%" in c["title"] for c in page["coupons"])  # a sale roundup isn't a coupon
+    prego = by_title("Prego")
+    assert (prego["where"], prego["product"]) == \
+        ("Amazon", "Pasta, rice & sauces")  # the store a deal site's headline names
+    fage = by_title("Digital coupon")
+    assert (fage["where"], fage["product"], fage["on_list"]) == ("ACME", "Greek yogurt", True)
+    eggs = next(d for d in page["deals"] if d["title"].startswith("Large eggs"))
+    assert (eggs["where"], eggs["product"]) == ("Walmart", "Eggs")
+    assert grocerysavings.store_name("Whole Foods Market") == "Whole Foods"
+    assert grocerysavings.store_name("", "Walmart has Cheerios 2-pack at $5") == "Walmart"
+    assert grocerysavings.product_group("OGX Argan Oil of Morocco Hair Oil, 3.3 fl. oz")[0] == "Personal care"
+    # a portable generator "charges batteries": not household, so not on the Groceries page
+    assert productid.category("EGO Nexus 1,400W portable inverter and generator charges batteries") == "power station"
+
+
+def test_a_generator_filed_as_household_earlier_is_refiled(memory):
+    dealmail.keep(memory, [deal("EGO Nexus 1,400W portable inverter and generator at a $599 low ($100 off)", 599.0, "")])
+    pricebook.run(memory, "UPDATE deals SET category = 'household'")  # as filed before productid knew generators
+    assert grocerysavings.deals(memory)  # wrongly on the Groceries page
+    assert dealmail.tidy(memory)["refiled"] == 1
+    assert grocerysavings.deals(memory) == []
+
+
+def test_a_deal_is_listed_once(memory):
+    dealmail.keep(memory, [deal("Prego Pasta Sauce, 24 oz~$2.68 After Coupon @ Amazon", 2.68, "Slickdeals Alerts"),
+                           deal("Large eggs 18 ct $2.99", 2.99, "ACME Markets"),
+                           deal("Large eggs 18 ct $2.99", 2.99, "ACME", url="https://www.acmemarkets.com/weekly-ad")])
+    page = grocerysavings.page(memory)
+    assert [c["title"] for c in page["coupons"]] == ["Prego Pasta Sauce, 24 oz~$2.68 After Coupon @ Amazon"]
+    assert [d["title"] for d in page["deals"]] == ["Large eggs 18 ct $2.99"]  # not the coupon again, not twice
+    assert grocerysavings.product_group("Buy 2 get 1 free Chobani")[0] == "Yogurt"

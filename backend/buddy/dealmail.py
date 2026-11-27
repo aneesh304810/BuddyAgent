@@ -269,7 +269,7 @@ COUPON_SAVING = re.compile(r"sav(?:e|ings of)\s+(?:up to\s+)?\$\s?\d[\d,]*(?:\.\
 NOT_A_COUPON = re.compile(r"unsubscribe|privacy|terms (?:and|&) conditions|copyright|©|view (?:this email )?in (?:your )?"
                           r"browser|deliver(?:y|ies)|shipping|first (?:order|purchase)|sign up|download (?:the|our) app|"
                           r"gift ?cards?|fuel|gas|per gallon|/gal\b|membership|subscription|pharmacy|vaccin|"
-                          r"prescriptions?", re.I)
+                          r"prescriptions?|\bup to \d{1,2}\s?%", re.I)
 
 
 def coupons_in(message) -> list[dict]:
@@ -804,6 +804,10 @@ def tidy(memory: Memory) -> dict:
     out["repeated"] = len(pricebook.run(memory, """DELETE FROM deals WHERE url LIKE 'email:%' AND (source, title, seen_on) IN
         (SELECT source, title, seen_on FROM deals WHERE url LIKE 'email:%' GROUP BY source, title, seen_on
          HAVING COUNT(DISTINCT price) > 1) RETURNING id"""))
+    # a portable generator was filed as household ("charges batteries") before productid knew better
+    out["refiled"] = len(pricebook.run(memory, "UPDATE deals SET category = 'power station' WHERE category = 'household' "
+                                               "AND regexp_matches(title, '\\b(generator|inverter)\\b|portable power', 'i') "
+                                               "RETURNING id"))
     out["sums"] = len(pricebook.run(memory, "DELETE FROM deals WHERE source LIKE 'email:%' AND regexp_matches(title, "
                                             "'\\$\\s?[0-9][0-9,.]*\\s*(trillion|billion|million)', 'i') RETURNING id"))
     out["prices"] = len(pricebook.run(memory, """DELETE FROM observations WHERE source = 'deal email' AND
