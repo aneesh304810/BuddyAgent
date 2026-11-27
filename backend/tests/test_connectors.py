@@ -227,9 +227,16 @@ def test_other_apps_are_stored_but_not_read_aloud():
 
 
 def test_quiet_hours(monkeypatch):
+    """At a fixed clock time: the window's last minute is outside it, so a run at 23:59 failed this before."""
+    from buddy import tools
+    monkeypatch.setattr(tools, "local_now", lambda: datetime(2026, 11, 26, 14, 30))
     monkeypatch.setattr(phone_mod, "settings", dataclasses.replace(phone_mod.settings, quiet_hours="00:00-23:59"))
     assert phone_mod.in_quiet_hours()
     assert not phone_mod.should_announce({"app": "com.microsoft.teams", "app_name": "Teams"})
+    monkeypatch.setattr(phone_mod, "settings", dataclasses.replace(phone_mod.settings, quiet_hours="22:00-07:00"))
+    assert not phone_mod.in_quiet_hours()  # 2:30 pm: outside a night window
+    monkeypatch.setattr(tools, "local_now", lambda: datetime(2026, 11, 26, 23, 30))
+    assert phone_mod.in_quiet_hours()  # across midnight
 
 
 def test_two_phones_calendars_and_work_busy_only():
