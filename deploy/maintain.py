@@ -112,16 +112,24 @@ def patch_python(vulns: list[dict]) -> None:
     backup = TOOLS / f"rollback-{datetime.date.today()}.txt"
     backup.write_text(before)
     specs = [f"{name}>={version}" for name, version in fixable.items()]
-    result = sh("sudo", "-u", "buddy", str(VENV / "bin" / "pip"), "install", "-q", "--upgrade", *specs, timeout=1200)
+    # With Buddy's own package lists, so pip keeps every part's limits (the phone-call engine needs protobuf below
+    # 7): a fix that needs a version another part can't take fails here instead of breaking that part.
+    reqs = ["-r", str(APP / "backend" / "requirements.txt")]
+    if sh(str(VENV / "bin" / "python"), "-c", "import pipecat").returncode == 0:
+        reqs += ["-r", str(APP / "backend" / "requirements-calls.txt")]
+    result = sh("sudo", "-u", "buddy", str(VENV / "bin" / "pip"), "install", "-q", "--upgrade", *specs, *reqs,
+                timeout=1200)
+    agreed = sh(str(VENV / "bin" / "pip"), "check").returncode == 0
     sh("systemctl", "restart", "buddy")
-    if result.returncode == 0 and healthy():
+    if result.returncode == 0 and agreed and healthy():
         done.append("Python packages patched: " + ", ".join(specs))
         return
     # Put the old versions back so Buddy keeps working; report it for a manual look.
     sh("sudo", "-u", "buddy", str(VENV / "bin" / "pip"), "install", "-q", "-r", str(backup), timeout=1200)
     sh("systemctl", "restart", "buddy")
-    find("act", "A security patch for Buddy's packages broke it, so it was rolled back",
-         ", ".join(specs), "Run sudo bash /opt/buddy/deploy/update.sh and send the error it shows.")
+    find("act", "A security patch for Buddy's packages didn't fit (or broke Buddy), so it was rolled back",
+         ", ".join(specs) + ("" if agreed else ": the fixed version clashes with what another of Buddy's packages needs"),
+         "Run sudo bash /opt/buddy/deploy/update.sh and send the error it shows.")
 
 
 def _version_key(v: str):

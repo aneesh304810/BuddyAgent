@@ -37,11 +37,16 @@ if ! command -v dot >/dev/null; then
 fi
 # Eager: the packages Buddy's packages use are upgraded too (the default leaves them at the version first
 # installed, which is how a server keeps old, known-vulnerable versions that a fresh install, and CI, never has).
-sudo -u buddy "$APP/backend/.venv/bin/pip" install -q --upgrade --upgrade-strategy eager -r "$APP/backend/requirements.txt"
-# Phone calls' engine (Pipecat): only on servers where deploy/calls.sh installed it.
+# Phone calls' engine (Pipecat), on servers where deploy/calls.sh installed it, goes in the same install: one
+# resolver sees every limit (Pipecat needs protobuf below 7), so nothing is upgraded past what another part allows.
+REQS=(-r "$APP/backend/requirements.txt")
 if sudo -u buddy "$APP/backend/.venv/bin/python" -c "import pipecat" 2>/dev/null; then
-  sudo -u buddy "$APP/backend/.venv/bin/pip" install -q --upgrade --upgrade-strategy eager -r "$APP/backend/requirements-calls.txt"
+  REQS+=(-r "$APP/backend/requirements-calls.txt")
 fi
+sudo -u buddy "$APP/backend/.venv/bin/pip" install -q --upgrade --upgrade-strategy eager "${REQS[@]}"
+# Anything still at odds (a package another needs at a different version) is said, not hidden.
+sudo -u buddy "$APP/backend/.venv/bin/pip" check >/dev/null 2>&1 \
+  || echo "  !! Some of Buddy's packages disagree on versions: sudo -u buddy $APP/backend/.venv/bin/pip check"
 # Voice match (Talk mode answers only your voice): small, so always installed.
 bash "$APP/deploy/voice.sh" >/dev/null || echo "  !! Voice match didn't install; try: sudo bash $APP/deploy/voice.sh"
 # The settings hold every secret: root only (systemd hands Buddy what it needs).

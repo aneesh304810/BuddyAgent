@@ -158,3 +158,24 @@ def test_weekly_check_says_where_leaked_keys_come_from(maintain, monkeypatch):
     assert f["title"].startswith("2 log lines") and "httpx (2)" in f["detail"]
     assert "secret in a link" in f["detail"] and "link with a password" in f["detail"]
     assert "2026-10-30 01:02" in f["detail"] and "aBcD1234" not in json.dumps(f) and "pw123456" not in json.dumps(f)
+
+
+def test_a_package_patch_keeps_every_parts_limits_and_rolls_back_a_clash(maintain, monkeypatch, tmp_path):
+    calls = []
+
+    def fake(*args, **kw):
+        calls.append(args)
+        if args[-1] == "import pipecat":
+            return subprocess.CompletedProcess(args, 0, "", "")
+        if args[-1] == "check":  # pip check: the patched version clashes with the phone-call engine's limit
+            return subprocess.CompletedProcess(args, 1, "pipecat-ai requires protobuf<7", "")
+        return subprocess.CompletedProcess(args, 0, "protobuf==6.33.6\n", "")
+    monkeypatch.setattr(maintain, "sh", fake)
+    monkeypatch.setattr(maintain, "TOOLS", tmp_path)
+    monkeypatch.setattr(maintain, "healthy", lambda: True)
+    maintain.done.clear()
+    maintain.patch_python([{"name": "protobuf", "version": "6.33.6", "id": "X", "fix": ["7.0.1"]}])
+    install = next(a for a in calls if "install" in a and "protobuf>=7.0.1" in a)
+    assert "-r" in install and any(str(x).endswith("requirements-calls.txt") for x in install)  # every part's limits
+    assert any("-r" in a and str(tmp_path) in " ".join(map(str, a)) for a in calls[calls.index(install) + 1:])  # rolled back
+    assert not maintain.done and "clashes" in maintain.findings[-1]["detail"]

@@ -45,7 +45,10 @@ Buddy app's **Security** page (menu, 🛡 Security) shows the result.
   shows the phone's patch date ("Phone's security updates": on when it is this month's or last month's).
 - **Deploys upgrade everything.** `deploy/update.sh` upgrades the packages Buddy's packages use as well
   (`--upgrade-strategy eager`), so the server has the same versions as a fresh install and CI, instead of keeping
-  the version first installed; the weekly patch job still upgrades anything with a published fix in between.
+  the version first installed. Buddy's package list and the phone-call engine's go in one install, so one resolver
+  keeps every part's limits (the call engine needs protobuf below 7), and `pip check` says if any still disagree.
+  The weekly patch job upgrades anything with a published fix in between, with the same lists; a fix that clashes
+  with another part's limit is rolled back and reported instead of installed.
 - **The page.** The setup is drawn layer by layer: your phone and the app, the network edge, the server, Buddy
   itself, the parts that read outside content, data and keys, the code sandbox, outside services. Each layer
   shows its level (the most serious open finding there), how many are open and fixed, and how many defences
