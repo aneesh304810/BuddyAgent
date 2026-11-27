@@ -69,6 +69,7 @@ flowchart LR
     healthpage_py --> health_data_py
     healthpage_py --> oura_py
     healthpage_py --> platefoods_py
+    healthpage_py --> whoop_py
     healthrecords_py --> labs_py
     labs_py --> healthrecords_py
     labs_py --> oura_py
@@ -301,7 +302,7 @@ Nothing here calls a model or leaves this server, apart from reading the ring fr
 "Read the ring now". It is not medical advice.
 ```
 
-- Uses: coach.py, dietplan.py, health_data.py, healthranges.py, memory.py, oura.py, platefoods.py, tools.py
+- Uses: coach.py, dietplan.py, health_data.py, healthranges.py, memory.py, oura.py, platefoods.py, tools.py, whoop.py
 
 ### healthrecords.py
 

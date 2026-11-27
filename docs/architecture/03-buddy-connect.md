@@ -9,6 +9,7 @@ flowchart LR
     you(["You: voice, chat, the app"])
     subgraph Tools["What Buddy can do"]
         t_connections["connections"]
+        t_health_sync["health_sync"]
     end
     subgraph Modules["Modules"]
         gateway_py["gateway.py<br/>every outside API Buddy uses, in one catalog, called one way"]
@@ -17,6 +18,8 @@ flowchart LR
     end
     you --> t_connections
     t_connections --> gateway_py
+    you --> t_health_sync
+    t_health_sync --> connecthub_py
     gateway_py --> connecthub_py
     keytest_py --> gateway_py
     connecthub_py --> gateway_py
@@ -43,6 +46,7 @@ The diagram reads left to right: what you ask, the tools Buddy uses, the modules
 | Tool | What it is for | Actions | Module |
 |---|---|---|---|
 | `connections` | Buddy Connect: every outside service Buddy uses (search, transit feeds, markets, banks, flights, weather, free AI models...), whether it's set up, whether its l | find, list, test, link | gateway.py |
+| `health_sync` | Make the owner's health device send its new days to Buddy now, when they ask ('sync my Oura', 'update my ring', 'pull my WHOOP data') | oura, whoop, all | connecthub.py |
 
 ## Technical design, module by module
 
@@ -121,7 +125,7 @@ A source module implements, as it can: sync_now(memory) -> str, forget(memory), 
 ```
 
 - Tables: `connect_syncs`
-- Uses: gateway.py, healthrecords.py, memory.py
+- Uses: gateway.py, healthrecords.py, memory.py, tools.py
 
 ## How it connects
 

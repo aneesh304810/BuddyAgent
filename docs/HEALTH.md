@@ -428,7 +428,15 @@ sub-tabs under them, and the page remembers where you were.
   **Sync now** (Oura), **Delete its data** and **Disconnect** (Oura), each delete or disconnect asked twice. The
   phone's data is turned off on the phone. When Oura stops accepting Buddy's sign-in, the source and the
   Connections screen say **Sign in again**. At the top, when the ring and the phone were last read, with **Read the
-  ring now**.
+  ring now**. Or just say it: "sync my Oura" (or WHOOP, or "sync my devices") reads the new days at once, and
+  Buddy says how many days it read, or how to connect the device if it isn't connected. The reply holds counts,
+  never your numbers, so no AI model sees any; the numbers are on this page. Lab results from MyChart aren't synced
+  from the conversation: even a count of new results from your health system says something about your health.
+- **Where Today's numbers come from.** Under the tiles, a line says which night they are from and where each came
+  from: the Oura Ring first, then WHOOP, then your phone (Health Connect) for what the others lack, so a night the
+  ring hasn't sent yet can show your phone's sleep next to the ring's readiness. When today's numbers aren't in
+  yet, it says these are yesterday's (the ring sends last night when you open the Oura app). Opening the page
+  reads the ring if the last read is more than 20 minutes old; **Read now** reads it at once.
 
 What it does not do: it gives no advice beyond those fixed rules, and it is not medical advice.
 

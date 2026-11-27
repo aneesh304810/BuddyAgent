@@ -52,6 +52,7 @@ from .claudefix import TOOL as CLAUDE_FIX_TOOL
 from .commute import TOOL as COMMUTE_TOOL
 from .routine import TOOL as ROUTINE_TOOL
 from .groceries import TOOL as KITCHEN_TOOL
+from .connecthub import SYNC_TOOL as HEALTH_SYNC_TOOL
 from .scheduling import TOOL as CALENDAR_ADD_TOOL
 from .amazon import TOOL as AMAZON_TOOL
 from .gateway import TOOL as CONNECTIONS_TOOL
@@ -892,7 +893,7 @@ class Conversation:
                      TRANSIT_TOOL, FLIGHT_TOOL, DECISION_TOOL, MAPS_TOOL,
                      WEATHER_TOOL, PACKAGES_TOOL, MESSAGE_TOOL, BUDGET_TOOL, COSTWATCH_TOOL, ADVICE_TOOL, EDIT_TOOL,
                      RECALL_CONVO_TOOL, CLAUDE_FIX_TOOL, COMMUTE_TOOL, ROUTINE_TOOL, KITCHEN_TOOL, CALENDAR_ADD_TOOL,
-                     CONNECTIONS_TOOL, AMAZON_TOOL, MY_HEALTH_TOOL, HEALTH_INFO_TOOL, HEALTH_PLAN_TOOL, RESTAURANTS_TOOL, ENTERTAINMENT_TOOL, SELF_CHECK_TOOL, MARKET_SCHOOL_TOOL, SHOPPING_PROFILE_TOOL, WHEN_TO_BUY_TOOL, DAILY_DEALS_TOOL, PRICE_BOOK_TOOL, DEAL_FORECAST_TOOL, HOTEL_DIRECT_TOOL, SEASONAL_PRICES_TOOL, COMMUNITY_SIGNALS_TOOL, RECOMMENDATIONS_TOOL, INVESTOR_CHECKS_TOOL,
+                     CONNECTIONS_TOOL, AMAZON_TOOL, MY_HEALTH_TOOL, HEALTH_INFO_TOOL, HEALTH_PLAN_TOOL, HEALTH_SYNC_TOOL, RESTAURANTS_TOOL, ENTERTAINMENT_TOOL, SELF_CHECK_TOOL, MARKET_SCHOOL_TOOL, SHOPPING_PROFILE_TOOL, WHEN_TO_BUY_TOOL, DAILY_DEALS_TOOL, PRICE_BOOK_TOOL, DEAL_FORECAST_TOOL, HOTEL_DIRECT_TOOL, SEASONAL_PRICES_TOOL, COMMUNITY_SIGNALS_TOOL, RECOMMENDATIONS_TOOL, INVESTOR_CHECKS_TOOL,
     FUND_HOLDINGS_TOOL, FUTURES_POSITIONING_TOOL, INVESTMENT_JOURNAL_TOOL, PAPER_PORTFOLIO_TOOL, DAY_TRADE_PRACTICE_TOOL, INVESTOR_LIBRARY_TOOL, ALERT_SETTINGS_TOOL, TRAVEL_TIMING_TOOL, MORNING_TUTOR_TOOL, EMAIL_ORGANIZER_TOOL, CANCEL_SUBSCRIPTION_TOOL, LIFE_MEMORY_TOOL, SECURITY_WATCH_TOOL, MODEL_SCOUT_TOOL, TECH_RADAR_TOOL, INTELLIGENCE_TOOL, MAESTRO_TOOL,
                      THERMOSTAT_TOOL, PHONE_CALL_TOOL, SEARCH_EVERYWHERE_TOOL, CHECK_REVIEWS_TOOL, modules.TOOL] + glasslink.TOOLS
         spending += [BROWSE_TOOL] if self.jobs else []  # listed even when the sandbox is down: it says what to fix
@@ -1188,6 +1189,9 @@ class Conversation:
         if name == "calendar_add":  # the phone's calendar: only after the owner's yes (scheduling.run_tool asks)
             from . import scheduling  # noqa: PLC0415
             return await scheduling.run_tool(self.memory, self.thrift, self.phone_request, args)
+        if name == "health_sync":  # the device sends its new days; the reply holds counts, never values
+            from . import connecthub  # noqa: PLC0415
+            return await asyncio.to_thread(connecthub.run_sync_tool, self.memory, args)
         if name == "my_kitchen":  # groceries the owner says they bought, into My kitchen
             from . import groceries  # noqa: PLC0415
             return await asyncio.to_thread(groceries.run_tool, self.memory, args)

@@ -456,16 +456,28 @@ function renderToday() {
   if (r.hrv != null) k.push(kpi(num(r.hrv) + " ms", "Heart rate variability"));
   if (r.lowest_hr != null) k.push(kpi(num(r.lowest_hr) + " bpm", "Lowest night heart rate"));
   if (r.temp_deviation != null) k.push(kpi((r.temp_deviation > 0 ? "+" : "") + num(r.temp_deviation) + " °C", "Temperature against normal"));
+  // Which night these are, where each number came from, and when the ring was last read
+  const t = data.today, src = t.sources || {};
+  const NAMES = { readiness: "readiness", sleep_score: "sleep score", hrv: "HRV", lowest_hr: "lowest heart rate", temp_deviation: "temperature", sleep_minutes: "sleep", resilience: "resilience" };
+  const bySource = {};
+  Object.entries(src).forEach(([key, s]) => { (bySource[s || "unknown"] = bySource[s || "unknown"] || []).push(NAMES[key] || key); });
+  const from = Object.keys(bySource).length === 1 ? `All from ${Object.keys(bySource)[0]}`
+    : Object.entries(bySource).map(([s, keys]) => `${keys.join(", ")}: ${s}`).join("; ");
+  const ringRead = data.sources.ring.connected ? ` · Oura Ring read ${esc(ago(data.sources.ring.read))} · <a href="#" id="read-now">Read now</a>` : "";
+  const whichDay = !t.day ? "" : t.day === t.today ? `From last night (${esc(when(t.day))})`
+    : `<b>Today's numbers aren't in yet: these are yesterday's (${esc(when(t.day))}).</b> The ring sends last night when you open the Oura app`;
+  const about = k.length ? `<p class="muted" style="margin:-4px 0 12px;font-size:13px">${whichDay}. ${esc(from)}${ringRead}</p>` : "";
   const means = data.today.means.length ? `<ul style="margin:0;padding-left:18px">${data.today.means.map((m) => `<li>${esc(m)}</li>`).join("")}</ul>`
     : `<p class="muted">Nothing stands out today.</p>`;
   const habits = data.today.habits.length ? data.today.habits.map(habitLine).join("")
     : `<p class="muted">${data.plan ? "No habits are due today." : "No plan yet. Set one up under Plan → Goals & habits and its habits show here."}</p>`;
-  $("main").innerHTML = (k.length ? `<div class="kpis">${k.join("")}</div>` : card("Today", `<p class="muted">No readings yet for today or yesterday.</p>`))
+  $("main").innerHTML = (k.length ? `<div class="kpis">${k.join("")}</div>` + about : card("Today", `<p class="muted">No readings yet for today or yesterday.</p>`))
     + (k.length ? card("What it means for today", means, "Fixed rules against your own week. Not medical advice.") : "")
     + foodTodayCard() + (grocList === null ? (grocList = { to_buy: [], kitchen: [] }, loadGroceries(), "") : useSoonCard(true)) + nowCard() + weekCard() + bpQuick() + card("Today's habits", habits) + moodCard();
   wire();
   wireBody();
   wireGroceries();
+  if ($("read-now")) $("read-now").onclick = (e) => { e.preventDefault(); act({ action: "read" }, (out) => `Read ${out.days} days from the Oura Ring.`); };
 }
 
 // --- your health now, the week's targets, blood pressure, weight and waist (bodylog, prevent, activity, healthnow)

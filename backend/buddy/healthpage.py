@@ -67,8 +67,36 @@ def measures(data: dict[str, dict], days: int) -> list[dict]:
     return out
 
 
+PAGE_SYNC_S = 20 * 60  # opening the page reads the ring when the last read is older than this
+SOURCE_NAMES = {"oura": "Oura Ring", "whoop": "WHOOP", "phone": "your phone (Health Connect)"}
+
+
+def shown(memory: Memory, data: dict[str, dict], now: datetime) -> dict:
+    """Which day the Today tiles are from (today's row, else yesterday's: coach.body's choice) and where each
+    number came from, with the same order as coach._data: the Oura Ring first, then WHOOP, then the phone."""
+    from . import whoop  # noqa: PLC0415
+    day = next((d for d in (now.date(), now.date() - timedelta(days=1)) if data.get(d.isoformat())), None)
+    if day is None:
+        return {"day": "", "sources": {}}
+    key = day.isoformat()
+
+    def row(rows) -> dict:
+        try:
+            return next((r for r in rows if r.get("day") == key), {})
+        except Exception:  # noqa: BLE001 - a source that isn't set up
+            return {}
+    rows = {"oura": row(oura.days(memory, 3)), "whoop": row(whoop.days(memory, 3)), "phone": row(health_data.days(memory, 3))}
+    sources = {}
+    for k in ("readiness", "sleep_score", "hrv", "lowest_hr", "temp_deviation", "sleep_minutes", "resilience"):
+        if data[key].get(k) is None:
+            continue
+        sources[k] = next((SOURCE_NAMES[s] for s in ("oura", "whoop", "phone") if rows[s].get(k) not in (None, 0)), "")
+    return {"day": key, "sources": sources}
+
+
 def view(memory: Memory, days: int = 30, now: datetime | None = None, env=None) -> dict:
     now = now or local_now()
+    oura.sync_if_due(memory, env, every_s=PAGE_SYNC_S)  # last night's numbers, if the ring has sent them since
     days = max(MIN_DAYS, min(int(days or 30), MAX_DAYS))
     data = coach._data(memory, max(LOOK_BACK, days + 7))
     plan = coach.plan(memory)
@@ -102,7 +130,8 @@ def view(memory: Memory, days: int = 30, now: datetime | None = None, env=None) 
         "sources": {"ring": {"connected": oura.linked(memory, env), "read": memory.get(oura.SYNC_KEY) or ""},
                     "phone": {"read": memory.get(health_data.SYNC_KEY) or ""}},
         "today": {"readings": {k: v for k, v in today["body"].items() if k != "advice"},
-                  "means": today["body"].get("advice") or [], "habits": today["habits"]},
+                  "means": today["body"].get("advice") or [], "habits": today["habits"],
+                  "today": now.date().isoformat(), **shown(memory, coach._data(memory, 3), now)},
         "measures": measures(data, days),
         "plan": plan or None, "metrics": coach.METRICS,
         "progress": {"week": coach.progress(memory, 7, now)["habits"], "month": coach.progress(memory, 30, now)["habits"],

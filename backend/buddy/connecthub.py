@@ -24,6 +24,7 @@ from contextlib import contextmanager
 from datetime import datetime, timedelta, timezone
 
 from .memory import Memory
+from .tools import ToolError
 
 KEEP_ROWS, KEEP_DAYS = 50, 365
 KINDS = ("initial", "incremental", "phone", "manual", "upload")
@@ -138,6 +139,46 @@ def sync_now(memory: Memory, connector: str) -> str:
     if not SOURCES[connector]["sync"]:
         return SOURCES[connector]["fetch"]
     return _module(connector).sync_now(memory)
+
+
+# --- "sync my Oura": the conversation can ask a health device to send its new days ---------------------------
+# The reply says only how many days were read (or how to connect it): never a value, so the model may see it. MyChart
+# is left out: even "N new results from <the health system>" says something about the owner's health.
+DEVICES = {"oura": "the Oura Ring", "whoop": "WHOOP"}
+SYNC_TOOL = {
+    "name": "health_sync",
+    "description": "Make the owner's health device send its new days to Buddy now, when they ask ('sync my Oura', "
+    "'update my ring', 'pull my WHOOP data'). source: oura, whoop, or all (every connected one). It replies with how "
+    "many days were read, or how to connect the device; read that back. The numbers themselves are never given to "
+    "you (they are on the Health page, which the owner can open). Use this rather than guessing whether a device is "
+    "connected.",
+    "input_schema": {"type": "object", "properties": {"source": {"type": "string", "enum": ["oura", "whoop", "all"]}},
+                     "required": ["source"], "additionalProperties": False},
+}
+
+
+def run_sync_tool(memory: Memory, args: dict) -> str:
+    source = str(args.get("source") or "all")
+    if source != "all" and source not in DEVICES:
+        raise ToolError("Use oura, whoop or all.")
+    lines = []
+    for connector in (DEVICES if source == "all" else (source,)):
+        module = _module(connector)
+        if not module.linked(memory):
+            if source != "all":
+                lines.append(f"{DEVICES[connector][0].upper()}{DEVICES[connector][1:]} isn't connected to Buddy yet: "
+                             "Profile > Connections > Health > " + ("Oura Ring" if connector == "oura" else "WHOOP")
+                             + " > Connect.")
+            continue
+        try:
+            lines.append(sync_now(memory, connector))
+        except Exception as e:  # noqa: BLE001 - the service's own refusal (an expired sign-in), never a value
+            lines.append(f"{DEVICES[connector][0].upper()}{DEVICES[connector][1:]} couldn't be read just now "
+                         f"({type(e).__name__}); Profile > Connections shows why.")
+    if not lines:
+        return ("No health device is connected to Buddy: Profile > Connections > Health > Oura Ring or WHOOP > "
+                "Connect.")
+    return " ".join(lines) + " The numbers are on the Health page."
 
 
 def forget(memory: Memory, connector: str) -> str:

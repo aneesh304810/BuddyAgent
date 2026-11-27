@@ -308,15 +308,16 @@ def disconnect(memory: Memory) -> str:
     return "The Oura Ring is disconnected from Buddy."
 
 
-def sync_if_due(memory: Memory, env=None, fetch=None) -> bool:
-    """A sync when it's been SYNC_EVERY_S since the last one (and Oura is linked). Never raises."""
+def sync_if_due(memory: Memory, env=None, fetch=None, every_s: int = SYNC_EVERY_S) -> bool:
+    """A sync when it's been every_s (SYNC_EVERY_S unless said) since the last one, and Oura is linked. Never
+    raises."""
     if not linked(memory, env):
         return False
     try:
         last = datetime.fromisoformat(memory.get(SYNC_KEY) or "2000-01-01T00:00:00+00:00")
     except ValueError:
         last = datetime(2000, 1, 1, tzinfo=timezone.utc)
-    if (datetime.now(timezone.utc) - last).total_seconds() < SYNC_EVERY_S:
+    if (datetime.now(timezone.utc) - last).total_seconds() < every_s:
         return False
     try:
         sync(memory, env=env, fetch=fetch)

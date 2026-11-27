@@ -26,7 +26,8 @@ def seed(m, now, days=30):
 def test_an_empty_server_shows_an_empty_page_and_says_where_health_is_discussed(m):
     got = healthpage.view(m, env={})
     assert got["has_data"] is False and got["measures"] == [] and got["plan"] is None and got["progress"] is None
-    assert got["today"] == {"readings": {}, "means": [], "habits": []}
+    assert {k: got["today"][k] for k in ("readings", "means", "habits", "day", "sources")} == \
+        {"readings": {}, "means": [], "habits": [], "day": "", "sources": {}}  # no night to say it is from
     assert got["sources"]["ring"] == {"connected": False, "read": ""} and got["privacy"]["ranges"] is False
     assert "No AI model is given" in got["privacy"]["note"] and "not medical advice" in got["note"]
     assert healthpage.view(m, env={"BUDDY_HEALTH_RANGES": "on"})["privacy"]["ranges"] is True

@@ -137,7 +137,7 @@ TOOLS = {
     "news": ("trending", "trends", "tech_radar", "start_research", "reddit", "search_everywhere", "check_reviews"),
     "email": ("packages", "messages", "email_organizer", "life_memory", "important_email", "add_email_rule",
               "email_rules", "search_my_apps", "agenda", "app_connections", "calendar_add"),
-    "home_health": ("my_health", "health_info", "health_plan", "thermostat", "my_kitchen"),
+    "home_health": ("my_health", "health_info", "health_plan", "health_sync", "thermostat", "my_kitchen"),
     "making": ("make_diagram", "make_chart", "make_document", "make_image", "edit_document", "browse", "process_data",
                "buddy_tools", "fill_form"),
     "agents": ("build_agent", "connect_mcp_server", "built_agents"),
