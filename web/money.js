@@ -151,6 +151,8 @@ function render() {
   if (d.opportunities.length) parts.push(card(`Ways to save · ${money(d.possible_yearly_savings)} a year`,
     d.opportunities.map((o) => `<div class="save"><b>${money(o.yearly)}</b><span>${esc(o.do)}</span></div>`).join("")));
   parts.push('<div id="cardoffers"></div><div id="p2p"></div>');  // offers and payments with people: filled in when they arrive
+  parts.push(card("Groceries", `<p class="muted" style="margin:0">This week's plan, coupons to clip, grocery deals and what you've saved.</p>
+    <p style="margin:8px 0 0"><a href="groceries.html" style="color:var(--accent)">Open Groceries →</a></p>`));
   parts.push(card("Your email", `<p class="muted" style="margin:0">See the kinds of email you get, and choose what Buddy does with each.</p>
     <p style="margin:8px 0 0"><a href="mail.html" style="color:var(--accent)">Open your email groups →</a></p>`));
   // budget

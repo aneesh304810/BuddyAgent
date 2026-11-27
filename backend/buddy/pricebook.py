@@ -572,9 +572,14 @@ def group_label(domain: str, by: str, name: str) -> str:
     return name.upper() if len(name) <= 3 else " ".join(w[:1].upper() + w[1:] for w in name.split())
 
 
-def _deal_where(days: int, query: str) -> tuple[list, list]:
+def _deal_where(days: int, query: str, groceries: str = "") -> tuple[list, list]:
     since = (datetime.now(timezone.utc).date() - timedelta(days=max(1, min(days, 90)))).isoformat()
     where, args = ["seen_on >= ?"], [since]
+    if groceries in ("only", "exclude"):  # the Groceries page has its own deals; the Deals page the rest
+        from .grocerysavings import sql_filter  # noqa: PLC0415
+        cond, params = sql_filter(groceries == "only")
+        where.append(cond)
+        args += list(params)
     for w in [w for w in re.findall(r"[a-z0-9]{2,}", (query or "").lower())][:6]:
         where.append("lower(title || ' ' || COALESCE(store, '') || ' ' || COALESCE(item, '')) LIKE ?")
         args.append(f"%{w}%")
@@ -582,7 +587,7 @@ def _deal_where(days: int, query: str) -> tuple[list, list]:
 
 
 def deal_groups(memory, days: int = 7, domain: str = "product", by: str = "category", query: str = "",
-                limit: int = 200) -> dict:
+                limit: int = 200, groceries: str = "") -> dict:
     """The deals of one kind counted by group, the biggest group first: products by category, brand or product;
     flights by route or airline; hotels by place or chain. Each group: how many deals, the lowest price among them,
     the biggest stated saving, and the day of its newest deal."""
@@ -593,7 +598,7 @@ def deal_groups(memory, days: int = 7, domain: str = "product", by: str = "categ
         identify(memory, FILE_ON_READ)
     except Exception:
         log.warning("price book: filing deals under their products failed", exc_info=True)
-    where, args = _deal_where(days, query)
+    where, args = _deal_where(days, query, groceries)
     rows = run(memory, f"SELECT COALESCE(d.{column}, '') AS name, COUNT(*) AS deals, MIN(d.price) AS lowest, "
                        "MAX(CASE WHEN d.regular_price > d.price AND d.price > 0 THEN 1 - d.price / d.regular_price END) "
                        "AS best_off, MAX(d.seen_on) AS newest FROM deals d WHERE " + " AND ".join(where)
@@ -607,19 +612,20 @@ def deal_groups(memory, days: int = 7, domain: str = "product", by: str = "categ
 
 
 def deals_page(memory, days: int = 7, domain: str = "", query: str = "", limit: int = 300, by: str = "",
-               group: str | None = None, sort: str = "", crazy: bool = False) -> dict:
+               group: str | None = None, sort: str = "", crazy: bool = False, groceries: str = "") -> dict:
     """The Deals page's list: recent deals (feeds and the deals inbox), each filed under its product, brand and
     category, with the lowest price seen for that product. A deal is called the lowest only when the product has been
     seen on SEEN_DAYS different days: the first sighting of anything is trivially its lowest. Market data only.
 
     `by` and `group` keep one group's deals (see GROUPS; an empty group is the deals Buddy could not file). `sort` is
     "new" (the default), "saving" (the biggest saving first) or "price" (the cheapest first). `crazy` keeps only the
-    crazy deals (see CRAZY_OFF above)."""
+    crazy deals (see CRAZY_OFF above). `groceries`: "only" keeps grocery deals (the Groceries page), "exclude"
+    leaves them out (the Deals page), "" keeps all (grocerysavings.is_grocery says which are groceries)."""
     try:
         identify(memory, FILE_ON_READ)
     except Exception:  # filing deals under their products is a help, not a condition: the page still lists them
         log.warning("price book: filing deals under their products failed", exc_info=True)
-    where, args = _deal_where(days, query)
+    where, args = _deal_where(days, query, groceries)
     # Each kind gets its own newest `limit`: a night with thousands of product deals must not push the few
     # flight and hotel deals off the page.
     kinds = (domain,) if domain in ("product", "flight", "hotel") else ("product", "flight", "hotel")

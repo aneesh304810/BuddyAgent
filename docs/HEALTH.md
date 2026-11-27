@@ -182,6 +182,25 @@ sub-tabs under them, and the page remembers where you were.
   ads and coupons, through the deals inbox) and order prices, in the price book: the lowest seen in two weeks per
   store, with the store's own link to open the offer. Buddy can't clip coupons: ShopRite, ACME and Walmart have no
   public coupon API, and reading their apps or sites would break their terms.
+- **The Groceries page: best prices, coupons and when to wait** (`grocerysavings.py`, `web/groceries.html`). Its
+  own page, opened from Home's **Groceries** quick action, the Today strip's Use soon tile, Health → Food →
+  Groceries and Money. It has four tabs, all worked out by Buddy's code (no AI model sees your list, your verdicts
+  or your numbers):
+  - **This week:** one store for your list (the one with the lowest total for the items with a known price), and a
+    second store only when it saves more than a trip is worth to you ($5 to start; change it on the page). Then
+    each item on To buy with one word: **Skip** (your own "Better to skip" verdict: a deal never makes it good for
+    you), **Clip in the app** (a coupon from a store email is waiting), **Buy now** (the lowest price Buddy has seen
+    in 90 days, from at least three prices), **Wait** (a usual sale is coming) or **As needed**. Items without any
+    price seen say so; Buddy doesn't guess prices.
+  - **To buy & kitchen:** the shopping list, My kitchen and Good for me?, as on Health.
+  - **Deals & coupons:** only grocery deals (food, drinks, household and personal care, and anything from a grocery
+    store) from the deals inbox and the deal feeds; the Deals page keeps the rest. **Coupons** are the offers in
+    store emails that read as coupons ("digital coupon", "$1 off", "clip", "for U", "with card"). Buddy lists them
+    with the store's link and end date; you clip them in the store's app and tap **Clipped** (or ✕ for not
+    interested). Buddy never clips, signs in or redeems anything.
+  - **Savings:** estimated savings are the dollars off on coupons you marked clipped or used, by month; a coupon
+    only found is never counted. Proven savings will come from receipts (reading a receipt photo on the phone is the
+    next step), next to grocery spending by store.
 - **Off track on fats and unhealthy food** (code only, not medical advice): after each scan, on **Health → Today**
   ("Food today"), and in the evening check-in, Buddy checks today's meals against your numbers: saturated fat at
   most 10% of calories, fat at most 35% (the National Academies' range is 20 to 35%), sodium under 2,300 mg, at most

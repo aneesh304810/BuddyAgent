@@ -16,7 +16,7 @@ const safe = (u) => /^https:\/\/[^\s"'<>]+$/.test(String(u || "")) ? u : "";
 const money = (v) => v == null ? "–" : "$" + Number(v).toLocaleString(undefined, { minimumFractionDigits: v % 1 ? 2 : 0, maximumFractionDigits: 2 });
 const pct = (v) => Math.round(v * 100) + "%";
 const plural = (n, word) => `${Number(n).toLocaleString()} ${word}${n === 1 ? "" : "s"}`;
-const TABS = [["foryou", "For you"], ["product", "Products"], ["flight", "Flights"], ["hotel", "Hotels"], ["predicted", "Predicted"],
+const TABS = [["foryou", "For you"], ["wishlist", "Wishlist"], ["product", "Products"], ["flight", "Flights"], ["hotel", "Hotels"], ["predicted", "Predicted"],
   ["sources", "Sources"], ["alerts", "Alert settings"]];
 // The ways each kind of deal can be looked at: all of them, grouped, or only the crazy ones.
 const VIEWS = {
@@ -75,6 +75,29 @@ async function renderForYou(mine) {
     $("main").innerHTML = (calls.calls.length ? `<div class="two">${calls.calls.map(card).join("")}</div>`
       : `<p class="muted">No open calls. Ask Buddy "should I buy this now?" or "is this a good fare?" and the call shows here until it is settled.</p>`)
       + `<p class="muted">${esc(calls.note)} How these calls have turned out is in Intelligence, under Predictions.</p>`;
+  } catch (e) { if (mine === seq) $("main").innerHTML = `<p class="err">${esc(e.message)}</p>`; }
+}
+
+// Wishlist: things you want that aren't groceries (groceries have their own page): the latest and lowest prices
+// seen, and buy now or wait, from the price book. Free: no searches are paid for.
+const WISH_DO = { buy_now: ["✓ Buy now", "go"], wait: ["◷ Wait", "wait"], watching: ["Watching", "wait"] };
+async function renderWishlist(mine, body) {
+  try {
+    const w = (await api("/api/wishlist", body)).wishlist;
+    if (mine !== seq) return;
+    const row = (x) => `<section class="card"><div class="deal"><div class="what"><b>${esc(x.what)}</b>
+        <small>${x.target != null ? "your price " + money(x.target) + " · " : ""}${x.prices ? plural(x.prices, "price") + " seen in 90 days" : "no price seen yet"}${x.lowest != null ? " · lowest " + money(x.lowest) : ""}</small></div>
+        <div class="price"><b>${money(x.latest)}</b>${x.seller ? `<small>${esc(x.seller)}</small>` : ""}</div></div>
+      <p style="margin:10px 0 6px"><span class="call ${(WISH_DO[x.do] || ["", "wait"])[1]}">${esc((WISH_DO[x.do] || [x.do])[0])}</span> <span class="muted">${esc(x.why)}</span></p>
+      <button class="btn" data-wish-del="${x.id}" aria-label="Remove ${esc(x.what)}">Remove</button></section>`;
+    $("main").innerHTML = `<section class="card"><form class="f" id="wish-form" style="display:flex;gap:8px;flex-wrap:wrap">
+        <input name="what" maxlength="120" placeholder="Something you want, e.g. Dyson V15" aria-label="What you want" style="flex:1 1 200px">
+        <input name="target" inputmode="decimal" placeholder="Your price (optional)" aria-label="Your price" style="flex:0 1 150px">
+        <button class="btn">Add</button></form>
+        <p class="muted" style="margin:6px 0 0">Not groceries: those have their own page. Buddy watches the deal feeds and your store emails for these, free.</p></section>`
+      + (w.length ? `<div class="two">${w.map(row).join("")}</div>` : `<p class="muted">Nothing on your wishlist yet.</p>`);
+    $("wish-form").onsubmit = (e) => { e.preventDefault(); const what = e.target.what.value.trim(); if (what) renderWishlist(++seq, { action: "add", what, target: e.target.target.value.trim() }); };
+    $("main").querySelectorAll("[data-wish-del]").forEach((b) => b.onclick = () => renderWishlist(++seq, { action: "remove", id: Number(b.dataset.wishDel) }));
   } catch (e) { if (mine === seq) $("main").innerHTML = `<p class="err">${esc(e.message)}</p>`; }
 }
 
@@ -338,6 +361,7 @@ function render() {
   const mine = ++seq;
   if (tab === "foryou") { renderForYou(mine); return; }
   if (tab === "predicted") { renderPredicted(mine); return; }
+  if (tab === "wishlist") { renderWishlist(mine); return; }
   if (tab === "sources") { renderSources(mine); return; }
   if (tab === "alerts") { renderAlerts(mine); return; }
   const st = state[tab];

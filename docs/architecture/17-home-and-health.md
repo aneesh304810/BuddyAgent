@@ -43,6 +43,7 @@ flowchart LR
         foodverdict_py["foodverdict.py<br/>Is this product good for me? A verdict on a food or a scanned pack,…"]
         scanmeal_py["scanmeal.py<br/>A scanned food into the day's meals, by time and place, and whether…"]
         groceries_py["groceries.py<br/>the shopping list, ticked off as you scan, and My kitchen, what you…"]
+        grocerysavings_py["grocerysavings.py<br/>the grocery side of Buddy's deals, kept apart from the Deals page…"]
     end
     you --> t_thermostat
     t_thermostat --> nest_py
@@ -129,7 +130,9 @@ flowchart LR
     groceries_py --> foodfacts_py
     groceries_py --> foodverdict_py
     groceries_py --> scanmeal_py
-    db[("Your database<br/>bp_readings, buy_for, coach_log, coach_meals, evidence_papers, food_places, food_scans, health_daily and more")]
+    grocerysavings_py --> foodverdict_py
+    grocerysavings_py --> groceries_py
+    db[("Your database<br/>bp_readings, buy_for, coach_log, coach_meals, evidence_papers, food_places, food_scans, grocery_coupons and more")]
     health_data_py --> db
     oura_py --> db
     coach_py --> db
@@ -146,6 +149,7 @@ flowchart LR
     foodverdict_py --> db
     scanmeal_py --> db
     groceries_py --> db
+    grocerysavings_py --> db
     s_medlineplus["MedlinePlus (NIH health topics)<br/>(public data only)"]
     health_data_py --> s_medlineplus
     s_nest["Google Nest (thermostat)<br/>(may see personal data)"]
@@ -879,8 +883,41 @@ already reads.
 - Tables: `buy_for`, `kitchen`
 - Uses: coach.py, foodfacts.py, foodverdict.py, memory.py, money.py, organiser.py, pricebook.py, scanmeal.py, shopper.py, tools.py
 
+### grocerysavings.py
+
+```text
+Groceries savings: the grocery side of Buddy's deals, kept apart from the Deals page (electronics, home, travel),
+with advice for each thing on the shopping list that weighs the price and the owner's own health numbers. Code only:
+no AI model decides or sees any of it.
+
+Where the prices come from (all within the stores' terms; nothing is scraped and no store login is used):
+  the deals inbox     the weekly ads and coupon emails the owner gets from ACME, ShopRite, Target, Costco, CVS,
+                      Walgreens and others (dealmail.py), kept in the price book with every other price
+  the deal feeds      grocery deals among the feeds Buddy reads (dealcollector.py)
+  the owner           prices said or scanned ("eggs were 3.49 at ShopRite"), and receipts (a later step)
+
+  is_grocery(...)     which deals are groceries: a grocery store's, filed as grocery or household, or food words at
+                      a general store (Walmart, Target, Costco, CVS...). The Deals page leaves these out.
+  deals / coupons     grocery deals of the last two weeks, and the coupons among them (found -> clipped -> used, or
+                      dismissed). Buddy can't clip a coupon: it lists the ones that fit, with the store's own link,
+                      and the owner taps Clip in the store's app, then "Clipped" here. A coupon found is never
+                      counted as money saved; a clipped one is an estimate; only a receipt proves it (later step).
+  advice(item)        for a shopping-list item: Skip (Better to skip for the owner, even on sale), Clip in the app,
+                      Buy now (at or near the lowest price seen), Wait (a deal is likely soon, from its own rhythm),
+                      or Buy as needed, each with the reason.
+  plan()              this week: the store with the lowest known total for the list, a second store only when it
+                      saves more than a trip costs (the owner's figure, $5 unless they change it), coupons to clip,
+                      what to wait for. Prices not seen are not guessed.
+  savings()           estimated (clipped coupons) and proven (receipts) savings, by month.
+  wishlist            things the owner wants that aren't groceries: the lowest price seen, the latest, and the next
+                      likely deal, from the same price book (free: no searches are paid for).
+```
+
+- Tables: `grocery_coupons`, `wishlist`
+- Uses: dealforecast.py, foodverdict.py, groceries.py, memory.py, pricebook.py, tools.py
+
 ## How it connects
 
 - Relies on: Buddy Connect; Claude: the brain; Investing: signals, research and practice; Memory; Money; Security and privacy; Shopping and deals; Speaking up on its own: briefing, reminders and alerts; The price book, pattern learning and trained models; Travel and getting around
-- Relied on by: Buddy Connect; Buddy Intelligence Platform; Claude: the brain; Investing: signals, research and practice; News, trends and research; Security and privacy; Speaking up on its own: briefing, reminders and alerts; The server and the app
+- Relied on by: Buddy Connect; Buddy Intelligence Platform; Claude: the brain; Investing: signals, research and practice; News, trends and research; Security and privacy; Speaking up on its own: briefing, reminders and alerts; The price book, pattern learning and trained models; The server and the app
 

@@ -2728,12 +2728,60 @@ async def api_deals(days: int = 7, domain: str = "", q: str = "", by: str = "", 
     price; crazy: only the crazy deals (pricebook.CRAZY_OFF says what that means)."""
     from . import dealcollector, pricebook  # noqa: PLC0415
     out = await asyncio.to_thread(pricebook.deals_page, memory, days, domain, q, 300, by, group,
-                                  sort if sort in ("saving", "price") else "", crazy)
+                                  sort if sort in ("saving", "price") else "", crazy, "exclude")  # groceries: own page
     try:  # when the feeds and the inbox were last read and what they said: why a list is empty, if it is
         out["collector"] = dealcollector.page_status(memory)
     except Exception:
         log.warning("deals page: the collector's status could not be read", exc_info=True)
     return out
+
+
+@app.get("/api/groceries/savings", dependencies=[Depends(require_admin)])
+async def api_grocery_savings() -> dict:
+    """The Groceries page's savings parts: this week's plan with advice per item, grocery deals, coupons, savings."""
+    from . import grocerysavings  # noqa: PLC0415
+    return await asyncio.to_thread(grocerysavings.page, memory)
+
+
+@app.post("/api/groceries/savings", dependencies=[Depends(require_admin)])
+async def api_grocery_savings_act(body: dict) -> dict:
+    """coupon (key, state: clipped | used | dismissed | found, title, store); trip_cost (dollars)."""
+    from . import grocerysavings  # noqa: PLC0415
+    action = str(body.get("action") or "")
+    try:
+        if action == "coupon":
+            await asyncio.to_thread(grocerysavings.mark_coupon, memory, str(body.get("key") or ""),
+                                    str(body.get("state") or ""), str(body.get("title") or ""),
+                                    str(body.get("store") or ""))
+        elif action == "trip_cost":
+            await asyncio.to_thread(grocerysavings.set_trip_cost, memory, body.get("dollars"))
+        else:
+            raise HTTPException(400, "unknown action")
+    except ToolError as e:
+        raise HTTPException(400, str(e)) from None
+    return await asyncio.to_thread(grocerysavings.page, memory)
+
+
+@app.get("/api/wishlist", dependencies=[Depends(require_admin)])
+async def api_wishlist() -> dict:
+    from . import grocerysavings  # noqa: PLC0415
+    return {"wishlist": await asyncio.to_thread(grocerysavings.wishlist, memory)}
+
+
+@app.post("/api/wishlist", dependencies=[Depends(require_admin)])
+async def api_wishlist_act(body: dict) -> dict:
+    """add (what, target); remove (id). Things to buy that aren't groceries: buy now or wait, from the price book."""
+    from . import grocerysavings  # noqa: PLC0415
+    try:
+        if body.get("action") == "add":
+            got = await asyncio.to_thread(grocerysavings.wish_add, memory, str(body.get("what") or ""), body.get("target"))
+        elif body.get("action") == "remove":
+            got = await asyncio.to_thread(grocerysavings.wish_remove, memory, int(body.get("id") or 0))
+        else:
+            raise HTTPException(400, "unknown action")
+    except ToolError as e:
+        raise HTTPException(400, str(e)) from None
+    return {"wishlist": got}
 
 
 @app.get("/api/deals/groups", dependencies=[Depends(require_admin)])
@@ -2742,7 +2790,7 @@ async def api_deals_groups(domain: str = "product", by: str = "category", days: 
     hotels by place or chain."""
     from . import pricebook  # noqa: PLC0415
     try:
-        return await asyncio.to_thread(pricebook.deal_groups, memory, days, domain, by, q)
+        return await asyncio.to_thread(pricebook.deal_groups, memory, days, domain, by, q, 200, "exclude")
     except ValueError as e:
         raise HTTPException(status_code=400, detail=str(e)) from e
 

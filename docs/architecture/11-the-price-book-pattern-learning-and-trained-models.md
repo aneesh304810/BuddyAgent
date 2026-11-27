@@ -42,9 +42,9 @@ flowchart LR
     pricebook_py -. uses .-> o_2
     o_3["Fixing and explaining itself"]
     pricebook_py -. uses .-> o_3
-    o_4["Investing"]
+    o_4["Home and health"]
     pricebook_py -. uses .-> o_4
-    o_5["Memory"]
+    o_5["Investing"]
     pricebook_py -. uses .-> o_5
 ```
 
@@ -93,7 +93,7 @@ index: every internal error so far involved a table that had one, and the price 
 
 - Tables: `deals`, `launches`, `meta`, `observations`, `pattern_months`, `predictions`
 - Settings: `BUDDY_PRICEBOOK`
-- Uses: patterns.py, productid.py, tools.py
+- Uses: grocerysavings.py, patterns.py, productid.py, tools.py
 
 ### pricestore.py
 
@@ -230,6 +230,6 @@ many calls, and whether it is now in use. A model is one more opinion with a tra
 
 ## How it connects
 
-- Relies on: Buddy Connect; Buddy Intelligence Platform; Claude: the brain; Fixing and explaining itself; Investing: signals, research and practice; Memory; Shopping and deals
+- Relies on: Buddy Connect; Buddy Intelligence Platform; Claude: the brain; Fixing and explaining itself; Home and health; Investing: signals, research and practice; Memory; Shopping and deals
 - Relied on by: Buddy Intelligence Platform; Claude: the brain; Home and health; Investing: signals, research and practice; Learning: the English and investing tutors; Shopping and deals; Speaking up on its own: briefing, reminders and alerts; The server and the app; Travel and getting around
 

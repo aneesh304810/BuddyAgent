@@ -929,7 +929,8 @@ function renderGroceries() {
   } else if (groc.found) {
     body += groc.found.map((f, i) => `<div class="line"><div class="what">${esc(f.name)}<small>${esc(f.kind)}${f.brand ? " · " + esc(f.brand) : ""}</small></div><button class="btn" data-groc-pick="${i}">Check</button></div>`).join("");
   }
-  let html = card("Good for me?", body, "Judged per serving by Buddy's code from the label, your labs, blood pressure, allergies and goal. No AI model sees it.");
+  let html = (GROC_PAGE ? "" : `<p><a class="btn solid" href="groceries.html">Groceries: this week's plan, deals, coupons and savings ›</a></p>`)
+    + card("Good for me?", body, "Judged per serving by Buddy's code from the label, your labs, blood pressure, allergies and goal. No AI model sees it.");
   if (grocList === null) { grocList = { to_buy: [], kitchen: [] }; loadGroceries(); }
   html += useSoonCard(false) + toBuyCard() + kitchenCard() + spendCard() + peopleCard();
   if (groc.cmp) {
@@ -1458,6 +1459,86 @@ function wire() {
   if ($("read")) $("read").onclick = () => { $("read").disabled = true; $("read").textContent = "Reading…"; act({ action: "read" }, (o) => `Read ${o.days} days from the ring.`); };
 }
 
+// --- the Groceries page (groceries.html: the same code, its own page) -------------------------------------------
+// This week (advice per item and the plan), To buy & kitchen, Deals & coupons (grocery deals only: the Deals page
+// has the rest), Savings. Worked out by Buddy's code (grocerysavings.py); Buddy lists coupons, never clips them.
+const GROC_PAGE = document.body.dataset.page === "groceries";
+const GROC_TABS = [["week", "This week"], ["list", "To buy & kitchen"], ["deals", "Deals & coupons"], ["savings", "Savings"]];
+let grocTab = GROC_TABS.some(([k]) => k === params.get("view")) ? params.get("view") : (storageGet("grocTab") || "week");
+let gsav = null;
+async function loadSavings(body) {
+  try { gsav = await api("/api/groceries/savings", body); }
+  catch (e) { notice(e.message); gsav = gsav || { plan: { advice: [] }, deals: [], coupons: [], savings: { months: [] } }; }
+  if (GROC_PAGE) render();
+}
+const DO = { skip: ["Skip", "bad"], clip: ["Clip in the app", "good"], buy_now: ["Buy now", "good"], wait: ["Wait", "warn"], as_needed: ["As needed", ""] };
+function adviceRow(a) {
+  const [word, cls] = DO[a.do] || [a.do, ""];
+  return `<div class="line" style="align-items:flex-start"><div class="what"><span class="pill ${cls}">${esc(word)}</span> ${esc(a.item)}${a.who ? ` <span class="pill">${esc(whoName(a.who))}</span>` : ""}
+    <small>${esc(a.why)}${/^https:\/\//.test(a.link || "") ? ` · <a href="${esc(a.link)}" rel="noopener">open the offer</a>` : ""}</small></div>
+    ${a.price != null ? `<div class="num">${usd(a.price)}<small>${esc(a.store)}</small></div>` : ""}</div>`;
+}
+function couponRow(c) {
+  const clipped = c.state === "clipped";
+  return `<div class="line" style="align-items:flex-start"><div class="what">${clipped ? `<span class="pill good">Clipped</span> ` : ""}${esc(c.title)}
+    <small>${esc(c.store)}${c.ends ? " · until " + esc(c.ends) : ""}${c.value ? " · " + usd(c.value) + " off" : ""}${/^https:\/\//.test(c.link) ? ` · <a href="${esc(c.link)}" rel="noopener">open it at the store</a>` : " · clip it in the store's app"}</small></div>
+    <div class="f" style="gap:6px;flex-wrap:nowrap">${clipped ? `<button class="btn" data-coupon="${esc(c.key)}" data-state="found">Not clipped</button>`
+      : `<button class="btn solid" data-coupon="${esc(c.key)}" data-state="clipped">Clipped</button>`}<button class="btn" data-coupon="${esc(c.key)}" data-state="dismissed" aria-label="Not interested">✕</button></div></div>`;
+}
+function renderGrocWeek() {
+  if (!gsav) { $("main").innerHTML = `<p class="muted">Loading…</p>`; return; }
+  const p = gsav.plan;
+  let store = "";
+  if (p.single) {
+    store = `<p style="margin:0">Shop at <b>${esc(p.single.store)}</b>: ${p.single.items} item${p.single.items === 1 ? "" : "s"} with a known price, about <b>${usd(p.single.total)}</b>.</p>`;
+    if (p.pair && p.pair.saving != null) store += p.pair.worth_it
+      ? `<p style="margin:6px 0 0">Worth a second stop: <b>${esc(p.pair.stores.join(" + "))}</b> saves ${usd(p.pair.saving)}, more than a trip (${usd(p.trip_cost)}).</p>`
+      : `<p class="muted" style="margin:6px 0 0">${esc(p.pair.stores.join(" + "))} would save only ${usd(p.pair.saving)}: not worth a trip (${usd(p.trip_cost)}).</p>`;
+  } else store = `<p class="muted" style="margin:0">No store prices for your list yet: forward store weekly ads and coupon emails to your deals inbox, or tell Buddy what you paid.</p>`;
+  const advice = p.advice.length ? p.advice.map(adviceRow).join("") : `<p class="muted">Nothing on your list. Add items on To buy & kitchen, or tell Buddy "add eggs to my shopping list".</p>`;
+  $("main").innerHTML = card("This week", store + (p.clip.length ? `<p style="margin:10px 0 2px"><b>Clip first</b> (in the store's app)</p>` + p.clip.map(couponRow).join("") : "")
+      + (p.wait.length ? `<p style="margin:10px 0 0"><b>Wait for:</b> ${p.wait.map((a) => esc(a.item)).join(", ")}</p>` : ""), esc(p.note))
+    + card("Your list, item by item", advice, "Skip comes first: a deal never makes Better to skip good for you. Your health numbers stay on your server.")
+    + card("A trip to a store is worth", `<form class="f" id="trip-form"><input class="narrow" name="dollars" inputmode="decimal" value="${esc(String(p.trip_cost))}" aria-label="Dollars"><button class="btn">Save</button></form>`,
+      "Buddy suggests a second store only when it saves more than this.");
+  wireGrocSavings();
+}
+function renderGrocDeals() {
+  if (!gsav) { $("main").innerHTML = `<p class="muted">Loading…</p>`; return; }
+  const c = gsav.coupons, d = gsav.deals;
+  $("main").innerHTML = card("Coupons", c.length ? c.map(couponRow).join("")
+      : `<p class="muted">No coupons yet. They come from the stores' coupon emails in your deals inbox.</p>`,
+      "Buddy can't clip coupons (the stores have no way for it to): open the store's app, clip it there, then tap Clipped here. A coupon is counted as saved only when you clip it (an estimate) or a receipt shows it.")
+    + card("Grocery deals", d.length ? d.slice(0, 80).map((x) => `<div class="line" style="align-items:flex-start"><div class="what">${esc(x.title)}<small>${esc(x.store || "")} · ${esc(x.seen_on)}${x.lowest_seen != null && x.is_lowest ? " · the lowest seen" : ""}${/^https:\/\//.test(x.url) ? ` · <a href="${esc(x.url)}" rel="noopener">open</a>` : ""}</small></div>${x.price != null ? `<div class="num">${usd(x.price)}</div>` : ""}</div>`).join("")
+      : `<p class="muted">No grocery deals in the last two weeks.</p>`,
+      "Weekly ads and offers from store emails in your deals inbox and the deal feeds. Electronics, home and travel deals stay on the Deals page.");
+  wireGrocSavings();
+}
+function renderGrocSavings() {
+  if (!gsav) { $("main").innerHTML = `<p class="muted">Loading…</p>`; return; }
+  const s = gsav.savings;
+  $("main").innerHTML = card("Savings", `<div class="kpis"><div class="kpi"><b>${usd(s.this_month.estimated)}</b><small>estimated this month</small></div><div class="kpi"><b>${usd(s.this_month.proven || 0)}</b><small>proven (receipts)</small></div></div>`
+      + (s.months.length ? s.months.map((m) => `<div class="line"><div class="what">${esc(m.month)}<small>${m.coupons} coupon${m.coupons === 1 ? "" : "s"}</small></div><div class="num">${usd(m.estimated)}</div></div>`).join("") : ""),
+      esc(s.note))
+    + (grocList ? spendCard() : "");
+  if (!grocList) { grocList = { to_buy: [], kitchen: [] }; loadGroceries(); }
+}
+function wireGrocSavings() {
+  $("main").querySelectorAll("[data-coupon]").forEach((b) => b.onclick = () => {
+    const c = (gsav.coupons || []).concat((gsav.plan && gsav.plan.clip) || []).find((x) => x.key === b.dataset.coupon) || {};
+    loadSavings({ action: "coupon", key: b.dataset.coupon, state: b.dataset.state, title: c.title || "", store: c.store || "" });
+  });
+  if ($("trip-form")) $("trip-form").onsubmit = (e) => { e.preventDefault(); loadSavings({ action: "trip_cost", dollars: e.target.dollars.value }); };
+}
+function grocTabs() {
+  $("tabs").innerHTML = GROC_TABS.map(([k, label]) => `<button class="chip${k === grocTab ? " on" : ""}" role="tab" aria-selected="${k === grocTab}" data-gtab="${k}">${label}</button>`).join("");
+  $("tabs").querySelectorAll("[data-gtab]").forEach((b) => b.onclick = () => { grocTab = b.dataset.gtab; storageSet("grocTab", grocTab); render(); window.scrollTo(0, 0); });
+}
+function renderGrocPage() {
+  grocTabs();
+  ({ week: renderGrocWeek, list: renderGroceries, deals: renderGrocDeals, savings: renderGrocSavings }[grocTab] || renderGrocWeek)();
+}
+
 const VIEWS = {
   today: renderToday, sources: renderSources,
   "trends/measures": renderTrends, "trends/body": renderBody, "trends/patterns": renderPatterns, "trends/mood": moodHistory,
@@ -1467,6 +1548,7 @@ const VIEWS = {
   "learn/research": renderResearch, "learn/supplements": renderSupplements, "learn/medicines": renderMedicines,
 };
 function render() {
+  if (GROC_PAGE) return renderGrocPage();
   tabs();
   const view = VIEWS[subsOf(tab).length ? `${tab}/${subOf(tab)}` : tab] || renderToday;
   view();
@@ -1474,6 +1556,7 @@ function render() {
 }
 
 async function load() {
+  if (GROC_PAGE) { render(); loadSavings(); return; }  // the Groceries page doesn't need the health numbers
   try { data = await api(`/api/health/page?days=${span}`); render(); }
   catch (e) { tabs(); $("main").innerHTML = `<p class="err">${esc(e.message)}</p>`; }
 }

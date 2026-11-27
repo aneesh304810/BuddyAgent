@@ -164,6 +164,13 @@ decide each differently), and uses it whenever you ask about a purchase.
   pattern learning uses it. See them all on the **Deals page** (☰ → Deals): products, flights and hotels, search,
   "lowest Buddy has seen" marks, % off, and each item's price history chart; tap "Open deal" to open it in your
   browser. Buddy never opens store pages itself. "Read the deals inbox now" runs it on demand.
+  - **Groceries have their own page.** Grocery deals and store coupons (food, drinks, household and personal care,
+    and anything from a grocery store) show on the Groceries page with advice per item on your shopping list (see
+    HEALTH.md); the Deals page lists everything else. One price book holds both: nothing is stored twice.
+  - **Wishlist.** Things you want that aren't groceries (a vacuum, headphones), with the price you'd pay if you
+    like. Buddy checks the prices it has seen in 90 days (deal feeds, the deals inbox, what you told it) and says
+    **Buy now** (at or under your price, or the lowest in 90 days), **Wait** (a usual sale is coming, with when and
+    why) or **Watching**. Worked out by code; Buddy never buys.
   - **Groups.** Products can be listed **by category, by brand or by product**; flights **by route or by
     airline**; hotels **by place or by chain**. Tap a group for its deals, and sort them newest first, biggest
     saving first or lowest price first. Buddy files each deal by the words in its headline, so a group can hold

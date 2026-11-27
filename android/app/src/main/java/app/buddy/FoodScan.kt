@@ -77,6 +77,17 @@ import java.util.concurrent.atomic.AtomicReference
  * a dish named from the camera opens Plan → Food with the matches; only the number or the dish's name goes to the
  * owner's server, never a picture.
  */
+/**
+ * The Groceries page (web/groceries.html): this week's plan and advice per item, to buy and My kitchen, grocery deals
+ * and the coupons to clip in the stores' apps, and savings. Opened from Home, the Today strip's Use soon, Health and
+ * Money; Scan food and the microphone float over it as on other screens.
+ */
+@Composable
+fun GroceriesScreen(link: ServerLink?) {
+    val view = remember { Jump.groceries.also { Jump.groceries = null } }
+    BuddyPage(link, "groceries.html", if (view != null) "view=$view" else "")
+}
+
 @Composable
 fun HealthScreen(link: ServerLink?) {
     // From elsewhere: a quick action on Home (Home.kt) opens a section (?section=food, bp) or the scanner, and a scan

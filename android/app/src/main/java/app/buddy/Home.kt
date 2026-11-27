@@ -32,7 +32,7 @@ import androidx.compose.ui.unit.sp
  * reminders and bills sit in a panel beside the conversation instead.
  */
 enum class Quick(val label: String, val glyph: Glyph) {
-    SCAN("Scan food", Glyph.SCAN), MEAL("Log a meal", Glyph.MEAL), BP("Log BP", Glyph.PULSE),
+    SCAN("Scan food", Glyph.SCAN), GROCERIES("Groceries", Glyph.CART), MEAL("Log a meal", Glyph.MEAL), BP("Log BP", Glyph.PULSE),
     SPENDING("Spending", Glyph.MONEY), BILLS("Bills", Glyph.DOC), DEALS("Deals", Glyph.TAG)
 }
 
@@ -41,6 +41,7 @@ object Jump {
     var money: Int? = null      // a Money tab: 0 Overview (accounts and bills), 1 Spending
     var explore: Int? = null    // an Explore tab: 1 Deals
     var health: String? = null  // a Health page section ("food", "bp"), or "scan" to open the scanner
+    var groceries: String? = null  // a Groceries page tab: "week", "list" (to buy and My kitchen), "deals", "savings"
 }
 
 /** Where each quick action goes. Health ones open the Health page at that section; no AI model is involved. */
@@ -49,6 +50,7 @@ fun openQuick(q: Quick, onNavigate: (Screen) -> Unit) {
         Quick.MEAL -> { Jump.health = "food"; onNavigate(Screen.Health) }
         Quick.BP -> { Jump.health = "bp"; onNavigate(Screen.Health) }
         Quick.SCAN -> { Jump.health = "scan"; onNavigate(Screen.Health) }
+        Quick.GROCERIES -> { Jump.groceries = "week"; onNavigate(Screen.Groceries) }
         Quick.SPENDING -> { Jump.money = 1; onNavigate(Screen.Dashboard) }
         Quick.BILLS -> { Jump.money = 0; onNavigate(Screen.Dashboard) }
         Quick.DEALS -> { Jump.explore = 1; onNavigate(Screen.Explore) }

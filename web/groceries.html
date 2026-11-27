@@ -1,0 +1,80 @@
+<!doctype html>
+<html lang="en">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width, initial-scale=1">
+<meta name="referrer" content="no-referrer">
+<title>Buddy · Groceries</title>
+<link rel="icon" href="favicon.svg" type="image/svg+xml">
+<link rel="stylesheet" href="tokens.css">
+<link rel="stylesheet" href="theme.css">
+<script src="theme.js"></script>
+<style>
+* { box-sizing:border-box; }
+body { margin:0; background:var(--bg); color:var(--text); font:15px/1.45 Roboto, "Segoe UI", system-ui, sans-serif; }
+header { position:sticky; top:0; z-index:5; background:var(--bg); padding:14px 16px 8px; border-bottom:1px solid var(--line); }
+h1 { font-size:20px; margin:0 0 8px; } h2 { font-size:16px; margin:0 0 10px; } h3 { font-size:14px; margin:14px 0 6px; }
+.chips { display:flex; gap:6px; overflow-x:auto; padding-bottom:4px; }
+.chip { flex:none; border:1px solid var(--line); background:transparent; color:var(--muted); border-radius:999px;
+  padding:5px 11px; font:inherit; font-size:13px; cursor:pointer; }
+.chip.on { background:var(--accent); color:var(--onaccent); border-color:var(--accent); font-weight:600; }
+.subtabs { display:flex; gap:6px; flex-wrap:wrap; margin:0 0 12px; }
+.subtabs .chip { font-size:12.5px; padding:4px 11px; border-radius:8px; }
+#tabs { gap:4px; } #tabs .chip { padding-left:8px; padding-right:8px; }  /* five sections across a phone */
+.part { display:flex; width:100%; align-items:center; gap:10px; text-align:left; background:transparent; border:0;
+  border-top:1px solid var(--line); color:var(--text); font:inherit; padding:10px 0; min-height:48px; cursor:pointer; }
+.part:first-of-type { border-top:0; } .part > span:first-child { flex:1; }
+.part small { display:block; color:var(--muted); font-size:12.5px; } .part > span:last-child { color:var(--muted); font-size:20px; }
+.pick { display:inline-flex; align-items:center; gap:6px; margin:4px 6px 0 0; padding:4px 10px; border:1px solid var(--line);
+  border-radius:999px; color:var(--text); font-size:13px; cursor:pointer; }
+.pick input { margin:0; } .pick:has(input:checked) { border-color:var(--accent); background:var(--tagbg); }
+.why { color:var(--muted); font-size:12.5px; margin:4px 0 0; }
+.subtabs .chip.on { background:var(--tagbg); color:var(--tagtext); border-color:var(--tagbg); }
+main { padding:12px 16px 130px; max-width:900px; margin:0 auto; }  /* room below for the app's Scan food and mic buttons */
+.card { background:var(--card); border:1px solid var(--line); border-radius:14px; padding:14px; margin:0 0 12px; }
+.kpis { display:grid; grid-template-columns:repeat(auto-fit, minmax(130px, 1fr)); gap:8px; margin:0 0 12px; }
+.kpi { background:var(--card); border:1px solid var(--line); border-radius:12px; padding:10px 12px; }
+.kpi b { display:block; font-size:19px; font-variant-numeric:tabular-nums; } .kpi span { color:var(--muted); font-size:12px; }
+.muted, .note { color:var(--muted); font-size:13px; } .note { margin:8px 0 0; }
+.err { color:var(--bad); padding:20px 0; }
+code { overflow-wrap:anywhere; word-break:break-all; font-size:12.5px; }
+.line { display:flex; gap:10px; align-items:center; padding:9px 0; border-top:1px solid var(--line); }
+.line:first-of-type { border-top:0; } .line .what { flex:1; min-width:0; } .line small { color:var(--muted); display:block; }
+.line .num { font-variant-numeric:tabular-nums; white-space:nowrap; text-align:right; }
+.pill { font-size:11.5px; padding:1px 8px; border-radius:999px; background:var(--tagbg); color:var(--tagtext); white-space:nowrap; }
+.pill.good { background:transparent; border:1px solid var(--good); color:var(--good); }
+.pill.warn { background:transparent; border:1px solid var(--warn); color:var(--warn); }
+.pill.bad { background:transparent; border:1px solid var(--bad); color:var(--bad); }
+.btn { border:1px solid var(--accent); background:transparent; color:var(--accent); border-radius:999px; padding:6px 13px;
+  font:inherit; font-size:13px; cursor:pointer; } .btn.solid { background:var(--accent); color:var(--onaccent); font-weight:600; }
+.btn.danger { border-color:var(--bad); color:var(--bad); } .btn[disabled] { opacity:.5; }
+.btn.on { background:var(--accent); color:var(--onaccent, #fff); }
+.measures { display:grid; grid-template-columns:repeat(auto-fit, minmax(260px, 1fr)); gap:12px; }
+.measures .card { margin:0; }
+.m-top { display:flex; justify-content:space-between; gap:8px; align-items:baseline; }
+.m-top b { font-size:22px; font-variant-numeric:tabular-nums; } .m-top span { color:var(--muted); font-size:13px; }
+svg.spark { width:100%; height:70px; display:block; margin:8px 0 4px; overflow:visible; }
+svg.spark .l { fill:none; stroke:var(--accent); stroke-width:2; stroke-linejoin:round; stroke-linecap:round; }
+svg.spark .u { stroke:var(--muted); stroke-width:1; stroke-dasharray:4 4; }
+svg.spark circle { fill:var(--accent); }
+.bar { height:8px; border-radius:4px; background:var(--track); overflow:hidden; margin-top:5px; }
+.bar i { display:block; height:100%; background:var(--accent); border-radius:4px; }
+.f { display:flex; flex-wrap:wrap; gap:8px; margin:6px 0; }  /* rows of buttons, in forms and cards */
+input, select, textarea { border:1px solid var(--line); background:var(--bg); color:var(--text); border-radius:10px;
+  padding:8px 10px; font:inherit; font-size:14px; min-width:0; }
+textarea { width:100%; min-height:70px; } label { font-size:13px; color:var(--muted); display:block; margin-top:8px; }
+.grow { flex:1 1 160px; } .narrow { flex:0 1 110px; }
+.notice { position:fixed; left:50%; bottom:22px; transform:translateX(-50%); background:var(--card); border:1px solid var(--line);
+  border-radius:999px; padding:8px 16px; font-size:14px; display:none; z-index:20; max-width:92%; }
+</style>
+</head>
+<body data-page="groceries">
+<header>
+  <h1>Groceries</h1>
+  <div class="chips" id="tabs" role="tablist"></div>
+</header>
+<main id="main"><p class="muted">Loading…</p></main>
+<div class="notice" id="notice" role="status"></div>
+<script src="health.js"></script>
+</body>
+</html>

@@ -220,7 +220,7 @@ COMPONENTS = [  # every server module belongs to one feature (tests check none i
       "messaging.py", "packages.py"]),
     ("Home and health", "Your Nest thermostat, your phone's health data and Oura Ring, and your health plan with "
      "public medical sources", ["nest.py", "health_data.py", "oura.py", "coach.py", "healthpage.py",
-                                "healthrecords.py", "labs.py", "fhirlabs.py", "whoop.py", "healthmodel.py", "moodlog.py", "checkin.py", "prevention.py", "nhanesref.py", "foodfacts.py", "evidence.py", "dietplan.py", "dietfoods.py", "dietcheck.py", "freshness.py", "paperlib.py", "bodylog.py", "prevent.py", "activity.py", "healthnow.py", "foodverdict.py", "scanmeal.py", "groceries.py"]),
+                                "healthrecords.py", "labs.py", "fhirlabs.py", "whoop.py", "healthmodel.py", "moodlog.py", "checkin.py", "prevention.py", "nhanesref.py", "foodfacts.py", "evidence.py", "dietplan.py", "dietfoods.py", "dietcheck.py", "freshness.py", "paperlib.py", "bodylog.py", "prevent.py", "activity.py", "healthnow.py", "foodverdict.py", "scanmeal.py", "groceries.py", "grocerysavings.py"]),
     ("Making and doing things", "Diagrams, charts, images, Word, PowerPoint, PDF and Excel; data crunching in the "
      "sandbox; a real browser Buddy drives; filling forms; rich cards in the chat; background jobs",
      ["makers.py", "docedit.py", "datatools.py", "browse.py", "formfill.py", "cards.py", "jobs.py"]),

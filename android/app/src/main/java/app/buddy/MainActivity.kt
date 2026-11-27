@@ -147,6 +147,7 @@ sealed interface Screen {
     data object Alerts : Screen
     data object Security : Screen
     data object Health : Screen     // your own health numbers, the plan, habits and meals (web/health.html)
+    data object Groceries : Screen  // the week's plan, to buy, deals and coupons, savings (web/groceries.html)
     data object Intelligence : Screen
     data object Maestro : Screen
     data object Trips : Screen      // Trips & Deals: travel and deals as tabs (Nav.kt)
@@ -456,6 +457,10 @@ private fun BuddyScreen(
                 HealthScreen(prefs.link)  // with "Scan food": a pack's barcode read on the phone (FoodScan.kt)
                 return@Column
             }
+            Screen.Groceries -> {  // advice per item, the week's plan, grocery deals, coupons to clip, savings
+                GroceriesScreen(prefs.link)
+                return@Column
+            }
             Screen.Security -> {  // the daily threat watch: layers, open and fixed findings (web/security.html)
                 BuddyPage(prefs.link, "security.html")
                 return@Column
@@ -510,12 +515,12 @@ private fun BuddyScreen(
                     .padding(bottom = 16.dp), verticalArrangement = Arrangement.spacedBy(12.dp)) {
                     QuickActions(grid = true, onPick = quick)
                     ui.approval?.let { question -> ApprovalCard(question) }
-                    TodayStrip(today, { onNavigate(Screen.Dashboard) }) { Jump.health = "groceries"; onNavigate(Screen.Health) }
+                    TodayStrip(today, { onNavigate(Screen.Dashboard) }) { Jump.groceries = "list"; onNavigate(Screen.Groceries) }
                 }
             }
         } else {
             if (NavLayout.v2) QuickActions(grid = false, onPick = quick)  // Home: one tap to the six things done most
-            TodayStrip(today, { onNavigate(Screen.Dashboard) }) { Jump.health = "groceries"; onNavigate(Screen.Health) }
+            TodayStrip(today, { onNavigate(Screen.Dashboard) }) { Jump.groceries = "list"; onNavigate(Screen.Groceries) }
             Transcript(ui.lines, Modifier.weight(1f), { onNavigate(Screen.Insights) }, { onNavigate(Screen.Card(it)) }) {
                 onNavigate(Screen.Report(it))
             }

@@ -108,6 +108,7 @@ fun parentOf(screen: Screen): Screen? = if (NavLayout.v2) when (screen) {
     Screen.Maestro, Screen.Insights, Screen.Connections, Screen.Security, Screen.Settings, Screen.Email,
     Screen.More -> Screen.Profile
     Screen.Alerts -> Screen.Talk
+    Screen.Groceries -> Screen.Health
     is Screen.Card -> Screen.Talk
 } else when (screen) {
     Screen.Talk, Screen.Dashboard, Screen.Trips, Screen.Discover, Screen.More -> null
@@ -117,7 +118,7 @@ fun parentOf(screen: Screen): Screen? = if (NavLayout.v2) when (screen) {
     is Screen.LibraryItem -> Screen.Library
     is Screen.Report -> Screen.Reports
     Screen.Maestro, Screen.Insights, Screen.Connections, Screen.Security, Screen.Settings, Screen.Health,
-    Screen.Profile -> Screen.More
+    Screen.Profile, Screen.Groceries -> Screen.More
     Screen.Alerts -> Screen.Talk
     is Screen.Card -> Screen.Talk
 }
@@ -161,6 +162,7 @@ fun titleOf(screen: Screen): String = when (screen) {
     Screen.Connections -> "Connections"
     Screen.Security -> "Security"
     Screen.Health -> "Health"
+    Screen.Groceries -> "Groceries"
     Screen.Settings -> "Settings"
     Screen.Alerts -> "Alerts"
     is Screen.Card -> "Details"
@@ -169,7 +171,7 @@ fun titleOf(screen: Screen): String = when (screen) {
 // --- icons: line shapes on a 24 by 24 grid ------------------------------------------------------------------
 enum class Glyph {
     BUDDY, MONEY, TRIPS, DISCOVER, MORE, BELL, MIC, STOP, BACK, NEXT, MAESTRO, PLUG, SHIELD, GEAR, PULSE, PERSON,
-    DOC, MAIL, MEAL, SCAN, TAG
+    DOC, MAIL, MEAL, SCAN, TAG, CART
 }
 
 @Composable
@@ -239,6 +241,10 @@ private fun DrawScope.draw(glyph: Glyph, color: Color) {
         Glyph.TAG -> {
             shape(3f, 12f, 12f, 3f, 21f, 3f, 21f, 12f, 12f, 21f, closed = true)
             drawCircle(color, 1.5f * u, at(16.5f, 7.5f))
+        }
+        Glyph.CART -> {  // a shopping cart: the Groceries page
+            shape(2f, 4f, 5f, 4f, 7.5f, 15f, 18f, 15f, 20.5f, 7f, 6f, 7f)
+            drawCircle(color, 1.5f * u, at(9f, 19.5f)); drawCircle(color, 1.5f * u, at(17f, 19.5f))
         }
         Glyph.GEAR -> {
             drawCircle(color, 3f * u, at(12f, 12f), style = pen)
