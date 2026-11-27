@@ -2268,6 +2268,14 @@ async def api_security_scan() -> dict:
             **await asyncio.to_thread(securitywatch.report, memory)}
 
 
+@app.post("/api/security/device", dependencies=[Depends(require_admin)])
+async def api_security_device(body: dict) -> dict:
+    """The Buddy app, on opening: the phone's security patch date and web view version (no personal data), so an
+    exploited flaw the phone's own update has fixed doesn't stay open on the Security page."""
+    from . import securitywatch
+    return {"device": await asyncio.to_thread(securitywatch.set_device, memory, body or {})}
+
+
 @app.post("/api/security/service", dependencies=[Depends(require_admin)])
 async def api_security_service(body: dict) -> dict:
     """Disconnect or reconnect one outside service (the owner's own tap on the Security page)."""

@@ -348,6 +348,8 @@ private fun BuddyScreen(
     // The Today strip and the bell's count (Today.kt): read again whenever the screen changes. Opening Alerts
     // tells the server they were seen, so the count starts again from there.
     var today by remember { mutableStateOf(TodayState()) }
+    // The phone's update levels for the Security page, once each time the app starts (PhoneCheck.kt).
+    LaunchedEffect(prefs.link) { prefs.link?.let { PhoneCheck.send(it) } }
     LaunchedEffect(screen, prefs.link) {
         val link = prefs.link ?: return@LaunchedEffect
         if (screen == Screen.Alerts) {

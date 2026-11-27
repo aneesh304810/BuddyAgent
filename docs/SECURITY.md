@@ -36,6 +36,16 @@ Buddy app's **Security** page (menu, 🛡 Security) shows the result.
   days. Ubuntu security updates that are waiting. The weekly root check's findings (firewall, SSH, keys,
   backups, exposure) and Buddy's own settings (the access token's strength, database encryption, developer
   mode).
+- **The phone.** The server can't see the phone, so the Buddy app tells it, each time the app opens, the phone's
+  own update levels: Android's security patch date, the maker, the Android version, and the web view's version
+  and the day it was last updated (nothing personal). CISA lists a flaw only once the vendor has a fix, so an
+  exploited flaw in Android, Samsung's software or Chromium (the web view) closes once the phone's security patch,
+  or the web view's last update, is dated on or after the listing; a Samsung flaw doesn't apply to another
+  maker's phone. Until then the finding names the phone's patch date and the update to install. The Defences tab
+  shows the phone's patch date ("Phone's security updates": on when it is this month's or last month's).
+- **Deploys upgrade everything.** `deploy/update.sh` upgrades the packages Buddy's packages use as well
+  (`--upgrade-strategy eager`), so the server has the same versions as a fresh install and CI, instead of keeping
+  the version first installed; the weekly patch job still upgrades anything with a published fix in between.
 - **The page.** The setup is drawn layer by layer: your phone and the app, the network edge, the server, Buddy
   itself, the parts that read outside content, data and keys, the code sandbox, outside services. Each layer
   shows its level (the most serious open finding there), how many are open and fixed, and how many defences

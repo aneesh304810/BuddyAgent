@@ -1,6 +1,6 @@
 # Buddy Privacy and Data Retention Policy
 
-Source: https://claude.ai/artifact/MJVGZ7pWQvi26tg1MS914P, revision 192
+Source: https://claude.ai/artifact/MJVGZ7pWQvi26tg1MS914P, revision 193
 
 Nov 1, 2026 · @Aneesh
 
@@ -115,7 +115,7 @@ All data is stored on one private server owned by the owner (a DigitalOcean virt
 - **Access:** only the owner. There are no employees, contractors or shared admin accounts.
 - **Sensitive documents:** identity documents, medical records, tax returns and files with account numbers are kept in a vault: Buddy asks the owner before an AI reads them again, and opens them for 10 minutes at a time.
 - **Search index:** passages of uploaded documents are indexed for keyword and meaning search inside the encrypted database; the meaning-search model runs on the owner's server, so this text is not sent anywhere to be indexed.
-- **Code security:** every change is scanned automatically for vulnerable libraries (pip-audit) and unsafe code (bandit) before it is used.
+- **Code security:** every change is scanned automatically for vulnerable libraries (pip-audit) and unsafe code (bandit) before it is used. The Buddy app tells the owner's server the phone's own update levels each time it opens (Android's security patch date, the maker, the Android version, and the web view's version and last update day; nothing personal), so the Security page can tell whether an exploited flaw in the phone's software is already fixed; only the latest report is kept, and it goes to no one else.
 - **Bank tokens:** Plaid access tokens are stored only in the encrypted database and are never shown on the phone or in logs.
 - **Backups:** nightly, encrypted with an age key kept off the server; the database key and the uploaded files are included, so a backup can be restored only with that key.
 

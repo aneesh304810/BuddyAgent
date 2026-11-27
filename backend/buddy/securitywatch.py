@@ -25,6 +25,11 @@ be used against this server.
                        only from the owner's private network with the access token)
     the fix            the version that fixes it, or the command to run
 
+  The phone           the Buddy app tells the server the phone's own update levels (Android's security patch
+                       date, the maker, the web view's version and when it was last updated; nothing personal).
+                       CISA lists a flaw only once the vendor has a fix, so a phone whose security patch (or web
+                       view update) is dated on or after the listing has it: that finding closes. Without a report
+                       it stays open, as before.
   Open and fixed       a finding that a later scan no longer finds is marked fixed, with the date. Only a
                        source that answered can mark its findings fixed: an unreachable database changes
                        nothing. The owner can accept a risk with a reason; it stays listed as accepted.
@@ -119,7 +124,56 @@ def layer_of(f: dict) -> str:
     if f["source"] == "settings":
         return "database" if "database" in text else "app"
     return next((layer for layer, words in LAYER_WORDS if re.search(words, text)), "server")
-SCAN_KEY, DAY_KEY = "securitywatch:last", "securitywatch:day"
+SCAN_KEY, DAY_KEY, DEVICE_KEY = "securitywatch:last", "securitywatch:day", "securitywatch:device"
+DEVICE_DAYS = 30  # a phone report older than this isn't trusted to say the phone is up to date
+_DAY = re.compile(r"^\d{4}-\d{2}-\d{2}$")
+
+
+def set_device(memory: Memory, report: dict, now: datetime | None = None) -> dict:
+    """What the Buddy app says about the phone's own updates: Android's security patch date, the maker, the web
+    view's version and the day it was last updated. Nothing personal; anything else is dropped."""
+    patch = str(report.get("security_patch") or "").strip()[:10]
+    updated = str(report.get("webview_updated") or "").strip()[:10]
+    out = {"security_patch": patch if _DAY.match(patch) else "",
+           "android": re.sub(r"[^\w. -]", "", str(report.get("android") or ""))[:12],
+           "maker": re.sub(r"[^\w. -]", "", str(report.get("maker") or ""))[:30].lower(),
+           "webview": re.sub(r"[^\w. -]", "", str(report.get("webview") or ""))[:30],
+           "webview_updated": updated if _DAY.match(updated) else "",
+           "at": (now or datetime.now(timezone.utc)).isoformat(timespec="seconds")}
+    memory.set(DEVICE_KEY, json.dumps(out))
+    return out
+
+
+def device(memory: Memory, today: date | None = None) -> dict:
+    """The phone's last report, {} when there is none or it is older than DEVICE_DAYS."""
+    try:
+        got = json.loads(memory.get(DEVICE_KEY) or "{}")
+        seen = datetime.fromisoformat(got["at"]).date()
+    except (ValueError, KeyError, TypeError):
+        return {}
+    return got if ((today or local_now().date()) - seen).days <= DEVICE_DAYS else {}
+
+
+def _phone_has_it(role: str, added: str, phone: dict) -> tuple[bool, str]:
+    """(already fixed on the phone, what to do) for an exploited flaw in the phone's software."""
+    if not phone:
+        return False, ("Install the phone's system update (Settings > Software update) and update Chrome and Android "
+                       "System WebView in the Play Store; then open the Buddy app, which tells Buddy the phone's "
+                       "update level so this closes.")
+    if role == "chromium":
+        when = phone.get("webview_updated") or ""
+        if when and when >= added:
+            return True, ""
+        return False, (f"Update Android System WebView and Chrome in the Play Store: the web view on your phone "
+                       f"({phone.get('webview') or 'version unknown'}) was last updated "
+                       f"{when or 'on an unknown day'}, before this was listed on {added}.")
+    if role == "samsung" and phone.get("maker") and phone["maker"] != "samsung":
+        return True, ""  # a Samsung flaw, and this phone isn't a Samsung
+    patch = phone.get("security_patch") or ""
+    if patch and patch >= added:
+        return True, ""
+    return False, (f"Install the phone's system update (Settings > Software update): its security patch is "
+                   f"{patch or 'unknown'}, older than this listing ({added}).")
 PATCH_REQUEST = Path(os.getenv("BUDDY_PATCH_REQUEST", "/var/lib/buddy/patch-request"))
 ORDER = {"critical": 0, "high": 1, "medium": 2, "low": 3}
 STALE_DAYS, KEV_DAYS, MAX_DETAILS = 8, 21, 80
@@ -364,8 +418,10 @@ def from_packages(memory: Memory, pkgs: dict, fetch=None) -> list[dict]:
     return found
 
 
-def from_exploited(entries: list[dict], findings: list[dict], today: date) -> list[dict]:
-    """Mark findings that are on the exploited list, and add recent entries about the platform."""
+def from_exploited(entries: list[dict], findings: list[dict], today: date, phone: dict | None = None) -> list[dict]:
+    """Mark findings that are on the exploited list, and add recent entries about the platform. An entry about the
+    phone's software is left out when the phone's report shows an update dated on or after the listing."""
+    phone_roles = ("chromium", "samsung", "android")
     by_cve = {e.get("cveID"): e for e in entries}
     for f in findings:
         hit = next((by_cve[i] for i in f["ids"] if i in by_cve), None)
@@ -386,6 +442,13 @@ def from_exploited(entries: list[dict], findings: list[dict], today: date) -> li
         cve = str(e.get("cveID") or "")
         if not what or any(cve in f["ids"] for f in findings):  # a package finding already carries it
             continue
+        role = next((name for name in phone_roles if vendor == name or name in product
+                     or (name == "chromium" and vendor == "google" and "chrom" in product)), "")
+        phone_fix = ""
+        if role:
+            fixed, phone_fix = _phone_has_it(role, str(e.get("dateAdded") or ""), phone or {})
+            if fixed:
+                continue  # the phone's own update is dated after the listing: it has the vendor's fix
         out.append({
             "key": f"kev:{cve}", "source": "exploited", "severity": "high", "score": None, "exploited": 1,
             "title": f"Being exploited now: {e.get('vulnerabilityName') or cve}",
@@ -396,9 +459,8 @@ def from_exploited(entries: list[dict], findings: list[dict], today: date) -> li
             "exploit": ("Attackers are already using it. I can't tell from here whether the exact version on your "
                         "server is the affected one, so treat it as open until the patch run has installed the "
                         "vendor's fix."),
-            "fix": (" ".join(str(e.get("requiredAction") or "Apply the vendor's update.").split())[:300]
-                    + " On this server: \"patch now\" installs Ubuntu's security updates; for the phone, install "
-                      "the system update."),
+            "fix": phone_fix or (" ".join(str(e.get("requiredAction") or "Apply the vendor's update.").split())[:300]
+                                 + " On this server: \"patch now\" installs Ubuntu's security updates."),
             "link": f"https://nvd.nist.gov/vuln/detail/{cve}"})
     return out
 
@@ -643,7 +705,7 @@ def scan(memory: Memory, fetch=None, pkgs: dict | None = None, report: dict | No
     exploited_list: list[dict] = []
     try:
         exploited_list = kev(memory, fetch)
-        found += from_exploited(exploited_list, found, today)
+        found += from_exploited(exploited_list, found, today, device(memory, today))
         sources["Exploited now (CISA KEV)"], _ = "ok", ran.add("exploited")
     except Exception as e:
         log.warning("securitywatch: KEV failed: %s", type(e).__name__)
@@ -723,9 +785,10 @@ def _view(r: dict) -> dict:
     return out
 
 
-def defences(report: dict, env=None) -> list[dict]:
+def defences(report: dict, env=None, phone: dict | None = None) -> list[dict]:
     """What is already in place, each with where the evidence comes from."""
     env = os.environ if env is None else env
+    phone = phone or {}
     token, _ = _config()
     facts = report.get("facts") or {}
     out = [
@@ -757,6 +820,18 @@ def defences(report: dict, env=None) -> list[dict]:
                        "public can never be sent personal data."},
             {"name": "Bank access is read-only", "layer": "outside", "ok": True,
              "detail": "Buddy can read balances and transactions; it has no way to move money."}]
+    patch = phone.get("security_patch") or ""
+    try:
+        recent = (local_now().date() - date.fromisoformat(patch)).days <= 62  # this month's or last month's patch
+    except ValueError:
+        recent = False
+    out.append({"name": "Phone's security updates", "layer": "device", "ok": recent,
+                "detail": (f"Security patch {patch or 'not reported'}"
+                           + (f"; web view {phone['webview']}" if phone.get("webview") else "")
+                           + (f" (updated {phone['webview_updated']})" if phone.get("webview_updated") else "")
+                           + f"; reported by the Buddy app on {str(phone.get('at', ''))[:10]}."
+                           if phone else "The Buddy app reports the phone's security patch when it opens; no report "
+                                         "yet (update the app and open it).")})
     for key, name, layer in (("firewall", "Firewall blocking incoming connections", "network"),
                              ("ssh_keys_only", "SSH keys only, no passwords", "server"),
                              ("secrets_sealed", "Keys encrypted at rest", "keys"),
@@ -811,7 +886,7 @@ def report(memory: Memory, env=None) -> dict:
     counts = {s: sum(1 for r in open_ if r["severity"] == s) for s in ORDER}
     worst = next((s for s in ORDER if counts[s]), "")
     check = server_check()
-    guards = defences(check, env)
+    guards = defences(check, env, device(memory))
     connected = services(memory, env)
     for s in connected:  # what the last scan said about each service
         s["incidents"] = [f["title"] for f in open_ if f.get("component") == s["title"] and f["source"] == "Outside services"]

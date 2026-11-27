@@ -35,10 +35,12 @@ if ! command -v dot >/dev/null; then
   { apt-get update -q >/dev/null && DEBIAN_FRONTEND=noninteractive apt-get install -y -q graphviz >/dev/null; } \
     || echo "  !! Graphviz didn't install; diagrams won't work until: sudo apt-get update && sudo apt-get install -y graphviz"
 fi
-sudo -u buddy "$APP/backend/.venv/bin/pip" install -q --upgrade -r "$APP/backend/requirements.txt"
+# Eager: the packages Buddy's packages use are upgraded too (the default leaves them at the version first
+# installed, which is how a server keeps old, known-vulnerable versions that a fresh install, and CI, never has).
+sudo -u buddy "$APP/backend/.venv/bin/pip" install -q --upgrade --upgrade-strategy eager -r "$APP/backend/requirements.txt"
 # Phone calls' engine (Pipecat): only on servers where deploy/calls.sh installed it.
 if sudo -u buddy "$APP/backend/.venv/bin/python" -c "import pipecat" 2>/dev/null; then
-  sudo -u buddy "$APP/backend/.venv/bin/pip" install -q --upgrade -r "$APP/backend/requirements-calls.txt"
+  sudo -u buddy "$APP/backend/.venv/bin/pip" install -q --upgrade --upgrade-strategy eager -r "$APP/backend/requirements-calls.txt"
 fi
 # Voice match (Talk mode answers only your voice): small, so always installed.
 bash "$APP/deploy/voice.sh" >/dev/null || echo "  !! Voice match didn't install; try: sudo bash $APP/deploy/voice.sh"

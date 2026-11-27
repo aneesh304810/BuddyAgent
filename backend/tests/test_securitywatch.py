@@ -326,3 +326,51 @@ def test_a_disconnected_phone_service_blocks_calls_and_the_page_can_switch(memor
     assert "connected again" in out["text"] and not gateway.is_off(memory, "plivo")
     assert client.post("/api/security/service", json={"name": "claude", "off": True},
                        headers={"Authorization": "Bearer s3cret"}).status_code == 400
+
+
+PHONE_KEV = [{"cveID": "CVE-2026-125350", "vendorProject": "Google", "product": "Chromium V8", "dateAdded": "2026-11-12",
+              "vulnerabilityName": "Google Chromium V8 use-after-free", "shortDescription": "Code runs from a web page.",
+              "requiredAction": "Apply updates per vendor instructions."},
+             {"cveID": "CVE-2026-7777", "vendorProject": "Android", "product": "Framework", "dateAdded": "2026-11-03",
+              "vulnerabilityName": "Android Framework privilege escalation", "shortDescription": "An app gains rights."},
+             {"cveID": "CVE-2026-8888", "vendorProject": "Samsung", "product": "Mobile Devices", "dateAdded": "2026-11-10",
+              "vulnerabilityName": "Samsung image library out-of-bounds write", "shortDescription": "A picture runs code."}]
+
+
+def test_a_phone_flaw_closes_when_the_phone_reports_an_update_after_it_was_listed(memory):
+    from datetime import datetime, timezone
+    run(memory, net({}, kev=PHONE_KEV))
+    phone = [f for f in sw.report(memory, GOOD_ENV)["open"] if f["layer"] == "device"]
+    assert len(phone) == 3 and all("open the Buddy app" in f["fix"] for f in phone)  # no report yet: open
+    when = datetime(2026, 11, 15, tzinfo=timezone.utc)
+    got = sw.set_device(memory, {"security_patch": "2026-11-01", "maker": "samsung", "android": "16",
+                                 "webview": "142.0.7444.90", "webview_updated": "2026-11-14", "email": "x@y.z"}, when)
+    assert "email" not in got and got["security_patch"] == "2026-11-01"  # only the update levels are kept
+    later = run(memory, net({}, kev=PHONE_KEV))
+    still = [f for f in sw.report(memory, GOOD_ENV)["open"] if f["layer"] == "device"]
+    # Chromium: the web view updated Nov 14, after the Nov 12 listing. Android: the Nov 1 patch is before the Nov 3
+    # listing (that month's later patch may hold it), so it stays open with the patch date in the fix; Samsung the same.
+    assert sorted(f["component"] for f in still) == ["Android Framework", "Samsung Mobile Devices"]
+    assert any("2026-11-01" in f["fix"] and "Software update" in f["fix"] for f in still)
+    assert len(later["fixed"]) == 1
+    sw.set_device(memory, {"security_patch": "2026-12-01", "maker": "samsung", "webview_updated": "2026-11-14"}, when)
+    run(memory, net({}, kev=PHONE_KEV))
+    assert [f for f in sw.report(memory, GOOD_ENV)["open"] if f["layer"] == "device"] == []
+    sw.set_device(memory, {"security_patch": "2026-10-01", "maker": "google", "webview_updated": "2026-11-14"}, when)
+    run(memory, net({}, kev=PHONE_KEV))
+    assert [f["component"] for f in sw.report(memory, GOOD_ENV)["open"] if f["layer"] == "device"] == \
+        ["Android Framework"]  # a Pixel: the Samsung flaw isn't its; the Android one is open again
+    assert sw.device(memory, date(2027, 1, 30)) == {}  # an old report isn't trusted
+
+
+def test_the_phone_report_api(memory, monkeypatch):
+    from fastapi.testclient import TestClient
+
+    from buddy import server
+    monkeypatch.setattr(server, "memory", memory)
+    monkeypatch.setattr(server, "authorized", lambda t: t == "s3cret")
+    client = TestClient(server.app)
+    got = client.post("/api/security/device", json={"security_patch": "2026-11-05", "webview": "142.0"},
+                      headers={"Authorization": "Bearer s3cret"}).json()
+    assert got["device"]["security_patch"] == "2026-11-05"
+    assert client.post("/api/security/device", json={}).status_code == 401

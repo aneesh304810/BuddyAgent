@@ -240,6 +240,11 @@ be used against this server.
                        only from the owner's private network with the access token)
     the fix            the version that fixes it, or the command to run
 
+  The phone           the Buddy app tells the server the phone's own update levels (Android's security patch
+                       date, the maker, the web view's version and when it was last updated; nothing personal).
+                       CISA lists a flaw only once the vendor has a fix, so a phone whose security patch (or web
+                       view update) is dated on or after the listing has it: that finding closes. Without a report
+                       it stays open, as before.
   Open and fixed       a finding that a later scan no longer finds is marked fixed, with the date. Only a
                        source that answered can mark its findings fixed: an unreachable database changes
                        nothing. The owner can accept a risk with a reason; it stays listed as accepted.
