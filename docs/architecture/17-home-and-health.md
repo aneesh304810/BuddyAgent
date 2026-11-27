@@ -44,6 +44,7 @@ flowchart LR
         scanmeal_py["scanmeal.py<br/>A scanned food into the day's meals, by time and place, and whether…"]
         groceries_py["groceries.py<br/>the shopping list, ticked off as you scan, and My kitchen, what you…"]
         grocerysavings_py["grocerysavings.py<br/>the grocery side of Buddy's deals, kept apart from the Deals page…"]
+        platefoods_py["platefoods.py<br/>Foods on one plate, recognised on the phone from the foods the owner…"]
     end
     you --> t_thermostat
     t_thermostat --> nest_py
@@ -67,6 +68,7 @@ flowchart LR
     healthpage_py --> dietplan_py
     healthpage_py --> health_data_py
     healthpage_py --> oura_py
+    healthpage_py --> platefoods_py
     healthrecords_py --> labs_py
     labs_py --> healthrecords_py
     labs_py --> oura_py
@@ -132,6 +134,7 @@ flowchart LR
     groceries_py --> scanmeal_py
     grocerysavings_py --> foodverdict_py
     grocerysavings_py --> groceries_py
+    platefoods_py --> coach_py
     db[("Your database<br/>bp_readings, buy_for, coach_log, coach_meals, evidence_papers, food_places, food_scans, grocery_coupon_offers and more")]
     health_data_py --> db
     oura_py --> db
@@ -150,6 +153,7 @@ flowchart LR
     scanmeal_py --> db
     groceries_py --> db
     grocerysavings_py --> db
+    platefoods_py --> db
     s_medlineplus["MedlinePlus (NIH health topics)<br/>(public data only)"]
     health_data_py --> s_medlineplus
     s_nest["Google Nest (thermostat)<br/>(may see personal data)"]
@@ -297,7 +301,7 @@ Nothing here calls a model or leaves this server, apart from reading the ring fr
 "Read the ring now". It is not medical advice.
 ```
 
-- Uses: coach.py, dietplan.py, health_data.py, healthranges.py, memory.py, oura.py, tools.py
+- Uses: coach.py, dietplan.py, health_data.py, healthranges.py, memory.py, oura.py, platefoods.py, tools.py
 
 ### healthrecords.py
 
@@ -915,6 +919,22 @@ Where the prices come from (all within the stores' terms; nothing is scraped and
 
 - Tables: `grocery_coupon_offers`, `grocery_coupons`, `wishlist`
 - Uses: dealforecast.py, dealmail.py, foodverdict.py, groceries.py, memory.py, pricebook.py, tools.py
+
+### platefoods.py
+
+```text
+Foods on one plate, recognised on the phone from the foods the owner taught (Scan food → Dish): the first time a
+taught food is added to a meal, the food and amount the owner picked (USDA's numbers for it) are kept as its usual,
+so the next plate with it is added in one tap ("Add all"). A food without a usual yet is shown for the owner to pick
+once. Code only: the names come from the phone (never a picture), and nothing here is sent to any AI model.
+
+  remember(memory, name, meal)   -> the usual for a taught food (what, calories, protein and the rest per that amount)
+  add_plate(memory, names, slot) -> {added: [...], unknown: [...], eaten}: each known food into the meal for the time
+  foods(memory) / forget(memory, name)
+```
+
+- Tables: `plate_foods`
+- Uses: coach.py, memory.py, tools.py
 
 ## How it connects
 

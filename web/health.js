@@ -1000,6 +1000,15 @@ function renderGroceries() {
 // --- facts looked up on request (USDA foods, NIH supplement labels, openFDA medicines): only the words typed go out
 const facts = { food: null, supplement: null, label: null, medicine: null }, factQ = { food: "", supplement: "", medicine: "" };
 let foodPick = -1, foodGrams = "", foodPortion = 0, foodCount = "1";  // portion: its index, or -1 for grams
+// A plate scanned on the phone (several taught foods): the known ones went in at once; these are picked once each,
+// and what is picked is remembered for that food (platefoods.py). scanDish: a single taught dish, remembered too.
+let plateQueue = [], plateDish = "", plateSlot = "", scanDish = "";
+function nextPlateFood() {
+  plateDish = plateQueue.shift() || "";
+  if (!plateDish) { render(); return; }
+  if (plateSlot) mealSlot = plateSlot;
+  factQ.food = plateDish; lookUp("food", plateDish);
+}
 const listText = (v) => (Array.isArray(v) ? v.join(", ") : String(v ?? ""));
 // Does it fit? The server's code checks the picked food at this portion against the goal, the guidelines, your labs
 // and your allergies (dietcheck.py), before it is added.
@@ -1068,7 +1077,8 @@ function foodLookup() {
         ${open ? "" : `<button class="btn" data-food-pick="${i}">Use</button>`}</div>`;
     }).join("") : `<p class="muted">Nothing found: try fewer or plainer words.</p>`;
   }
-  return card("Look up a food", searchForm("food", "A food, e.g. idli, banana, Greek yogurt") + body,
+  const plateNote = plateDish ? `<p style="margin:0 0 8px">From your plate: <b>${esc(plateDish)}</b>${plateQueue.length ? ` (then ${esc(plateQueue.join(", "))})` : ""}. Pick its food and amount once: next time it goes in with the rest. <a href="#" id="plate-skip">Skip it</a></p>` : "";
+  return card("Look up a food", plateNote + searchForm("food", "A food, e.g. idli, banana, Greek yogurt") + body,
     got && got.source ? `${esc(got.source)}. Only the words you type are sent.` : "From USDA FoodData Central. Only the words you type are sent.");
 }
 // How much: a number of portions ("2" × "1 large egg", "3" × "1 slice") or grams; the meal is named with it.
@@ -1084,6 +1094,7 @@ function foodAmount(f) {
 }
 function wireFoodLookup() {
   wireSearch();
+  if ($("plate-skip")) $("plate-skip").onclick = (e) => { e.preventDefault(); facts.food = null; nextPlateFood(); };
   $("main").querySelectorAll("[data-food-pick]").forEach((b) => b.onclick = () => {
     foodPick = Number(b.dataset.foodPick); foodGrams = ""; foodCount = "1";
     foodPortion = facts.food.foods[foodPick].portions.length ? 0 : -1; render();
@@ -1104,7 +1115,9 @@ function wireFoodLookup() {
     act({ action: "meal", what: `${f.name} (${label})`.slice(0, 200), calories: Math.round((f.per100.kcal || 0) * g / 100),
       protein_g: Math.round((f.per100.protein_g || 0) * g / 100), carbs_g: of("carbs_g"), fat_g: of("fat_g"),
       fiber_g: of("fiber_g"), sodium_mg: of("sodium_mg"), sat_fat_g: of("sat_fat_g"), sugar_g: of("sugar_g"),
-      added_sugar_g: of("added_sugar_g"), slot: mealSlot }, `Added to ${slotName(mealSlot)}.`);
+      added_sugar_g: of("added_sugar_g"), slot: mealSlot, dish: plateDish || scanDish || undefined },
+      `Added to ${slotName(mealSlot)}.` + (plateDish || scanDish ? ` Next time ${plateDish || scanDish} goes in as this.` : ""))
+      .then(() => { scanDish = ""; if (plateDish) { facts.food = null; nextPlateFood(); } });
     Object.keys(fits).forEach((k) => delete fits[k]);  // today's totals changed: check again next time
     foodPick = -1; foodGrams = ""; foodCount = "1";
   });
@@ -1589,22 +1602,34 @@ const scanned = (() => {  // read from the address as it arrived (the token line
   const code = (params.get("scanbarcode") || "").replace(/\D/g, "");
   const packdate = /^\d{4}-\d{2}-\d{2}$/.test(params.get("packdate") || "") ? params.get("packdate") : "";
   const dish = (params.get("scandish") || "").replace(/[^\p{L}\p{N} '&(),.-]/gu, "").trim().slice(0, 60);
-  if (!code && !dish) return null;
+  const dishes = (params.get("scandishes") || "").split("|").map((d) => d.replace(/[^\p{L}\p{N} '&(),.-]/gu, "").trim().slice(0, 60))
+    .filter(Boolean).slice(0, 8);
+  if (!code && !dish && !dishes.length) return null;
   const stamp = params.get("t") || "";
   let done = [];
   try { done = JSON.parse(storageGet("scansDone") || "[]"); } catch { done = []; }
   if (stamp && done.includes(stamp)) return null;
   if (stamp) storageSet("scansDone", JSON.stringify([...done, stamp].slice(-30)));
   const rest = new URLSearchParams(location.search);
-  if (rest.has("scanbarcode") || rest.has("scandish")) {  // a reload doesn't look it up again
-    rest.delete("scanbarcode"); rest.delete("scandish"); rest.delete("packdate"); rest.delete("t");
+  if (rest.has("scanbarcode") || rest.has("scandish") || rest.has("scandishes")) {  // a reload doesn't look it up again
+    rest.delete("scanbarcode"); rest.delete("scandish"); rest.delete("scandishes"); rest.delete("packdate"); rest.delete("t");
     history.replaceState(null, "", location.pathname + (String(rest) ? `?${rest}` : ""));
   }
   tab = "plan"; storageSet("healthTab", "plan"); storageSet("healthSub:plan", code ? "groceries" : "food");
-  return code ? { kind: "barcode", q: code, packdate } : { kind: "food", q: dish };
+  return code ? { kind: "barcode", q: code, packdate } : dishes.length ? { kind: "plate", dishes } : { kind: "food", q: dish };
 })();
-load().then(() => {
+load().then(async () => {
   if (!scanned) return;
   if (scanned.kind === "barcode") { groc.packDate = scanned.packdate; grocFind("barcode", scanned.q, true); }
-  else { factQ.food = scanned.q; lookUp(scanned.kind, scanned.q); }
+  else if (scanned.kind === "plate") {  // several taught foods: the known ones in at once, the rest picked once each
+    try {
+      const out = await api("/api/health/page", { action: "plate", dishes: scanned.dishes });
+      plateSlot = out.slot || ""; plateQueue = out.unknown || [];
+      await load();
+      notice((out.added.length ? `Added to ${slotName(out.slot)}: ${out.added.join(", ")}.` : "")
+        + (plateQueue.length ? ` Pick ${plateQueue.length === 1 ? "this one" : "these"} once below: ${plateQueue.join(", ")}.` : ""));
+      nextPlateFood();
+    } catch (e) { notice(e.message); }
+  }
+  else { scanDish = scanned.q; factQ.food = scanned.q; lookUp(scanned.kind, scanned.q); }
 });

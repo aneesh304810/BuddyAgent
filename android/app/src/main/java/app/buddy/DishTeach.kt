@@ -125,11 +125,32 @@ class DishEmbedder(context: Context) : AutoCloseable {
     }
 
     @Synchronized
-    fun embed(frame: Bitmap, rotation: Int): FloatArray? {
+    fun embed(frame: Bitmap, rotation: Int): FloatArray? = if (closed) null else vector(square(frame, rotation))
+
+    /**
+     * The whole view first, then nine overlapping parts of it (a 3 by 3 grid of half-size squares, a quarter apart):
+     * on a plate each part tends to hold one food, so each can be matched to a food taught on its own (Plate.kt).
+     */
+    @Synchronized
+    fun parts(frame: Bitmap, rotation: Int): List<FloatArray>? {
         if (closed) return null
+        val whole = square(frame, rotation)
+        val half = whole.width / 2
+        val step = half / 2
+        if (half < 32) return listOf(vector(whole))
+        val out = mutableListOf(vector(whole))
+        for (row in 0..2) for (col in 0..2) out.add(vector(Bitmap.createBitmap(whole, col * step, row * step, half, half)))
+        return out
+    }
+
+    /** The middle square of the frame, turned upright. */
+    private fun square(frame: Bitmap, rotation: Int): Bitmap {
         val side = min(frame.width, frame.height)
         val turn = Matrix().apply { postRotate(rotation.toFloat()) }
-        val square = Bitmap.createBitmap(frame, (frame.width - side) / 2, (frame.height - side) / 2, side, side, turn, true)
+        return Bitmap.createBitmap(frame, (frame.width - side) / 2, (frame.height - side) / 2, side, side, turn, true)
+    }
+
+    private fun vector(square: Bitmap): FloatArray {
         val small = Bitmap.createScaledBitmap(square, size, size, true)
         val pixels = IntArray(size * size)
         small.getPixels(pixels, 0, size, 0, 0, size, size)

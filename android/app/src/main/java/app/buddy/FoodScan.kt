@@ -28,6 +28,9 @@ import androidx.camera.core.UseCase
 import androidx.camera.lifecycle.ProcessCameraProvider
 import androidx.camera.view.PreviewView
 import androidx.compose.foundation.background
+import androidx.compose.foundation.horizontalScroll
+import androidx.compose.foundation.rememberScrollState
+import androidx.compose.ui.text.font.FontWeight
 import androidx.compose.foundation.layout.Arrangement
 import androidx.compose.foundation.layout.Box
 import androidx.compose.foundation.layout.Column
@@ -142,11 +145,13 @@ fun scanQuery(result: ActivityResult): String? {
     if (result.resultCode != Activity.RESULT_OK) return null
     val code = result.data?.getStringExtra(FoodScanActivity.BARCODE)
     val dish = result.data?.getStringExtra(FoodScanActivity.DISH)
+    val plate = result.data?.getStringExtra(FoodScanActivity.DISHES)
     val shopped = result.data?.getStringExtra(FoodScanActivity.GROCERIES)
     val day = result.data?.getStringExtra(FoodScanActivity.PACK_DATE)?.takeIf { runCatching { java.time.LocalDate.parse(it) }.isSuccess }
     val stamp = "&t=" + System.currentTimeMillis()
     return when {
         !code.isNullOrBlank() -> "scanbarcode=" + URLEncoder.encode(code, "UTF-8") + (day?.let { "&packdate=$it" } ?: "") + stamp
+        !plate.isNullOrBlank() -> "scandishes=" + URLEncoder.encode(plate, "UTF-8") + stamp
         !dish.isNullOrBlank() -> "scandish=" + URLEncoder.encode(dish, "UTF-8") + stamp
         !shopped.isNullOrBlank() -> "section=groceries" + stamp
         else -> null
@@ -178,6 +183,7 @@ class FoodScanActivity : ComponentActivity() {
     companion object {
         const val BARCODE = "barcode"
         const val DISH = "dish"
+        const val DISHES = "dishes"  // out: several taught foods seen on one plate, "|" between them (Plate.kt)
         const val GROCERIES = "groceries"  // in: open in Groceries mode; out: a shopping trip ended (open Groceries)
         const val PACK_DATE = "packdate"   // out, with a barcode: the date on the pack, read in the same scan
     }
@@ -205,6 +211,7 @@ class FoodScanActivity : ComponentActivity() {
         setContent {
             MaterialTheme(colorScheme = buddyColorScheme()) {
                 ScanScreen(link, shopping, onCode = { code, day -> finishCode(code, day) }, onDish = { finishWith(DISH, it) },
+                    onPlate = { finishWith(DISHES, PlateTally.join(it)) },
                     onCancel = { finish() }, onShopDone = { finishWith(GROCERIES, "1") })
             }
         }
@@ -213,7 +220,7 @@ class FoodScanActivity : ComponentActivity() {
 
 @Composable
 private fun ScanScreen(link: ServerLink?, startShopping: Boolean, onCode: (String, java.time.LocalDate?) -> Unit,
-                       onDish: (String) -> Unit,
+                       onDish: (String) -> Unit, onPlate: (List<String>) -> Unit,
                        onCancel: () -> Unit, onShopDone: () -> Unit) {
     val context = LocalContext.current
     var allowed by remember {
@@ -255,6 +262,8 @@ private fun ScanScreen(link: ServerLink?, startShopping: Boolean, onCode: (Strin
     var taught by remember { mutableStateOf(book.names()) }
     var said by remember { mutableStateOf("") }
     var showTaught by remember { mutableStateOf(false) }
+    var plate by remember { mutableStateOf(listOf<String>()) }   // taught foods seen together on the plate
+    var leftOut by remember { mutableStateOf(setOf<String>()) } // the ones the owner unticked
     Column(
         Modifier.fillMaxSize().background(Pal.bg).safeDrawingPadding().padding(16.dp),
         verticalArrangement = Arrangement.spacedBy(10.dp),
@@ -262,15 +271,16 @@ private fun ScanScreen(link: ServerLink?, startShopping: Boolean, onCode: (Strin
         Row(horizontalArrangement = Arrangement.spacedBy(8.dp)) {
             FilterChip(selected = mode == "barcode", onClick = { mode = "barcode"; picked = true; typed = "" },
                 label = { Text("Barcode") })
-            FilterChip(selected = dishMode, onClick = { mode = "dish"; picked = true; typed = ""; guesses = emptyList(); said = "" },
+            FilterChip(selected = dishMode, onClick = { mode = "dish"; picked = true; typed = ""; guesses = emptyList(); said = ""; plate = emptyList(); leftOut = emptySet() },
                 label = { Text("Dish") })
             FilterChip(selected = shopMode, onClick = { mode = GROCERIES_MODE; picked = true; typed = "" },
                 label = { Text("Groceries") })
         }
         Text(
             if (dishMode) "Point at the plate and tap the dish it is. Suggestions are made on your phone; no " +
-                "picture is kept or sent. It doesn't know dosa, appam, avial, thoran or chapati until you teach it: " +
-                "type the name and tap Teach, from 3 to 5 sides."
+                "picture is kept or sent. It doesn't know dosa, appam, avial, thoran, chapati, pita or grilled " +
+                "chicken until you teach it: type the name and tap Teach, from 3 to 5 sides. Teach each food on " +
+                "its own, close up, and a plate with several of them is recognised food by food."
             else if (shopMode) "Shopping: scan each product. Buddy says if it's good for you, and Add puts it in your " +
                 "groceries with the date on the pack and ticks it off your list. Only the barcode number is looked " +
                 "up and only the date is kept; no picture is kept or sent."
@@ -282,6 +292,7 @@ private fun ScanScreen(link: ServerLink?, startShopping: Boolean, onCode: (Strin
             key(mode) {
                 if (dishMode) {
                     DishCamera(book, latest, onGuesses = { guesses = it }, onProblem = { problem = it },
+                        onPlate = { seen -> plate = seen },
                         modifier = Modifier.fillMaxWidth().weight(1f))
                 } else {
                     ScanCamera(readFrame, Modifier.fillMaxWidth().weight(1f))
@@ -298,6 +309,20 @@ private fun ScanScreen(link: ServerLink?, startShopping: Boolean, onCode: (Strin
         }
         if (dishMode) {
             if (problem.isNotEmpty()) Text(problem, color = Pal.bad)
+            if (plate.size >= 2) {  // several taught foods together: all of them in one tap
+                val chosen = plate.filter { it !in leftOut }
+                Text("On the plate", color = Pal.text, fontWeight = FontWeight.SemiBold)
+                Row(Modifier.horizontalScroll(rememberScrollState()), horizontalArrangement = Arrangement.spacedBy(8.dp)) {
+                    plate.forEach { name ->
+                        FilterChip(selected = name !in leftOut,
+                            onClick = { leftOut = if (name in leftOut) leftOut - name else leftOut + name },
+                            label = { Text(name) })
+                    }
+                }
+                Button(onClick = { onPlate(chosen) }, enabled = chosen.isNotEmpty(), modifier = Modifier.fillMaxWidth()) {
+                    Text(if (chosen.size == 1) "Add ${chosen[0]}" else "Add all ${chosen.size}")
+                }
+            }
             Column(verticalArrangement = Arrangement.spacedBy(4.dp)) {
                 guesses.forEach { g ->
                     OutlinedButton(onClick = { onDish(g.name) }, modifier = Modifier.fillMaxWidth()) {
@@ -466,9 +491,11 @@ private fun DishCamera(
     latest: AtomicReference<FloatArray?>,
     onGuesses: (List<Guess>) -> Unit,
     onProblem: (String) -> Unit,
+    onPlate: (List<String>) -> Unit,
     modifier: Modifier,
 ) {
     val context = LocalContext.current
+    val tally = remember { PlateTally() }
     val names = remember {  // the model's English dish names, by output index (0 is "no dish")
         runCatching { context.assets.open("food_v1_labels_en.txt").bufferedReader().readLines() }.getOrDefault(emptyList())
     }
@@ -504,8 +531,11 @@ private fun DishCamera(
         val frame = runCatching { proxy.toBitmap() }.getOrNull()
         proxy.close()
         if (frame == null) return@CameraFeed
-        val view = runCatching { embedder?.embed(frame, rotation) }.getOrNull()
+        // The whole view (for Teach and the single-dish suggestions) and its nine parts (several foods on a plate)
+        val parts = if (book.names().isEmpty()) null else runCatching { embedder?.parts(frame, rotation) }.getOrNull()
+        val view = parts?.firstOrNull() ?: runCatching { embedder?.embed(frame, rotation) }.getOrNull()
         latest.set(view)
+        if (parts != null && parts.size > 1) onPlate(tally.add(PlateTally.partsFound(parts.map { book.match(it) })))
         val mine = view?.let { book.match(it) }.orEmpty().map { (name, score) -> Guess(name, score, true) }
         if (labeler == null) {
             onGuesses(mine)

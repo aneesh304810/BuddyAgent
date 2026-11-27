@@ -260,6 +260,15 @@ sub-tabs under them, and the page remembers where you were.
     taught"), and it works for your own home cooking too. They stay on the phone, in a folder Android doesn't back
     up, and nothing is sent anywhere; "Dishes you taught" lists them, and Forget removes one. A suggestion is a
     guess, so the meal is only added when you pick it and its portion.
+  - **Several foods on one plate** (`Plate.kt`, `platefoods.py`). A plate of pita, grilled chicken and a salad isn't
+    one dish, so the classifier can't name it (on such a plate it guessed "Veggie burger"). Teach each food on its
+    own instead, close up: "Pita", "Grilled chicken", "Blueberry salad". Then, when you point at the plate, the phone
+    looks at the whole view and nine overlapping parts of it, matches each part to the foods you taught, and once a
+    food is seen in 2 of the last 5 looks it shows under **On the plate**; untick any that's wrong and tap **Add
+    all**. Only the names go to your server. The first time a food comes from a plate, you pick its USDA match and
+    amount as usual, and that pick is kept as its usual; from then on **Add all** puts it straight into the meal
+    for the time of day, with those numbers. Picking it again (from a plate or a single dish you tapped) replaces
+    its usual. Worked out by code; no AI model sees the foods or the numbers.
 - **Learn → Research:** new studies on the topics you choose, strongest evidence first, from PubMed (the US
   National Library of Medicine). Ready-made topics: longevity research (the journals Nature Aging, Aging Cell and
   GeroScience, and work from the National Institute on Aging, the Buck Institute and AFAR), South Asian heart and

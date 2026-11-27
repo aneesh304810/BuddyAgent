@@ -17,7 +17,7 @@ Nothing here calls a model or leaves this server, apart from reading the ring fr
 from datetime import date, datetime, timedelta
 from statistics import median, pstdev
 
-from . import coach, health_data, healthranges, oura
+from . import coach, health_data, healthranges, oura, platefoods
 from .memory import Memory
 from .tools import ToolError, local_now
 
@@ -130,7 +130,14 @@ def act(memory: Memory, body: dict, env=None, fetch=None) -> dict:
     if action == "meal":
         got = coach.add_meal(memory, body.get("what"), body.get("calories"), body.get("protein_g"),
                              extra={k: body.get(k) for k in coach.EXTRA}, slot=str(body.get("slot") or ""))
+        if body.get("dish"):  # a food taught on the phone: what was picked for it is its usual from now on
+            platefoods.remember(memory, str(body["dish"]), body)
         return {"ok": True, "calories": got["calories"], "protein_g": got["protein_g"]}
+    if action == "plate":  # several taught foods seen on one plate: the known ones in at once
+        return {"ok": True, **platefoods.add_plate(memory, body.get("dishes"), str(body.get("slot") or ""))}
+    if action == "plate_forget":
+        platefoods.forget(memory, str(body.get("name") or ""))
+        return {"ok": True}
     if action == "meal_slot":
         coach.set_slot(memory, int(body.get("id") or 0), str(body.get("slot") or ""))
         return {"ok": True}
