@@ -132,7 +132,7 @@ flowchart LR
     groceries_py --> scanmeal_py
     grocerysavings_py --> foodverdict_py
     grocerysavings_py --> groceries_py
-    db[("Your database<br/>bp_readings, buy_for, coach_log, coach_meals, evidence_papers, food_places, food_scans, grocery_coupons and more")]
+    db[("Your database<br/>bp_readings, buy_for, coach_log, coach_meals, evidence_papers, food_places, food_scans, grocery_coupon_offers and more")]
     health_data_py --> db
     oura_py --> db
     coach_py --> db
@@ -913,11 +913,11 @@ Where the prices come from (all within the stores' terms; nothing is scraped and
                       likely deal, from the same price book (free: no searches are paid for).
 ```
 
-- Tables: `grocery_coupons`, `wishlist`
-- Uses: dealforecast.py, foodverdict.py, groceries.py, memory.py, pricebook.py, tools.py
+- Tables: `grocery_coupon_offers`, `grocery_coupons`, `wishlist`
+- Uses: dealforecast.py, dealmail.py, foodverdict.py, groceries.py, memory.py, pricebook.py, tools.py
 
 ## How it connects
 
 - Relies on: Buddy Connect; Claude: the brain; Investing: signals, research and practice; Memory; Money; Security and privacy; Shopping and deals; Speaking up on its own: briefing, reminders and alerts; The price book, pattern learning and trained models; Travel and getting around
-- Relied on by: Buddy Connect; Buddy Intelligence Platform; Claude: the brain; Investing: signals, research and practice; News, trends and research; Security and privacy; Speaking up on its own: briefing, reminders and alerts; The price book, pattern learning and trained models; The server and the app
+- Relied on by: Buddy Connect; Buddy Intelligence Platform; Claude: the brain; Investing: signals, research and practice; News, trends and research; Security and privacy; Shopping and deals; Speaking up on its own: briefing, reminders and alerts; The price book, pattern learning and trained models; The server and the app
 

@@ -42,12 +42,17 @@ CREATE TABLE IF NOT EXISTS grocery_coupons (
     value REAL,                            -- dollars off, when the coupon says so
     updated_at TEXT NOT NULL
 );
+CREATE TABLE IF NOT EXISTS grocery_coupon_offers (  -- coupons with no price of their own, from store emails
+    key TEXT PRIMARY KEY, title TEXT NOT NULL, store TEXT NOT NULL DEFAULT '', url TEXT NOT NULL DEFAULT '',
+    ends TEXT NOT NULL DEFAULT '', seen_on TEXT NOT NULL
+);
 CREATE TABLE IF NOT EXISTS wishlist (
     id INTEGER PRIMARY KEY, what TEXT NOT NULL, target REAL, added_at TEXT NOT NULL
 );
 """
 TRIP_KEY, TRIP_DEFAULT = "groceries:trip_cost", 5.0
 KEEP_DAYS = 400  # coupon marks: a year of savings by month, then they go
+OFFER_DAYS = 30  # a coupon from an email without an end date is listed this long
 GROCERS = (r"shop ?rite|acme|stop (?:&|and) shop|whole foods|trader joe|aldi|wegmans|kroger|patel brothers|h ?mart|"
            r"lidl|sprouts|safeway|foodtown|key food|giant|food lion|publix|weis|price ?rite|instacart|fresh ?direct")
 GENERAL = r"walmart|target|costco|cvs|walgreens|amazon|bj'?s|sam'?s club|dollar general|rite aid"
@@ -103,8 +108,43 @@ def coupon_value(title: str) -> float | None:
     return float(m.group(1) or m.group(2)) if m else None
 
 
+def _offer_key(store: str, title: str) -> str:
+    import hashlib  # noqa: PLC0415
+    return "coupon:" + hashlib.sha1(f"{store.lower()}|{title.lower()}".encode(), usedforsecurity=False).hexdigest()[:20]
+
+
+def _drop_old_offers(memory: Memory, today: date) -> None:
+    memory.db.execute("DELETE FROM grocery_coupon_offers WHERE (ends != '' AND ends < ?) OR (ends = '' AND seen_on < ?)",
+                      ((today - timedelta(days=7)).isoformat(), (today - timedelta(days=OFFER_DAYS)).isoformat()))
+
+
+def keep_coupons(memory: Memory, found: list[dict], today: date | None = None) -> int:
+    """Coupons with no price of their own, from store emails (dealmail.coupons_in): the grocery ones are kept for the
+    Groceries page, never as prices. Returns how many were new."""
+    from .dealmail import _ends_iso  # noqa: PLC0415
+    _ready(memory)
+    today = today or local_now().date()
+    new = 0
+    for c in found:
+        title, store = str(c.get("title") or "")[:160], str(c.get("store") or "")[:60]
+        if not title or not is_grocery(title, store):
+            continue
+        url = str(c.get("url") or "")
+        key = _offer_key(store, title)
+        ends = _ends_iso(str(c.get("ends") or ""), today)
+        had = memory.db.execute("SELECT 1 FROM grocery_coupon_offers WHERE key = ?", (key,)).fetchone()
+        memory.db.execute("INSERT INTO grocery_coupon_offers (key, title, store, url, ends, seen_on) VALUES (?, ?, ?, ?, ?, ?) "
+                          "ON CONFLICT(key) DO UPDATE SET url = excluded.url, ends = excluded.ends, seen_on = excluded.seen_on",
+                          (key, title, store, url if url.startswith("https://") else "", ends, today.isoformat()))
+        new += 0 if had else 1
+    _drop_old_offers(memory, today)
+    memory.db.commit()
+    return new
+
+
 def coupons(memory: Memory, found: list[dict] | None = None, today: date | None = None) -> list[dict]:
-    """The coupons among the grocery deals that haven't ended, with the owner's mark on each (found when unmarked)."""
+    """The coupons that haven't ended, with the owner's mark on each (found when unmarked): those among the grocery
+    deals (with a price), and those from store emails with no price of their own."""
     _ready(memory)
     today = today or local_now().date()
     marks = {r["key"]: dict(r) for r in memory.db.execute("SELECT * FROM grocery_coupons")}
@@ -122,6 +162,15 @@ def coupons(memory: Memory, found: list[dict] | None = None, today: date | None 
                     "price": d.get("price"), "value": coupon_value(d["title"]), "state": state,
                     "link": d.get("url") if str(d.get("url") or "").startswith("https://") else "",
                     "seen": str(d.get("seen_on") or "")[:10]})
+    listed = {(c["store"].lower(), c["title"].lower()) for c in out}
+    for r in memory.db.execute("SELECT * FROM grocery_coupon_offers WHERE (ends = '' AND seen_on >= ?) OR ends >= ? "
+                               "ORDER BY seen_on DESC, title", ((today - timedelta(days=OFFER_DAYS)).isoformat(),
+                                                                today.isoformat())):
+        state = (marks.get(r["key"]) or {}).get("state", "found")
+        if state == "dismissed" or (r["store"].lower(), r["title"].lower()) in listed:
+            continue
+        out.append({"key": r["key"], "title": r["title"], "store": r["store"], "ends": r["ends"], "price": None,
+                    "value": coupon_value(r["title"]), "state": state, "link": r["url"], "seen": r["seen_on"]})
     return out
 
 
@@ -194,8 +243,9 @@ def advice(memory: Memory, text: str, found: list[dict] | None = None, coupon_li
         out |= {"do": "clip", "store": clip["store"], "link": clip["link"], "when": clip["ends"],
                 "why": f"{clip['title']} at {clip['store']}" + (f", until {clip['ends']}" if clip["ends"] else "")
                 + (": clipped, use it at checkout" if clip["state"] == "clipped" else ": clip it in the store's app")}
-        if best:
-            out["price"] = best[0]["price"]
+        same = [b for b in best if (b.get("store") or "").lower() == clip["store"].lower()]
+        if same:
+            out["price"] = same[0]["price"]
         return out
     if best:
         top = best[0]

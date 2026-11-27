@@ -163,9 +163,15 @@ def _cells(message) -> list[dict]:
     return cells
 
 
+# "Free delivery on orders over $35", "when you spend $50": the least to spend for an offer, not a price
+THRESHOLD = re.compile(r"\b(?:over|above|orders? of|minimum(?: order| purchase)?(?: of)?|min\.?|spend|purchases? of)\s+"
+                       r"\$\s?\d[\d,]*(?:\.\d{2})?\+?", re.I)
+
+
 def _prices(text: str) -> list[float]:
-    """The prices in a line: dollar amounts that are not savings ("$20 off") and not sums ("$10 trillion")."""
-    text = SAVINGS.sub(" ", AFTER_OFF.sub(" ", text))  # "after $100 manufacturer's savings" is a saving too
+    """The prices in a line: dollar amounts that are not savings ("$20 off"), not the least to spend for an offer
+    ("orders over $35") and not sums ("$10 trillion")."""
+    text = THRESHOLD.sub(" ", SAVINGS.sub(" ", AFTER_OFF.sub(" ", text)))  # "after $100 manufacturer's savings" too
     return [n for n in (_num(m.group(1)) for m in PRICE.finditer(text) if not BIG.match(text, m.end()))
             if 0 < n < 100000]
 
@@ -254,6 +260,61 @@ def deals_in(message) -> list[dict]:
         if len(out) >= MAX_DEALS_PER_EMAIL:
             break
     return out
+
+
+# A coupon with no price of its own ("Save $1.00 on Fage yogurt", "35% off Siggi's", "Buy 2, get 1 free"): deals_in
+# skips it (a saving is never a price), and it goes to the Groceries page's coupons instead (grocerysavings).
+COUPON_SAVING = re.compile(r"sav(?:e|ings of)\s+(?:up to\s+)?\$\s?\d[\d,]*(?:\.\d{2})?|\$\s?\d[\d,]*(?:\.\d{2})?\s+off\b|"
+                           r"(?<!\d)\d{1,2}\s?%\s?off\b|\bbuy\s+\d+,?\s+get\s+\d+|\bb[o1]go\b", re.I)
+NOT_A_COUPON = re.compile(r"unsubscribe|privacy|terms (?:and|&) conditions|copyright|©|view (?:this email )?in (?:your )?"
+                          r"browser|deliver(?:y|ies)|shipping|first (?:order|purchase)|sign up|download (?:the|our) app|"
+                          r"gift ?cards?|fuel|gas|per gallon|/gal\b|membership|subscription|pharmacy|vaccin|"
+                          r"prescriptions?", re.I)
+
+
+def coupons_in(message) -> list[dict]:
+    """The coupons in one email that have no price of their own: what it's for (in the email's own words), the store
+    (the sender's name), the store's link and the end date. Lines with a price are deals_in's; the footer is not."""
+    sender = parseaddr(str(message.get("From", "")))[0] or parseaddr(str(message.get("From", "")))[1]
+    subject = str(message.get("Subject", ""))
+    cells = _cells(message)
+    out, seen = [], set()
+
+    def named(title: str) -> bool:  # something besides the saving itself ("$1.00 off" alone names nothing)
+        return len(re.sub(r"[^a-z]", "", COUPON_SAVING.sub(" ", title).lower())) >= 4
+
+    for i, cell in enumerate(cells):
+        text = cell["text"]
+        if len(text) > 300 or _prices(text) or not COUPON_SAVING.search(text) or NOT_A_COUPON.search(text):
+            continue
+        title, url = _title(cell), _link(cell)
+        before = cells[i - 1] if i else None
+        if not named(title) and before and not _prices(before["text"]) and not COUPON_SAVING.search(before["text"]) \
+                and len(before["text"]) <= 160 and not NOT_A_COUPON.search(before["text"]):
+            title, url = f"{_title(before)}: {title}".strip(" :"), url or _link(before)  # the name on the line above
+        if not named(title):
+            continue
+        if title.lower() in seen:
+            continue
+        seen.add(title.lower())
+        ends = ENDS.search(text) or ENDS.search(subject)
+        out.append({"title": title[:160], "store": sender[:60], "url": url, "ends": ends.group(1) if ends else "",
+                    "subject": subject[:160]})
+        if len(out) >= MAX_DEALS_PER_EMAIL:
+            break
+    return out
+
+
+def keep_coupons(memory: Memory, found: list[dict]) -> int:
+    """Grocery coupons from an email onto the Groceries page (not the price book). How many were new."""
+    if not found:
+        return 0
+    from . import grocerysavings  # noqa: PLC0415
+    try:
+        return grocerysavings.keep_coupons(memory, found)
+    except Exception:  # noqa: BLE001 - a coupon is never worth losing the email's deals over
+        log.warning("deal mail: couldn't keep coupons", exc_info=True)
+        return 0
 
 
 def configured(env=None) -> bool:
@@ -570,21 +631,25 @@ def run_all(memory: Memory, env=None, connect=None) -> str:
         except (imaplib.IMAP4.error, OSError) as e:
             lines.append(f"{account.address}: couldn't be read ({str(e)[:60]})")
             continue
-        found = kept = new_offers = 0
+        found = kept = new_offers = new_coupons = 0
         for m in messages:
             try:  # what the owner switched off for this sender on the Email page is not taken
                 got = offers_in(m) if mailmap.use_on(memory, str(m.get("From", "")), "offers") else []
                 deals = [] if issuer_of(m) or not mailmap.use_on(memory, str(m.get("From", "")), "deals") \
                     else deals_in(m)  # a card issuer's email holds offers, not prices
+                coupons = [] if issuer_of(m) or not mailmap.use_on(memory, str(m.get("From", "")), "deals") \
+                    else coupons_in(m)
             except Exception:
                 log.warning("deal mail: couldn't read a marketing email", exc_info=True)
                 continue
             found += len(deals)
             kept += keep(memory, deals, source="your email")
+            new_coupons += keep_coupons(memory, coupons)
             new_offers += keep_offers(memory, got)
             dealforecast.check(memory, [{**d, "source": f"email: {d['store']}"} for d in deals])
         lines.append(f"{account.address}: {len(messages)} marketing emails of {looked} new, {found} deals "
-                     f"({kept} new), {new_offers} new card offers")
+                     f"({kept} new), {new_offers} new card offers"
+                     + (f", {new_coupons} new grocery coupons" if new_coupons else ""))
     return "; ".join(lines)
 
 
@@ -704,15 +769,17 @@ def _run_inbox(memory: Memory, env=None, connect=None) -> str:
             log.info("deals inbox: removed %s misread rows", gone)
     except Exception:
         log.warning("deals inbox: tidying failed", exc_info=True)
-    found = kept = 0
+    found = kept = new_coupons = 0
     for m in messages:
         try:
             deals = deals_in(m)
+            coupons = coupons_in(m)
         except Exception:
             log.warning("deals inbox: couldn't read an email", exc_info=True)
             continue
         found += len(deals)
         kept += keep(memory, deals)
+        new_coupons += keep_coupons(memory, coupons)
         from . import dealforecast  # noqa: PLC0415  watched-for deals: told in the morning
         dealforecast.check(memory, [{**d, "source": f"email: {d['store']}"} for d in deals])
     cleaned = 0
@@ -722,6 +789,7 @@ def _run_inbox(memory: Memory, env=None, connect=None) -> str:
         log.warning("deals inbox: cleaning failed: %s", e)
     return (f"read {len(messages)} email{'s' if len(messages) != 1 else ''}: {found} deals, "
             f"{kept} new kept in the price book"
+            + (f"; {new_coupons} new grocery coupons" if new_coupons else "")
             + (f"; {cleaned} read newsletters older than {clean_days(env)} days moved to Trash" if cleaned else ""))
 
 

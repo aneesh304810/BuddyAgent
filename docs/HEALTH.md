@@ -195,9 +195,14 @@ sub-tabs under them, and the page remembers where you were.
   - **To buy & kitchen:** the shopping list, My kitchen and Good for me?, as on Health.
   - **Deals & coupons:** only grocery deals (food, drinks, household and personal care, and anything from a grocery
     store) from the deals inbox and the deal feeds; the Deals page keeps the rest. **Coupons** are the offers in
-    store emails that read as coupons ("digital coupon", "$1 off", "clip", "for U", "with card"). Buddy lists them
-    with the store's link and end date; you clip them in the store's app and tap **Clipped** (or ✕ for not
-    interested). Buddy never clips, signs in or redeems anything.
+    store emails that read as coupons ("digital coupon", "clip", "for U", "with card"), and every line in a grocery
+    store's email that gives a saving with no price of its own: "Save $1.00 on Fage yogurt", "35% off Siggi's",
+    "Buy 2, get 1 free". A saving is never taken as a price, and "orders over $35" (the least to spend) isn't a
+    price either; lines about delivery, fuel, gift cards, memberships or the pharmacy aren't coupons. Buddy lists
+    them with the store's link and end date (no end date: for 30 days); you clip them in the store's app and tap
+    **Clipped** (or ✕ for not interested). Buddy never clips, signs in or redeems anything. Whole Foods' Prime
+    deals need no clipping (they apply when you scan the Amazon app at checkout), and Walmart has no store coupons
+    to clip.
   - **Savings:** estimated savings are the dollars off on coupons you marked clipped or used, by month; a coupon
     only found is never counted. Proven savings will come from receipts (reading a receipt photo on the phone is the
     next step), next to grocery spending by store.

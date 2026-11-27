@@ -101,9 +101,9 @@ flowchart LR
     shopper_py -. uses .-> o_2
     o_3["Email, messages and apps"]
     shopper_py -. uses .-> o_3
-    o_4["Investing"]
+    o_4["Home and health"]
     shopper_py -. uses .-> o_4
-    o_5["Learning"]
+    o_5["Investing"]
     shopper_py -. uses .-> o_5
 ```
 
@@ -242,7 +242,7 @@ visits). The owner opens a deal's link in their own browser from the Deals page.
 
 - Tables: `card_offers`
 - Settings: `BUDDY_DEALS_EMAIL_ADDRESS`, `BUDDY_DEALS_EMAIL_APP_PASSWORD`, `BUDDY_DEALS_EMAIL_CLEAN_DAYS`, `BUDDY_DEALS_EMAIL_IMAP_HOST`, `BUDDY_DEALS_FROM_ALL_EMAIL`
-- Uses: dealforecast.py, email_accounts.py, gateway.py, mailmap.py, memory.py, pricebook.py, productid.py, shopper.py, tools.py
+- Uses: dealforecast.py, email_accounts.py, gateway.py, grocerysavings.py, mailmap.py, memory.py, pricebook.py, productid.py, shopper.py, tools.py
 
 ### dealnotif.py
 
@@ -364,6 +364,6 @@ price book shows the item. Refreshed once a month (code only; no AI, no cost). O
 
 ## How it connects
 
-- Relies on: Buddy Connect; Buddy Intelligence Platform; Claude: the brain; Email, messages and apps; Investing: signals, research and practice; Learning: the English and investing tutors; Making and doing things; Memory; Money; The price book, pattern learning and trained models; Travel and getting around
+- Relies on: Buddy Connect; Buddy Intelligence Platform; Claude: the brain; Email, messages and apps; Home and health; Investing: signals, research and practice; Learning: the English and investing tutors; Making and doing things; Memory; Money; The price book, pattern learning and trained models; Travel and getting around
 - Relied on by: Buddy Intelligence Platform; Claude: the brain; Email, messages and apps; Home and health; Investing: signals, research and practice; Making and doing things; News, trends and research; Speaking up on its own: briefing, reminders and alerts; The price book, pattern learning and trained models; The server and the app; Travel and getting around
 

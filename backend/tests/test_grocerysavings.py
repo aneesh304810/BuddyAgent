@@ -156,3 +156,55 @@ def test_the_api(memory, monkeypatch):
     w = client.post("/api/wishlist", json={"action": "add", "what": "Kindle", "target": 90}, headers=auth).json()
     assert w["wishlist"][0]["what"] == "Kindle"
     assert client.get("/api/groceries/savings").status_code in (401, 403)
+
+
+def _mail(frm, subject, html):
+    from email.message import EmailMessage
+    m = EmailMessage()
+    m["From"], m["Subject"], m["List-Unsubscribe"] = frm, subject, "<mailto:x@example.com>"
+    m.set_content("x")
+    m.add_alternative(html, subtype="html")
+    return m
+
+
+ACME_MAIL = ("<table><tr><td><a href='https://www.acmemarkets.com/foru/coupons-deals.html'>Save $1.00 on Fage Total "
+             "Greek Yogurt 32 oz</a> Clip in app. Expires Dec 3</td></tr>"
+             "<tr><td><a href='https://www.acmemarkets.com/foru/coupons-deals.html'>Buy 2 get 1 free Chobani</a></td></tr>"
+             "<tr><td>Cheerios cereal</td></tr><tr><td>$0.75 off</td></tr>"
+             "<tr><td>Save 10 cents per gallon with fuel rewards</td></tr>"
+             "<tr><td>Free delivery on orders over $35. Save $10 on your first delivery order</td></tr>"
+             "<tr><td><a href='https://www.acmemarkets.com/unsubscribe'>Unsubscribe</a> · Privacy · © 2026</td></tr></table>")
+
+
+def test_coupons_without_a_price_are_read_from_store_emails():
+    from buddy import dealmail
+    m = _mail("ACME Markets <acme@email.acmemarkets.com>", "Your for U deals are here", ACME_MAIL)
+    got = [(c["title"], c["ends"]) for c in dealmail.coupons_in(m)]
+    assert got == [("Save $1.00 on Fage Total Greek Yogurt 32 oz", "Dec 3"), ("Buy 2 get 1 free Chobani", ""),
+                   ("Cheerios cereal: $0.75 off", "")]  # not fuel, delivery or the footer
+    assert dealmail.deals_in(m) == []  # a saving is never a price
+    wfm = _mail("Whole Foods Market <wfm@example.com>", "Prime member deals",
+                "<table><tr><td><a href='https://www.wholefoodsmarket.com/x'>35% off Siggi's yogurt</a></td></tr>"
+                "<tr><td>Free delivery on orders over $35 for Prime members</td></tr></table>")
+    assert dealmail.deals_in(wfm) == []  # "orders over $35" is the least to spend, not the yogurt's price
+    assert [c["title"] for c in dealmail.coupons_in(wfm)] == ["35% off Siggi's yogurt"]
+
+
+def test_coupons_from_emails_reach_the_list_and_the_advice(memory):
+    from buddy import dealmail
+    m = _mail("ACME Markets <acme@email.acmemarkets.com>", "Your for U deals are here", ACME_MAIL)
+    today = date(2026, 11, 27)
+    assert grocerysavings.keep_coupons(memory, dealmail.coupons_in(m), today) == 3
+    assert grocerysavings.keep_coupons(memory, dealmail.coupons_in(m), today) == 0  # the same email again: nothing new
+    assert grocerysavings.keep_coupons(memory, [{"title": "Save $50 on Sony headphones", "store": "Best Buy"}], today) == 0
+    found = grocerysavings.coupons(memory, found=[], today=today)
+    fage = next(c for c in found if "Fage" in c["title"])
+    assert fage["ends"] == "2026-12-03" and fage["value"] == 1.0 and fage["price"] is None and fage["state"] == "found"
+    assert not pricebook.history(memory, "fage total greek yogurt", "product", 90)  # no price from a coupon
+    groceries.add_buy(memory, "greek yogurt")
+    assert grocerysavings.advice(memory, "greek yogurt", found=[], coupon_list=found)["do"] == "clip"
+    grocerysavings.mark_coupon(memory, fage["key"], "clipped", fage["title"], fage["store"])
+    assert grocerysavings.savings(memory, today)["this_month"]["estimated"] == 1.0
+    later = grocerysavings.coupons(memory, found=[], today=date(2026, 12, 4))  # Fage ended on Dec 3
+    assert all("Fage" not in c["title"] for c in later) and any("Chobani" in c["title"] for c in later)
+    assert grocerysavings.coupons(memory, found=[], today=date(2027, 1, 5)) == []  # no end date: listed 30 days
