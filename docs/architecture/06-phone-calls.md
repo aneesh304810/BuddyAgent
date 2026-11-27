@@ -25,7 +25,7 @@ flowchart LR
     calls_py --> receptionist_py
     calls_py --> scheduling_py
     receptionist_py --> contacts_py
-    db[("Your database<br/>caller_followups, caller_profiles, phone_calls, phone_contacts, saved_callers, share_notes")]
+    db[("Your database<br/>caller_followups, caller_message_offers, caller_messages, caller_profiles, phone_calls, phone_contacts, saved_callers, share_notes")]
     calls_py --> db
     contacts_py --> db
     receptionist_py --> db
@@ -53,7 +53,7 @@ The diagram reads left to right: what you ask, the tools Buddy uses, the modules
 
 | Tool | What it is for | Actions | Module |
 |---|---|---|---|
-| `phone_call` | Call a business for the user, as their assistant (Buddy Connect: Plivo, with a natural voice) | call, status, forget_caller, contact, voices, set_voice, share, shared, unshare, relationship, not_scam | calls.py |
+| `phone_call` | Call a business for the user, as their assistant (Buddy Connect: Plivo, with a natural voice) | call, status, forget_caller, contact, voices, set_voice, share, shared, unshare, relationship, not_scam, leave_message, messages, cancel_message | calls.py |
 | `calendar_add` | Add an event to the user's phone calendar, only after their yes (asked automatically) | proposal, event, free, decline | scheduling.py |
 
 ## Technical design, module by module
@@ -146,16 +146,24 @@ What a caller may hear is decided here, in code, before Claude sees anything (th
   The relationship comes only from the owner's own data (what they told Buddy), never from what a caller says.
 - A caller ID the carrier marked as not verified is treated as an unknown caller (it may be spoofed).
 
+Messages for one caller ("if Kyle calls, tell him the work is due end of day and I'll email"): the owner's words,
+tidied by Claude and approved by the owner before they're kept, for one person, until a day (a week when not
+said). Public: given to whoever says they're that person. Private: given only when this code, not the AI, has
+confirmed the call comes from that person's number in the owner's phone contacts AND the carrier verified the
+caller ID (STIR/SHAKEN); otherwise the call's AI is never given the words. Given once, then deleted; the owner is
+told in the app when and how it was checked, the caller's reply becomes a task, and one never given is reported
+when it lapses.
+
 After a real message: a follow-up task in the owner's tasks ("Call Priya back: school pickup", due today when
 urgent, else tomorrow) and the caller's profile updated. Transfer: only urgent calls from phone contacts, never between
 10 pm and 7 am unless family. Kept on this server; no AI model but Claude (on the call itself) sees any of it.
 ```
 
-- Tables: `caller_followups`, `caller_profiles`, `share_notes`
+- Tables: `caller_followups`, `caller_message_offers`, `caller_messages`, `caller_profiles`, `share_notes`
 - Uses: contacts.py, memory.py, organiser.py, tools.py
 
 ## How it connects
 
 - Relies on: Buddy Connect; Claude: the brain; Insights and costs; Memory; Speaking up on its own: briefing, reminders and alerts; Travel and getting around
-- Relied on by: Claude: the brain; Email, messages and apps; Insights and costs; Money; The server and the app; Voice: Talk mode and Listen-in
+- Relied on by: Claude: the brain; Email, messages and apps; Insights and costs; Money; Speaking up on its own: briefing, reminders and alerts; The server and the app; Voice: Talk mode and Listen-in
 

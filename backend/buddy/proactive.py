@@ -397,6 +397,12 @@ async def run(memory: Memory, deliver: Deliver, connected=None) -> None:
                                                    f"about {hot['usual']} on a usual day. {lead} Ask me for the details.")
             except Exception:
                 log.exception("trends failed")
+            try:  # a message for one caller that lapsed without being given: said once, in the app
+                from . import receptionist  # noqa: PLC0415
+                for text in await asyncio.to_thread(receptionist.lapsed, memory):
+                    await deliver("call", text)
+            except Exception:
+                log.exception("lapsed caller messages failed")
             try:  # how Buddy thinks (reasoning.py): its self-knowledge, follow-ups on advice, new sources to suggest
                 from . import reasoning  # noqa: PLC0415
                 from .brain import Brain  # noqa: PLC0415

@@ -824,6 +824,14 @@ def screen_prompt(memory: Memory, call: dict, env=None) -> str:
         through = (f"Putting calls through isn't possible for this caller: if they ask, say you'll make sure {first} "
                    "gets the message right away.")
     shared = (f"What {first} said callers like this one may be told:\n" + "\n".join(notes)) if notes else ""
+    try:  # messages for one person: decided by code here (private ones only for a checked number), never by the AI
+        offered = receptionist.offer(memory, call)
+    except Exception:
+        log.warning("call %s: couldn't read the messages for callers", call.get("id"), exc_info=True)
+        offered = []
+    for_them = receptionist.message_lines(offered, first, call)
+    if for_them:
+        shared = (shared + "\n\n" + for_them).strip()
     known = ("What you know about this caller (theirs only; use it naturally, never say you have notes, and never "
              "tell them anything about other callers):\n" + about) if about else "Nothing earlier from this caller."
     if multilingual(env):
@@ -891,6 +899,7 @@ should stay silent, e.g. on hold). Then, on a new line, ## followed by one line 
 "caller": "who they said they are, or ''", "callback": "the number they gave, or ''", \
 "reason": "what it's about, in a few words, or ''", "prefers": ["how they like to be reached, if they said"], \
 "said": "who they said they are to {first} (\"his brother\", \"from the school\"), or ''", \
+{'"delivered": [the numbers of the messages you have given in full, or none], "reply": "what they said back to the message, or ' + "''" + '", ' if offered else ''}\
 "meeting": null, or once they've picked a time: {{"title": "what it's about, a few words", "start": "YYYY-MM-DD \
 HH:MM", "minutes": 30}}, \
 "outcome": "when ending: the message for {first} in one or two sentences (who, why, dates and times, what they \
@@ -1064,6 +1073,9 @@ def parse(text: str) -> dict:
     got["meeting"] = clean_meeting(got.get("meeting"))
     got["reason"] = " ".join(str(got.get("reason") or "").split())[:100]
     got["said"] = " ".join(str(got.get("said") or "").split())[:60]
+    got["delivered"] = [int(x) for x in (got.get("delivered") if isinstance(got.get("delivered"), list) else [])
+                        if str(x).isdigit()][:5]
+    got["reply"] = " ".join(str(got.get("reply") or "").split())[:300]
     got["prefers"] = [" ".join(str(x).split())[:60] for x in (got.get("prefers") or [])
                       if isinstance(got.get("prefers"), list) and str(x).strip()][:3]
     return got
@@ -1389,6 +1401,8 @@ def screen_message(call: dict, move: dict) -> str:
     out = f"{head} from {who} ({back}). {msg}"
     if move.get("action") == "connect":
         out += " I'm ringing you now to put them through: press 1 when you answer."
+    if move.get("delivered_note"):
+        out += " " + move["delivered_note"]
     if move.get("followup"):
         out += f" ✅ \"Call {who} back\" is in your tasks for {move['followup']}."
     if move.get("meeting"):
@@ -2086,8 +2100,12 @@ def screened(memory: Memory, call: dict, move: dict) -> None:
             "contact", "saved"):
         from . import contacts  # noqa: PLC0415
         contacts.save_caller(memory, call["number"], move["caller"], move.get("outcome", "")[:120])
+    from . import receptionist  # noqa: PLC0415
+    try:  # the messages given on this call: once, then deleted; the owner told how the caller was checked
+        move["delivered_note"] = receptionist.delivered(memory, call, move)
+    except Exception:
+        log.warning("call %s: couldn't settle the messages for callers", call["id"], exc_info=True)
     if move.get("priority") != "scam":
-        from . import receptionist  # noqa: PLC0415
         try:
             if receptionist.after_call(memory, call, move):
                 move["followup"] = "today" if move.get("priority") == "urgent" else "tomorrow"
@@ -2251,15 +2269,25 @@ TOOL = {
     "hear it. Anything else about trips or travel callers hear only when the user says so, and Buddy never reads "
     "their email for a call. Scam calls are ignored: Buddy hangs up on them without a word and doesn't answer "
     "that number again (never a phone contact); not_scam (number) answers it again ('that wasn't a scam').  relationship (number, relationship): who a caller is to the user ('that's my brother's number'); "
-    "family may hear calendar names and be put through at night.",
+    "family may hear calendar names and be put through at night. "
+    "Messages for one caller, when the user asks ('if Kyle calls, tell him the work is pending, it'll be done by end "
+    "of day and I'll send an email'): first write it as Buddy will say it, with their grammar and wording tidied "
+    "but nothing added, changed or left out, read it back with who it's for, private or public and until when, and "
+    "call leave_message (who, text, private, until) only after their yes. Private (the default) is given only when "
+    "the call comes from that person's number in the phone contacts and the carrier confirms the caller ID; public "
+    "('public', 'anyone can hear it') to whoever says they're that person. until: YYYY-MM-DD when they said a day "
+    "('today only' is today), else leave it out (a week). Each is given once, then deleted, and the user is told in "
+    "the app; the caller's reply becomes a task. messages: what's waiting; cancel_message (id, or who).",
     "input_schema": {"type": "object", "properties": {
         "action": {"type": "string", "enum": ["call", "status", "forget_caller", "contact", "voices", "set_voice",
-                                              "share", "shared", "unshare", "relationship", "not_scam"]},
+                                              "share", "shared", "unshare", "relationship", "not_scam",
+                                              "leave_message", "messages", "cancel_message"]},
+        "private": {"type": "boolean", "description": "leave_message: true unless the user said public"},
         "text": {"type": "string", "description": "share: what callers may be told, written as Buddy would say it"},
         "share_with": {"type": "string", "enum": ["everyone", "contacts", "family"],
                        "description": "share: who may hear it"},
         "until": {"type": "string", "description": "share: YYYY-MM-DD, the last day it may be shared"},
-        "id": {"type": "integer", "description": "unshare: which note"},
+        "id": {"type": "integer", "description": "unshare: which note; cancel_message: which message"},
         "relationship": {"type": "string", "description": "relationship: e.g. brother, wife, boss, doctor"},
         "voice_gender": {"type": "string", "enum": ["male", "female", ""], "description": "voices: which to list"},
         "voice_like": {"type": "string", "description": "voices: how it should sound, e.g. 'soft, funny, deep'"},
@@ -2312,6 +2340,24 @@ async def run_tool(memory: Memory, thrift, args: dict) -> str:
         notes = await asyncio.to_thread(receptionist.share_notes, memory)
         return json.dumps(notes) if notes else ("Nothing: callers hear only when you're free and busy (contacts: "
                                                 "what kind of thing, family: its name), never trips or email.")
+    if args.get("action") in ("leave_message", "messages", "cancel_message"):
+        from . import receptionist  # noqa: PLC0415
+        act = args["action"]
+        if act == "leave_message":
+            m = await asyncio.to_thread(receptionist.leave_message, memory, str(args.get("who") or ""),
+                                        str(args.get("text") or ""), args.get("private") is not False,
+                                        str(args.get("until") or ""))
+            return (f"Saved message {m['id']} for {m['name']} until {m['until']}: \"{m['text']}\". "
+                    + ("Private: given only when the call comes from their number in your contacts and the carrier "
+                       "confirms the caller ID." if m["private"] else
+                       "Public: given to whoever says they're " + m["name"] + ".")
+                    + " Given once; you'll be told in the app.")
+        if act == "cancel_message":
+            n = await asyncio.to_thread(receptionist.cancel_message, memory, args.get("id"), str(args.get("who") or ""))
+            return f"Removed {n} message{'s' if n != 1 else ''}."
+        waiting = await asyncio.to_thread(receptionist.messages, memory)
+        return json.dumps([{k: m[k] for k in ("id", "name", "text", "private", "until")} for m in waiting]) \
+            if waiting else "No messages waiting for callers."
     if args.get("action") == "forget_caller":
         from . import contacts, receptionist  # noqa: PLC0415
         await asyncio.to_thread(receptionist.forget, memory, str(args.get("number") or ""))

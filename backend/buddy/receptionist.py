@@ -13,6 +13,14 @@ What a caller may hear is decided here, in code, before Claude sees anything (th
   The relationship comes only from the owner's own data (what they told Buddy), never from what a caller says.
 - A caller ID the carrier marked as not verified is treated as an unknown caller (it may be spoofed).
 
+Messages for one caller ("if Kyle calls, tell him the work is due end of day and I'll email"): the owner's words,
+tidied by Claude and approved by the owner before they're kept, for one person, until a day (a week when not
+said). Public: given to whoever says they're that person. Private: given only when this code, not the AI, has
+confirmed the call comes from that person's number in the owner's phone contacts AND the carrier verified the
+caller ID (STIR/SHAKEN); otherwise the call's AI is never given the words. Given once, then deleted; the owner is
+told in the app when and how it was checked, the caller's reply becomes a task, and one never given is reported
+when it lapses.
+
 After a real message: a follow-up task in the owner's tasks ("Call Priya back: school pickup", due today when
 urgent, else tomorrow) and the caller's profile updated. Transfer: only urgent calls from phone contacts, never between
 10 pm and 7 am unless family. Kept on this server; no AI model but Claude (on the call itself) sees any of it.
@@ -36,6 +44,13 @@ CREATE TABLE IF NOT EXISTS caller_profiles (
 CREATE TABLE IF NOT EXISTS caller_followups (
     id INTEGER PRIMARY KEY, number TEXT NOT NULL, task_id INTEGER NOT NULL, call_id INTEGER NOT NULL,
     created_at TEXT NOT NULL
+);
+CREATE TABLE IF NOT EXISTS caller_messages (   -- the owner's message for one person, given once
+    id INTEGER PRIMARY KEY, name TEXT NOT NULL, numbers TEXT NOT NULL DEFAULT '[]', text TEXT NOT NULL,
+    private INTEGER NOT NULL DEFAULT 1, until TEXT NOT NULL, created_at TEXT NOT NULL
+);
+CREATE TABLE IF NOT EXISTS caller_message_offers (  -- which messages a call was cleared to carry, and how
+    call_id INTEGER NOT NULL, message_id INTEGER NOT NULL, how TEXT NOT NULL, PRIMARY KEY (call_id, message_id)
 );
 CREATE TABLE IF NOT EXISTS share_notes (
     id INTEGER PRIMARY KEY, text TEXT NOT NULL, who TEXT NOT NULL, until TEXT NOT NULL, created_at TEXT NOT NULL
@@ -218,6 +233,165 @@ def _may(level: str, who: str) -> bool:
 
 def notes_for(memory: Memory, who: str) -> list[str]:
     return [f"- {n['text']} (until {n['until']})" for n in share_notes(memory) if _may(n["who"], who)]
+
+
+# --- messages for one caller ------------------------------------------------------------------------------------
+MESSAGE_DAYS = 7
+CHECKED = "their number in your contacts and the carrier's check of the caller ID"
+PUBLIC = "a public message: no check"
+
+
+def leave_message(memory: Memory, who: str, text: str, private: bool = True, until: str = "") -> dict:
+    """The owner's message for one person. Private ones need that person in the phone's contacts (their numbers are
+    what a call is checked against). Until: YYYY-MM-DD, the last day it may be given (a week when not said)."""
+    from . import contacts  # noqa: PLC0415
+    who, text = " ".join(str(who or "").split())[:80], " ".join(str(text or "").split())[:500]
+    if len(text) < 3:
+        raise ToolError("What should the message say?")
+    if not who:
+        raise ToolError("Who is it for?")
+    people = [p for p in contacts.find(memory, who, limit=8) if p["how"] == "contact"]
+    exact = [p for p in people if p["name"].lower() == who.lower()]
+    people = exact or people
+    if private:
+        if not people:
+            raise ToolError(f"{who} isn't in your phone's contacts, so Buddy can't check it's really them. Save the "
+                            "number in your contacts (the app shares them with Buddy), or make the message public.")
+        if len({p["name"] for p in people}) > 1:
+            raise ToolError("Which one: " + ", ".join(sorted({p["name"] for p in people})) + "?")
+    name = people[0]["name"] if len({p["name"] for p in people}) == 1 else who
+    numbers = sorted({_key(n) for p in people if p["name"] == name for n in p["numbers"] if len(_key(n)) >= 7})
+    if private and not numbers:
+        raise ToolError(f"{name} has no phone number in your contacts.")
+    try:
+        end = date.fromisoformat(str(until)[:10]) if until else local_now().date() + timedelta(days=MESSAGE_DAYS)
+    except ValueError:
+        raise ToolError("Until when? Like 2026-12-04.") from None
+    if end < local_now().date():
+        raise ToolError("That date has passed.")
+    _ready(memory)
+    cur = memory.db.execute("INSERT INTO caller_messages (name, numbers, text, private, until, created_at) "
+                            "VALUES (?, ?, ?, ?, ?, ?)", (name, json.dumps(numbers), text,
+                                                          int(bool(private)), end.isoformat(),
+                                                          datetime.now(timezone.utc).isoformat()))
+    memory.db.commit()
+    return {"id": cur.lastrowid, "name": name, "text": text, "private": bool(private), "until": end.isoformat(),
+            "numbers": len(numbers)}
+
+
+def messages(memory: Memory, today: date | None = None) -> list[dict]:
+    """The messages still waiting (in date)."""
+    _ready(memory)
+    today = today or local_now().date()
+    return [dict(r) | {"private": bool(r["private"]), "numbers": json.loads(r["numbers"] or "[]")}
+            for r in memory.db.execute("SELECT * FROM caller_messages WHERE until >= ? ORDER BY id",
+                                       (today.isoformat(),))]
+
+
+def cancel_message(memory: Memory, message_id: int | None = None, who: str = "") -> int:
+    _ready(memory)
+    if message_id:
+        cur = memory.db.execute("DELETE FROM caller_messages WHERE id = ?", (int(message_id),))
+    elif who:
+        cur = memory.db.execute("DELETE FROM caller_messages WHERE lower(name) LIKE ?", (f"%{who.lower()}%",))
+    else:
+        raise ToolError("Which message?")
+    memory.db.commit()
+    return cur.rowcount
+
+
+def _verified(call: dict) -> bool:
+    """The carrier's STIR/SHAKEN check said the caller ID is real (not merely absent or 'not applicable')."""
+    stir = str(call.get("windows") or "").lower()
+    return "verified" in stir and "not verified" not in stir
+
+
+def offer(memory: Memory, call: dict) -> list[dict]:
+    """What this call may carry, decided by code before the call's AI sees anything: every public message (for
+    whoever says they're that person), and a private one only when the call comes from that person's number in the
+    contacts and the carrier verified the caller ID. What was offered is recorded, so only those can be delivered."""
+    k = _key(call.get("number") or "")
+    out = []
+    for m in messages(memory):
+        if not m["private"]:
+            out.append(m | {"how": PUBLIC})
+        elif len(k) >= 7 and k in m["numbers"] and _verified(call):
+            out.append(m | {"how": CHECKED})
+    if out and call.get("id"):
+        memory.db.executemany("INSERT OR IGNORE INTO caller_message_offers (call_id, message_id, how) VALUES (?, ?, ?)",
+                              [(int(call["id"]), m["id"], m["how"]) for m in out])
+        memory.db.commit()
+    return out
+
+
+def message_lines(offered: list[dict], first: str, call: dict | None = None) -> str:
+    """The call prompt's part about messages (only what this call was cleared to carry). When the call is from that
+    person's number, Buddy greets them by name and says it first, unasked, like a person who knows who's calling."""
+    if not offered:
+        return ""
+    k = _key((call or {}).get("number") or "")
+    lines = [f"Messages {first} left for one person, in case {first} couldn't pick up. Say it in the words given "
+             "(join it smoothly into what you say, fixing nothing and adding nothing), then ask if they'd like to "
+             "reply, and take the reply. Put its number in \"delivered\" once you've said it in full, and what they "
+             "said back in \"reply\"."]
+    for m in offered:
+        theirs = len(k) >= 7 and k in m.get("numbers", [])
+        if m["private"] or theirs:
+            check = (f"Buddy's code confirmed this call is from their number in {first}'s contacts and the carrier "
+                     "verified the caller ID" if m["private"] else f"this call is from their number in {first}'s contacts")
+            lines.append(f"- Message {m['id']}, for {m['name']}: {check}, so it's them. Greet them warmly by first "
+                         "name, and right after their hello tell them, unasked, before anything else, something like "
+                         f"\"Hey {m['name'].split()[0]}! {first} asked me to tell you: {m['text']}\"")
+        else:
+            lines.append(f"- Message {m['id']}, for {m['name']} (public): give it only if the caller says they're "
+                         f"{m['name'].split()[0]} (\"Oh hey! {first} asked me to tell you: ...\"); never to anyone "
+                         f"else, and never say it exists to anyone else: \"{m['text']}\"")
+    return "\n".join(lines)
+
+
+def delivered(memory: Memory, call: dict, move: dict) -> str:
+    """After the call: each message the call was cleared to carry and the AI said it gave is deleted (given once),
+    the caller's reply becomes a task, and the owner is told how it was checked. A private message whose person
+    called without the carrier's check is said to be still waiting."""
+    _ready(memory)
+    said = {int(x) for x in (move.get("delivered") or []) if str(x).isdigit()}
+    rows = {r["message_id"]: r["how"] for r in memory.db.execute(
+        "SELECT message_id, how FROM caller_message_offers WHERE call_id = ?", (int(call.get("id") or 0),))}
+    notes, gave = [], []
+    for mid, how in rows.items():
+        m = memory.db.execute("SELECT * FROM caller_messages WHERE id = ?", (mid,)).fetchone()
+        if not m or mid not in said:
+            continue
+        gave.append(m["name"])
+        memory.db.execute("DELETE FROM caller_messages WHERE id = ?", (mid,))
+        short = m["text"] if len(m["text"]) <= 90 else m["text"][:87] + "..."
+        notes.append(f"✉️ I gave your message to {m['name']} (checked by {how}): \"{short}\"")
+    reply = " ".join(str(move.get("reply") or "").split())[:300]
+    if gave and reply:
+        from .organiser import Organiser  # noqa: PLC0415
+        Organiser(memory).add(f"{gave[0]} replied to your message: {reply}", due=local_now().date().isoformat())
+        notes.append(f"Their reply is in your tasks: \"{reply}\"")
+    k = _key(call.get("number") or "")
+    if len(k) >= 7 and not _verified(call):
+        for m in messages(memory):
+            if m["private"] and k in m["numbers"] and m["id"] not in rows:
+                notes.append(f"🔒 {m['name']} called, but the carrier couldn't confirm the caller ID, so I didn't give "
+                             "your private message; it's still waiting.")
+    memory.db.execute("DELETE FROM caller_message_offers WHERE call_id = ?", (int(call.get("id") or 0),))
+    memory.db.commit()
+    return " ".join(notes)
+
+
+def lapsed(memory: Memory, today: date | None = None) -> list[str]:
+    """Messages past their last day without being given: removed, and the owner told (in the app)."""
+    _ready(memory)
+    today = today or local_now().date()
+    rows = [dict(r) for r in memory.db.execute("SELECT * FROM caller_messages WHERE until < ?", (today.isoformat(),))]
+    for r in rows:
+        memory.db.execute("DELETE FROM caller_messages WHERE id = ?", (r["id"],))
+    memory.db.commit()
+    return [f"✉️ Your message for {r['name']} wasn't given: they didn't call by {r['until']}, so I've removed it: "
+            f"\"{r['text'][:90]}\"" for r in rows]
 
 
 # --- the caller's own history ------------------------------------------------------------------------------------

@@ -189,7 +189,8 @@ def test_prompt_shares_dob_and_insurance_only_for_appointments(tmp_path, env):
 def test_parse_keeps_only_safe_moves():
     got = calls.parse('ok {"say": "Hi", "digits": "1a2#", "action": "transfer_money"}')
     assert got == {"say": "Hi", "digits": "12#", "action": "continue", "outcome": "", "priority": "normal",
-                   "caller": "", "callback": "", "meeting": None, "reason": "", "said": "", "prefers": []}
+                   "caller": "", "callback": "", "meeting": None, "reason": "", "said": "", "prefers": [],
+                   "delivered": [], "reply": ""}
     assert calls.parse("Hello there")["say"] == "Hello there"
 
 

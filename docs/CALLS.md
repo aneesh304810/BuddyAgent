@@ -254,6 +254,22 @@ know I'm in India from Dec 3 to Dec 14" keeps a sharing note for everyone (or "o
 until that date. Being **out of state, abroad or travelling** is shared with everyone as soon as you mention it to
 Buddy (where and when, until your last day away), without being asked: your standing permission; "what can callers know?" lists them; "stop sharing that" removes one. Callers can't change any of it.
 
+**A message for one caller:** "If Kyle calls, tell him the work is pending, it'll be done by end of day and I'll send
+an email." Buddy tidies your wording (grammar only: nothing added, changed or left out), reads it back with who it's
+for, private or public and until when, and keeps it after your yes. When Kyle calls from his number, Buddy knows it's
+him: it greets him by name and, right after his hello, tells him unasked: "Hey Kyle! Aneesh asked me to tell you:
+...", in those words, then asks if he'd like to reply.
+- **Private** (the default) is given only when Buddy's own code has confirmed the call comes from Kyle's number in
+  your phone contacts **and** the carrier verified the caller ID (STIR/SHAKEN); the AI on any other call is never
+  given the words, so it can't let them slip. If Kyle calls but the carrier can't confirm the number, the message
+  waits and you're told. Kyle must be in your contacts (the app shares them); with two Kyles Buddy asks which.
+- **Public** ("make it public") goes to whoever says they're Kyle, from any number, with no check; never to anyone
+  else.
+- Each message is given **once**, then deleted. You're told in the app when it was given and how Kyle was checked,
+  and his reply becomes a task. It waits until the day you say ("today only", "until Friday"), else a week; one
+  never given is removed and you're told. "What messages are waiting?" lists them; "cancel the message for Kyle"
+  removes it.
+
 **Buddy remembers callers** (from their calls, not your email): their earlier messages, follow-ups still open on
 your list, and how they like to be reached ("texts over calls"), so a second call picks up where the first left off.
 Who someone is to you comes only from you ("that number is my brother"), never from what a caller says.
