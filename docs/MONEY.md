@@ -44,6 +44,19 @@ or `sudo bash /opt/buddy/deploy/set.sh BUDDY_SIMPLEFIN_URL` and press Enter on a
 
 If one of these opens personal access, Buddy's agent builder can connect it.
 
+## Money back: refunds and statement credits
+
+- **What came back:** the Money page's **Money back** card (and "what refunds did I get?") lists every refund and
+  statement credit on your cards, newest first, with where Buddy got it: your bank feed, an email, a statement you
+  added, or you. Benefit credits (a Resy or Uber credit) show as statement credits, and the card-credit tracker
+  below counts them as used.
+- **Which cards it can't see:** a card linked in Profile → Connections (Plaid, read-only) shows every refund. For a card
+  that isn't linked, Buddy sees a refund only if an email says so or a statement you add lists it, and it says so
+  rather than guess. When you link a card, Plaid sends up to two years of history, so past refunds come in too.
+- **Refunds you're owed:** "Marriott is refunding $100 to my Amex" (or **Watch for it** on the card). Buddy watches the
+  cards and tells you in the app when it posts, or reminds you once if it hasn't by the day you said (two weeks unless
+  you say). A merchant's "your refund has been processed" email adds one by itself. "It came" or ✕ stops watching.
+
 ## Card credits: reminders and deals
 
 - Reminders before a credit with money left runs out: 60, 30, 14, 7 and 2 days ahead (monthly credits such as Uber

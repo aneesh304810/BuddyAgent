@@ -15,15 +15,16 @@ flowchart LR
         t_account_balances["account_balances"]
         t_bank_link["bank_link"]
         t_finance["finance"]
+        t_refunds["refunds"]
         t_money_advisor["money_advisor"]
         t_credit["credit"]
-        t_cost_report["cost_report"]
     end
     subgraph Modules["Modules"]
         money_py["money.py<br/>what the user spends, the bills coming up, and spending limits"]
         bankfeed_py["bankfeed.py<br/>transactions and balances straight from the user's banks and cards,…"]
         plaid_py["plaid.py<br/>banks and cards through Plaid, read-only (Transactions + Liabilities)"]
         finance_py["finance.py<br/>every subscription on every card, and a calendar of the cards…"]
+        refunds_py["refunds.py<br/>every refund and statement credit on the owner's cards, refunds…"]
         advisor_py["advisor.py<br/>the money advisor"]
         credit_py["credit.py<br/>the score over time, and an alert for anything new on the report"]
         card_optimizer_py["card_optimizer.py<br/>the user's card benefits organized like a benefits tracker, and which…"]
@@ -48,13 +49,14 @@ flowchart LR
     t_bank_link --> plaid_py
     you --> t_finance
     t_finance --> finance_py
+    you --> t_refunds
+    t_refunds --> refunds_py
     you --> t_money_advisor
     t_money_advisor --> advisor_py
     you --> t_credit
     t_credit --> credit_py
-    you --> t_cost_report
-    t_cost_report --> finops_py
     money_py --> merchants_py
+    money_py --> refunds_py
     bankfeed_py --> money_py
     plaid_py --> bankfeed_py
     plaid_py --> finance_py
@@ -62,6 +64,7 @@ flowchart LR
     finance_py --> cancelling_py
     finance_py --> money_py
     finance_py --> plaid_py
+    refunds_py --> money_py
     advisor_py --> benefits_py
     advisor_py --> finance_py
     advisor_py --> review_py
@@ -82,6 +85,7 @@ flowchart LR
     bankfeed_py --> db
     plaid_py --> db
     finance_py --> db
+    refunds_py --> db
     advisor_py --> db
     credit_py --> db
     benefits_py --> db
@@ -116,6 +120,7 @@ The diagram reads left to right: what you ask, the tools Buddy uses, the modules
 | `account_balances` | Balances of the user's bank accounts and credit cards from the bank feed (SimpleFIN), with when each was updated, plus the feed's status | - | bankfeed.py |
 | `bank_link` | accounts: every connected account grouped (cash, cards owed, mortgages and loans with rate and next payment, brokerage value) with net worth; use for 'show all  | link, status, sync, unlink, accounts | plaid.py |
 | `finance` | The user's subscriptions and credit cards, worked out on the server from their transactions (emails, bank feed, uploaded statements) | subscriptions, decide, cancel_help, cancel_email, dispute_help, trials, keep_trial, cards, card, import_statement, report, refresh, forget, weekly, credit_use, loans | finance.py |
+| `refunds` | Money back on the user's cards | list, expect, owed, received, cancel | refunds.py |
 | `money_advisor` | Advice from the user's own numbers (worked out on the server; you word it, briefly, and never move money) | advice, best_card, rewards, set_reward, confirm_rewards, payoff, payday, income, autopay, goal_add, goal_update, goal_remove, goals, monthly, review, label_transfer | advisor.py |
 | `credit` | The user's credit score and credit report changes | overview, read_screen, full_report, add_score, add_event, it_was_me, not_me, forget | credit.py |
 | `cost_report` | What running Buddy costs this month, all in, service by service: Claude, the server (DigitalOcean), Zapier, Plaid (banks connected and calls), speech to text an | - | finops.py |
@@ -141,7 +146,7 @@ category warn at 80% and again at 100%. Amounts stay in their own currency
 
 - Tables: `bills`, `spending_limits`, `transactions`
 - Settings: `BUDDY_CARD_ALERT_AMOUNT`
-- Uses: cards.py, customize.py, memory.py, merchants.py, tools.py
+- Uses: cards.py, customize.py, memory.py, merchants.py, refunds.py, tools.py
 
 ### bankfeed.py
 
@@ -215,6 +220,28 @@ yearly renewal in two weeks, a charge after the user cancelled, a card due in fi
 - Tables: `fin_cards`, `fin_subscriptions`
 - Settings: `BUDDY_MONEY_WEEKLY`
 - Uses: agent.py, cancelling.py, config.py, jobs.py, library.py, memory.py, money.py, plaid.py, privacy.py, tools.py, usage.py
+
+### refunds.py
+
+```text
+Money back: every refund and statement credit on the owner's cards, refunds they're owed (Buddy watches for them and
+says when one posts, or reminds them when it's late), and which cards Buddy can't see refunds for, so it never
+guesses about one.
+
+  credits(memory, days, card)   -> refunds and statement credits Buddy has (the bank feed, emails, statements, added
+                                   by the owner), newest first, with where each came from
+  coverage(memory)              -> which cards' refunds Buddy can see (linked through Plaid) and which it can't
+  expect(memory, merchant, ...) -> a refund the owner is owed ("Marriott is refunding $100 to my Amex"); a refund
+                                   email from a merchant adds one by itself when a bank feed is on (the card's own
+                                   record then confirms it)
+  match(memory) / reminders(memory) -> what to tell the owner in the app: one posted, or one is late
+  owed(memory), received(memory, id), cancel(memory, id)
+
+Worked out by code from the owner's own data; nothing here is sent anywhere.
+```
+
+- Tables: `refunds_owed`
+- Uses: memory.py, money.py, tools.py
 
 ### advisor.py
 

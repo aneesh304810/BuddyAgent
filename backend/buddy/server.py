@@ -2254,6 +2254,38 @@ async def api_health_source_act(body: dict) -> dict:
     return {"text": text, "sources": await asyncio.to_thread(healthrecords.sources, memory)}
 
 
+@app.get("/api/refunds", dependencies=[Depends(require_admin)])
+async def api_refunds(days: int = 180) -> dict:
+    """Money back on the cards (refunds, statement credits), refunds the owner is waiting for, and which cards
+    Buddy can't see refunds for."""
+    from . import refunds  # noqa: PLC0415
+
+    def page() -> dict:
+        posted = refunds.match(memory)  # said here, on the page, since it's open
+        return {"credits": refunds.credits(memory, days)[:100], "owed": refunds.owed(memory),
+                "coverage": refunds.coverage(memory), "posted": posted}
+    return await asyncio.to_thread(page)
+
+
+@app.post("/api/refunds", dependencies=[Depends(require_admin)])
+async def api_refunds_act(body: dict) -> dict:
+    """expect (merchant, amount, card, by, note), received (id), cancel (id)."""
+    from . import refunds  # noqa: PLC0415
+    act = str(body.get("action") or "")
+    try:
+        if act == "expect":
+            await asyncio.to_thread(refunds.expect, memory, str(body.get("merchant") or ""), body.get("amount"),
+                                    "USD", str(body.get("card") or ""), str(body.get("by") or ""),
+                                    str(body.get("note") or ""))
+        elif act in ("received", "cancel"):
+            await asyncio.to_thread(getattr(refunds, act), memory, int(body.get("id") or 0))
+        else:
+            raise HTTPException(400, "unknown action")
+    except ToolError as e:
+        raise HTTPException(status_code=400, detail=str(e)) from e
+    return await api_refunds()
+
+
 @app.get("/api/security", dependencies=[Depends(require_admin)])
 async def api_security() -> dict:
     from . import securitywatch

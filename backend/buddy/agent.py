@@ -53,6 +53,7 @@ from .commute import TOOL as COMMUTE_TOOL
 from .routine import TOOL as ROUTINE_TOOL
 from .groceries import TOOL as KITCHEN_TOOL
 from .connecthub import SYNC_TOOL as HEALTH_SYNC_TOOL
+from .refunds import TOOL as REFUNDS_TOOL
 from .scheduling import TOOL as CALENDAR_ADD_TOOL
 from .amazon import TOOL as AMAZON_TOOL
 from .gateway import TOOL as CONNECTIONS_TOOL
@@ -887,7 +888,7 @@ class Conversation:
         spending += [ROOM_TOOL] if self.room else []
         spending += [REPLY_STYLE_TOOL, transcripts.TRANSCRIPT_TOOL, READ_TOOL, MODE_TOOL, voiceprint.VOICE_TOOL,
                      prices.NOTE_PRICE_TOOL, rides.RIDE_TOOL, formfill.FORM_TOOL, seats.SEAT_TOOL, selfcode.CODE_TOOL,
-                     library.LIBRARY_TOOL, brain.BRAIN_TOOL, finance.FINANCE_TOOL,
+                     library.LIBRARY_TOOL, brain.BRAIN_TOOL, finance.FINANCE_TOOL, REFUNDS_TOOL,
                      advisor.ADVISOR_TOOL, benefits.BENEFITS_TOOL, plaid.BANK_TOOL, travel.TRAVEL_TOOL,
                      compliance.COMPLIANCE_TOOL, MERCHANTS_TOOL, CUSTOMIZE_TOOL, CREDIT_TOOL, MARKETS_TOOL, ROUTING_TOOL, TRENDS_TOOL,
                      TRANSIT_TOOL, FLIGHT_TOOL, DECISION_TOOL, MAPS_TOOL,
@@ -1033,6 +1034,9 @@ class Conversation:
             return await asyncio.to_thread(compliance.run_tool, self.memory, args)
         if name == "finance":
             return await finance.run_tool(finance.Finance(self.memory), args, self.open_links)
+        if name == "refunds":  # money back on the cards, and refunds the user is owed: code only
+            from . import refunds  # noqa: PLC0415
+            return await asyncio.to_thread(refunds.run_tool, self.memory, args)
         if name == "library":
             return await library.run_tool(library.Library(self.memory), args, self.thrift)
         if name == "buddy_code":

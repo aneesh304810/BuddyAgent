@@ -191,8 +191,9 @@ class Advisor:
                     "rates, or confirm the presets."}
         return {"category": category, **best}
 
-    def missed_rewards(self, days: int = 90) -> list[dict]:
-        """Spending on a card that earns less than the best one for that category, last `days` days."""
+    def missed_rewards(self, days: int = 90, start: date | None = None, end: date | None = None) -> list[dict]:
+        """Spending on a card that earns less than the best one for that category: the last `days` days, or from
+        start to end (a calendar month for the monthly check-in)."""
         rated = {r["card"]: r for r in self.rewards() if r["rates"]}
         if not rated:
             return []
@@ -201,10 +202,11 @@ class Advisor:
             by_key[c["last4"] or c["name"]] = c["name"]
             by_key[c["name"]] = c["name"]
         best = self.best_cards()
-        since = (local_now().date() - timedelta(days=days)).isoformat()
+        since = (start or (local_now().date() - timedelta(days=days))).isoformat()
+        until = (end or local_now().date()).isoformat()
         rows = self.memory.db.execute(
-            "SELECT category, card, SUM(amount) AS spent, currency FROM transactions WHERE day >= ? AND amount > 0 "
-            "AND currency = 'USD' GROUP BY category, card", (since,)).fetchall()
+            "SELECT category, card, SUM(amount) AS spent, currency FROM transactions WHERE day >= ? AND day <= ? AND "
+            "amount > 0 AND currency = 'USD' GROUP BY category, card", (since, until)).fetchall()
         out = []
         for r in rows:
             reward_cat = SPEND_TO_REWARD.get(r["category"])
@@ -477,7 +479,7 @@ class Advisor:
             "(lower(merchant) LIKE '%interest%' OR lower(merchant) LIKE '%finance charge%' OR lower(merchant) LIKE '%late fee%')",
             (start.isoformat(), end.isoformat())).fetchone()[0]
         inc = self.income()
-        missed = self.missed_rewards(days=(end - start).days + 1)
+        missed = self.missed_rewards(days=(end - start).days + 1, start=start, end=end)  # last month itself
         todo = []
         if interest:
             todo.append(f"Interest and fees cost {interest:,.2f} last month: pay statements in full (autopay full balance).")

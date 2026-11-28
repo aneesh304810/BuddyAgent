@@ -397,6 +397,12 @@ async def run(memory: Memory, deliver: Deliver, connected=None) -> None:
                                                    f"about {hot['usual']} on a usual day. {lead} Ask me for the details.")
             except Exception:
                 log.exception("trends failed")
+            try:  # money back: a refund the owner is owed that posted, or one that's late (said once, in the app)
+                from . import refunds  # noqa: PLC0415
+                for text in await asyncio.to_thread(lambda: refunds.match(memory) + refunds.reminders(memory)):
+                    await deliver("money", text)
+            except Exception:
+                log.exception("refund watch failed")
             try:  # a message for one caller that lapsed without being given: said once, in the app
                 from . import receptionist  # noqa: PLC0415
                 for text in await asyncio.to_thread(receptionist.lapsed, memory):

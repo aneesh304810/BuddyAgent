@@ -17,8 +17,9 @@ const COLORS = { needs: "var(--needs)", wants: "var(--wants)", fees: "var(--fees
   sent: "var(--sent)", save: "var(--save)", left: "var(--left)" };
 let data = null, period = storageGet("moneyPeriod") || "last_month";
 
-async function api(path) {
-  const res = await fetch(path, { headers: { Authorization: `Bearer ${token}` } });
+async function api(path, body) {
+  const res = await fetch(path, body ? { method: "POST", headers: { Authorization: `Bearer ${token}`, "Content-Type": "application/json" }, body: JSON.stringify(body) }
+    : { headers: { Authorization: `Bearer ${token}` } });
   if (!res.ok) {
     let msg = res.status === 401 ? "This page needs your Buddy link: open it from the Buddy app." : `Error ${res.status}`;
     try { msg = (await res.json()).detail || msg; } catch {}
@@ -150,7 +151,7 @@ function render() {
       <span class="muted"> · ${esc(w.why)}</span></span><span class="amt" style="color:var(--bad)">${money(w.amount)}</span></div>`).join("")));
   if (d.opportunities.length) parts.push(card(`Ways to save · ${money(d.possible_yearly_savings)} a year`,
     d.opportunities.map((o) => `<div class="save"><b>${money(o.yearly)}</b><span>${esc(o.do)}</span></div>`).join("")));
-  parts.push('<div id="cardoffers"></div><div id="p2p"></div>');  // offers and payments with people: filled in when they arrive
+  parts.push('<div id="moneyback"></div><div id="cardoffers"></div><div id="p2p"></div>');  // offers and payments with people: filled in when they arrive
   parts.push(card("Groceries", `<p class="muted" style="margin:0">This week's plan, coupons to clip, grocery deals and what you've saved.</p>
     <p style="margin:8px 0 0"><a href="groceries.html" style="color:var(--accent)">Open Groceries →</a></p>`));
   parts.push(card("Your email", `<p class="muted" style="margin:0">See the kinds of email you get, and choose what Buddy does with each.</p>
@@ -176,8 +177,39 @@ function render() {
   document.querySelectorAll("[data-merchant]").forEach((el) => el.onclick = () =>
     drill([{ label: el.dataset.merchant, q: { merchant: el.dataset.merchant } }]));
   document.querySelectorAll("[data-month]").forEach((el) => el.onclick = () => load(el.dataset.month));
+  loadMoneyBack();
   loadOffers();
   loadPayments();
+}
+
+// Money back: refunds and statement credits on the cards, refunds you're waiting for, and the cards Buddy can't see
+async function loadMoneyBack(body) {
+  const box = $("moneyback");
+  if (!box) return;
+  let got;
+  try { got = await api("/api/refunds", body); } catch (e) { if (body) alert(e.message); box.innerHTML = ""; return; }
+  const total = got.credits.reduce((s, c) => s + c.amount, 0);
+  const row = (c) => `<div class="row" style="cursor:default"><span class="name" style="white-space:normal">${esc(c.merchant)}
+      <small class="muted" style="display:block">${esc(c.kind)} · ${esc(shortDay(c.day))}${c.card ? " · card " + esc(c.card) : ""} · from ${esc(c.from)}</small></span>
+      <span class="amt" style="color:var(--good)">+${money(c.amount)}</span></div>`;
+  const wait = (r) => `<div class="row" style="cursor:default"><span class="name" style="white-space:normal">⏳ ${esc(r.merchant)}${r.amount != null ? " · " + money(r.amount) : ""}
+      <small class="muted" style="display:block">Waiting, expected by ${esc(shortDay(r.expected_by))}${r.card ? " · " + esc(r.card) : ""}${String(r.source).startsWith("email:") ? " · from their email" : ""}</small></span>
+      <span style="white-space:nowrap"><button class="btn" data-refund-got="${r.id}">Came</button> <button class="btn" data-refund-cancel="${r.id}" aria-label="Stop watching">✕</button></span></div>`;
+  const cov = got.coverage;
+  const unseen = cov.unseen.length ? `<p class="muted" style="margin:8px 0 0">Can't see refunds on: ${esc(cov.unseen.join(", "))}. Link ${cov.unseen.length === 1 ? "it" : "them"} in Profile → Connections (read-only).</p>`
+    : (!cov.linked.length ? `<p class="muted" style="margin:8px 0 0">No card is linked yet: Buddy sees refunds only from emails, statements and what you add. Link your cards in Profile → Connections (read-only).</p>` : "");
+  const form = `<form class="f" id="refund-form" style="margin-top:10px;gap:6px;flex-wrap:wrap"><input name="merchant" placeholder="Refund from, e.g. Marriott" aria-label="Refund from" style="flex:2 1 160px"><input name="amount" inputmode="decimal" placeholder="Amount" aria-label="Amount" style="flex:1 1 80px"><input name="card" placeholder="Card, e.g. Amex" aria-label="Card" style="flex:1 1 90px"><button class="btn">Watch for it</button></form>`;
+  const posted = (got.posted || []).map((n) => `<p style="margin:0 0 8px"><b>${esc(n)}</b></p>`).join("");
+  box.innerHTML = card(`Money back · ${money(total)} in the last 6 months`,
+    posted + (got.owed.length ? got.owed.map(wait).join("") : "")
+    + (got.credits.length ? got.credits.slice(0, 15).map(row).join("") : '<p class="muted">No refunds or statement credits found.</p>')
+    + unseen + form,
+    "Refunds and statement credits on your cards, and refunds you're owed: Buddy tells you in the app when one posts, or reminds you when it's late. Worked out by Buddy's code.");
+  box.querySelectorAll("[data-refund-got]").forEach((b) => b.onclick = () => loadMoneyBack({ action: "received", id: Number(b.dataset.refundGot) }));
+  box.querySelectorAll("[data-refund-cancel]").forEach((b) => b.onclick = () => loadMoneyBack({ action: "cancel", id: Number(b.dataset.refundCancel) }));
+  const f = $("refund-form");
+  if (f) f.onsubmit = (e) => { e.preventDefault(); if (!f.merchant.value.trim()) return;
+    loadMoneyBack({ action: "expect", merchant: f.merchant.value.trim(), amount: f.amount.value.trim() || null, card: f.card.value.trim() }); };
 }
 
 async function loadPayments() {

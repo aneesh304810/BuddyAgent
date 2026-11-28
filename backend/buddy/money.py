@@ -198,6 +198,12 @@ class Money:
         if kind in ("charge", "refund") and self.memory.get("money:bank_feed"):
             # The bank feed is the record; the email is an early signal: sync soon, and say so if it's big.
             self.memory.set("plaid:sync_soon", datetime.now(timezone.utc).isoformat())
+            if kind == "refund":  # watched for until it posts (a card that isn't linked never shows it: said late)
+                try:
+                    from . import refunds  # noqa: PLC0415
+                    refunds.notice(self.memory, merchant, amount, currency, card, record_id)
+                except Exception:  # noqa: BLE001 - the alert below still goes out
+                    pass
             notes = self._email_alert(kind, amount, currency, merchant, card)
             if notes:  # the same charge in two emails (an alert and a receipt, two inboxes): said once
                 mark = f"money:alerted:{kind}:{amount:.2f}:{card}:{merchant.strip().lower()[:40]}"

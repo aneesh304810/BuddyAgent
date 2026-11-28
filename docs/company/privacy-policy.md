@@ -1,6 +1,6 @@
 # Buddy Privacy and Data Retention Policy
 
-Source: https://claude.ai/artifact/MJVGZ7pWQvi26tg1MS914P, revision 195
+Source: https://claude.ai/artifact/MJVGZ7pWQvi26tg1MS914P, revision 196
 
 Nov 1, 2026 · @Aneesh
 
@@ -16,7 +16,7 @@ Buddy collects only the owner's own data, and only what its features need.
 
 | Data | Source | Access |
 | --- | --- | --- |
-| Bank and card transactions, account names and balances, income deposits, and transfers (including who they went to, and labels the owner gives them, such as rent or family support) | Plaid (Transactions and Balance products), or SimpleFIN Bridge | Read-only |
+| Bank and card transactions, account names and balances, income deposits, and transfers (including who they went to, and labels the owner gives them, such as rent or family support); refunds the owner is waiting for (who from, how much, which card, by when), from what the owner says or a merchant's refund email | Plaid (Transactions and Balance products), or SimpleFIN Bridge | Read-only |
 | Emails (bills, receipts, bookings) | The owner's email accounts, using an app password | Read-only |
 | Calendar events | The owner's calendars and phone | Read-only |
 | Phone notifications | The Buddy app on the owner's phone, with Android notification access | Read-only |
